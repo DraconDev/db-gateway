@@ -79,7 +79,7 @@ The server retains the SQLite file for **24 hours** and checks expired tombstone
 
 ## CLI
 
-All output is JSON. Global flags: `--server <url>` (default `http://127.0.0.1:7432`; HTTPS or literal loopback only), `--key-file <path>` (required; `0600`), `--json`.
+Non-shell command output is JSON; the shell defaults to aligned text. Global flags: `--server <url>` (default `http://127.0.0.1:7432`; HTTPS or literal loopback only), `--key-file <path>` (required; `0600`), `--json`.
 
 ```sh
 dg init --data-dir state/dg            # once per data dir; prints {"owner_key": …} — save it securely, it is shown once
@@ -106,4 +106,53 @@ dg --key-file owner.key import restored --from ./game_a_snapshot.sqlite
 dg --key-file owner.key delete game_a_copy --confirm game_a_copy   # tombstone; file purge after 24h retention
 ```
 
-Exit codes: `0` success; nonzero on any error. HTTP API errors produce JSON on stdout (the CLI also adds `status`); local validation, configuration and transport errors are logged to stderr instead. Deletion is non-interactive but requires typed-name confirmation — scripts and agents must supply the exact target name again.
+Non-shell exit codes: `0` success; nonzero on any error. HTTP API errors produce JSON on stdout (the CLI also adds `status`); local validation, configuration and transport errors are logged to stderr instead. Deletion is non-interactive but requires typed-name confirmation — scripts and agents must supply the exact target name again.
+
+### Interactive shell
+
+```sh
+dg --server http://127.0.0.1:7432 --key-file bot_a.key shell
+# At the dg> prompt:
+# use game_a
+# SELECT id, name FROM players;
+# .tables
+# .schema players
+# .quit
+```
+
+`use <db>` (alias `.use <db>`) selects a database for subsequent requests. Selection validates the name locally, **does not create or contact a database**, and clears any pending idempotency key. Missing, deleted, or unauthorized databases produce the ordinary API error on the next request. An invalid name leaves the previous selection unchanged. The session retains only this selection and shell settings — it is **not a persistent SQLite connection or transaction**. Each nonempty SQL line is one `/query` request with empty `args`; multiline SQL is not accumulated. Use a batch for parameterized statements or an atomic group.
+
+| Command | Behavior |
+| --- | --- |
+| `.help` | List commands and retry semantics |
+| `.quit` / `.exit` | Exit immediately, including during batch entry; EOF also exits |
+| `.tables` | Show user tables, excluding `_dg_*` tables |
+| `.schema [table]` | Show CREATE statements, optionally filtered by table name |
+| `:batch [JSON]` | Submit a batch body inline or paste it on following lines; accumulates until a complete JSON value is available |
+| `.` during batch entry | Cancel the batch and clear the pending key |
+| `:key <key>` | Set a key for the next SQL/batch attempt; `:key` alone clears it |
+| `.json` | Toggle JSON output; `--json` starts the shell in JSON mode |
+
+Piped input works without prompts. This example emits one JSON object per result/error/notice line:
+
+```sh
+dg --key-file bot_a.key --json shell <<'SQL'
+use game_a
+SELECT id, name FROM players;
+:batch
+{
+  "atomic": true,
+  "statements": [
+    {"sql": "SELECT name FROM players WHERE id = ?", "args": [1]},
+    {"sql": "SELECT count(*) FROM players"}
+  ]
+}
+.quit
+SQL
+```
+
+Text mode aligns columns using character counts (wide/combining Unicode glyphs may not align perfectly) and escapes control characters in cells. Batch results are labeled `statement 1:`, `statement 2:`, etc. JSON mode preserves the API result shape, including `{"results":[…]}` for batches; notices use `{"message":"…"}`. API **and local session errors** use `{"error":{"code":"…","message":"…"},"status":n}` in JSON mode, or `error [n] code: message` in text mode. Prompts appear only when both stdin and stdout are terminals and text mode is active (`dg>` / `dg:game_a>`; `...>` while pasting a batch).
+
+A failed request prints its error and the session continues; `.quit` or EOF returns `0` even if earlier statements failed. Credential/startup or input/output failures exit nonzero. For scripts needing fail-fast exit codes, use `dg query` / `dg batch` instead. Input lines and accumulated batches are capped at 64 KiB (`input_limit_exceeded`); malformed JSON produces `invalid_request`, and incomplete JSON at EOF produces an error without sending a request. Server-side SQL, body, transaction, and result limits still apply.
+
+**No retries occur.** `:key` applies to the next SQL/batch attempt, even a read or failed attempt, then is consumed; `.tables`/`.schema` do not consume it. Cancelling a batch or switching database clears it. To explicitly replay a write after `outcome_unknown`, set the same key again and submit the identical body within the 24h retention window. Never blindly repeat an unkeyed write. The shell neither writes credentials nor saves SQL history to disk.
