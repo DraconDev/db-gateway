@@ -338,7 +338,7 @@ impl Store {
     /// Idempotent; called opportunistically after lifecycle operations.
     pub fn purge_expired(&self) -> Result<Vec<String>> {
         let now = now_secs()?;
-        let mut conn = self.meta()?;
+        let conn = self.meta()?;
         let due: Vec<String> = conn
             .prepare("SELECT name FROM databases WHERE deleted_at IS NOT NULL AND purge_after<=?")?
             .query_map([now], |r| r.get::<_, String>(0))?
