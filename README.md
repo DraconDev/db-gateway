@@ -2,7 +2,7 @@
 
 **`dg`** is a single-owner SQLite service: one Rust gateway, many independent databases, an HTTP API and CLI, and off-host backups.
 
-**Status: M1 — first authenticated database round trip works locally.** Owner bootstrap, database-scoped keys, SQL query/batch over HTTP, idempotent writes, restart persistence, a TypeScript client, and a JSON CLI exist and are tested. Not yet available: interactive shell, clone/export/delete lifecycle, backups, HTTPS, deployment. **Do not deploy this as a production database service** — that is the separately approved M4 milestone.
+**Status: M2 — authenticated round trip + safe lifecycle operations work locally.** Owner bootstrap, database-scoped keys, SQL query/batch over HTTP, idempotent writes, restart persistence, a TypeScript client, a JSON CLI, and clone/export/import/tombstone-delete lifecycle operations exist and are tested. Not yet available: interactive shell, OVH backups, HTTPS, deployment. **Do not deploy this as a production database service** — that is the separately approved M4 milestone.
 
 ## Quick start (local only)
 

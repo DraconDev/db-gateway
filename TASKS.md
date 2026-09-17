@@ -36,6 +36,12 @@ Evidence 2026-09-17: `cargo test --workspace --locked` 16 passed (unit incl. inv
 
 Audit repair evidence 2026-09-17: Rust 16/16 and root `npm test` 2/2 pass, including the verbatim `docs/api.md` CLI walkthrough on a local server (valid `bot_a`, exact key response, tables, batch, revocation). Type-check regressions reject integer-object arguments; live SQL tests verify supported values and object rejection for execute/batch. Both app roles are tested across all four management routes. fmt/clippy remain clean.
 
+### M2 — safe lifecycle operations (complete, pending review)
+
+Implemented per phase 6 with confirmed decisions: tombstone + delayed purge deletion (owner-only, 24h retention, `--yes` gate) and `.sqlite` snapshot exports via SQLite's online backup API. Routes: `POST /v1/databases/{name}/clone`, `POST /v1/databases/{name}/export` (base64, 8 MiB cap), `POST /v1/databases/{name}/import` (validated + atomic publication, 12 MiB cap), `DELETE /v1/databases/{name}`. CLI: `dg clone/export/import/delete --yes`. Import rejects corrupted files, foreign-key violations, and smuggled `_dg_*` tables (own `_dg_replay` excepted).
+
+Evidence 2026-09-17: `cargo test --workspace --locked` 22 passed — unit incl. store-level clone round trip and import validation; E2E incl. `clone_during_writes_takes_consistent_snapshot` (concurrent writer + clone), `failed_import_and_missing_source_never_publish` (garbage payload, missing source, tombstoned target), `lifecycle_clone_export_import_delete` (clone/export/import/delete/tombstone 404 + recreate 409 + double-delete 409 + app-key delete 403), `cli_lifecycle_commands_against_running_server` (real CLI: clone, export to file, import, delete confirmation gate, tombstoned query 404). fmt/clippy clean. Committed across the M2 commit range from `fe2c72c`.
+
 ### Subsequent milestones
 
 1. **M2 — safe lifecycle:** phase 6; clone/export/import/delete concurrency and failure tests.
