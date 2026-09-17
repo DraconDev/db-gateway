@@ -192,7 +192,7 @@ impl Store {
     }
     pub fn list(&self, principal: &Principal) -> Result<Vec<String>> {
         let conn = self.meta()?;
-        let mut stmt = conn.prepare("SELECT name FROM databases ORDER BY name")?;
+        let mut stmt = conn.prepare("SELECT name FROM databases WHERE deleted_at IS NULL ORDER BY name")?;
         let names = stmt
             .query_map([], |r| r.get::<_, String>(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
