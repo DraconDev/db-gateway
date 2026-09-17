@@ -106,12 +106,12 @@ Done when: positive and negative authorization tests pass, including cross-datab
 ## 5. Deliver the CLI and minimal client
 
 - [x] Implement server/profile configuration and protected local credential storage.
-- [ ] Implement `dg list`, `create`, `query`, and an interactive `shell` with schema/table inspection. (List/create/query/key shipped; interactive `shell` deferred to M2.)
+- [x] Implement `dg list`, `create`, `query`, and an interactive `shell` with schema/table inspection. (`src/shell.rs`, `tests/shell_e2e.rs`: persistent database selection, query/batch, tables/schema, text/JSON, recovery and explicit replay.)
 - [x] Add stable JSON output, exit codes, and noninteractive operation for scripts and coding agents.
 - [x] Provide a minimal client for the first actual application language, based on the compatibility decision.
 - [x] Document that automated development clients should use scoped dev credentials rather than owner access. (`docs/api.md` credential model; `README.md` TS client section)
 
-Done when: CLI and client integration tests create a database, write/read data, and report errors correctly through the same API. (Met by the M1 CLI and TS client integration tests; the interactive `shell` remains open for M2.)
+Done when: CLI and client integration tests create a database, write/read data, and report errors correctly through the same API. (Met by the M1 CLI and TS client integration tests; the shell now has four piped-stdin E2Es and three unit tests.)
 
 Done when: CLI and client integration tests create a database, write/read data, and report errors correctly through the same API.
 
