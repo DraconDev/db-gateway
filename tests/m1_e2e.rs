@@ -989,3 +989,68 @@ fn cli_lifecycle_commands_against_running_server() {
     assert!(!ok);
     assert_eq!(body["error"]["code"], "database_not_found");
 }
+
+#[test]
+fn delete_with_active_writer_is_safe_and_never_recreates() {
+    let server = start_server();
+    let owner = owner_bootstrap(&server);
+    create_database(&server.address, &owner, "victim");
+    let (status, _) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/victim/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "CREATE TABLE t (id INTEGER PRIMARY KEY)", "args": []})),
+    );
+    assert_eq!(status, 200);
+    // In-flight writer overlaps the delete; every request must either succeed
+    // or fail cleanly — never corrupt, and never resurrect the name.
+    let address = server.address.clone();
+    let owner2 = owner.clone();
+    let writer = std::thread::spawn(move || {
+        for i in 0..20 {
+            let (status, _) = request(
+                &address,
+                "POST",
+                "/v1/databases/victim/query",
+                Some(&owner2),
+                None,
+                Some(&json!({"sql": "INSERT INTO t (id) VALUES (?)", "args": [json!(i)]})),
+            );
+            // 200 while live; 404 database_not_found once tombstoned. Never 5xx.
+            assert!(status == 200 || status == 404, "writer got {status}");
+        }
+    });
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    let (status, body) = request(
+        &server.address,
+        "DELETE",
+        "/v1/databases/victim",
+        Some(&owner),
+        None,
+        None,
+    );
+    writer.join().unwrap();
+    assert_eq!(status, 200, "{body}");
+    // Deleted name: 404, and recreation is refused while the tombstone holds.
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/victim/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "SELECT 1", "args": []})),
+    );
+    assert_eq!(status, 404);
+    assert_eq!(error_code(&body), "database_not_found");
+    let (status, _) = request(
+        &server.address,
+        "POST",
+        "/v1/databases",
+        Some(&owner),
+        None,
+        Some(&json!({"name": "victim"})),
+    );
+    assert_eq!(status, 409);
+}
