@@ -64,10 +64,6 @@ pub fn validate_import(path: &Path) -> Result<()> {
     if integrity != "ok" {
         return Err(Error::invalid());
     }
-    let violations: i64 = conn.query_row("PRAGMA foreign_key_check", [], |r| r.get(0))?;
-    // foreign_key_check returns rows only when violations exist; a successful
-    // query_row over an empty result errors, so use a one-row wrapper.
-    let _ = violations;
     let bad: i64 = conn
         .prepare("SELECT count(*) FROM pragma_foreign_key_check")?
         .query_row([], |r| r.get(0))?;
