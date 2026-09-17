@@ -188,21 +188,11 @@ async fn export(
     work(store, headers, move |s, p| {
         p.database(&name)?;
         let temp = s.export_snapshot(&name)?;
-        let result = (|| {
-            if std::fs::metadata(temp.path()).map_err(|_| Error::internal())?.len() > MAX_EXPORT as u64 {
-                return Err(Error::new(413, "result_limit_exceeded", "export exceeds bounded response size"));
-            }
-            let bytes = std::fs::read(temp.path()).map_err(|_| Error::internal())?;
-            if bytes.len() > MAX_EXPORT {
-                return Err(Error::new(
-                    413,
-                    "result_limit_exceeded",
-                    "export exceeds bounded response size",
-                ));
-            }
-            Ok(Json(json!({"database":name,"sha256":hex::encode(Sha256::digest(&bytes)),"size":bytes.len(),"data_base64":BASE64_STANDARD.encode(bytes)})))
-        })();
-        result
+        if std::fs::metadata(temp.path()).map_err(|_| Error::internal())?.len() > MAX_EXPORT as u64 {
+            return Err(Error::new(413, "result_limit_exceeded", "export exceeds bounded response size"));
+        }
+        let bytes = std::fs::read(temp.path()).map_err(|_| Error::internal())?;
+        Ok(Json(json!({"database":name,"sha256":hex::encode(Sha256::digest(&bytes)),"size":bytes.len(),"data_base64":BASE64_STANDARD.encode(bytes)})))
     })
     .await
 }
