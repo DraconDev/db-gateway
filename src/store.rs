@@ -303,6 +303,14 @@ impl Store {
         }
     }
 
+    /// Snapshot export to a server-side temp file; caller reads/removes it.
+    pub fn export_snapshot(&self, name: &str) -> Result<PathBuf> {
+        let temp = self.root.join(format!(".export-inflight-{name}.sqlite"));
+        remove_database_files(&temp);
+        self.export_to(name, &temp)?;
+        Ok(temp)
+    }
+
     /// Tombstone `name`: registry row keeps the file under lock so the
     /// name can neither be queried nor recreated. Physical purge is delayed
     /// `retention_secs` and recorded via `purge_after`.
