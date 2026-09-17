@@ -34,6 +34,29 @@ enum Command {
     Create {
         name: String,
     },
+    /// Clone a database into a new one via the SQLite backup API.
+    Clone {
+        source: String,
+        destination: String,
+    },
+    /// Snapshot a database to a local .sqlite file (owner/app key).
+    Export {
+        name: String,
+        #[arg(long, required = true)]
+        out: PathBuf,
+    },
+    /// Import a local .sqlite file as a new database (owner/app key).
+    Import {
+        name: String,
+        #[arg(long, required = true)]
+        from: PathBuf,
+    },
+    /// Tombstone a database; file purged after the retention window.
+    Delete {
+        name: String,
+        #[arg(long)]
+        yes: bool,
+    },
     Query {
         name: String,
         sql: String,
