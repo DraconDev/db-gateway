@@ -347,6 +347,42 @@ fn write_row(cells: &[String], widths: &[usize], out: &mut dyn Write) -> Result<
     writeln!(out, "{row}").map_err(io)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn terminal_prompts_and_quit_during_batch() {
+        let mut out = Vec::new();
+        run("unused", "unused", false, true, b"use demo\n:batch\n.quit\nSELECT 1\n".as_slice(), &mut out).await.unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), "dg> using demo\ndg:demo> ...> ");
+    }
+
+    #[tokio::test]
+    async fn oversized_input_is_drained_and_session_recovers() {
+        let input = format!("{}\n.bogus\n.quit\n", "x".repeat(MAX_INPUT + 8));
+        let mut out = Vec::new();
+        run("unused", "unused", true, false, input.as_bytes(), &mut out).await.unwrap();
+        let text = String::from_utf8(out).unwrap();
+        let values: Vec<Value> = text.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0]["error"]["code"], "input_limit_exceeded");
+        assert_eq!(values[1]["error"]["code"], "unknown_dot_command");
+    }
+
+    #[tokio::test]
+    async fn broken_output_is_fatal_and_control_characters_are_escaped() {
+        struct Broken;
+        impl Write for Broken {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> { Err(std::io::ErrorKind::BrokenPipe.into()) }
+            fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+        }
+        let error = run("unused", "unused", false, false, b".help\n".as_slice(), Broken).await.unwrap_err();
+        assert_eq!(error.code, "shell_io_error");
+        assert_eq!(cell_text(&json!("a\n\u{1b}b")), "a\\n\\u{1b}b");
+    }
+}
+
 fn split_command(line: &str) -> (&str, &str) {
     line.split_once(char::is_whitespace)
         .map(|(c, a)| (c, a.trim()))
