@@ -101,9 +101,9 @@ test('execute, atomic batch, idempotent replay, and denial paths', async () => {
     assert.equal(cloned.rows[0][0], original.rows[0][0], 'clone must carry all committed rows');
     // Writes to the original after cloning do not affect the copy.
     await db.execute('INSERT INTO players (name) VALUES (?)', ['post-clone']);
-    const after = await db.execute('SELECT count(*) FROM players');
+    const postClone = await db.execute('SELECT count(*) FROM players');
     const copyAfter = await copyDb.execute('SELECT count(*) FROM players');
-    assert.equal(after.rows[0][0], original.rows[0][0] + 1);
+    assert.equal(postClone.rows[0][0], original.rows[0][0] + 1);
     assert.equal(copyAfter.rows[0][0], cloned.rows[0][0], 'clone must be independent');
 
     // Export via the API: base64 snapshot decodes to a valid SQLite file.
