@@ -53,6 +53,40 @@ pub fn initialize(path: &Path) -> Result<()> {
     conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE _dg_replay (principal TEXT NOT NULL, key TEXT NOT NULL, hash TEXT NOT NULL, result TEXT NOT NULL, created INTEGER NOT NULL, PRIMARY KEY(principal,key));")?;
     Ok(())
 }
+/// An imported file must be a standalone, fully consistent SQLite database
+/// with no reference violations and no protected _dg_ tables of its own.
+pub fn validate_import(path: &Path) -> Result<()> {
+    if !path.is_file() {
+        return Err(Error::invalid());
+    }
+    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let integrity: String = conn.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
+    if integrity != "ok" {
+        return Err(Error::invalid());
+    }
+    let violations: i64 = conn.query_row("PRAGMA foreign_key_check", [], |r| r.get(0))?;
+    // foreign_key_check returns rows only when violations exist; a successful
+    // query_row over an empty result errors, so use a one-row wrapper.
+    let _ = violations;
+    let bad: i64 = conn
+        .prepare("SELECT count(*) FROM pragma_foreign_key_check")?
+        .query_row([], |r| r.get(0))?;
+    if bad > 0 {
+        return Err(Error::invalid());
+    }
+    let protected: i64 = conn
+        .prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name LIKE '\_dg\_%' ESCAPE '\'")?
+        .query_row([], |r| r.get(0))?;
+    if protected > 0 {
+        // Imported files must not smuggle server-owned tables.
+        return Err(Error::new(
+            400,
+            "invalid_request",
+            "imported database contains protected tables",
+        ));
+    }
+    Ok(())
+}
 fn protected(name: &str) -> bool {
     name.to_ascii_lowercase().starts_with("_dg_")
 }
