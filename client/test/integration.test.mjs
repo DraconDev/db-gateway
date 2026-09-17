@@ -119,9 +119,9 @@ test('execute, atomic batch, idempotent replay, and denial paths', async () => {
     });
     const restored = await new Gateway(`http://${address}`, ownerKey).database('game_a_restored')
       .execute('SELECT count(*) FROM players');
-    // The snapshot was taken after 'pre-clone' (before 'post-clone'), so the
-    // restored copy holds exactly the cloned-era row count.
-    assert.equal(restored.rows[0][0], original.rows[0][0]);
+    // The export happened after 'post-clone', so the restored copy holds the
+    // full current row count.
+    assert.equal(restored.rows[0][0], postClone.rows[0][0]);
   });
 });
 
