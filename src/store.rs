@@ -265,12 +265,11 @@ impl Store {
                 "destination file already exists",
             ));
         }
-        let queue = self.queue(name)?;
-        let _permit = queue
-            .try_acquire_owned()
-            .map_err(|_| Error::busy())?;
-        // Hold the per-database write slot for the whole backup so the
-        // snapshot is a stable committed point and never torn.
+        // Deliberately no per-database write-slot acquisition: the SQLite
+        // online backup API on a WAL source produces a consistent committed
+        // snapshot while writes continue (the copy restarts if the source
+        // changes between steps). Bounding the step count keeps a
+        // pathological concurrent-writer restart loop finite.
         let src = Connection::open_with_flags(
             &src_path,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
@@ -280,7 +279,13 @@ impl Store {
         dst.busy_timeout(Duration::from_millis(250))?;
         let backup = Backup::new(&src, &mut dst)?;
         let mut result = StepResult::More;
+        let mut steps = 0;
         while result == StepResult::More {
+            steps += 1;
+            if steps > 512 {
+                result = StepResult::Busy;
+                break;
+            }
             result = backup
                 .step(64)
                 .map_err(crate::error::Error::from)?;
@@ -384,11 +389,13 @@ impl Store {
             return Err(Error::busy());
         }
         let exists: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM databases WHERE name=? AND deleted_at IS NULL)",
+            "SELECT EXISTS(SELECT 1 FROM databases WHERE name=?)",
             [name],
             |r| r.get(0),
         )?;
         if exists {
+            // Covers both live databases and tombstones: importing over a
+            // tombstoned row would silently overwrite the retained file.
             return Err(Error::new(409, "database_exists", "database exists"));
         }
         let path = self.root.join(format!("{name}.sqlite"));
