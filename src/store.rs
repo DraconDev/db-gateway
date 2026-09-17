@@ -520,7 +520,10 @@ mod purge_tests {
         store.delete("doomed", 0).unwrap();
         let purged = store.purge_expired().unwrap();
         assert_eq!(purged, vec!["doomed".to_string()]);
-        assert!(!path.exists(), "file must be physically removed after retention");
+        assert!(
+            !path.exists(),
+            "file must be physically removed after retention"
+        );
         assert!(!path.with_extension("sqlite-wal").exists());
         // Registry row is gone: recreate works.
         store.create("doomed").unwrap();
