@@ -89,15 +89,15 @@ pub fn validate_import(path: &Path) -> Result<()> {
     // A file may carry its own _dg_replay (e.g. a gateway snapshot). It is
     // published only if the definition is the canonical one; initialize's
     // CREATE TABLE IF NOT EXISTS must never paper over a different schema.
-    let replay_sql: Option<String> = conn
-        .query_row(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='_dg_replay'",
-            [],
-            |r| r.get(0),
-        )
-        .map(Some)
-        .or(rusqlite::Error::QueryReturnedNoRows.into_result().map(|_: ()| None))
-        .map_err(Error::from)?;
+    let replay_sql: Option<String> = match conn.query_row(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='_dg_replay'",
+        [],
+        |r| r.get(0),
+    ) {
+        Ok(sql) => Some(sql),
+        Err(rusqlite::Error::QueryReturnedNoRows) => None,
+        Err(error) => return Err(error.into()),
+    };
     if replay_sql
         .map(|sql| normalize(&sql) != REPLAY_DDL)
         .unwrap_or(false)
