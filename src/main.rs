@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use serde_json::{Value, json};
-use std::{net::SocketAddr, path::PathBuf, process::ExitCode};
+use std::{io::IsTerminal, net::SocketAddr, path::PathBuf, process::ExitCode};
 
 #[derive(Parser)]
 #[command(name = "dg", version, about = "DB Gateway — personal SQLite service")]
@@ -10,7 +10,7 @@ struct Cli {
     /// File containing a raw credential (0600 on Unix). Never pass secrets as flags.
     #[arg(long, global = true)]
     key_file: Option<PathBuf>,
-    /// Emit machine-readable JSON (also the current default).
+    /// Emit JSON (default for all commands except the interactive shell).
     #[arg(long, global = true)]
     json: bool,
     #[command(subcommand)]
@@ -195,6 +195,8 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             return dg::shell::run(
                 &cli.server,
                 &key,
+                cli.json,
+                std::io::stdin().is_terminal() && std::io::stdout().is_terminal(),
                 std::io::stdin(),
                 std::io::stdout(),
             )

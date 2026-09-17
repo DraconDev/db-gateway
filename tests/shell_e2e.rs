@@ -1,6 +1,6 @@
 //! Non-interactive piped-stdin E2E for `dg shell` against a real server:
 //! use → query → error → recovery → :batch from pasted JSON → .quit, plus
-//! dot-command edge cases (unknown command, .use of a tombstoned/unknown db).
+//! dot-command edge cases and explicit replay.
 use serde_json::{Value, json};
 use std::{
     io::{BufRead, BufReader, Write},
@@ -46,7 +46,8 @@ fn start_server() -> Server {
         .unwrap();
     let stderr = child.stderr.take().unwrap();
     let mut address = None;
-    for line in BufReader::new(stderr).lines() {
+    let mut lines = BufReader::new(stderr).lines();
+    for line in lines.by_ref() {
         let line = line.unwrap();
         if let Ok(log) = serde_json::from_str::<Value>(&line)
             && let Some(addr) = log["fields"]["address"].as_str()
@@ -55,6 +56,7 @@ fn start_server() -> Server {
             break;
         }
     }
+    std::thread::spawn(move || for _ in lines {});
     Server {
         address: address.expect("server logged its listen address"),
         child,
@@ -82,9 +84,14 @@ fn owner_bootstrap(server: &Server) -> String {
 
 /// Feed stdin lines to a fresh `dg shell`; returns stdout, stderr, exit success.
 fn shell_session(server: &Server, key: &str, script: &[&str]) -> (String, String, bool) {
+    shell_session_mode(server, key, script, false)
+}
+
+fn shell_session_mode(server: &Server, key: &str, script: &[&str], json_mode: bool) -> (String, String, bool) {
     let key_path = key_file(server.data_dir.path(), key);
-    let mut child = Command::new(env!("CARGO_BIN_EXE_dg"))
-        .args([
+    let mut command = Command::new(env!("CARGO_BIN_EXE_dg"));
+    if json_mode { command.arg("--json"); }
+    let mut child = command.args([
             "--server",
             &format!("http://{}", server.address),
             "--key-file",
@@ -128,7 +135,7 @@ fn shell_session_covers_use_query_error_recovery_batch_and_quit() {
         ".help",
         // Before any .use: statement is rejected, session continues.
         "SELECT 1",
-        ".use repldb",
+        "use repldb",
         "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)",
         "INSERT INTO t (v) VALUES ('alpha'),('beta')",
         "SELECT id, v FROM t ORDER BY id",
@@ -161,14 +168,17 @@ fn shell_session_covers_use_query_error_recovery_batch_and_quit() {
     );
     // Aligned text result for the ordered SELECT.
     assert!(stdout.contains("id | v"), "table header: {stdout}");
-    assert!(stdout.contains("1 | alpha"), "row rendering: {stdout}");
-    assert!(stdout.contains("2 | beta"), "row rendering: {stdout}");
+    assert!(stdout.contains("1  | alpha"), "row rendering: {stdout}");
+    assert!(stdout.contains("2  | beta"), "row rendering: {stdout}");
     assert!(
         stdout.contains("invalid_sql"),
         "failed statement printed with stable code: {stdout}"
     );
-    // Recovery: the count query after the failure still answered.
-    assert!(stdout.contains("3"), "batch inserted a row and count reflects it");
+    let lines: Vec<_> = stdout.lines().map(str::trim_end).collect();
+    assert!(lines.windows(3).any(|w| w == ["count(*)", "--------", "2"]), "recovery count: {stdout}");
+    assert!(lines.windows(4).any(|w| w == ["statement 2:", "count(*)", "--------", "3"]), "batch result rendered: {stdout}");
+    let result: Value = serde_json::from_str(stdout.lines().last().unwrap()).unwrap();
+    assert_eq!(result["rows"], json!([[1,"alpha"],[2,"beta"],[3,"gamma"],[4,"once"]]));
     assert!(
         !stdout.contains("never executed"),
         "no input after .quit is executed: {stdout}"
@@ -200,15 +210,21 @@ fn shell_errors_are_stable_and_never_kill_the_session() {
         "SELECT 1",                              // ...fails at query time, session survives
         ".use n0t-valid",                        // invalid name rejected locally
         ".bogus",                                // unknown dot command
+        ".use shella",
         ".tables",
+        ".schema items",
+        "SELECT count(*) AS remaining FROM items",
         ".quit",
     ];
     let (stdout, stderr, ok) = shell_session(&server, &owner, &script);
     assert!(ok, "exit 0 after .quit; stderr: {stderr}");
     assert!(stderr.is_empty(), "stderr: {stderr}");
-    assert!(stdout.contains("constraint"), "constraint error shown: {stdout}");
+    assert!(stdout.contains("error [400] invalid_sql: SQL or parameters invalid"), "constraint error shown: {stdout}");
     assert!(stdout.contains("still here"), "session continues after .use switch: {stdout}");
     assert!(stdout.contains("database_not_found"), "ghost db error: {stdout}");
     assert!(stdout.contains("unknown_dot_command"), "unknown dot command: {stdout}");
-    assert!(stdout.contains("still here") || stdout.contains("1"), "final state visible");
+    assert!(stdout.contains("CREATE TABLE items"), "schema inspection: {stdout}");
+    assert!(!stdout.contains("_dg_replay"), "internal tables hidden: {stdout}");
+    let lines: Vec<_> = stdout.lines().map(str::trim_end).collect();
+    assert!(lines.windows(3).any(|w| w == ["remaining", "---------", "0"]), "constraint rolled back and session recovered: {stdout}");
 }

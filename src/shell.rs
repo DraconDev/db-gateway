@@ -1,24 +1,20 @@
-//! Interactive REPL over the gateway HTTP API. Reads lines from any input
-//! (interactive stdin or a pipe), sends each as one SQL statement, renders
-//! results as an aligned table (or JSON via .json), and never retries writes.
-//! Dot-commands control the session; `:batch` takes a pasted JSON body on the
-//! following line; `:key` attaches an idempotency key to the next write only.
-use crate::client;
-use crate::error::{Error, Result};
-use crate::store::validate_name;
+//! Line-oriented HTTP shell. Each SQL line is a separate transaction; no retries.
+use crate::{client, error::{Error, Result}, store::validate_name};
 use serde_json::{Value, json};
-use std::io::{BufRead, Write};
+use std::io::{BufRead, Read, Write};
 
+const MAX_INPUT: usize = 65536;
 const HELP: &str = "dot-commands:
-  .use <db>   switch the session to <db> (never creates a database)
-  .tables     list tables in the current database
-  .schema     show CREATE statements for the current database
-  :batch      on the next line, paste one JSON batch body ({\"atomic\":true,\"statements\":[…]}) and press enter
-  :key <key>  attach an idempotency key to the next write only (:key alone clears it)
-  .json       toggle JSON output for results
-  .help       show this help
-  .quit       leave the shell
-everything else is one SQL statement; a failed statement never ends the session.";
+  use <db> / .use <db>  select a database locally (never creates one)
+  .tables              list user tables
+  .schema [table]      show CREATE statements
+  :batch [JSON]        paste a JSON batch, possibly over multiple lines; . cancels
+  :key [key]           key for the next SQL/batch request; empty clears it
+  .json                toggle JSON output
+  .help                show help
+  .quit                quit (EOF also exits)
+One SQL statement per line. No hidden retries or cross-line transactions.
+A pending key is consumed on the next SQL/batch attempt, including errors.";
 
 struct Session<'a> {
     server: &'a str,
@@ -26,282 +22,194 @@ struct Session<'a> {
     database: Option<String>,
     json_mode: bool,
     pending_key: Option<String>,
-    awaiting_batch: bool,
+    batch: Option<String>,
 }
 
-/// Read statements until EOF or `.quit`. Errors print and the loop continues.
+/// Blocking stdin is used only by this dedicated CLI session, not the server.
+/// Prompts are enabled only for a terminal in text mode, never for piped input.
 pub async fn run(
-    server: &str,
-    key: &str,
-    input: impl std::io::Read,
-    mut out: impl Write,
+    server: &str, key: &str, json_mode: bool, interactive: bool,
+    input: impl Read, mut out: impl Write,
 ) -> Result<()> {
-    let mut session = Session {
-        server,
-        key,
-        database: None,
-        json_mode: false,
-        pending_key: None,
-        awaiting_batch: false,
-    };
-    for line in std::io::BufReader::new(input).lines() {
-        let line = line.map_err(|_| Error::internal())?;
-        if session.step(&line, &mut out).await? {
+    let mut session = Session { server, key, database: None, json_mode, pending_key: None, batch: None };
+    let mut reader = std::io::BufReader::new(input);
+    loop {
+        if interactive && !session.json_mode {
+            if session.batch.is_some() {
+                write!(out, "...> ").map_err(io)?;
+            } else {
+                write!(out, "dg{}> ", session.database.as_ref().map(|db| format!(":{db}")).unwrap_or_default()).map_err(io)?;
+            }
+        }
+        out.flush().map_err(io)?;
+        let mut bytes = Vec::new();
+        let count = reader.by_ref().take((MAX_INPUT + 1) as u64).read_until(b'\n', &mut bytes).map_err(io)?;
+        if count == 0 {
+            if session.batch.is_some() {
+                session.error(Error::new(400, "invalid_request", "incomplete batch at EOF"), &mut out)?;
+            }
+            out.flush().map_err(io)?;
             return Ok(());
         }
-        let _ = out.flush();
+        if bytes.len() > MAX_INPUT {
+            if bytes.last() != Some(&b'\n') {
+                reader.skip_until(b'\n').map_err(io)?;
+            }
+            session.batch = None;
+            session.pending_key = None;
+            session.error(Error::new(413, "input_limit_exceeded", "shell input exceeds 64 KiB"), &mut out)?;
+            continue;
+        }
+        let line = match String::from_utf8(bytes) {
+            Ok(line) => line,
+            Err(_) => {
+                session.batch = None;
+                session.pending_key = None;
+                session.error(Error::invalid(), &mut out)?;
+                continue;
+            }
+        };
+        match session.execute(line.trim(), &mut out).await {
+            Ok(true) => { out.flush().map_err(io)?; return Ok(()); }
+            Ok(false) => {}
+            Err(error) if error.code == "shell_io_error" => return Err(error),
+            Err(error) => session.error(error, &mut out)?,
+        }
     }
-    Ok(())
 }
 
 impl Session<'_> {
-    async fn step(&mut self, line: &str, out: &mut dyn Write) -> Result<bool> {
-        match self.execute(line, out).await {
-            Ok(quit) => Ok(quit),
-            // Stable error line; the session always survives.
-            Err(error) => {
-                let _ = writeln!(
-                    out,
-                    "error [{status}] {code}: {message}",
-                    status = error.status,
-                    code = error.code,
-                    message = error.message
-                );
-                Ok(false)
-            }
+    fn error(&self, error: Error, out: &mut dyn Write) -> Result<()> {
+        render(&json!({"status": error.status, "error": error}), self.json_mode, out)
+    }
+
+    fn notice(&self, message: &str, out: &mut dyn Write) -> Result<()> {
+        if self.json_mode {
+            writeln!(out, "{}", json!({"message": message})).map_err(io)
+        } else {
+            writeln!(out, "{message}").map_err(io)
         }
     }
 
     async fn execute(&mut self, line: &str, out: &mut dyn Write) -> Result<bool> {
-        let trimmed = line.trim();
-        if self.awaiting_batch {
-            self.awaiting_batch = false;
-            if trimmed == "." {
-                return Ok(false);
-            }
-            let database = self.require_db()?;
-            let batch: crate::execution::Batch =
-                serde_json::from_str(trimmed).map_err(|_| Error::invalid())?;
-            let response = client::request(
-                self.server,
-                self.key,
-                reqwest::Method::POST,
-                &format!("/v1/databases/{database}/batch"),
-                Some(serde_json::to_value(batch).map_err(|_| Error::internal())?),
-                self.pending_key.take().as_deref(),
-            )
-            .await?;
-            self.render(&response, out)?;
-            return Ok(false);
-        }
-        if let Some(rest) = trimmed.strip_prefix('.') {
-            return self.dot(rest, out).await;
-        }
-        if let Some(rest) = trimmed.strip_prefix(':') {
-            let (command, argument) = split_command(rest);
-            match command {
-                "batch" => {
-                    self.require_db()?;
-                    self.awaiting_batch = true;
-                    writeln!(out, "paste batch JSON, then enter (a lone . aborts)").map_err(io)?;
-                }
-                "key" => {
-                    match argument {
-                        "" => {
-                            self.pending_key = None;
-                            writeln!(out, "idempotency key cleared").map_err(io)?;
-                        }
-                        value => {
-                            self.pending_key = Some(value.to_string());
-                            writeln!(out, "next write will use key {value}").map_err(io)?;
-                        }
-                    };
-                }
-                other => {
-                    return Err(Error::new(
-                        400,
-                        "unknown_dot_command",
-                        Box::leak(format!("unknown command :{other}; try .help").into_boxed_str()),
-                    ));
-                }
-            }
-            return Ok(false);
-        }
-        if trimmed.is_empty() {
-            return Ok(false);
-        }
-        let database = self.require_db()?;
-        let response = client::request(
-            self.server,
-            self.key,
-            reqwest::Method::POST,
-            &format!("/v1/databases/{database}/query"),
-            Some(json!({"sql": trimmed, "args": []})),
-            self.pending_key.take().as_deref(),
-        )
-        .await?;
-        self.render(&response, out)?;
-        Ok(false)
-    }
-
-    async fn dot(&mut self, rest: &str, out: &mut dyn Write) -> Result<bool> {
-        let (command, argument) = split_command(rest);
+        if line == ".quit" || line == ".exit" { return Ok(true); }
+        if self.batch.is_some() { return self.batch_line(line, out).await; }
+        if line.is_empty() { return Ok(false); }
+        let (command, argument) = split_command(line);
         match command {
-            "quit" | "exit" => return Ok(true),
-            "help" => writeln!(out, "{HELP}").map_err(io)?,
-            "json" => {
-                self.json_mode = !self.json_mode;
-                writeln!(
-                    out,
-                    "json output: {}",
-                    if self.json_mode { "on" } else { "off" }
-                )
-                .map_err(io)?;
-            }
-            "use" => {
+            "use" | ".use" => {
                 validate_name(argument)?;
-                self.database = Some(argument.to_string());
-                writeln!(out, "using {argument}").map_err(io)?;
+                self.database = Some(argument.to_owned());
+                self.pending_key = None;
+                self.notice(&format!("using {argument}"), out)?;
             }
-            "tables" => {
-                let database = self.require_db()?;
-                let response = self
-                    .query(
-                        &database,
-                        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '\\_dg\\_%' ESCAPE '\\'",
-                    )
-                    .await?;
-                self.render(&response, out)?;
+            ".help" => self.notice(HELP, out)?,
+            ".json" => {
+                self.json_mode = !self.json_mode;
+                self.notice(if self.json_mode { "json output: on" } else { "json output: off" }, out)?;
             }
-            "schema" => {
-                let database = self.require_db()?;
-                let filter = if argument.is_empty() {
-                    String::new()
+            ":key" => {
+                if !argument.is_empty() && (argument.len() > 128 || !argument.bytes().all(|b| b.is_ascii_graphic())) {
+                    self.pending_key = None;
+                    return Err(Error::invalid());
+                }
+                self.pending_key = (!argument.is_empty()).then(|| argument.to_owned());
+                self.notice(if argument.is_empty() { "idempotency key cleared" } else { "idempotency key set for next SQL/batch attempt" }, out)?;
+            }
+            ":batch" => {
+                self.batch = Some(String::new());
+                if !argument.is_empty() { return self.batch_line(argument, out).await; }
+            }
+            ".tables" | ".schema" => {
+                let (sql, args) = if command == ".tables" {
+                    ("SELECT name FROM sqlite_master WHERE type='table' AND substr(name,1,4)!='_dg_' ORDER BY name", json!([]))
                 } else {
-                    format!(" AND name='{}'", argument.replace('\'', "''"))
+                    ("SELECT sql FROM sqlite_master WHERE sql IS NOT NULL AND substr(name,1,4)!='_dg_' AND (?='' OR name=?) ORDER BY name", json!([argument, argument]))
                 };
-                let response = self
-                    .query(
-                        &database,
-                        &format!(
-                            "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL AND substr(name,1,4)!='_dg_'{filter}"
-                        ),
-                    )
-                    .await?;
-                self.render(&response, out)?;
+                let response = self.request("query", json!({"sql":sql,"args":args}), None).await?;
+                render(&response, self.json_mode, out)?;
             }
-            other => {
-                return Err(Error::new(
-                    400,
-                    "unknown_dot_command",
-                    Box::leak(format!("unknown command .{other}; try .help").into_boxed_str()),
-                ));
+            _ if command.starts_with(['.', ':']) => return Err(Error::new(400, "unknown_dot_command", "unknown command; try .help")),
+            _ => {
+                let key = self.pending_key.take();
+                let response = self.request("query", json!({"sql":line,"args":[]}), key.as_deref()).await?;
+                render(&response, self.json_mode, out)?;
             }
         }
         Ok(false)
     }
 
-    async fn query(&self, database: &str, sql: &str) -> Result<Value> {
-        client::request(
-            self.server,
-            self.key,
-            reqwest::Method::POST,
-            &format!("/v1/databases/{database}/query"),
-            Some(json!({"sql": sql, "args": []})),
-            None,
-        )
-        .await
+    async fn batch_line(&mut self, line: &str, out: &mut dyn Write) -> Result<bool> {
+        let mut text = self.batch.take().expect("batch mode");
+        if line == "." {
+            self.pending_key = None;
+            self.notice("batch cancelled", out)?;
+            return Ok(false);
+        }
+        if text.len() + line.len() + 1 > MAX_INPUT {
+            self.pending_key = None;
+            return Err(Error::new(413, "input_limit_exceeded", "shell input exceeds 64 KiB"));
+        }
+        text.push_str(line);
+        text.push('\n');
+        let value: Value = match serde_json::from_str(&text) {
+            Ok(value) => value,
+            Err(error) if error.is_eof() => { self.batch = Some(text); return Ok(false); }
+            Err(_) => { self.pending_key = None; return Err(Error::invalid()); }
+        };
+        let key = self.pending_key.take();
+        let batch: crate::execution::Batch = serde_json::from_value(value).map_err(|_| Error::invalid())?;
+        let response = self.request("batch", serde_json::to_value(batch).map_err(|_| Error::internal())?, key.as_deref()).await?;
+        render(&response, self.json_mode, out)?;
+        Ok(false)
     }
 
-    fn require_db(&self) -> Result<&str> {
-        self.database
-            .as_deref()
-            .ok_or_else(|| Error::new(400, "no_database_selected", "run .use <db> first"))
-    }
-
-    fn render(&self, response: &Value, out: &mut dyn Write) -> Result<()> {
-        if let Some(error) = response.get("error") {
-            let code = error["code"].as_str().unwrap_or("unknown");
-            let message = error["message"].as_str().unwrap_or("");
-            let status = response.get("status").cloned().unwrap_or(json!(""));
-            return writeln!(out, "error [{status}] {code}: {message}").map_err(io);
-        }
-        if self.json_mode {
-            return writeln!(out, "{response}").map_err(io);
-        }
-        match (response["columns"].as_array(), response["rows"].as_array()) {
-            (Some(columns), Some(rows)) if !columns.is_empty() => {
-                let widths: Vec<usize> = columns
-                    .iter()
-                    .enumerate()
-                    .map(|(i, column)| {
-                        let mut width = column.as_str().map(str::len).unwrap_or(0);
-                        for row in rows {
-                            width = width.max(cell_width(row.get(i).unwrap_or(&Value::Null)));
-                        }
-                        width
-                    })
-                    .collect();
-                let header: Vec<String> = columns
-                    .iter()
-                    .enumerate()
-                    .map(|(i, column)| pad(column.as_str().unwrap_or(""), widths[i]))
-                    .collect();
-                writeln!(out, "{}", header.join(" | ")).map_err(io)?;
-                writeln!(
-                    out,
-                    "{}",
-                    widths
-                        .iter()
-                        .map(|w| "-".repeat(*w))
-                        .collect::<Vec<_>>()
-                        .join("-+-")
-                )
-                .map_err(io)?;
-                for row in rows {
-                    let cells: Vec<String> = (0..columns.len())
-                        .map(|i| pad(&cell_text(row.get(i).unwrap_or(&Value::Null)), widths[i]))
-                        .collect();
-                    writeln!(out, "{}", cells.join(" | ")).map_err(io)?;
-                }
-            }
-            _ => {
-                if let Some(affected) = response["rows_affected"].as_u64() {
-                    writeln!(out, "ok, {affected} row(s) affected").map_err(io)?;
-                }
-            }
-        }
-        Ok(())
+    async fn request(&self, route: &str, body: Value, idempotency: Option<&str>) -> Result<Value> {
+        let database = self.database.as_deref().ok_or_else(|| Error::new(400, "no_database_selected", "run use <db> first"))?;
+        client::request(self.server, self.key, reqwest::Method::POST, &format!("/v1/databases/{database}/{route}"), Some(body), idempotency).await
     }
 }
 
-fn split_command(rest: &str) -> (&str, &str) {
-    match rest.split_once(char::is_whitespace) {
-        Some((command, argument)) => (command, argument.trim()),
-        None => (rest, ""),
+fn render(response: &Value, json_mode: bool, out: &mut dyn Write) -> Result<()> {
+    if json_mode { return writeln!(out, "{response}").map_err(io); }
+    if let Some(error) = response.get("error") {
+        return writeln!(out, "error [{}] {}: {}", response["status"], error["code"].as_str().unwrap_or("unknown"), error["message"].as_str().unwrap_or("")).map_err(io);
     }
+    if let Some(results) = response["results"].as_array() {
+        for (index, result) in results.iter().enumerate() {
+            writeln!(out, "statement {}:", index + 1).map_err(io)?;
+            render(result, false, out)?;
+        }
+        return Ok(());
+    }
+    if let (Some(columns), Some(rows)) = (response["columns"].as_array(), response["rows"].as_array())
+        && !columns.is_empty() {
+        let header: Vec<String> = columns.iter().map(cell_text).collect();
+        let rows: Vec<Vec<String>> = rows.iter().map(|row| (0..columns.len()).map(|i| cell_text(&row[i])).collect()).collect();
+        let widths: Vec<usize> = header.iter().enumerate().map(|(i, column)| rows.iter().map(|row| row[i].chars().count()).fold(column.chars().count(), usize::max)).collect();
+        write_row(&header, &widths, out)?;
+        writeln!(out, "{}", widths.iter().map(|w| "-".repeat(*w)).collect::<Vec<_>>().join("-+-")).map_err(io)?;
+        for row in rows { write_row(&row, &widths, out)?; }
+        return Ok(());
+    }
+    writeln!(out, "ok, {} row(s) affected", response["rows_affected"]).map_err(io)
 }
 
-fn io(_: std::io::Error) -> Error {
-    Error::internal()
+fn write_row(cells: &[String], widths: &[usize], out: &mut dyn Write) -> Result<()> {
+    let row = cells.iter().zip(widths).map(|(text, width)| format!("{text:<width$}")).collect::<Vec<_>>().join(" | ");
+    writeln!(out, "{row}").map_err(io)
 }
+
+fn split_command(line: &str) -> (&str, &str) {
+    line.split_once(char::is_whitespace).map(|(c, a)| (c, a.trim())).unwrap_or((line, ""))
+}
+
+fn io(_: std::io::Error) -> Error { Error::new(500, "shell_io_error", "shell input/output failed") }
 
 fn cell_text(cell: &Value) -> String {
     match cell {
         Value::Null => "NULL".into(),
-        Value::String(text) => text.clone(),
+        Value::String(text) => text.chars().flat_map(|c| if c.is_control() { c.escape_default().collect::<Vec<_>>() } else { vec![c] }).collect(),
         other => other.to_string(),
     }
-}
-
-fn cell_width(cell: &Value) -> usize {
-    match cell {
-        Value::Null => 4,
-        Value::String(text) => text.len(),
-        other => other.to_string().len(),
-    }
-}
-
-fn pad(text: &str, width: usize) -> String {
-    format!("{text:<width$}")
 }
