@@ -76,7 +76,7 @@ pub fn validate_import(path: &Path) -> Result<()> {
     }
     let protected: i64 = conn
         .prepare(
-            "SELECT count(*) FROM sqlite_master WHERE type='table' AND substr(name,1,4)='_dg_'",
+            "SELECT count(*) FROM sqlite_master WHERE type='table' AND substr(name,1,4)='_dg_' AND name<>'_dg_replay'",
         )?
         .query_row([], |r| r.get(0))?;
     if protected > 0 {
