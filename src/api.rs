@@ -33,6 +33,9 @@ pub fn router(store: Arc<Store>) -> Router {
         .route("/v1/databases/{name}/query", post(query))
         .route("/v1/databases/{name}/batch", post(batch))
         .layer(DefaultBodyLimit::max(65536))
+        // Import carries a base64-encoded snapshot file, so it gets a larger
+        // (still bounded) request budget.
+        .layer(DefaultBodyLimit::max(12 * 1024 * 1024))
         .with_state(store)
 }
 fn json_body<T>(body: std::result::Result<Json<T>, JsonRejection>) -> Result<T> {

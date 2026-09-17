@@ -124,18 +124,39 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         }
         Command::Export { name, out } => {
             dg::store::validate_name(&name).map_err(Application)?;
-            let response = lifecycle_export(&cli.server, &key_source(cli)?, &name).await?;
-            let bytes = base64::Engine::decode(
-                &base64::engine::general_purpose::STANDARD,
-                response["data_base64"]
-                    .as_str()
-                    .ok_or(Application(Error::internal()))?,
+            let key = dg::client::read_key(cli.key_file.as_deref().ok_or(Application(Error::new(
+                400,
+                "missing_credential",
+                "--key-file required",
+            )))?)
+            .map_err(Application)?;
+            let response = dg::client::request(
+                &cli.server,
+                &key,
+                Method::POST,
+                &format!("/v1/databases/{name}/export"),
+                Some(json!({})),
+                None,
             )
-            .map_err(|_| Application(Error::internal()))?;
+            .await
+            .map_err(Application)?;
+            if response.get("error").is_some() {
+                println!("{response}");
+                return Err(Application(Error::new(
+                    400,
+                    "api_error",
+                    "export failed; see JSON response",
+                )));
+            }
+            let encoded = response["data_base64"]
+                .as_str()
+                .ok_or(Application(Error::internal()))?;
+            let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
+                .map_err(|_| Application(Error::internal()))?;
             std::fs::write(&out, bytes).map_err(|_| Application(Error::internal()))?;
             println!(
                 "{}",
-                json!({"name":name,"out":out.as_os_str(),"size":response["size"],"sha256":response["sha256"]})
+                json!({"name":name,"out":out.display().to_string(),"size":response["size"],"sha256":response["sha256"]})
             );
             return Ok(());
         }
