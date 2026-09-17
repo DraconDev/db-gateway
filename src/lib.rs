@@ -66,8 +66,8 @@ pub async fn serve(listen: SocketAddr) -> Result<(), ServerError> {
 }
 
 async fn shutdown_signal() {
-    // Register both signals before awaiting either. Fail loudly rather than
-    // treating a broken signal handler as an ordinary successful shutdown.
+    // Register both signals before awaiting either. Log registration failure
+    // and request shutdown rather than leaving a server without signal handling.
     #[cfg(unix)]
     {
         use tokio::signal::unix::{SignalKind, signal};
