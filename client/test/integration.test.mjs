@@ -92,3 +92,27 @@ test('execute, atomic batch, idempotent replay, and denial paths', async () => {
     await assert.rejects(writerGw.database('other').execute('SELECT 1'), (error) => error.code === 'database_forbidden');
   });
 });
+
+test('documented CLI walkthrough runs verbatim after bootstrap and serve', async () => {
+  await withServer(async (gateway, address, dataDir) => {
+    const doc = readFileSync(new URL('../../docs/api.md', import.meta.url), 'utf8');
+    const block = doc.split('## CLI\n')[1].match(/```sh\n([\s\S]*?)```/)[1];
+    // withServer already performs init/serve; run every remaining documented command.
+    const commands = block.split('\n').filter(line => !/^dg (init|serve) /.test(line)).join('\n');
+    const script = 'set -eu\ndg() { "$DG_BIN" --server "$DG_SERVER" "$@"; }\n' + commands;
+    const result = spawnSync('bash', ['-c', script], {
+      cwd: dataDir, encoding: 'utf8', timeout: 15_000,
+      env: { ...process.env, DG_BIN: join(import.meta.dirname, '../../target/debug/dg'), DG_SERVER: `http://${address}` },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const output = result.stdout.trim().split('\n').map(line => JSON.parse(line));
+    const issued = output.find(value => typeof value.key === 'string');
+    assert.deepEqual(Object.keys(issued), ['key'], 'key response contains no metadata');
+    assert.match(issued.key, /^[a-f0-9]{64}$/);
+    assert.deepEqual(output.at(-1), { revoked: true });
+    assert.deepEqual((await gateway.database('game_a').execute('SELECT name FROM players')).rows, [['aria']]);
+    assert.deepEqual((await gateway.database('game_a').execute('SELECT id FROM matches')).rows, [[7]]);
+    await assert.rejects(new Gateway(`http://${address}`, issued.key).database('game_a').execute('SELECT 1'),
+      (error) => error.code === 'invalid_credential');
+  });
+});
