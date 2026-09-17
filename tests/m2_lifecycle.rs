@@ -257,22 +257,32 @@ fn imported_external_sqlite_file_supports_m1_keyed_writes() {
     )
     .unwrap();
     drop(conn);
-    let encoded = base64::engine::general_purpose::STANDARD.encode(std::fs::read(&external).unwrap());
+    let encoded =
+        base64::engine::general_purpose::STANDARD.encode(std::fs::read(&external).unwrap());
     server.ok(
         "POST",
         "/v1/databases/external/import",
         json!({"name": "imported", "data_base64": encoded}),
     );
     // Plain read works, then a keyed write succeeds exactly once.
-    assert_eq!(server.query("imported", "SELECT value FROM ledger")["rows"], json!([["original"]]));
+    assert_eq!(
+        server.query("imported", "SELECT value FROM ledger")["rows"],
+        json!([["original"]])
+    );
     let write = json!({"sql": "UPDATE ledger SET value='spent' WHERE id=1"});
     let first = server.call("POST", "/v1/databases/imported/query", write.clone());
     assert_eq!(first.0, 200, "{}", first.1);
     let replay = server.call("POST", "/v1/databases/imported/query", write.clone());
     assert_eq!(replay.0, 200, "{}", replay.1);
-    assert_eq!(replay.1, first.1, "keyed replay must return the stored result");
     assert_eq!(
-        server.query("imported", "SELECT count(*) FROM ledger WHERE value='spent'")["rows"],
+        replay.1, first.1,
+        "keyed replay must return the stored result"
+    );
+    assert_eq!(
+        server.query(
+            "imported",
+            "SELECT count(*) FROM ledger WHERE value='spent'"
+        )["rows"],
         json!([[1]]),
         "exactly one committed mutation despite the second request"
     );
@@ -281,7 +291,11 @@ fn imported_external_sqlite_file_supports_m1_keyed_writes() {
     let path = store.path("imported").unwrap();
     let replay_tables: i64 = Connection::open(path)
         .unwrap()
-        .query_row("SELECT count(*) FROM sqlite_master WHERE name='_dg_replay'", [], |r| r.get(0))
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE name='_dg_replay'",
+            [],
+            |r| r.get(0),
+        )
         .unwrap();
     assert_eq!(replay_tables, 1);
 }
