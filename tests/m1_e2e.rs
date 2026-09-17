@@ -283,10 +283,21 @@ fn scoped_keys_enforce_boundaries() {
     for (method, path, body) in [
         ("POST", "/v1/databases", Some(json!({"name": "sneaky"}))),
         ("GET", "/v1/databases", None),
-        ("POST", "/v1/keys", Some(json!({"name": "esc", "role": "database_read_only", "databases": ["one"]}))),
+        (
+            "POST",
+            "/v1/keys",
+            Some(json!({"name": "esc", "role": "database_read_only", "databases": ["one"]})),
+        ),
         ("DELETE", "/v1/keys/reader", None),
     ] {
-        let (status, body) = request(&server.address, method, path, Some(&rw), None, body.as_ref());
+        let (status, body) = request(
+            &server.address,
+            method,
+            path,
+            Some(&rw),
+            None,
+            body.as_ref(),
+        );
         assert_eq!(status, 403, "{method} {path}: {body}");
         assert_eq!(error_code(&body), "forbidden");
     }
@@ -501,45 +512,57 @@ fn cli_commands_against_running_server() {
     let mut server = start_server();
     let owner = owner_bootstrap(&server);
     let key_path = key_file(server.data_dir.path(), &owner);
-    let base = ["--server", &format!("http://{}", server.address), "--key-file"];
-    let run = |args: &[&str], key: &std::path::Path| dgcli(&format!("http://{}", server.address), key, args);
+    let run = |args: &[&str], key: &std::path::Path| {
+        dgcli(&format!("http://{}", server.address), key, args)
+    };
 
     // dg create / list / parameterized query / --json behaviour.
     let (ok, body, _) = run(&["create", "clidb"], &key_path);
     assert!(ok, "create: {body}");
     assert_eq!(body["name"], "clidb");
 
-    let (ok, body) = run(&["list"], &key_path);
+    let (ok, body, _) = run(&["list"], &key_path);
     assert!(ok, "list: {body}");
     assert_eq!(body["databases"], json!(["clidb"]));
 
-    let (ok, body, stdout) = run(
-        &["query", "clidb", "CREATE TABLE players (id INTEGER PRIMARY KEY, name TEXT NOT NULL)"],
+    let (ok, body, _) = run(
+        &[
+            "query",
+            "clidb",
+            "CREATE TABLE players (id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
+        ],
         &key_path,
     );
     assert!(ok, "create table: {body}");
 
-    let (ok, body) = run(
-        &["query", "clidb", "INSERT INTO players (name) VALUES (?)", "--args", "[\"cli-aria\"]"],
+    let (ok, body, _) = run(
+        &[
+            "query",
+            "clidb",
+            "INSERT INTO players (name) VALUES (?)",
+            "--args",
+            "[\"cli-aria\"]",
+        ],
         &key_path,
     );
     assert!(ok, "parameterized insert: {body}");
     assert_eq!(body["rows_affected"], 1);
 
-    let (ok, body) = run(&["--json", "query", "clidb", "SELECT name FROM players"], &key_path);
+    let (ok, body, _) = run(
+        &["--json", "query", "clidb", "SELECT name FROM players"],
+        &key_path,
+    );
     assert!(ok, "select: {body}");
-    assert_eq!(body["rows"], json!([["aria" == "aria"; 0].len().to_string().len().to_string(); 0].iter().map(|_| "aria").collect::<Vec<_>>()), "sanity");
-    assert_eq!(body["rows"], json!([["aria"]]));
-    let _ = stdout;
+    assert_eq!(body["rows"], json!([["cli-aria"]]));
 
     // Failure exit: missing database is a nonzero exit with a JSON error body.
-    let (ok, body) = run(&["query", "missing_db", "SELECT 1"], &key_path);
+    let (ok, body, _) = run(&["query", "missing_db", "SELECT 1"], &key_path);
     assert!(!ok, "missing database must exit nonzero");
     assert_eq!(body["error"]["code"], "database_not_found");
 
     // Authentication failure also exits nonzero with the stable error code.
     let bad_key = key_file(server.data_dir.path(), &"0".repeat(64));
-    let (ok, body) = run(&["list"], &bad_key);
+    let (ok, body, _) = run(&["list"], &bad_key);
     assert!(!ok);
     assert_eq!(body["error"]["code"], "invalid_credential");
 }

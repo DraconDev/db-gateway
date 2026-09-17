@@ -32,7 +32,7 @@ Evidence 2026-09-17: fmt/clippy/tests clean (5 tests), live `curl` against a ran
 
 Per TASKS.md, implemented over the M0 foundation with confirmed decisions: custom JSON HTTP API, TypeScript first client, `Idempotency-Key` support, full M1 scope (owner bootstrap via local `dg init`, revocable database-scoped keys, `dg list/create/query/batch/key`, parameterized statements, atomic batches, bounded execution, restart persistence, negative-path tests, TS client integration suite).
 
-Evidence 2026-09-17: `cargo test --workspace --locked` 11 passed (unit + 5-scenario E2E over real server processes: round trip + restart, scoped-key denials, batch rollback + result limits, idempotent replay + conflict, bootstrap refusal); `cargo fmt/clippy -D warnings` clean; TypeScript client `npm test` integration suite passes against a running server (execute, atomic batch, replay, scoped-key denial, cross-database denial). Committed as `8c17d1a`.
+Evidence 2026-09-17: `cargo test --workspace --locked` 16 passed (unit incl. invalid SQL/args, deadline cancellation with rollback+recovery, per-principal idempotency capacity, parallel independent databases; CLI; 6-scenario E2E over real server processes: round trip + restart, scoped-key denials across create/list/issue/revoke, batch rollback + result limits, idempotent replay + conflict, bootstrap refusal, and `cli_commands_against_running_server` exercising `dg create/list/query` with parameterized args, `--json`, and nonzero failure exits); `cargo fmt/clippy -D warnings` clean; root `npm test` integration suite passes. Committed as `8c17d1a`, `6e03ede`, `36349a5`.
 
 ### Subsequent milestones
 
@@ -52,7 +52,9 @@ These decisions do not block the protocol-neutral M0 foundation. No external inf
 
 ## 1. Define the initial contract
 
-- [x] Document API routes, SQL value encoding, errors, transaction semantics, and CLI command structure.
+## 1. Define the initial contract
+
+- [x] Document API routes, SQL value encoding, errors, transaction semantics, and CLI command structure. (`docs/api.md`)
 - [x] Inventory existing client requirements before deciding between a custom protocol/client and libSQL compatibility.
 - [x] Define write acknowledgement, ambiguous timeout outcomes, retry behaviour, and idempotency support.
 - [ ] Define recovery objectives and acceptable downtime/data-loss window; distinguish local durability from asynchronous bucket backup.
@@ -97,7 +99,7 @@ Done when: positive and negative authorization tests pass, including cross-datab
 - [ ] Implement `dg list`, `create`, `query`, and an interactive `shell` with schema/table inspection. (List/create/query/key shipped; interactive `shell` deferred to M2.)
 - [x] Add stable JSON output, exit codes, and noninteractive operation for scripts and coding agents.
 - [x] Provide a minimal client for the first actual application language, based on the compatibility decision.
-- [x] Document that automated development clients should use scoped dev credentials rather than owner access.
+- [x] Document that automated development clients should use scoped dev credentials rather than owner access. (`docs/api.md` credential model; `README.md` TS client section)
 
 Done when: CLI and client integration tests create a database, write/read data, and report errors correctly through the same API. (Met by the M1 CLI and TS client integration tests; the interactive `shell` remains open for M2.)
 
