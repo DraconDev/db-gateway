@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -36,7 +36,7 @@ async function withServer(run) {
     const keyFile = join(dataDir, 'owner.key');
     writeFileSync(keyFile, ownerKey + '\n');
     chmodSync(keyFile, 0o600);
-    await run(new Gateway(`http://${address}`, ownerKey), address);
+    await run(new Gateway(`http://${address}`, ownerKey), address, dataDir);
   } finally {
     child.kill('SIGTERM');
     await new Promise((resolve) => child.on('exit', resolve));
