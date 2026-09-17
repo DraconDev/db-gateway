@@ -222,7 +222,9 @@ impl Store {
         Ok(())
     }
     pub fn path(&self, name: &str) -> Result<PathBuf> {
-            "SELECT EXISTS(SELECT 1 FROM databases WHERE name=?)",
+        validate_name(name)?;
+        let found: bool = self.meta()?.query_row(
+            "SELECT EXISTS(SELECT 1 FROM databases WHERE name=? AND deleted_at IS NULL)",
             [name],
             |r| r.get(0),
         )?;
@@ -242,6 +244,58 @@ impl Store {
             .entry(name.to_string())
             .or_insert_with(|| Arc::new(Semaphore::new(1)))
             .clone())
+    }
+
+    /// SQLite online backup of `name` to `dest`, consistent during writes.
+    /// Pages are copied in bounded steps so concurrent commits interleave;
+    /// the snapshot reflects one committed point in time.
+    pub fn export_to(&self, name: &str, dest: &Path) -> Result<()> {
+        let src_path = self.path(name)?;
+        if dest.exists() {
+            return Err(Error::new(
+                409,
+                "file_exists",
+                "destination file already exists",
+            ));
+        }
+        let queue = self.queue(name)?;
+        let _permit = queue
+            .try_acquire_owned()
+            .map_err(|_| Error::busy())?;
+        // Hold the per-database write slot for the whole backup so the
+        // snapshot is a stable committed point and never torn.
+        let src = Connection::open_with_flags(
+            &src_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )?;
+        src.busy_timeout(Duration::from_millis(250))?;
+        let mut dst = Connection::open(dest)?;
+        dst.busy_timeout(Duration::from_millis(250))?;
+        let backup = Backup::new(&src, &mut dst)?;
+        let mut result = StepResult::More;
+        while result == StepResult::More {
+            result = backup
+                .step(64)
+                .map_err(crate::error::Error::from)?;
+        }
+        match result {
+            StepResult::Done => {
+                dst.pragma_update(None, "journal_mode", "DELETE")?;
+                Ok(())
+            }
+            _ => {
+                drop(backup);
+                drop(dst);
+                let _ = std::fs::remove_file(dest);
+                let _ = std::fs::remove_file(dest.with_extension("sqlite-wal"));
+                let _ = std::fs::remove_file(dest.with_extension("sqlite-shm"));
+                Err(Error::new(
+                    429,
+                    "capacity_exceeded",
+                    "backup could not complete; source busy",
+                ))
+            }
+        }
     }
 }
 pub fn unauthorized() -> Error {
