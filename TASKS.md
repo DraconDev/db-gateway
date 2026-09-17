@@ -1,0 +1,128 @@
+# DB Gateway — implementation task list
+
+Project: **DB Gateway** · CLI: **`dg`**
+
+## Agreed scope
+
+A personal, single-owner SQLite database service with a Rust gateway and CLI. Applications remain stateless and connect through the API. One gateway manages many independent databases and development copies.
+
+Deployment target: Oracle **micro2**, an approximately empty **1 GB RAM** server. Live SQLite files reside on persistent local disk; persistent database backups go to the owner's **OVH bucket**. Bucket compatibility and backup behaviour must be verified, not assumed.
+
+One owner/admin credential plus database-scoped read-only and read/write application credentials. No multi-organization system, billing, SSO, or web dashboard in the initial release. Personal scope does not imply relaxed durability or correctness.
+
+This file is a plan, not authorization to deploy, migrate production data, delete databases, or change subscriptions. Commands below describe proposed behaviour.
+
+## 1. Define the initial contract
+
+- [ ] Document API routes, SQL value encoding, errors, transaction semantics, and CLI command structure.
+- [ ] Inventory existing client requirements before deciding between a custom protocol/client and libSQL compatibility.
+- [ ] Define write acknowledgement, ambiguous timeout outcomes, retry behaviour, and idempotency support.
+- [ ] Define recovery objectives and acceptable downtime/data-loss window; distinguish local durability from asynchronous bucket backup.
+- [ ] Establish an initial memory/concurrency budget for the complete 1 GB deployment.
+
+Done when: the initial architecture and explicit non-goals are documented, with unresolved compatibility and durability decisions identified.
+
+## 2. Establish the Rust workspace
+
+- [ ] Scaffold the gateway and CLI, preferably exposed through one `dg` executable with subcommands.
+- [ ] Add configuration validation, structured errors/logging, formatting, linting, tests, and CI.
+- [ ] Separate HTTP handling, database execution, lifecycle management, and credential handling.
+- [ ] Add local development instructions with no production credentials required.
+
+Done when: a clean checkout builds and passes formatting, linting, and starter tests.
+
+## 3. Build the bounded SQLite execution core
+
+- [ ] Implement a managed database registry with validated names and explicit creation; queries never silently create databases.
+- [ ] Configure WAL, foreign-key enforcement, busy handling, and deliberate durability settings on connections.
+- [ ] Keep blocking SQLite work off async network runtime threads.
+- [ ] Support parameterized statements and atomic transaction batches with correct rollback and connection cleanup.
+- [ ] Bound global work, per-database queues, connection/cache counts, request sizes, and result sizes.
+- [ ] Implement actual query interruption and deadline handling, not only HTTP timeouts.
+
+Done when: query, rollback, contention, cancellation, and bounded-result tests pass, including parallel activity against independent databases.
+
+## 4. Implement access control and the API
+
+- [ ] Bootstrap a single owner securely; store high-entropy credential hashes rather than plaintext keys.
+- [ ] Support issuing and revoking database-scoped read-only and read/write credentials.
+- [ ] Enforce database isolation and read-only permissions using SQLite authorization/connection controls, not SQL prefix checks.
+- [ ] Restrict SQL features that could escape the database scope or change server-owned settings, including attachment, extension loading, and filesystem operations.
+- [ ] Expose query, transaction, management, and health APIs with consistent error responses.
+- [ ] Keep secrets and sensitive SQL values out of logs; document HTTPS/private-network deployment requirements.
+
+Done when: positive and negative authorization tests pass, including cross-database denial, revoked keys, and management operations denied to app credentials.
+
+## 5. Deliver the CLI and minimal client
+
+- [ ] Implement server/profile configuration and protected local credential storage.
+- [ ] Implement `dg list`, `create`, `query`, and an interactive `shell` with schema/table inspection.
+- [ ] Add stable JSON output, exit codes, and noninteractive operation for scripts and coding agents.
+- [ ] Provide a minimal client for the first actual application language, based on the compatibility decision.
+- [ ] Document that automated development clients should use scoped dev credentials rather than owner access.
+
+Done when: CLI and client integration tests create a database, write/read data, and report errors correctly through the same API.
+
+## 6. Implement safe database lifecycle operations
+
+- [ ] Implement consistent clone and export using SQLite-aware backup mechanisms, not raw copying of active WAL databases.
+- [ ] Implement validated import into a new database with integrity checks and atomic publication.
+- [ ] Coordinate clone, delete, import, and restore with active connections and requests.
+- [ ] Require explicit destructive-operation intent; define deletion and backup-retention behaviour separately.
+- [ ] Add corresponding CLI commands and tests for concurrent lifecycle operations.
+
+Done when: clones/exports remain consistent during writes, failed operations do not publish partial databases, and deletion cannot race active work into accidental recreation.
+
+## 7. Integrate OVH-backed recovery
+
+- [ ] Verify the OVH bucket's S3 compatibility, region/endpoint, credentials, and pricing relevant to backups.
+- [ ] Select and pin a backup tool/version, evaluating Litestream before considering custom backup code.
+- [ ] Automate per-database backup registration with distinct destinations; verify supported configuration/reload behaviour.
+- [ ] Define retention, credential permissions, encryption requirements, and behaviour when the bucket is unavailable.
+- [ ] Expose backup health, last successful backup/recoverable point where available, and lag/staleness through API and CLI.
+- [ ] Restore into a separate target by default, with integrity and application-data verification.
+
+Done when: an end-to-end API write → OVH backup → restore to a separate database → verified read succeeds, and backup failures are visible.
+
+## 8. Test failure handling and resource limits
+
+- [ ] Measure gateway, database, backup, and OS resource usage on a representative 1 GB budget.
+- [ ] Test slow/expensive queries, oversized results, bursts, and many active/idle databases.
+- [ ] Test crash/restart, low disk space, interrupted lifecycle operations, and bucket outage/recovery.
+- [ ] Verify a noisy development database does not monopolize the gateway; document limits of shared-host isolation.
+- [ ] Test ambiguous write responses and supported retry/idempotency behaviour.
+- [ ] Record benchmark workload, durability settings, latency, and memory rather than claiming universal throughput ceilings.
+
+Done when: bounded test results and known limitations are recorded, including recovery evidence and measured memory headroom.
+
+## 9. Package and deploy to micro2
+
+- [ ] Verify host architecture, persistent disk, available resources, and network approach before selecting release artifacts.
+- [ ] Package reproducible installation/configuration for the gateway and backup component.
+- [ ] Run under a dedicated non-root service account with restart policy, graceful shutdown, and resource limits.
+- [ ] Configure HTTPS or private access, protected secrets, and restricted listening interfaces.
+- [ ] Document upgrades, rollback, monitoring, and full host replacement/restore.
+- [ ] With explicit deployment approval, run a non-production smoke test and restore drill on micro2.
+
+Done when: the installed service survives restart and can be recovered using the documented procedure without relying on the original host's files.
+
+## 10. Migrate from Turso safely
+
+- [ ] Inventory databases, schemas, clients, ongoing writers, and any libSQL-specific features.
+- [ ] Export and validate databases while existing access remains available.
+- [ ] Pilot one development database and then one low-risk application.
+- [ ] Plan each production cutover with a write freeze/final export or another verified consistency mechanism; avoid accidental dual writers.
+- [ ] Verify schemas, relevant row counts/data, application behaviour, and backup coverage after cutover.
+- [ ] Retain rollback artifacts; confirm no clients depend on Turso before any separately authorized cancellation/downgrade.
+
+Done when: migrated applications use DB Gateway successfully, restored copies are verified, and remaining external dependencies are explicitly accounted for.
+
+## Later capabilities — not initial-release blockers
+
+- [ ] Ephemeral databases with TTL, count/memory limits, and explicit crash-loss semantics.
+- [ ] Idempotent match-result finalization so retries cannot duplicate rewards; no assumed cross-database atomicity.
+- [ ] Optional replay archival and checkpointing where loss of an unfinished match is unacceptable.
+- [ ] Placement/movement of independent databases between hosts, only when required by measured workload.
+- [ ] Optional visual administration if the CLI proves insufficient.
+
+PostgreSQL remains an application-specific option, not a promise of transparent SQL-engine interchangeability. Automatic failover and synchronous remote durability are not part of the initial single-host design.
