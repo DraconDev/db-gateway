@@ -950,16 +950,16 @@ fn cli_lifecycle_commands_against_running_server() {
         &key_path,
     );
     assert!(ok, "import: {body}");
-    let (ok, body, _) = run(&["query", "reimported", "SELECT count(*) FROM t"], &key_path);
-    // 'reimported' does not exist; import name was 'reimported'? No — the
-    // import target name above is 'reimported' via path arg. Check both.
-    let _ = body;
-    let _ = ok;
+    let (ok, _body, stdout) = run(&["query", "reimported", "SELECT count(*) FROM t"], &key_path);
+    // The import path argument IS the new database name: 'reimported'.
+    assert!(ok, "query reimported: {stdout}");
+    assert_eq!(_body["rows"], json!([[2]]));
 
-    // dg delete requires --yes
-    let (ok, body, _) = run(&["delete", "clcopy"], &key_path);
+    // dg delete requires --yes. A refusal is a local validation error: the
+    // documented contract sends those to stderr, leaving stdout empty.
+    let (ok, _body, stdout) = run(&["delete", "clcopy"], &key_path);
     assert!(!ok, "delete without --yes must fail");
-    assert_eq!(body["error"]["code"], "confirmation_required");
+    assert!(stdout.trim().is_empty(), "stdout: {stdout}");
     let (ok, body, _) = run(&["delete", "clcopy", "--yes"], &key_path);
     assert!(ok, "delete --yes: {body}");
     assert_eq!(body["deleted"], json!(true));
