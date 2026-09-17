@@ -62,7 +62,7 @@ fn request(
     idempotency: Option<&str>,
     body: Option<&Value>,
 ) -> (u16, Value) {
-    let mut req = reqwest::Client::new()
+    let mut req = reqwest::blocking::Client::new()
         .request(
             reqwest::Method::from_bytes(method.as_bytes()).unwrap(),
             format!("http://{address}{path}"),
@@ -113,7 +113,7 @@ fn issue_key(address: &str, owner: &str, name: &str, role: &str, databases: &[&s
 
 #[test]
 fn round_trip_write_read_persists_across_restart() {
-    let server = start_server();
+    let mut server = start_server();
     let owner = owner_bootstrap(&server.address);
     create_database(&server.address, &owner, "game_a");
 
@@ -152,12 +152,12 @@ fn round_trip_write_read_persists_across_restart() {
 
     // Restart: same data dir, fresh process, data must survive.
     let data_dir = server.data_dir.path().to_path_buf();
-    let mut child = server.child.kill();
-    let _ = child.wait();
-    drop(server);
-    let address = start_server_with_dir(&data_dir);
+    server.child.kill().unwrap();
+    server.child.wait().unwrap();
+    // Keep the TempDir owner alive until the restarted process exits.
+    let restarted = start_server_with_dir(&data_dir);
     let (status, body) = request(
-        &address,
+        &restarted.address,
         "POST",
         "/v1/databases/game_a/query",
         Some(&owner),
@@ -168,7 +168,7 @@ fn round_trip_write_read_persists_across_restart() {
     assert_eq!(body["rows"], json!([[1]]));
 }
 
-fn start_server_with_dir(data_dir: &std::path::Path) -> String {
+fn start_server_with_dir(data_dir: &std::path::Path) -> Server {
     let mut child = Command::new(env!("CARGO_BIN_EXE_dg"))
         .args(["serve", "--listen", "127.0.0.1:0", "--data-dir", data_dir.to_str().unwrap()])
         .stderr(Stdio::piped())
@@ -185,14 +185,11 @@ fn start_server_with_dir(data_dir: &std::path::Path) -> String {
             }
         }
     }
-    let mut server = Server {
+    Server {
         child,
         address: address.expect("restart: server logged its address"),
         data_dir: TempDir::new().unwrap(),
-    };
-    // Keep the restarted process alive for the queries that follow.
-    std::mem::forget(&mut server.child);
-    server.address.clone()
+    }
 }
 
 #[test]
@@ -263,6 +260,7 @@ fn atomic_batch_rolls_back_and_limits_bind() {
     );
     assert_ne!(status, 200, "failing batch must error: {body}");
     let (status, body) = request(&server.address, "POST", "/v1/databases/batchtest/query", Some(&owner), None, Some(&json!({"sql": "SELECT count(*) FROM t"})));
+    assert_eq!(status, 200);
     assert_eq!(body["rows"], json!([[0]]), "rollback: {body}");
 
     // Oversized result is rejected, not streamed unbounded.
@@ -289,7 +287,7 @@ fn idempotency_key_replays_committed_write() {
     assert_eq!(status, 200);
 
     let write = json!({"sql": "INSERT INTO n (v) VALUES (7)"});
-    let (status, first) = request(&server.address, "POST", "/v1/databases/idem/query", Some(&owner), Some("match-final-1"), Some(&write));
+    let (status, first) = request(&server.address, "POST", "/v1/databases/idem/query", Some(&owner), Some("match-final-9182"), Some(&write));
     assert_eq!(status, 200, "{first}");
 
     // Same key, same body: stored result replayed, no second execution.
