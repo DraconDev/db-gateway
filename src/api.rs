@@ -203,6 +203,13 @@ async fn export(
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ExportRequest {
+    #[serde(default)]
+    _unused: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ImportRequest {
     name: String,
     data_base64: String,
@@ -230,7 +237,7 @@ async fn import(
                 "import exceeds bounded request size",
             ));
         }
-        let temp = s.root.join(format!(".import-inflight-{name}.sqlite"));
+        let temp = s.import_staging(&name)?;
         std::fs::write(&temp, &bytes).map_err(|_| Error::internal())?;
         let result = s.import_from(&body.name, &temp);
         let _ = std::fs::remove_file(&temp);
