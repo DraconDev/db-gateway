@@ -57,7 +57,7 @@ Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1
 | `already_bootstrapped` | 409 | Second `dg init` attempt |
 | `key_exists` | 409 | Credential name reused |
 | `file_exists` | 409 | Export destination or clone target already exists on disk |
-| `confirmation_required` | 400 | `dg delete` invoked without `--yes` |
+| `confirmation_required` | 400 | `dg delete` invoked without a matching `--confirm NAME` |
 | `capacity_exceeded` | 429 | Global task, per-database queue, credential, or replay capacity full |
 | `query_deadline_exceeded` | 408 | Execution passed the 2s deadline; transaction rolled back |
 
@@ -71,7 +71,11 @@ Clones and exports use SQLite's **online backup API**, never raw file copying: t
 
 **Import** validates the file (`PRAGMA integrity_check`, foreign-key check, no protected tables besides the server's own `_dg_replay`) and publishes it in one atomic registry step — a failed import leaves no partial database. Import targets must not collide with live **or tombstoned** names.
 
-**Delete is owner-only and tombstoned:** the registry row keeps `deleted_at`/`purge_after` so the name is immediately unqueryable (`404 database_not_found`), uncreatable (`409`), and unimportable; the SQLite file remains on disk untouched for **24 hours** (retention) and is purged opportunistically by the server after that. Until M3 backups exist, this window is the only recovery path — export before deleting anything important. `dg delete` requires `--yes`.
+**Delete is owner-only and tombstoned:** the registry row keeps `deleted_at` and a separate `purge_after` deadline. The name immediately disappears from listing and subsequent owner/scoped-key queries return `404 database_not_found`; create/import are refused (`409`) while the tombstone holds. Credentials remain valid for their other databases. Already-started requests may finish against the retained file.
+
+The server retains the SQLite file for **24 hours** and checks expired tombstones at startup and every second, even without incoming traffic. Purge waits for request connections to close; failures are logged and retried on later ticks. File removal and registry removal are serialized with publication. The name can be created again after successful purge. Export before deleting anything important: no automated restore is provided until M3.
+
+`dg delete NAME --confirm NAME` requires the exact name to be typed twice. Missing or mismatched confirmation fails locally with `confirmation_required` and sends no DELETE request; `--yes` is not supported. At the HTTP level, sending owner-authenticated `DELETE /v1/databases/{name}` is the explicit destructive request (no body). Lifecycle staging is private per request and automatically cleaned up on both success and error.
 
 ## CLI
 
@@ -99,7 +103,7 @@ Lifecycle commands (M2):
 dg --key-file owner.key clone game_a game_a_copy
 dg --key-file owner.key export game_a --out ./game_a_snapshot.sqlite   # writes the file, prints {name,out,size,sha256}
 dg --key-file owner.key import restored --from ./game_a_snapshot.sqlite
-dg --key-file owner.key delete game_a_copy --yes   # tombstone; file purge after 24h retention
+dg --key-file owner.key delete game_a_copy --confirm game_a_copy   # tombstone; file purge after 24h retention
 ```
 
-Exit codes: `0` success; nonzero on any error. HTTP API errors produce JSON on stdout (the CLI also adds `status`); local validation, configuration and transport errors are logged to stderr instead. Destructive actions are not interactive in M1 — scripts and agents should call deliberately.
+Exit codes: `0` success; nonzero on any error. HTTP API errors produce JSON on stdout (the CLI also adds `status`); local validation, configuration and transport errors are logged to stderr instead. Deletion is non-interactive but requires typed-name confirmation — scripts and agents must supply the exact target name again.

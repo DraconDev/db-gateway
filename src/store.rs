@@ -208,7 +208,8 @@ impl Store {
     }
     pub fn list(&self, principal: &Principal) -> Result<Vec<String>> {
         let conn = self.meta()?;
-        let mut stmt = conn.prepare("SELECT name FROM databases WHERE deleted_at IS NULL ORDER BY name")?;
+        let mut stmt =
+            conn.prepare("SELECT name FROM databases WHERE deleted_at IS NULL ORDER BY name")?;
         let names = stmt
             .query_map([], |r| r.get::<_, String>(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -330,7 +331,10 @@ impl Store {
             .tempdir_in(&self.root)
             .map_err(|_| Error::internal())?;
         let path = directory.path().join("snapshot.sqlite");
-        Ok(Staging { _directory: directory, path })
+        Ok(Staging {
+            _directory: directory,
+            path,
+        })
     }
 
     /// Snapshot in a private directory, automatically removed by its owner.
@@ -399,7 +403,10 @@ impl Store {
                     std::fs::remove_file(&path).map_err(|_| Error::internal())?;
                 }
             }
-            tx.execute("DELETE FROM databases WHERE name=? AND deleted_at IS NOT NULL", [&name])?;
+            tx.execute(
+                "DELETE FROM databases WHERE name=? AND deleted_at IS NOT NULL",
+                [&name],
+            )?;
             purged.push(name);
         }
         tx.commit()?;
@@ -430,8 +437,13 @@ impl Store {
         let staged = self.staging()?;
         std::fs::copy(source, staged.path()).map_err(|_| Error::invalid())?;
         crate::execution::validate_import(staged.path())?;
-        std::fs::hard_link(staged.path(), &path)
-            .map_err(|_| Error::new(409, "database_exists", "database file exists or cannot be published"))?;
+        std::fs::hard_link(staged.path(), &path).map_err(|_| {
+            Error::new(
+                409,
+                "database_exists",
+                "database file exists or cannot be published",
+            )
+        })?;
         let result = (|| {
             tx.execute("INSERT INTO databases (name) VALUES (?)", [name])?;
             tx.commit()?;
@@ -564,8 +576,11 @@ mod purge_tests {
         let request = store.request_lease().unwrap();
         let path = store.path("active").unwrap();
         let mut writer = Connection::open(&path).unwrap();
-        let tx = writer.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).unwrap();
-        tx.execute_batch("CREATE TABLE pending(v); INSERT INTO pending VALUES (1);").unwrap();
+        let tx = writer
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .unwrap();
+        tx.execute_batch("CREATE TABLE pending(v); INSERT INTO pending VALUES (1);")
+            .unwrap();
         store.delete("active", 0).unwrap();
         // Actual lease and transaction remain live, not a timing assumption.
         assert!(store.purge_expired().unwrap().is_empty());

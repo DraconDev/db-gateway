@@ -702,8 +702,20 @@ fn lifecycle_clone_export_import_delete() {
     );
     assert_eq!(body["rows"], json!([["alpha"], ["beta"]]));
 
-    let ro = issue_key(&server.address, &owner, "copy_reader", "database_read_only", &["copy1", "src"]);
-    let rw_copy = issue_key(&server.address, &owner, "copy_writer", "database_read_write", &["copy1", "src"]);
+    let ro = issue_key(
+        &server.address,
+        &owner,
+        "copy_reader",
+        "database_read_only",
+        &["copy1", "src"],
+    );
+    let rw_copy = issue_key(
+        &server.address,
+        &owner,
+        "copy_writer",
+        "database_read_write",
+        &["copy1", "src"],
+    );
     // Delete: tombstone. Query 404s, recreation 409s, file remains during retention.
     let (status, body) = request(
         &server.address,
@@ -715,16 +727,41 @@ fn lifecycle_clone_export_import_delete() {
     );
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["deleted"], json!(true));
-    let (status, listed) = request(&server.address, "GET", "/v1/databases", Some(&owner), None, None);
+    let (status, listed) = request(
+        &server.address,
+        "GET",
+        "/v1/databases",
+        Some(&owner),
+        None,
+        None,
+    );
     assert_eq!(status, 200);
     assert_eq!(listed["databases"], json!(["restored", "src"]));
     assert!(server.data_dir.path().join("copy1.sqlite").exists());
     for key in [&ro, &rw_copy] {
-        let (status, body) = request(&server.address, "POST", "/v1/databases/copy1/query", Some(key), None, Some(&json!({"sql":"SELECT 1"})));
+        let (status, body) = request(
+            &server.address,
+            "POST",
+            "/v1/databases/copy1/query",
+            Some(key),
+            None,
+            Some(&json!({"sql":"SELECT 1"})),
+        );
         assert_eq!(status, 404, "{body}");
         assert_eq!(error_code(&body), "database_not_found");
         // The credential itself survives and retains access to its other database.
-        assert_eq!(request(&server.address, "POST", "/v1/databases/src/query", Some(key), None, Some(&json!({"sql":"SELECT 1"}))).0, 200);
+        assert_eq!(
+            request(
+                &server.address,
+                "POST",
+                "/v1/databases/src/query",
+                Some(key),
+                None,
+                Some(&json!({"sql":"SELECT 1"}))
+            )
+            .0,
+            200
+        );
     }
     let (status, body) = request(
         &server.address,
@@ -881,11 +918,20 @@ fn clone_during_writes_takes_consistent_snapshot() {
     // Hold a real uncommitted multi-statement WAL transaction throughout
     // the HTTP clone. The clone must see the exact previous commit, never
     // either half of the pending transaction; no sleep establishes overlap.
-    let mut writer = rusqlite::Connection::open(server.data_dir.path().join("busy.sqlite")).unwrap();
-    writer.execute_batch("INSERT INTO t VALUES (1,'committed'),(2,'pair');").unwrap();
-    let transaction = writer.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).unwrap();
-    transaction.execute("UPDATE t SET v='pending' WHERE id=1", []).unwrap();
-    transaction.execute("INSERT INTO t VALUES (3,'pending_pair')", []).unwrap();
+    let mut writer =
+        rusqlite::Connection::open(server.data_dir.path().join("busy.sqlite")).unwrap();
+    writer
+        .execute_batch("INSERT INTO t VALUES (1,'committed'),(2,'pair');")
+        .unwrap();
+    let transaction = writer
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .unwrap();
+    transaction
+        .execute("UPDATE t SET v='pending' WHERE id=1", [])
+        .unwrap();
+    transaction
+        .execute("INSERT INTO t VALUES (3,'pending_pair')", [])
+        .unwrap();
     let (status, body) = request(
         &server.address,
         "POST",
@@ -894,7 +940,10 @@ fn clone_during_writes_takes_consistent_snapshot() {
         None,
         Some(&json!({"destination": "snap"})),
     );
-    assert!(!transaction.is_autocommit(), "writer transaction overlaps the completed clone");
+    assert!(
+        !transaction.is_autocommit(),
+        "writer transaction overlaps the completed clone"
+    );
     assert_eq!(status, 200, "{body}");
     transaction.commit().unwrap();
     // Exact committed snapshot, including values, not just a row-count range.
@@ -906,7 +955,7 @@ fn clone_during_writes_takes_consistent_snapshot() {
         None,
         Some(&json!({"sql": "SELECT id,v FROM t ORDER BY id", "args": []})),
     );
-    assert_eq!(body["rows"], json!([[1,"committed"],[2,"pair"]]));
+    assert_eq!(body["rows"], json!([[1, "committed"], [2, "pair"]]));
     let (_, body) = request(
         &server.address,
         "POST",
@@ -917,7 +966,12 @@ fn clone_during_writes_takes_consistent_snapshot() {
     );
     assert_eq!(body["rows"][0][0], 3);
     let snapshot = rusqlite::Connection::open(server.data_dir.path().join("snap.sqlite")).unwrap();
-    assert_eq!(snapshot.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0)).unwrap(), "ok");
+    assert_eq!(
+        snapshot
+            .query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0))
+            .unwrap(),
+        "ok"
+    );
 }
 
 #[test]
@@ -965,8 +1019,19 @@ fn cli_lifecycle_commands_against_running_server() {
     assert_eq!(body["name"], "clidb2");
     assert!(out.is_file());
     let snapshot = rusqlite::Connection::open(&out).unwrap();
-    assert_eq!(snapshot.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0)).unwrap(), "ok");
-    assert_eq!(snapshot.query_row("SELECT group_concat(v, ',') FROM t", [], |r| r.get::<_, String>(0)).unwrap(), "one,two");
+    assert_eq!(
+        snapshot
+            .query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0))
+            .unwrap(),
+        "ok"
+    );
+    assert_eq!(
+        snapshot
+            .query_row("SELECT group_concat(v, ',') FROM t", [], |r| r
+                .get::<_, String>(0))
+            .unwrap(),
+        "one,two"
+    );
     drop(snapshot);
 
     // dg import
@@ -984,7 +1049,11 @@ fn cli_lifecycle_commands_against_running_server() {
     assert_eq!(_body["rows"], json!([[2]]));
 
     // Exact typed-name confirmation is required; absent/wrong values send no DELETE.
-    for args in [vec!["delete", "clcopy"], vec!["delete", "clcopy", "--confirm", "wrong"], vec!["delete", "clcopy", "--yes"]] {
+    for args in [
+        vec!["delete", "clcopy"],
+        vec!["delete", "clcopy", "--confirm", "wrong"],
+        vec!["delete", "clcopy", "--yes"],
+    ] {
         let (ok, _, stdout) = run(&args, &key_path);
         assert!(!ok, "invalid confirmation must fail");
         assert!(stdout.trim().is_empty(), "stdout: {stdout}");
@@ -1014,8 +1083,11 @@ fn delete_with_active_writer_is_safe_and_never_recreates() {
     assert_eq!(status, 200);
     // Hold an actual uncommitted writer through the HTTP delete response.
     // The retained file must remain usable by this already-open connection.
-    let mut writer = rusqlite::Connection::open(server.data_dir.path().join("victim.sqlite")).unwrap();
-    let transaction = writer.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).unwrap();
+    let mut writer =
+        rusqlite::Connection::open(server.data_dir.path().join("victim.sqlite")).unwrap();
+    let transaction = writer
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .unwrap();
     transaction.execute("INSERT INTO t VALUES (1)", []).unwrap();
     let (status, body) = request(
         &server.address,
@@ -1025,12 +1097,32 @@ fn delete_with_active_writer_is_safe_and_never_recreates() {
         None,
         None,
     );
-    assert!(!transaction.is_autocommit(), "writer is active when deletion returns");
+    assert!(
+        !transaction.is_autocommit(),
+        "writer is active when deletion returns"
+    );
     assert_eq!(status, 200, "{body}");
     transaction.commit().unwrap();
-    assert_eq!(writer.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0)).unwrap(), "ok");
-    assert_eq!(writer.query_row("SELECT count(*) FROM t", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
-    let (status, listed) = request(&server.address, "GET", "/v1/databases", Some(&owner), None, None);
+    assert_eq!(
+        writer
+            .query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0))
+            .unwrap(),
+        "ok"
+    );
+    assert_eq!(
+        writer
+            .query_row("SELECT count(*) FROM t", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    let (status, listed) = request(
+        &server.address,
+        "GET",
+        "/v1/databases",
+        Some(&owner),
+        None,
+        None,
+    );
     assert_eq!(status, 200);
     assert_eq!(listed["databases"], json!([]));
     // Deleted name: 404, and recreation is refused while the tombstone holds.

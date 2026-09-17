@@ -81,8 +81,7 @@ pub async fn serve(listen: SocketAddr, data_dir: std::path::PathBuf) -> Result<(
     let app = router().merge(api::router(store.clone()));
     let listener = TcpListener::bind(listen).await?;
     tracing::info!(address = %listener.local_addr()?, "liveness server listening");
-    let server = axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal());
+    let server = axum::serve(listener, app).with_graceful_shutdown(shutdown_signal());
     tokio::select! {
         result = server.into_future() => result.map_err(ServerError::Io),
         _ = retention_maintenance(store) => unreachable!("maintenance runs until server shutdown"),
@@ -98,9 +97,14 @@ async fn retention_maintenance(store: std::sync::Arc<store::Store>) {
         ticks.tick().await;
         let store = store.clone();
         match tokio::task::spawn_blocking(move || store.purge_expired()).await {
-            Ok(Ok(_)) => {},
-            Ok(Err(error)) => tracing::error!(code = error.code, "retention purge failed; will retry"),
-            Err(_) => tracing::error!(code = "purge_worker_failed", "retention purge worker failed; will retry"),
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => {
+                tracing::error!(code = error.code, "retention purge failed; will retry")
+            }
+            Err(_) => tracing::error!(
+                code = "purge_worker_failed",
+                "retention purge worker failed; will retry"
+            ),
         }
     }
 }
