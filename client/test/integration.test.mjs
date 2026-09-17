@@ -36,7 +36,7 @@ async function withServer(run) {
     const keyFile = join(dataDir, 'owner.key');
     writeFileSync(keyFile, ownerKey + '\n');
     chmodSync(keyFile, 0o600);
-    await run(new Gateway(`http://${address}`, ownerKey), keyFile);
+    await run(new Gateway(`http://${address}`, ownerKey), address);
   } finally {
     child.kill('SIGTERM');
     await new Promise((resolve) => child.on('exit', resolve));
@@ -45,7 +45,7 @@ async function withServer(run) {
 }
 
 test('execute, atomic batch, idempotent replay, and denial paths', async () => {
-  await withServer(async (gateway) => {
+  await withServer(async (gateway, address) => {
     const db = gateway.database('game_a');
     // create requires POST /v1/databases — do it via raw request.
     await gateway.request('/v1/databases', 'POST', { name: 'game_a' });
@@ -71,10 +71,8 @@ test('execute, atomic batch, idempotent replay, and denial paths', async () => {
     const count = await db.execute('SELECT count(*) FROM players');
     assert.equal(count.rows[0][0], 2, 'write must not execute twice');
     // Read-only scoped key: read allowed, write denied at the SQLite layer.
-    const rwKey = JSON.parse(String(await gateway.request('/v1/keys', 'POST', { name: 'writer', role: 'database_read_write', databases: ['game_a'] }))).key;
-    const roKey = JSON.parse(String(await gateway.request('/v1/keys', 'POST', { name: 'reader', role: 'database_read_only', databases: ['game_a'] }))).key;
-    const writer = gateway.database('game_a');
-    // keys are per-gateway; build gateways per credential.
+    const rwKey = (await gateway.request('/v1/keys', 'POST', { name: 'writer', role: 'database_read_write', databases: ['game_a'] })).key;
+    const roKey = (await gateway.request('/v1/keys', 'POST', { name: 'reader', role: 'database_read_only', databases: ['game_a'] })).key;
     const writerGw = new Gateway(`http://${address}`, rwKey);
     assert.equal((await writerGw.database('game_a').execute('SELECT count(*) FROM players')).rows[0][0], 2);
     const readerGw = new Gateway(`http://${address}`, roKey);

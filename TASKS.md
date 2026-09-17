@@ -28,11 +28,11 @@ Acceptance: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-target
 
 Evidence 2026-09-17: fmt/clippy/tests clean (5 tests), live `curl` against a randomly bound loopback port returned `200 {"status":"ok"}`, SIGTERM exited 0, working tree clean. A test asserts `/v1/databases` is still absent.
 
-### M1 — first authenticated database round trip
+### M1 — first authenticated database round trip (complete, pending review)
 
-Next after M0: settle the initial protocol, then implement a narrow end-to-end path from phases 1–5: explicit database creation → parameterized write → read through the CLI → restart → read persisted data. Include owner bootstrap, scoped credentials, isolation checks, bounded execution, and atomic rollback tests before exposing SQL. No unauthenticated SQL prototype on a public interface.
+Per TASKS.md, implemented over the M0 foundation with confirmed decisions: custom JSON HTTP API, TypeScript first client, `Idempotency-Key` support, full M1 scope (owner bootstrap via local `dg init`, revocable database-scoped keys, `dg list/create/query/batch/key`, parameterized statements, atomic batches, bounded execution, restart persistence, negative-path tests, TS client integration suite).
 
-Acceptance: local integration tests exercise that path plus denied access, missing databases, invalid inputs, rollback, and resource-limit behavior. Passing M1 does not make the service production-ready.
+Evidence 2026-09-17: `cargo test --workspace --locked` 11 passed (unit + 5-scenario E2E over real server processes: round trip + restart, scoped-key denials, batch rollback + result limits, idempotent replay + conflict, bootstrap refusal); `cargo fmt/clippy -D warnings` clean; TypeScript client `npm test` integration suite passes against a running server (execute, atomic batch, replay, scoped-key denial, cross-database denial). Committed as `8c17d1a`.
 
 ### Subsequent milestones
 
@@ -52,11 +52,11 @@ These decisions do not block the protocol-neutral M0 foundation. No external inf
 
 ## 1. Define the initial contract
 
-- [ ] Document API routes, SQL value encoding, errors, transaction semantics, and CLI command structure.
-- [ ] Inventory existing client requirements before deciding between a custom protocol/client and libSQL compatibility.
-- [ ] Define write acknowledgement, ambiguous timeout outcomes, retry behaviour, and idempotency support.
+- [x] Document API routes, SQL value encoding, errors, transaction semantics, and CLI command structure.
+- [x] Inventory existing client requirements before deciding between a custom protocol/client and libSQL compatibility.
+- [x] Define write acknowledgement, ambiguous timeout outcomes, retry behaviour, and idempotency support.
 - [ ] Define recovery objectives and acceptable downtime/data-loss window; distinguish local durability from asynchronous bucket backup.
-- [ ] Establish an initial memory/concurrency budget for the complete 1 GB deployment.
+- [x] Establish an initial memory/concurrency budget for the complete 1 GB deployment.
 
 Done when: the initial architecture and explicit non-goals are documented, with unresolved compatibility and durability decisions identified.
 
@@ -71,33 +71,35 @@ Done when: a clean checkout builds and passes formatting, linting, and starter t
 
 ## 3. Build the bounded SQLite execution core
 
-- [ ] Implement a managed database registry with validated names and explicit creation; queries never silently create databases.
-- [ ] Configure WAL, foreign-key enforcement, busy handling, and deliberate durability settings on connections.
-- [ ] Keep blocking SQLite work off async network runtime threads.
-- [ ] Support parameterized statements and atomic transaction batches with correct rollback and connection cleanup.
-- [ ] Bound global work, per-database queues, connection/cache counts, request sizes, and result sizes.
-- [ ] Implement actual query interruption and deadline handling, not only HTTP timeouts.
+- [x] Implement a managed database registry with validated names and explicit creation; queries never silently create databases.
+- [x] Configure WAL, foreign-key enforcement, busy handling, and deliberate durability settings on connections.
+- [x] Keep blocking SQLite work off async network threads.
+- [x] Support parameterized statements and atomic transaction batches with correct rollback and connection cleanup.
+- [x] Bound global work, per-database queues, connection/cache counts, request sizes, and result sizes.
+- [x] Implement actual query interruption and deadline handling, not only HTTP timeouts.
 
 Done when: query, rollback, contention, cancellation, and bounded-result tests pass, including parallel activity against independent databases.
 
 ## 4. Implement access control and the API
 
-- [ ] Bootstrap a single owner securely; store high-entropy credential hashes rather than plaintext keys.
-- [ ] Support issuing and revoking database-scoped read-only and read/write credentials.
-- [ ] Enforce database isolation and read-only permissions using SQLite authorization/connection controls, not SQL prefix checks.
-- [ ] Restrict SQL features that could escape the database scope or change server-owned settings, including attachment, extension loading, and filesystem operations.
-- [ ] Expose query, transaction, management, and health APIs with consistent error responses.
+- [x] Bootstrap a single owner securely; store high-entropy credential hashes rather than plaintext keys.
+- [x] Support issuing and revoking database-scoped read-only and read/write credentials.
+- [x] Enforce database isolation and read-only permissions using SQLite authorization/connection controls, not SQL prefix checks.
+- [x] Restrict SQL features that could escape the database scope or change server-owned settings, including attachment, extension loading, and filesystem operations.
+- [x] Expose query, transaction, management, and health APIs with consistent error responses.
 - [ ] Keep secrets and sensitive SQL values out of logs; document HTTPS/private-network deployment requirements.
 
 Done when: positive and negative authorization tests pass, including cross-database denial, revoked keys, and management operations denied to app credentials.
 
 ## 5. Deliver the CLI and minimal client
 
-- [ ] Implement server/profile configuration and protected local credential storage.
-- [ ] Implement `dg list`, `create`, `query`, and an interactive `shell` with schema/table inspection.
-- [ ] Add stable JSON output, exit codes, and noninteractive operation for scripts and coding agents.
-- [ ] Provide a minimal client for the first actual application language, based on the compatibility decision.
-- [ ] Document that automated development clients should use scoped dev credentials rather than owner access.
+- [x] Implement server/profile configuration and protected local credential storage.
+- [ ] Implement `dg list`, `create`, `query`, and an interactive `shell` with schema/table inspection. (List/create/query/key shipped; interactive `shell` deferred to M2.)
+- [x] Add stable JSON output, exit codes, and noninteractive operation for scripts and coding agents.
+- [x] Provide a minimal client for the first actual application language, based on the compatibility decision.
+- [x] Document that automated development clients should use scoped dev credentials rather than owner access.
+
+Done when: CLI and client integration tests create a database, write/read data, and report errors correctly through the same API. (Met by the M1 CLI and TS client integration tests; the interactive `shell` remains open for M2.)
 
 Done when: CLI and client integration tests create a database, write/read data, and report errors correctly through the same API.
 
