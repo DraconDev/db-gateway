@@ -54,6 +54,14 @@ test('execute, atomic batch, idempotent replay, and denial paths', async () => {
     assert.equal(inserted.rows_affected, 1);
     const selected = await db.execute('SELECT id, name FROM players');
     assert.deepEqual(selected.rows, [[1, 'aria']]);
+    // The public value contract matches SQLite's JSON encoding, not integer objects.
+    const values = await db.execute('SELECT ?, ?, ?, ?, ?, ?', [null, true, 42, 1.5, 'text', [0, 128, 255]]);
+    assert.deepEqual(values.rows, [[null, 1, 42, 1.5, 'text', [0, 128, 255]]]);
+    // JavaScript callers can bypass TS types: the server still rejects objects.
+    await assert.rejects(db.execute('SELECT ?', [{ integer: '42' }]),
+      (error) => error instanceof GatewayError && error.code === 'invalid_request');
+    await assert.rejects(db.batch([{ sql: 'SELECT ?', args: [{ integer: '42' }] }]),
+      (error) => error instanceof GatewayError && error.code === 'invalid_request');
     // Atomic batch: second statement fails, first must roll back.
     await assert.rejects(
       db.batch([
