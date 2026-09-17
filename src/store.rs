@@ -304,6 +304,131 @@ impl Store {
             }
         }
     }
+
+    /// Tombstone `name`: registry row keeps the file under lock so the
+    /// name can neither be queried nor recreated. Physical purge is delayed
+    /// `retention_secs` and recorded via `purge_after`.
+    pub fn delete(&self, name: &str, retention_secs: i64) -> Result<()> {
+        validate_name(name)?;
+        let now = now_secs()?;
+        let mut conn = self.meta()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let changed = tx.execute(
+            "UPDATE databases SET deleted_at=?2, purge_after=?3
+             WHERE name=?1 AND deleted_at IS NULL",
+            params![name, now, now + retention_secs],
+        )?;
+        if changed == 0 {
+            let exists: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM databases WHERE name=?)",
+                [name],
+                |r| r.get(0),
+            )?;
+            return Err(if exists {
+                Error::new(409, "database_exists", "database already deleted")
+            } else {
+                Error::new(404, "database_not_found", "database not found")
+            });
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Physically remove files for tombstones whose retention elapsed.
+    /// Idempotent; called opportunistically after lifecycle operations.
+    pub fn purge_expired(&self) -> Result<Vec<String>> {
+        let now = now_secs()?;
+        let mut conn = self.meta()?;
+        let due: Vec<String> = conn
+            .prepare("SELECT name FROM databases WHERE deleted_at IS NOT NULL AND purge_after<=?")?
+            .query_map([now], |r| r.get::<_, String>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let mut purged = Vec::new();
+        for name in due {
+            let base = self.root.join(format!("{name}.sqlite"));
+            for suffix in ["", "-wal", "-shm"] {
+                let path = path_with_suffix(&base, suffix);
+                if path.exists() {
+                    std::fs::remove_file(&path).map_err(|_| Error::internal())?;
+                }
+            }
+            conn.execute("DELETE FROM databases WHERE name=?", [&name])?;
+            purged.push(name);
+        }
+        Ok(purged)
+    }
+
+    /// Validate `source` and publish it as the new database `name` in one
+    /// atomic registry step; a failed import leaves no partial database.
+    pub fn import_from(&self, name: &str, source: &Path) -> Result<()> {
+        validate_name(name)?;
+        let mut conn = self.meta()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if tx.query_row("SELECT count(*) FROM databases", [], |r| {
+            r.get::<_, i64>(0)
+        })? >= 128 {
+            return Err(Error::busy());
+        }
+        let exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM databases WHERE name=? AND deleted_at IS NULL)",
+            [name],
+            |r| r.get(0),
+        )?;
+        if exists {
+            return Err(Error::new(409, "database_exists", "database exists"));
+        }
+        let path = self.root.join(format!("{name}.sqlite"));
+        std::fs::copy(source, &path).map_err(|_| Error::invalid())?;
+        if let Err(error) = crate::execution::validate_import(&path) {
+            remove_database_files(&path);
+            return Err(error);
+        }
+        tx.execute("INSERT INTO databases VALUES (?)", [name])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Clone `source` into new database `dest` via the online backup API;
+    /// the copy is validated and registered atomically by import_from.
+    pub fn clone_database(&self, source: &str, dest: &str) -> Result<()> {
+        validate_name(dest)?;
+        let temp = self.root.join(format!(".clone-inflight-{dest}.sqlite"));
+        remove_database_files(&temp);
+        if let Err(error) = self.export_to(source, &temp) {
+            remove_database_files(&temp);
+            return Err(error);
+        }
+        match self.import_from(dest, &temp) {
+            Ok(()) => {
+                let _ = std::fs::remove_file(&temp);
+                Ok(())
+            }
+            Err(error) => {
+                remove_database_files(&temp);
+                Err(error)
+            }
+        }
+    }
+}
+
+fn now_secs() -> Result<i64> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .map_err(|_| Error::internal())
+}
+
+fn path_with_suffix(base: &Path, suffix: &str) -> PathBuf {
+    let mut s = base.as_os_str().to_os_string();
+    s.push(suffix);
+    PathBuf::from(s)
+}
+
+fn remove_database_files(base: &Path) {
+    for suffix in ["", "-wal", "-shm"] {
+        let p = path_with_suffix(base, suffix);
+        let _ = std::fs::remove_file(&p);
+    }
 }
 pub fn unauthorized() -> Error {
     Error::new(
