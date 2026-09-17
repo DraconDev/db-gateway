@@ -509,7 +509,7 @@ fn bootstrap_refuses_second_owner() {
 
 #[test]
 fn cli_commands_against_running_server() {
-    let mut server = start_server();
+    let server = start_server();
     let owner = owner_bootstrap(&server);
     let key_path = key_file(server.data_dir.path(), &owner);
     let run = |args: &[&str], key: &std::path::Path| {
