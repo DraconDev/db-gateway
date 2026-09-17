@@ -11,11 +11,18 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Start the local foundation server (liveness only; no database API yet).
+    /// Generate the owner credential locally; prints it once as JSON.
+    Init {
+        #[arg(long)]
+        data_dir: std::path::PathBuf,
+    },
+    /// Start the local authenticated database server.
     Serve {
         /// Loopback socket address. Public listening is disabled in this milestone.
         #[arg(long, default_value = "127.0.0.1:7432")]
         listen: SocketAddr,
+        #[arg(long, default_value = "state/dg")]
+        data_dir: std::path::PathBuf,
     },
 }
 
@@ -28,7 +35,11 @@ async fn main() -> ExitCode {
         .init();
 
     let result = match cli.command {
-        Command::Serve { listen } => dg::serve(listen).await,
+        Command::Serve { listen, data_dir } => dg::serve(listen, data_dir).await,
+        Command::Init { data_dir } => match dg::store::Store::open(&data_dir).and_then(|store| store.bootstrap()) {
+            Ok(key) => { println!("{}", serde_json::json!({"owner_key":key})); Ok(()) },
+            Err(error) => Err(dg::ServerError::Application(error)),
+        },
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
