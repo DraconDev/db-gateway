@@ -34,6 +34,8 @@ Per TASKS.md, implemented over the M0 foundation with confirmed decisions: custo
 
 Evidence 2026-09-17: `cargo test --workspace --locked` 16 passed (unit incl. invalid SQL/args, deadline cancellation with rollback+recovery, per-principal idempotency capacity, parallel independent databases; CLI; 6-scenario E2E over real server processes: round trip + restart, scoped-key denials across create/list/issue/revoke, batch rollback + result limits, idempotent replay + conflict, bootstrap refusal, and `cli_commands_against_running_server` exercising `dg create/list/query` with parameterized args, `--json`, and nonzero failure exits); `cargo fmt/clippy -D warnings` clean; root `npm test` integration suite passes. Committed as `8c17d1a`, `6e03ede`, `36349a5`.
 
+Audit repair evidence 2026-09-17: Rust 16/16 and root `npm test` 2/2 pass, including the verbatim `docs/api.md` CLI walkthrough on a local server (valid `bot_a`, exact key response, tables, batch, revocation). Type-check regressions reject integer-object arguments; live SQL tests verify supported values and object rejection for execute/batch. Both app roles are tested across all four management routes. fmt/clippy remain clean.
+
 ### Subsequent milestones
 
 1. **M2 — safe lifecycle:** phase 6; clone/export/import/delete concurrency and failure tests.
@@ -49,8 +51,6 @@ Evidence 2026-09-17: `cargo test --workspace --locked` 16 passed (unit incl. inv
 - **Before deployment:** confirm micro2 architecture/disk/network details and measure the complete stack's memory consumption.
 
 These decisions do not block the protocol-neutral M0 foundation. No external infrastructure or production credentials are needed for M0.
-
-## 1. Define the initial contract
 
 ## 1. Define the initial contract
 
