@@ -179,7 +179,7 @@ async fn export(
     headers: HeaderMap,
     body: std::result::Result<Json<ExportRequest>, JsonRejection>,
 ) -> Result<Json<Value>> {
-    let body = json_body(body)?;
+    json_body(body)?;
     work(store, headers, move |s, p| {
         p.database(&name)?;
         let temp = s.export_snapshot(&name)?;
@@ -203,10 +203,7 @@ async fn export(
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ExportRequest {
-    #[serde(default)]
-    _unused: Option<serde_json::Value>,
-}
+struct ExportRequest {}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
