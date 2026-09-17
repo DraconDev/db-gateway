@@ -293,9 +293,7 @@ impl Store {
             }
             _ => {
                 drop(dst);
-                let _ = std::fs::remove_file(dest);
-                let _ = std::fs::remove_file(dest.with_extension("sqlite-wal"));
-                let _ = std::fs::remove_file(dest.with_extension("sqlite-shm"));
+                remove_database_files(dest);
                 Err(Error::new(
                     429,
                     "capacity_exceeded",
