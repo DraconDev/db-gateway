@@ -4,6 +4,7 @@ pub mod api;
 pub mod client;
 pub mod error;
 pub mod execution;
+pub mod shell;
 pub mod store;
 pub mod values;
 

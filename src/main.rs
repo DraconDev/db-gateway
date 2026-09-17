@@ -58,6 +58,8 @@ enum Command {
         #[arg(long, value_name = "NAME")]
         confirm: Option<String>,
     },
+    /// Interactive SQL session over the HTTP API (piped stdin works too).
+    Shell,
     Query {
         name: String,
         sql: String,
@@ -184,6 +186,20 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 )));
             }
             (Method::DELETE, format!("/v1/databases/{name}"), None, None)
+        }
+        Command::Shell => {
+            let key = dg::client::read_key(cli.key_file.as_deref().ok_or(Application(
+                Error::new(400, "missing_credential", "--key-file required"),
+            ))?)
+            .map_err(Application)?;
+            return dg::shell::run(
+                &cli.server,
+                &key,
+                std::io::stdin(),
+                std::io::stdout(),
+            )
+            .await
+            .map_err(Application);
         }
         Command::Query {
             name,
