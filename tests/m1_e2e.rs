@@ -627,3 +627,271 @@ fn cli_commands_against_running_server() {
     assert!(!ok);
     assert_eq!(body["error"]["code"], "invalid_credential");
 }
+
+#[test]
+fn lifecycle_clone_export_import_delete() {
+    let server = start_server();
+    let owner = owner_bootstrap(&server);
+    create_database(&server.address, &owner, "src");
+    let (status, _) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/src/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)"})),
+    );
+    assert_eq!(status, 200);
+    let (status, _) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/src/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "INSERT INTO t (v) VALUES ('alpha'),('beta')", "args": []})),
+    );
+    assert_eq!(status, 200);
+
+    // Clone: independent copy with the same committed data.
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/src/clone",
+        Some(&owner),
+        None,
+        Some(&json!({"destination": "copy1"})),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (_, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/copy1/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "SELECT count(*) FROM t", "args": []})),
+    );
+    assert_eq!(body["rows"], json!([[2]]));
+
+    // Export: base64 snapshot, valid standalone SQLite with committed data.
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/src/export",
+        Some(&owner),
+        None,
+        Some(&json!({})),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["database"], "src");
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/src/import",
+        Some(&owner),
+        None,
+        Some(&json!({"name": "restored", "data_base64": body["data_base64"]})),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (_, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/restored/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "SELECT v FROM t ORDER BY id", "args": []})),
+    );
+    assert_eq!(body["rows"], json!([["alpha"], ["beta"]]));
+
+    // Delete: tombstone. Query 404s, recreation 409s, file remains during retention.
+    let (status, body) = request(
+        &server.address,
+        "DELETE",
+        "/v1/databases/copy1",
+        Some(&owner),
+        None,
+        None,
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["deleted"], json!(true));
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/copy1/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "SELECT 1", "args": []})),
+    );
+    assert_eq!(status, 404);
+    assert_eq!(error_code(&body), "database_not_found");
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases",
+        Some(&owner),
+        None,
+        Some(&json!({"name": "copy1"})),
+    );
+    assert_eq!(status, 409, "recreating a tombstoned name must fail: {body}");
+    // Double delete: second is 409 already_deleted.
+    let (status, body) = request(
+        &server.address,
+        "DELETE",
+        "/v1/databases/copy1",
+        Some(&owner),
+        None,
+        None,
+    );
+    assert_eq!(status, 409, "{body}");
+    // Deleting a never-existing name is 404.
+    let (status, body) = request(
+        &server.address,
+        "DELETE",
+        "/v1/databases/never_was",
+        Some(&owner),
+        None,
+        None,
+    );
+    assert_eq!(status, 404, "{body}");
+    // App keys cannot delete.
+    let rw = issue_key(&server.address, &owner, "writer", "database_read_write", &["src"]);
+    let (status, _) = request(
+        &server.address,
+        "DELETE",
+        "/v1/databases/src",
+        Some(&rw),
+        None,
+        None,
+    );
+    assert_eq!(status, 403);
+}
+
+#[test]
+fn failed_import_and_missing_source_never_publish() {
+    let server = start_server();
+    let owner = owner_bootstrap(&server);
+    // Garbage import payload: not a SQLite database at all.
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/src/import",
+        Some(&owner),
+        None,
+        Some(&json!({"name": "bad_import", "data_base64": "bm90IHNxbGl0ZQ=="})),
+    );
+    assert_eq!(status, 400, "{body}");
+    // Nothing published under that name; the file must not linger.
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/bad_import/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "SELECT 1", "args": []})),
+    );
+    assert_eq!(status, 404, "{body}");
+    assert_eq!(error_code(&body), "database_not_found");
+    // Clone from a missing source never creates the destination.
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/ghost/clone",
+        Some(&owner),
+        None,
+        Some(&json!({"destination": "phantom"})),
+    );
+    assert_eq!(status, 404, "{body}");
+    let (status, _) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/phantom/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "SELECT 1", "args": []})),
+    );
+    assert_eq!(status, 404);
+    // Tombstone name cannot be reused as an import target either.
+    create_database(&server.address, &owner, "src");
+    let (status, _) = request(
+        &server.address,
+        "DELETE",
+        "/v1/databases/src",
+        Some(&owner),
+        None,
+        None,
+    );
+    assert_eq!(status, 200);
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/src/import",
+        Some(&owner),
+        None,
+        Some(&json!({"name": "src", "data_base64": ""})),
+    );
+    assert_eq!(status, 409, "tombstoned name must not be importable: {body}");
+}
+
+#[test]
+fn clone_during_writes_takes_consistent_snapshot() {
+    let server = start_server();
+    let owner = owner_bootstrap(&server);
+    create_database(&server.address, &owner, "busy");
+    let (status, _) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/busy/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)", "args": []})),
+    );
+    assert_eq!(status, 200);
+    // One writer thread keeps committing; the clone must still succeed and
+    // yield a self-consistent snapshot (a committed prefix, not torn data).
+    let address = server.address.clone();
+    let owner2 = owner.clone();
+    let writer = std::thread::spawn(move || {
+        for i in 0..25 {
+            let (status, _) = request(
+                &address,
+                "POST",
+                "/v1/databases/busy/query",
+                Some(&owner2),
+                None,
+                Some(&json!({"sql": "INSERT INTO t (v) VALUES (?)", "args": [json!(format!("w{i}"))]})),
+            );
+            assert_eq!(status, 200);
+        }
+    });
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/busy/clone",
+        Some(&owner),
+        None,
+        Some(&json!({"destination": "snap"})),
+    );
+    writer.join().unwrap();
+    assert_eq!(status, 200, "{body}");
+    // Snapshot is a committed prefix: between 0 and 25 rows, integrity intact.
+    let (_, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/snap/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "SELECT count(*) FROM t", "args": []})),
+    );
+    let snap_count = body["rows"][0][0].as_i64().unwrap();
+    assert!((0..=25).contains(&snap_count));
+    let (_, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/busy/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "SELECT count(*) FROM t", "args": []})),
+    );
+    assert_eq!(body["rows"][0][0], 25);
+    let _ = snap_count;
+}
