@@ -239,6 +239,127 @@ pub fn execute(
 mod tests {
     use super::*;
     #[test]
+    fn invalid_sql_and_arguments_are_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.sqlite");
+        initialize(&path).unwrap();
+        let s = |sql: &str, args| Statement {
+            sql: sql.into(),
+            args,
+        };
+        // Invalid SQL: syntax error.
+        assert_eq!(
+            execute(&path, &[s("SELEKT 1", vec![])], false, false, "owner", None)
+                .unwrap_err()
+                .code,
+            "invalid_sql"
+        );
+        // Valid SQL, wrong parameter count.
+        assert_eq!(
+            execute(&path, &[s("SELECT 1, 2", vec![json!(1)])], false, false, "owner", None)
+                .unwrap_err()
+                .code,
+            "invalid_sql"
+        );
+        // Unsupported argument type.
+        assert_eq!(
+            execute(&path, &[s("SELECT 1", vec![json!({"a": 1})])], false, false, "owner", None)
+                .unwrap_err()
+                .code,
+            "invalid_request"
+        );
+        // Protected server table is not writable by application SQL.
+        assert_eq!(
+            execute(
+                &path,
+                &[s("INSERT INTO _dg_replay VALUES ('x','y','z','w',1)", vec![])],
+                false,
+                false,
+                "owner",
+                None
+            )
+            .unwrap_err()
+            .code,
+            "sql_forbidden"
+        );
+    }
+
+    #[test]
+    fn deadline_interrupts_expensive_query_and_database_recovers() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.sqlite");
+        initialize(&path).unwrap();
+        let s = |sql: &str, args| Statement {
+            sql: sql.into(),
+            args,
+        };
+        execute(
+            &path,
+            &[s("CREATE TABLE heavy (v INTEGER)", vec![])],
+            true,
+            false,
+            "owner",
+            None,
+        )
+        .unwrap();
+        // A deliberately expensive query: recursive CTE far past the 2s deadline.
+        let expensive =
+            "INSERT INTO heavy WITH RECURSIVE c(v) AS (SELECT 1 UNION ALL SELECT v+1 FROM c) SELECT v FROM c";
+        let error = execute(&path, &[s(expensive, vec![])], false, false, "owner", None)
+            .unwrap_err();
+        assert_eq!(error.code, "query_deadline_exceeded");
+        // The interrupted write must have rolled back and the database must
+        // still serve new requests.
+        let result = execute(
+            &path,
+            &[s("INSERT INTO heavy VALUES (1)", vec![])],
+            false,
+            false,
+            "owner",
+            None,
+        )
+        .unwrap();
+        assert_eq!(result["rows_affected"], 1);
+        let count = execute(&path, &[s("SELECT count(*) FROM heavy", vec![])], false, true, "owner", None).unwrap();
+        assert_eq!(count["rows"], json!([[1]]), "interrupted write must not have committed");
+    }
+
+    #[test]
+    fn idempotency_capacity_is_per_principal() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.sqlite");
+        initialize(&path).unwrap();
+        let s = |sql: &str| Statement {
+            sql: sql.into(),
+            args: vec![],
+        };
+        execute(&path, &[s("CREATE TABLE n (v INTEGER)")], true, false, "owner", None).unwrap();
+        // Fill principal A to the documented per-principal cap.
+        for i in 0..MAX_REPLAYS {
+            execute(
+                &path,
+                &[s("INSERT INTO n VALUES (1)")],
+                false,
+                false,
+                "writer_a",
+                Some(&format!("key-{i}")),
+            )
+            .unwrap_or_else(|e| panic!("write {i}: {e}"));
+        }
+        // Principal A at cap: further keyed writes are rejected...
+        assert_eq!(
+            execute(&path, &[s("INSERT INTO n VALUES (9)")], false, false, "writer_a", Some("overflow")).unwrap_err().code,
+            "capacity_exceeded"
+        );
+        // ...but principal B is unaffected (regression: capacity was global).
+        let (status_key) = execute(&path, &[s("INSERT INTO n VALUES (1)")], false, false, "writer_b", Some("b-first"));
+        assert!(status_key.is_ok(), "other principal must not be locked out: {status_key:?}");
+        // Replay at capacity still replays instead of failing.
+        let replay = execute(&path, &[s("INSERT INTO n VALUES (0)")], false, false, "writer_a", Some("key-0"));
+        assert!(replay.is_ok());
+    }
+
+    #[test]
     fn sqlite_parameterized_round_trip_survives_reopen() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.sqlite");
