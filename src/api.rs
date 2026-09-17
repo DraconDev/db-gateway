@@ -16,6 +16,10 @@ use std::sync::Arc;
 pub fn router(store: Arc<Store>) -> Router {
     Router::new()
         .route("/v1/databases", get(list).post(create))
+        .route("/v1/databases/{name}", delete(remove))
+        .route("/v1/databases/{name}/clone", post(clone_route))
+        .route("/v1/databases/{name}/export", post(export))
+        .route("/v1/databases/{name}/import", post(import))
         .route("/v1/keys", post(issue))
         .route("/v1/keys/{name}", delete(revoke))
         .route("/v1/databases/{name}/query", post(query))
