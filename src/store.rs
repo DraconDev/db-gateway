@@ -84,8 +84,13 @@ impl Store {
             queues: Mutex::new(HashMap::new()),
         };
         store.meta()?.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS credentials(name TEXT PRIMARY KEY, hash TEXT UNIQUE NOT NULL, role TEXT NOT NULL, databases TEXT NOT NULL); CREATE TABLE IF NOT EXISTS databases(name TEXT PRIMARY KEY);")?;
-        // M2 migration: tombstone support for safe deletion.
-        store.meta()?.execute_batch("ALTER TABLE databases ADD COLUMN deleted_at INTEGER; ALTER TABLE databases ADD COLUMN purge_after INTEGER;")?;
+        // M2 migration: tombstone support for safe deletion. ALTER fails
+        // harmlessly when the columns already exist.
+        for column in ["deleted_at INTEGER", "purge_after INTEGER"] {
+            let _ = store
+                .meta()?
+                .execute_batch(&format!("ALTER TABLE databases ADD COLUMN {column};"));
+        }
         Ok(store)
     }
     fn meta(&self) -> Result<Connection> {
