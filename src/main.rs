@@ -22,7 +22,10 @@ enum Command {
 #[tokio::main]
 async fn main() -> ExitCode {
     let cli = Cli::parse();
-    tracing_subscriber::fmt().json().with_writer(std::io::stderr).init();
+    tracing_subscriber::fmt()
+        .json()
+        .with_writer(std::io::stderr)
+        .init();
 
     let result = match cli.command {
         Command::Serve { listen } => dg::serve(listen).await,

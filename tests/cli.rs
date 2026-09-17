@@ -1,7 +1,10 @@
 use std::process::Command;
 
 fn dg(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_dg")).args(args).output().unwrap()
+    Command::new(env!("CARGO_BIN_EXE_dg"))
+        .args(args)
+        .output()
+        .unwrap()
 }
 
 #[test]
@@ -16,7 +19,11 @@ fn help_and_version() {
 
 #[test]
 fn invalid_configuration_fails_without_binding() {
-    assert!(!dg(&["serve", "--listen", "not-an-address"]).status.success());
+    assert!(
+        !dg(&["serve", "--listen", "not-an-address"])
+            .status
+            .success()
+    );
     let public = dg(&["serve", "--listen", "0.0.0.0:7432"]);
     assert!(!public.status.success());
     let log: serde_json::Value = serde_json::from_slice(&public.stderr).unwrap();

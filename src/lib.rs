@@ -24,7 +24,10 @@ impl ServerError {
 impl fmt::Display for ServerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NonLoopback => write!(f, "only loopback listening is supported before authentication is implemented"),
+            Self::NonLoopback => write!(
+                f,
+                "only loopback listening is supported before authentication is implemented"
+            ),
             Self::Io(error) => write!(f, "{error}"),
         }
     }
@@ -52,7 +55,10 @@ struct Liveness {
 
 /// Liveness is deliberately not database readiness or backup health.
 pub fn router() -> Router {
-    Router::new().route("/health/live", get(|| async { Json(Liveness { status: "ok" }) }))
+    Router::new().route(
+        "/health/live",
+        get(|| async { Json(Liveness { status: "ok" }) }),
+    )
 }
 
 pub async fn serve(listen: SocketAddr) -> Result<(), ServerError> {
@@ -71,14 +77,20 @@ async fn shutdown_signal() {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{SignalKind, signal};
-        match (signal(SignalKind::interrupt()), signal(SignalKind::terminate())) {
+        match (
+            signal(SignalKind::interrupt()),
+            signal(SignalKind::terminate()),
+        ) {
             (Ok(mut interrupt), Ok(mut terminate)) => {
                 tokio::select! {
                     _ = interrupt.recv() => {},
                     _ = terminate.recv() => {},
                 }
             }
-            _ => tracing::error!(code = "signal_handler_error", "cannot register shutdown signals"),
+            _ => tracing::error!(
+                code = "signal_handler_error",
+                "cannot register shutdown signals"
+            ),
         }
     }
     #[cfg(not(unix))]
@@ -90,7 +102,10 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{body::{Body, to_bytes}, http::{Request, StatusCode}};
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode},
+    };
     use tower::ServiceExt;
 
     #[test]
@@ -106,16 +121,35 @@ mod tests {
 
     #[tokio::test]
     async fn liveness_is_json() {
-        let response = router().oneshot(Request::builder().uri("/health/live").body(Body::empty()).unwrap()).await.unwrap();
+        let response = router()
+            .oneshot(
+                Request::builder()
+                    .uri("/health/live")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()["content-type"], "application/json");
         let body = to_bytes(response.into_body(), 1024).await.unwrap();
-        assert_eq!(serde_json::from_slice::<serde_json::Value>(&body).unwrap(), serde_json::json!({"status": "ok"}));
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            serde_json::json!({"status": "ok"})
+        );
     }
 
     #[tokio::test]
     async fn database_api_is_not_exposed() {
-        let response = router().oneshot(Request::builder().uri("/v1/databases").body(Body::empty()).unwrap()).await.unwrap();
+        let response = router()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/databases")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 }
