@@ -75,7 +75,7 @@ pub fn validate_import(path: &Path) -> Result<()> {
         return Err(Error::invalid());
     }
     let protected: i64 = conn
-        .prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name LIKE '\_dg\_%' ESCAPE '\'")?
+        .prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name LIKE '\\_dg\\_%' ESCAPE '\\'")?
         .query_row([], |r| r.get(0))?;
     if protected > 0 {
         // Imported files must not smuggle server-owned tables.
