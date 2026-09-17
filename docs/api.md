@@ -69,7 +69,7 @@ Every request runs in one managed transaction; a write is acknowledged only afte
 
 Clones and exports use SQLite's **online backup API**, never raw file copying: the snapshot is a consistent committed point in time even while writes continue on the source (WAL readers do not block writers). Exported files are standalone SQLite databases in DELETE journal mode.
 
-**Import** validates the file (`PRAGMA integrity_check`, foreign-key check, no protected tables besides the server's own `_dg_replay`) and publishes it in one atomic registry step — a failed import leaves no partial database. Import targets must not collide with live **or tombstoned** names.
+**Import** validates the file (`PRAGMA integrity_check`, foreign-key check, no protected tables besides the server's own `_dg_replay`) and publishes it in one atomic registry step — a failed import leaves no partial database. Import targets must not collide with live **or tombstoned** names. Before publication the gateway ensures its `_dg_replay` schema exists, so **keyed writes and replays work immediately on imported databases**; ordinary external SQLite files need no preparation, and foreign protected tables are rejected rather than silently overwritten.
 
 **Delete is owner-only and tombstoned:** the registry row keeps `deleted_at` and a separate `purge_after` deadline. The name immediately disappears from listing and subsequent owner/scoped-key queries return `404 database_not_found`; create/import are refused (`409`) while the tombstone holds. Credentials remain valid for their other databases. Already-started requests may finish against the retained file.
 
