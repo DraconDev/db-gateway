@@ -16,15 +16,17 @@ This file is a plan, not authorization to deploy, migrate production data, delet
 
 This is the canonical project checklist. Mark items complete only with implementation or documentation evidence and the relevant passing checks. The phases below are a roadmap, not ten tasks to implement in one pass.
 
-### M0 — local foundation (current)
+### M0 — local foundation (complete, pending review)
 
-- [ ] Add a Rust workspace exposing the `dg` executable.
-- [ ] Provide `dg --help`, `dg --version`, and a loopback-only `dg serve` with a minimal liveness endpoint; no SQL or management routes yet.
-- [ ] Validate startup configuration and provide structured errors/logging without credentials.
-- [ ] Add automated tests, formatting/lint checks, CI, and reproducible local instructions.
-- [ ] Record initial architecture, non-goals, and pending decisions in `docs/architecture.md`.
+- [x] Add a Rust workspace exposing the `dg` executable.
+- [x] Provide `dg --help`, `dg --version`, and a loopback-only `dg serve` with a minimal liveness endpoint; no SQL or management routes yet.
+- [x] Validate startup configuration and provide structured errors/logging without credentials.
+- [x] Add automated tests, formatting/lint checks, CI, and reproducible local instructions.
+- [x] Record initial architecture, non-goals, and pending decisions in `docs/architecture.md`.
 
 Acceptance: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, and `cargo test --workspace --locked` pass. A local server returns the documented liveness response. This milestone is not a usable database service.
+
+Evidence 2026-09-17: fmt/clippy/tests clean (5 tests), live `curl` against a randomly bound loopback port returned `200 {"status":"ok"}`, SIGTERM exited 0, working tree clean. A test asserts `/v1/databases` is still absent.
 
 ### M1 — first authenticated database round trip
 
