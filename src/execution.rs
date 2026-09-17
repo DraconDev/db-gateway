@@ -256,23 +256,40 @@ mod tests {
         );
         // Valid SQL, wrong parameter count.
         assert_eq!(
-            execute(&path, &[s("SELECT 1, 2", vec![json!(1)])], false, false, "owner", None)
-                .unwrap_err()
-                .code,
+            execute(
+                &path,
+                &[s("SELECT 1, 2", vec![json!(1)])],
+                false,
+                false,
+                "owner",
+                None
+            )
+            .unwrap_err()
+            .code,
             "invalid_sql"
         );
         // Unsupported argument type.
         assert_eq!(
-            execute(&path, &[s("SELECT 1", vec![json!({"a": 1})])], false, false, "owner", None)
-                .unwrap_err()
-                .code,
+            execute(
+                &path,
+                &[s("SELECT 1", vec![json!({"a": 1})])],
+                false,
+                false,
+                "owner",
+                None
+            )
+            .unwrap_err()
+            .code,
             "invalid_request"
         );
         // Protected server table is not writable by application SQL.
         assert_eq!(
             execute(
                 &path,
-                &[s("INSERT INTO _dg_replay VALUES ('x','y','z','w',1)", vec![])],
+                &[s(
+                    "INSERT INTO _dg_replay VALUES ('x','y','z','w',1)",
+                    vec![]
+                )],
                 false,
                 false,
                 "owner",
@@ -303,10 +320,9 @@ mod tests {
         )
         .unwrap();
         // A deliberately expensive query: recursive CTE far past the 2s deadline.
-        let expensive =
-            "INSERT INTO heavy WITH RECURSIVE c(v) AS (SELECT 1 UNION ALL SELECT v+1 FROM c) SELECT v FROM c";
-        let error = execute(&path, &[s(expensive, vec![])], false, false, "owner", None)
-            .unwrap_err();
+        let expensive = "INSERT INTO heavy WITH RECURSIVE c(v) AS (SELECT 1 UNION ALL SELECT v+1 FROM c) SELECT v FROM c";
+        let error =
+            execute(&path, &[s(expensive, vec![])], false, false, "owner", None).unwrap_err();
         assert_eq!(error.code, "query_deadline_exceeded");
         // The interrupted write must have rolled back and the database must
         // still serve new requests.
@@ -320,8 +336,20 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result["rows_affected"], 1);
-        let count = execute(&path, &[s("SELECT count(*) FROM heavy", vec![])], false, true, "owner", None).unwrap();
-        assert_eq!(count["rows"], json!([[1]]), "interrupted write must not have committed");
+        let count = execute(
+            &path,
+            &[s("SELECT count(*) FROM heavy", vec![])],
+            false,
+            true,
+            "owner",
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            count["rows"],
+            json!([[1]]),
+            "interrupted write must not have committed"
+        );
     }
 
     #[test]
@@ -333,7 +361,15 @@ mod tests {
             sql: sql.into(),
             args: vec![],
         };
-        execute(&path, &[s("CREATE TABLE n (v INTEGER)")], true, false, "owner", None).unwrap();
+        execute(
+            &path,
+            &[s("CREATE TABLE n (v INTEGER)")],
+            true,
+            false,
+            "owner",
+            None,
+        )
+        .unwrap();
         // Fill principal A to the documented per-principal cap.
         for i in 0..MAX_REPLAYS {
             execute(
@@ -348,14 +384,40 @@ mod tests {
         }
         // Principal A at cap: further keyed writes are rejected...
         assert_eq!(
-            execute(&path, &[s("INSERT INTO n VALUES (9)")], false, false, "writer_a", Some("overflow")).unwrap_err().code,
+            execute(
+                &path,
+                &[s("INSERT INTO n VALUES (9)")],
+                false,
+                false,
+                "writer_a",
+                Some("overflow")
+            )
+            .unwrap_err()
+            .code,
             "capacity_exceeded"
         );
         // ...but principal B is unaffected (regression: capacity was global).
-        let status_key = execute(&path, &[s("INSERT INTO n VALUES (1)")], false, false, "writer_b", Some("b-first"));
-        assert!(status_key.is_ok(), "other principal must not be locked out: {status_key:?}");
+        let status_key = execute(
+            &path,
+            &[s("INSERT INTO n VALUES (1)")],
+            false,
+            false,
+            "writer_b",
+            Some("b-first"),
+        );
+        assert!(
+            status_key.is_ok(),
+            "other principal must not be locked out: {status_key:?}"
+        );
         // Replay at capacity still replays instead of failing (same key + identical body).
-        let replay = execute(&path, &[s("INSERT INTO n VALUES (1)")], false, false, "writer_a", Some("key-0"));
+        let replay = execute(
+            &path,
+            &[s("INSERT INTO n VALUES (1)")],
+            false,
+            false,
+            "writer_a",
+            Some("key-0"),
+        );
         assert!(replay.is_ok());
     }
 
@@ -366,7 +428,18 @@ mod tests {
             .map(|i| {
                 let p = dir.path().join(format!("db{i}.sqlite"));
                 initialize(&p).unwrap();
-                execute(&p, &[Statement { sql: "CREATE TABLE t (v INTEGER)".into(), args: vec![] }], true, false, "owner", None).unwrap();
+                execute(
+                    &p,
+                    &[Statement {
+                        sql: "CREATE TABLE t (v INTEGER)".into(),
+                        args: vec![],
+                    }],
+                    true,
+                    false,
+                    "owner",
+                    None,
+                )
+                .unwrap();
                 p
             })
             .collect();
@@ -382,7 +455,10 @@ mod tests {
                     for n in 0..20 {
                         execute(
                             &path,
-                            &[Statement { sql: "INSERT INTO t VALUES (?)".into(), args: vec![json!(n)] }],
+                            &[Statement {
+                                sql: "INSERT INTO t VALUES (?)".into(),
+                                args: vec![json!(n)],
+                            }],
                             false,
                             false,
                             "owner",
@@ -397,7 +473,18 @@ mod tests {
             handle.join().unwrap().unwrap();
         }
         for (i, path) in paths.iter().enumerate() {
-            let count = execute(path, &[Statement { sql: "SELECT count(*) FROM t".into(), args: vec![] }], false, true, "owner", None).unwrap();
+            let count = execute(
+                path,
+                &[Statement {
+                    sql: "SELECT count(*) FROM t".into(),
+                    args: vec![],
+                }],
+                false,
+                true,
+                "owner",
+                None,
+            )
+            .unwrap();
             assert_eq!(count["rows"], json!([[20]]), "db{i}");
         }
     }

@@ -78,7 +78,7 @@ Done when: a clean checkout builds and passes formatting, linting, and starter t
 - [x] Bound global work, per-database queues, connection/cache counts, request sizes, and result sizes.
 - [x] Implement actual query interruption and deadline handling, not only HTTP timeouts.
 
-Done when: query, rollback, contention, cancellation, and bounded-result tests pass, including parallel activity against independent databases.
+Done when: query, rollback, contention, cancellation, and bounded-result tests pass, including parallel activity against independent databases. (Met 2026-09-17: committed tests cover invalid SQL/args and protected tables, 2s-deadline interruption with verified rollback + post-interruption recovery, per-principal idempotency capacity with two-principal regression, parallel writes to four independent databases, batch rollback, and 413 result limits.)
 
 ## 4. Implement access control and the API
 
