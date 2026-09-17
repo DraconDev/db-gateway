@@ -61,7 +61,7 @@ fn authorize(ctx: AuthContext<'_>, read_only: bool) -> Authorization {
 fn run_statement(conn: &Connection, statement: &Statement, read_only: bool) -> Result<Value> {
     if statement.sql.is_empty() || statement.sql.len() > 65536 || statement.args.len() > 256 { return Err(Error::invalid()); }
     let args = statement.args.iter().map(json_to_sql).collect::<std::result::Result<Vec<_>, _>>().map_err(|_| Error::invalid())?;
-    conn.authorizer(Some(move |ctx| authorize(ctx, read_only)))?;
+    conn.authorizer(Some(move |ctx: AuthContext<'_>| authorize(ctx, read_only)))?;
     let result = (|| {
         let mut stmt = conn.prepare(&statement.sql)?;
         // rusqlite's extra_check rejects multiple statements during prepare.

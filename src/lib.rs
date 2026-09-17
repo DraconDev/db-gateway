@@ -1,5 +1,11 @@
 //! Protocol-neutral foundation. Database execution and credentials are not implemented.
 
+pub mod api;
+pub mod store;
+pub mod error;
+pub mod execution;
+pub mod values;
+
 use std::{fmt, net::SocketAddr};
 
 use axum::{Json, Router, routing::get};
@@ -10,6 +16,7 @@ use tokio::net::TcpListener;
 pub enum ServerError {
     NonLoopback,
     Io(std::io::Error),
+    Application(error::Error),
 }
 
 impl ServerError {
@@ -17,6 +24,7 @@ impl ServerError {
         match self {
             Self::NonLoopback => "invalid_listen_address",
             Self::Io(_) => "server_io_error",
+            Self::Application(error) => error.code,
         }
     }
 }
@@ -29,6 +37,7 @@ impl fmt::Display for ServerError {
                 "only loopback listening is supported before authentication is implemented"
             ),
             Self::Io(error) => write!(f, "{error}"),
+            Self::Application(error) => write!(f, "{error}"),
         }
     }
 }
@@ -61,11 +70,13 @@ pub fn router() -> Router {
     )
 }
 
-pub async fn serve(listen: SocketAddr) -> Result<(), ServerError> {
+pub async fn serve(listen: SocketAddr, data_dir: std::path::PathBuf) -> Result<(), ServerError> {
     validate_listen(listen)?;
+    let store = tokio::task::spawn_blocking(move || store::Store::open(&data_dir)).await.map_err(|_| ServerError::Application(error::Error::internal()))?.map_err(ServerError::Application)?;
+    let app = router().merge(api::router(std::sync::Arc::new(store)));
     let listener = TcpListener::bind(listen).await?;
     tracing::info!(address = %listener.local_addr()?, "liveness server listening");
-    axum::serve(listener, router())
+    axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())
