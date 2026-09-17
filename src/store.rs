@@ -452,3 +452,48 @@ pub fn unauthorized() -> Error {
         "valid bearer credential required",
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clone_import_delete_roundtrip_at_store_level() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store.bootstrap().unwrap();
+        store.create("src").unwrap();
+        let path = store.path("src").unwrap();
+        crate::execution::execute(
+            &path,
+            &[crate::execution::Statement {
+                sql: "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)".into(),
+                args: vec![],
+            }],
+            false,
+            false,
+            "owner",
+            None,
+        )
+        .unwrap();
+        // Clone via store API only.
+        let result = store.clone_database("src", "copy1");
+        if let Err(ref e) = result {
+            panic!("clone failed: {e}");
+        }
+        let copy = store.path("copy1").unwrap();
+        let count = crate::execution::execute(
+            &copy,
+            &[crate::execution::Statement {
+                sql: "SELECT count(*) FROM t".into(),
+                args: vec![],
+            }],
+            false,
+            false,
+            "owner",
+            None,
+        )
+        .unwrap();
+        assert_eq!(count["rows"][0][0], 1);
+    }
+}
