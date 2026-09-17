@@ -37,7 +37,7 @@ async function withServer(run) {
     const keyFile = join(dataDir, 'owner.key');
     writeFileSync(keyFile, ownerKey + '\n');
     chmodSync(keyFile, 0o600);
-    await run(new Gateway(`http://${address}`, ownerKey), address, dataDir);
+    await run(new Gateway(`http://${address}`, ownerKey), address, dataDir, ownerKey);
   } finally {
     child.kill('SIGTERM');
     await new Promise((resolve) => child.on('exit', resolve));
@@ -46,7 +46,7 @@ async function withServer(run) {
 }
 
 test('execute, atomic batch, idempotent replay, and denial paths', async () => {
-  await withServer(async (gateway, address) => {
+  await withServer(async (gateway, address, dataDir, ownerKey) => {
     const db = gateway.database('game_a');
     // create requires POST /v1/databases — do it via raw request.
     await gateway.request('/v1/databases', 'POST', { name: 'game_a' });
