@@ -224,7 +224,7 @@ impl Store {
             })?;
         drop(file);
         crate::execution::initialize(&path)?;
-        tx.execute("INSERT INTO databases VALUES (?)", [name])?;
+        tx.execute("INSERT INTO databases (name) VALUES (?)", [name])?;
         tx.commit()?;
         Ok(())
     }
@@ -397,7 +397,7 @@ impl Store {
             remove_database_files(&path);
             return Err(error);
         }
-        tx.execute("INSERT INTO databases VALUES (?)", [name])?;
+        tx.execute("INSERT INTO databases (name) VALUES (?)", [name])?;
         tx.commit()?;
         Ok(())
     }
