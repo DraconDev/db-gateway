@@ -164,8 +164,8 @@ fn shell_session_covers_use_query_error_recovery_batch_and_quit() {
     assert!(stdout.contains("1 | alpha"), "row rendering: {stdout}");
     assert!(stdout.contains("2 | beta"), "row rendering: {stdout}");
     assert!(
-        stdout.contains("no such table") || stdout.contains("sql_forbidden") || stdout.contains("error"),
-        "failed statement printed: {stdout}"
+        stdout.contains("invalid_sql"),
+        "failed statement printed with stable code: {stdout}"
     );
     // Recovery: the count query after the failure still answered.
     assert!(stdout.contains("3"), "batch inserted a row and count reflects it");
