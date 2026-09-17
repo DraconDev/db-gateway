@@ -146,7 +146,9 @@ mod import_schema_tests {
         drop(make("CREATE TABLE _dg_replay (principal TEXT, key TEXT)"));
         assert!(validate_import(&path).is_err());
         // Extra column: rejected.
-        drop(make("CREATE TABLE _dg_replay (principal TEXT NOT NULL, key TEXT NOT NULL, hash TEXT NOT NULL, result TEXT NOT NULL, created INTEGER NOT NULL, extra TEXT, PRIMARY KEY(principal,key))"));
+        drop(make(
+            "CREATE TABLE _dg_replay (principal TEXT NOT NULL, key TEXT NOT NULL, hash TEXT NOT NULL, result TEXT NOT NULL, created INTEGER NOT NULL, extra TEXT, PRIMARY KEY(principal,key))",
+        ));
         assert!(validate_import(&path).is_err());
     }
 
