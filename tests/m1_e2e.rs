@@ -702,6 +702,8 @@ fn lifecycle_clone_export_import_delete() {
     );
     assert_eq!(body["rows"], json!([["alpha"], ["beta"]]));
 
+    let ro = issue_key(&server.address, &owner, "copy_reader", "database_read_only", &["copy1", "src"]);
+    let rw_copy = issue_key(&server.address, &owner, "copy_writer", "database_read_write", &["copy1", "src"]);
     // Delete: tombstone. Query 404s, recreation 409s, file remains during retention.
     let (status, body) = request(
         &server.address,
@@ -713,6 +715,17 @@ fn lifecycle_clone_export_import_delete() {
     );
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["deleted"], json!(true));
+    let (status, listed) = request(&server.address, "GET", "/v1/databases", Some(&owner), None, None);
+    assert_eq!(status, 200);
+    assert_eq!(listed["databases"], json!(["restored", "src"]));
+    assert!(server.data_dir.path().join("copy1.sqlite").exists());
+    for key in [&ro, &rw_copy] {
+        let (status, body) = request(&server.address, "POST", "/v1/databases/copy1/query", Some(key), None, Some(&json!({"sql":"SELECT 1"})));
+        assert_eq!(status, 404, "{body}");
+        assert_eq!(error_code(&body), "database_not_found");
+        // The credential itself survives and retains access to its other database.
+        assert_eq!(request(&server.address, "POST", "/v1/databases/src/query", Some(key), None, Some(&json!({"sql":"SELECT 1"}))).0, 200);
+    }
     let (status, body) = request(
         &server.address,
         "POST",
@@ -962,6 +975,10 @@ fn cli_lifecycle_commands_against_running_server() {
     assert!(ok, "export: {body}");
     assert_eq!(body["name"], "clidb2");
     assert!(out.is_file());
+    let snapshot = rusqlite::Connection::open(&out).unwrap();
+    assert_eq!(snapshot.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0)).unwrap(), "ok");
+    assert_eq!(snapshot.query_row("SELECT group_concat(v, ',') FROM t", [], |r| r.get::<_, String>(0)).unwrap(), "one,two");
+    drop(snapshot);
 
     // dg import
     let (ok, body, _) = run(
@@ -977,13 +994,15 @@ fn cli_lifecycle_commands_against_running_server() {
     assert!(ok, "query reimported: {stdout}");
     assert_eq!(_body["rows"], json!([[2]]));
 
-    // dg delete requires --yes. A refusal is a local validation error: the
-    // documented contract sends those to stderr, leaving stdout empty.
-    let (ok, _body, stdout) = run(&["delete", "clcopy"], &key_path);
-    assert!(!ok, "delete without --yes must fail");
-    assert!(stdout.trim().is_empty(), "stdout: {stdout}");
-    let (ok, body, _) = run(&["delete", "clcopy", "--yes"], &key_path);
-    assert!(ok, "delete --yes: {body}");
+    // Exact typed-name confirmation is required; absent/wrong values send no DELETE.
+    for args in [vec!["delete", "clcopy"], vec!["delete", "clcopy", "--confirm", "wrong"], vec!["delete", "clcopy", "--yes"]] {
+        let (ok, _, stdout) = run(&args, &key_path);
+        assert!(!ok, "invalid confirmation must fail");
+        assert!(stdout.trim().is_empty(), "stdout: {stdout}");
+        assert!(run(&["query", "clcopy", "SELECT 1"], &key_path).0);
+    }
+    let (ok, body, _) = run(&["delete", "clcopy", "--confirm", "clcopy"], &key_path);
+    assert!(ok, "delete --confirm: {body}");
     assert_eq!(body["deleted"], json!(true));
     let (ok, body, _) = run(&["query", "clcopy", "SELECT 1"], &key_path);
     assert!(!ok);

@@ -76,6 +76,7 @@ async fn work<T: Send + 'static>(
         .map_err(|_| Error::busy())?;
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
+        let _lease = store.request_lease()?;
         let principal = store.authenticate(&credential)?;
         f(&store, principal)
     })
@@ -169,7 +170,6 @@ async fn clone_route(
             return Err(Error::new(403, "forbidden", "read-only credential"));
         }
         s.clone_database(&name, &body.destination)?;
-        let _ = s.purge_expired();
         Ok(Json(json!({"source":name,"destination":body.destination})))
     })
     .await
@@ -189,7 +189,10 @@ async fn export(
         p.database(&name)?;
         let temp = s.export_snapshot(&name)?;
         let result = (|| {
-            let bytes = std::fs::read(&temp).map_err(|_| Error::internal())?;
+            if std::fs::metadata(temp.path()).map_err(|_| Error::internal())?.len() > MAX_EXPORT as u64 {
+                return Err(Error::new(413, "result_limit_exceeded", "export exceeds bounded response size"));
+            }
+            let bytes = std::fs::read(temp.path()).map_err(|_| Error::internal())?;
             if bytes.len() > MAX_EXPORT {
                 return Err(Error::new(
                     413,
@@ -199,8 +202,6 @@ async fn export(
             }
             Ok(Json(json!({"database":name,"sha256":hex::encode(Sha256::digest(&bytes)),"size":bytes.len(),"data_base64":BASE64_STANDARD.encode(bytes)})))
         })();
-        let _ = std::fs::remove_file(&temp);
-        let _ = s.purge_expired();
         result
     })
     .await
@@ -240,11 +241,8 @@ async fn import(
             ));
         }
         let temp = s.import_staging(&name)?;
-        std::fs::write(&temp, &bytes).map_err(|_| Error::internal())?;
-        let result = s.import_from(&body.name, &temp);
-        let _ = std::fs::remove_file(&temp);
-        result?;
-        let _ = s.purge_expired();
+        std::fs::write(temp.path(), &bytes).map_err(|_| Error::internal())?;
+        s.import_from(&body.name, temp.path())?;
         Ok(Json(json!({"imported":body.name,"from":name})))
     })
     .await

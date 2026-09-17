@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock, RwLockReadGuard},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::Semaphore;
@@ -17,6 +17,21 @@ pub struct Store {
     root: PathBuf,
     pub global: Arc<Semaphore>,
     queues: Mutex<HashMap<String, Arc<Semaphore>>>,
+    // All server requests hold a read lease until their connections close.
+    // Purge takes an exclusive lease before unlinking SQLite files.
+    lifecycle: RwLock<()>,
+}
+
+/// An operation exclusively owns this directory and all SQLite sidecars in it.
+/// Drop cleans up on every success/error path, without touching another request.
+pub struct Staging {
+    _directory: tempfile::TempDir,
+    path: PathBuf,
+}
+impl Staging {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
 }
 #[derive(Clone)]
 pub struct Principal {
@@ -82,6 +97,7 @@ impl Store {
             root: root.to_path_buf(),
             global: Arc::new(Semaphore::new(4)),
             queues: Mutex::new(HashMap::new()),
+            lifecycle: RwLock::new(()),
         };
         store.meta()?.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS credentials(name TEXT PRIMARY KEY, hash TEXT UNIQUE NOT NULL, role TEXT NOT NULL, databases TEXT NOT NULL); CREATE TABLE IF NOT EXISTS databases(name TEXT PRIMARY KEY);")?;
         // M2 migration: tombstone support for safe deletion. ALTER fails
@@ -304,20 +320,29 @@ impl Store {
         }
     }
 
-    /// Snapshot export to a server-side temp file; caller reads/removes it.
-    pub fn export_snapshot(&self, name: &str) -> Result<PathBuf> {
-        let temp = self.root.join(format!(".export-inflight-{name}.sqlite"));
-        remove_database_files(&temp);
-        self.export_to(name, &temp)?;
+    pub fn request_lease(&self) -> Result<RwLockReadGuard<'_, ()>> {
+        self.lifecycle.read().map_err(|_| Error::internal())
+    }
+
+    fn staging(&self) -> Result<Staging> {
+        let directory = tempfile::Builder::new()
+            .prefix(".lifecycle-")
+            .tempdir_in(&self.root)
+            .map_err(|_| Error::internal())?;
+        let path = directory.path().join("snapshot.sqlite");
+        Ok(Staging { _directory: directory, path })
+    }
+
+    /// Snapshot in a private directory, automatically removed by its owner.
+    pub fn export_snapshot(&self, name: &str) -> Result<Staging> {
+        let temp = self.staging()?;
+        self.export_to(name, temp.path())?;
         Ok(temp)
     }
 
-    /// Staging file for an import into the database named by the path.
-    pub fn import_staging(&self, name: &str) -> Result<PathBuf> {
+    pub fn import_staging(&self, name: &str) -> Result<Staging> {
         validate_name(name)?;
-        let temp = self.root.join(format!(".import-inflight-{name}.sqlite"));
-        remove_database_files(&temp);
-        Ok(temp)
+        self.staging()
     }
 
     /// Tombstone `name`: registry row keeps the file under lock so the
@@ -350,11 +375,18 @@ impl Store {
     }
 
     /// Physically remove files for tombstones whose retention elapsed.
-    /// Idempotent; called opportunistically after lifecycle operations.
+    /// Idempotent, driven by the server maintenance loop even when idle.
+    /// Skip a busy tick; never unlink while any request owns a connection.
     pub fn purge_expired(&self) -> Result<Vec<String>> {
+        let _exclusive = match self.lifecycle.try_write() {
+            Ok(lease) => lease,
+            Err(std::sync::TryLockError::WouldBlock) => return Ok(Vec::new()),
+            Err(_) => return Err(Error::internal()),
+        };
         let now = now_secs()?;
-        let conn = self.meta()?;
-        let due: Vec<String> = conn
+        let mut conn = self.meta()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let due: Vec<String> = tx
             .prepare("SELECT name FROM databases WHERE deleted_at IS NOT NULL AND purge_after<=?")?
             .query_map([now], |r| r.get::<_, String>(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -367,9 +399,10 @@ impl Store {
                     std::fs::remove_file(&path).map_err(|_| Error::internal())?;
                 }
             }
-            conn.execute("DELETE FROM databases WHERE name=?", [&name])?;
+            tx.execute("DELETE FROM databases WHERE name=? AND deleted_at IS NOT NULL", [&name])?;
             purged.push(name);
         }
+        tx.commit()?;
         Ok(purged)
     }
 
@@ -393,36 +426,29 @@ impl Store {
             return Err(Error::new(409, "database_exists", "database exists"));
         }
         let path = self.root.join(format!("{name}.sqlite"));
-        std::fs::copy(source, &path).map_err(|_| Error::invalid())?;
-        if let Err(error) = crate::execution::validate_import(&path) {
+        // Validate in private staging, then publish without overwriting orphans.
+        let staged = self.staging()?;
+        std::fs::copy(source, staged.path()).map_err(|_| Error::invalid())?;
+        crate::execution::validate_import(staged.path())?;
+        std::fs::hard_link(staged.path(), &path)
+            .map_err(|_| Error::new(409, "database_exists", "database file exists or cannot be published"))?;
+        let result = (|| {
+            tx.execute("INSERT INTO databases (name) VALUES (?)", [name])?;
+            tx.commit()?;
+            Ok(())
+        })();
+        if result.is_err() {
             remove_database_files(&path);
-            return Err(error);
         }
-        tx.execute("INSERT INTO databases (name) VALUES (?)", [name])?;
-        tx.commit()?;
-        Ok(())
+        result
     }
 
     /// Clone `source` into new database `dest` via the online backup API;
     /// the copy is validated and registered atomically by import_from.
     pub fn clone_database(&self, source: &str, dest: &str) -> Result<()> {
         validate_name(dest)?;
-        let temp = self.root.join(format!(".clone-inflight-{dest}.sqlite"));
-        remove_database_files(&temp);
-        if let Err(error) = self.export_to(source, &temp) {
-            remove_database_files(&temp);
-            return Err(error);
-        }
-        match self.import_from(dest, &temp) {
-            Ok(()) => {
-                let _ = std::fs::remove_file(&temp);
-                Ok(())
-            }
-            Err(error) => {
-                remove_database_files(&temp);
-                Err(error)
-            }
-        }
+        let temp = self.export_snapshot(source)?;
+        self.import_from(dest, temp.path())
     }
 }
 

@@ -54,8 +54,9 @@ enum Command {
     /// Tombstone a database; file purged after the retention window.
     Delete {
         name: String,
-        #[arg(long)]
-        yes: bool,
+        /// Type the exact database name again to confirm deletion.
+        #[arg(long, value_name = "NAME")]
+        confirm: Option<String>,
     },
     Query {
         name: String,
@@ -173,13 +174,13 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 None,
             )
         }
-        Command::Delete { name, yes } => {
+        Command::Delete { name, confirm } => {
             dg::store::validate_name(&name).map_err(Application)?;
-            if !yes {
+            if confirm.as_deref() != Some(name.as_str()) {
                 return Err(Application(Error::new(
                     400,
                     "confirmation_required",
-                    "destructive operation: rerun with --yes",
+                    "destructive operation: repeat the exact database name with --confirm NAME",
                 )));
             }
             (Method::DELETE, format!("/v1/databases/{name}"), None, None)

@@ -19,11 +19,11 @@ rusqlite = { version = "0.40.2", features = ["bundled", "extra_check", "hooks", 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11.0"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal"] }
+tempfile = "3.27.0"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "time"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json"] }
 
 [dev-dependencies]
 reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "json", "rustls"] }
-tempfile = "3.27.0"
 tower = { version = "0.5", features = ["util"] }
