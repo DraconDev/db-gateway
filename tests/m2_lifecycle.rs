@@ -52,13 +52,24 @@ impl Server {
         }
     }
     fn call(&self, method: &str, path: &str, body: Value) -> (u16, Value) {
-        let response = reqwest::blocking::Client::new()
+        self.call_keyed(method, path, body, None)
+    }
+    fn call_keyed(
+        &self,
+        method: &str,
+        path: &str,
+        body: Value,
+        idempotency_key: Option<&str>,
+    ) -> (u16, Value) {
+        let mut request = reqwest::blocking::Client::new()
             .request(method.parse().unwrap(), format!("{}{path}", self.url))
             .bearer_auth(&self.owner)
             .json(&body)
-            .timeout(Duration::from_secs(15))
-            .send()
-            .unwrap();
+            .timeout(Duration::from_secs(15));
+        if let Some(key) = idempotency_key {
+            request = request.header("Idempotency-Key", key);
+        }
+        let response = request.send().unwrap();
         (response.status().as_u16(), response.json().unwrap())
     }
     fn ok(&self, method: &str, path: &str, body: Value) -> Value {
@@ -264,27 +275,35 @@ fn imported_external_sqlite_file_supports_m1_keyed_writes() {
         "/v1/databases/external/import",
         json!({"name": "imported", "data_base64": encoded}),
     );
-    // Plain read works, then a keyed write succeeds exactly once.
+    // Plain read works, then a keyed INSERT executes exactly once: the replay
+    // returns the stored original response and the second execution is skipped.
     assert_eq!(
         server.query("imported", "SELECT value FROM ledger")["rows"],
         json!([["original"]])
     );
-    let write = json!({"sql": "UPDATE ledger SET value='spent' WHERE id=1"});
-    let first = server.call("POST", "/v1/databases/imported/query", write.clone());
+    let write = json!({"sql": "INSERT INTO ledger VALUES (2, 'keyed')"});
+    let first = server.call_keyed(
+        "POST",
+        "/v1/databases/imported/query",
+        write.clone(),
+        Some("imported-keyed-write"),
+    );
     assert_eq!(first.0, 200, "{}", first.1);
-    let replay = server.call("POST", "/v1/databases/imported/query", write.clone());
+    let replay = server.call_keyed(
+        "POST",
+        "/v1/databases/imported/query",
+        write.clone(),
+        Some("imported-keyed-write"),
+    );
     assert_eq!(replay.0, 200, "{}", replay.1);
     assert_eq!(
         replay.1, first.1,
         "keyed replay must return the stored result"
     );
     assert_eq!(
-        server.query(
-            "imported",
-            "SELECT count(*) FROM ledger WHERE value='spent'"
-        )["rows"],
+        server.query("imported", "SELECT count(*) FROM ledger WHERE id=2")["rows"],
         json!([[1]]),
-        "exactly one committed mutation despite the second request"
+        "exactly one committed mutation despite the second keyed request"
     );
     // The published file is a full gateway database with the replay schema.
     let store = dg::store::Store::open(server.dir.path()).unwrap();
