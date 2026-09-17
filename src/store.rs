@@ -437,6 +437,9 @@ impl Store {
         let staged = self.staging()?;
         std::fs::copy(source, staged.path()).map_err(|_| Error::invalid())?;
         crate::execution::validate_import(staged.path())?;
+        // The gateway requires its own replay schema on every managed file;
+        // external SQLite databases gain it before publication (idempotent).
+        crate::execution::initialize(staged.path())?;
         std::fs::hard_link(staged.path(), &path).map_err(|_| {
             Error::new(
                 409,

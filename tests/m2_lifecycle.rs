@@ -241,3 +241,47 @@ fn idle_server_purges_only_expired_tombstones_and_allows_safe_recreation() {
         json!(["expired"])
     );
 }
+
+#[test]
+fn imported_external_sqlite_file_supports_m1_keyed_writes() {
+    let server = Server::start();
+    // An ordinary SQLite database, produced by plain rusqlite with no gateway
+    // involvement: exactly what an owner would import from elsewhere.
+    let dir = tempfile::tempdir().unwrap();
+    let external = dir.path().join("external.sqlite");
+    let conn = Connection::open(&external).unwrap();
+    conn.execute_batch(
+        "PRAGMA journal_mode=DELETE;
+         CREATE TABLE ledger (id INTEGER PRIMARY KEY, value TEXT NOT NULL);
+         INSERT INTO ledger VALUES (1, 'original');",
+    )
+    .unwrap();
+    drop(conn);
+    let encoded = base64::engine::general_purpose::STANDARD.encode(std::fs::read(&external).unwrap());
+    server.ok(
+        "POST",
+        "/v1/databases/external/import",
+        json!({"name": "imported", "data_base64": encoded}),
+    );
+    // Plain read works, then a keyed write succeeds exactly once.
+    assert_eq!(server.query("imported", "SELECT value FROM ledger")["rows"], json!([["original"]]));
+    let write = json!({"sql": "UPDATE ledger SET value='spent' WHERE id=1"});
+    let first = server.call("POST", "/v1/databases/imported/query", write.clone());
+    assert_eq!(first.0, 200, "{}", first.1);
+    let replay = server.call("POST", "/v1/databases/imported/query", write.clone());
+    assert_eq!(replay.0, 200, "{}", replay.1);
+    assert_eq!(replay.1, first.1, "keyed replay must return the stored result");
+    assert_eq!(
+        server.query("imported", "SELECT count(*) FROM ledger WHERE value='spent'")["rows"],
+        json!([[1]]),
+        "exactly one committed mutation despite the second request"
+    );
+    // The published file is a full gateway database with the replay schema.
+    let store = dg::store::Store::open(server.dir.path()).unwrap();
+    let path = store.path("imported").unwrap();
+    let replay_tables: i64 = Connection::open(path)
+        .unwrap()
+        .query_row("SELECT count(*) FROM sqlite_master WHERE name='_dg_replay'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(replay_tables, 1);
+}
