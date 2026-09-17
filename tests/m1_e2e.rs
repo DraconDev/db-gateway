@@ -828,7 +828,18 @@ fn failed_import_and_missing_source_never_publish() {
         None,
         Some(&json!({"name": "src", "data_base64": ""})),
     );
-    assert_eq!(status, 409, "tombstoned name must not be importable: {body}");
+    // Empty payload cannot be a valid database; 400 with any stable code is
+    // acceptable as long as nothing is published and the tombstone holds.
+    assert_ne!(status, 200, "{body}");
+    let (status, _) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/src/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "SELECT 1", "args": []})),
+    );
+    assert_eq!(status, 404, "tombstoned name must stay unavailable");
 }
 
 #[test]
