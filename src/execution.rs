@@ -29,12 +29,12 @@ fn open(path: &Path) -> Result<Connection> {
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
     conn.busy_timeout(Duration::from_millis(250))?;
     conn.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL; PRAGMA trusted_schema=OFF; PRAGMA cache_size=-2048; PRAGMA temp_store=MEMORY;")?;
-    conn.set_limit(Limit::SQLITE_LIMIT_LENGTH, 1024 * 1024);
-    conn.set_limit(Limit::SQLITE_LIMIT_SQL_LENGTH, 64 * 1024);
-    conn.set_limit(Limit::SQLITE_LIMIT_COLUMN, 128);
-    conn.set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 256);
-    conn.set_limit(Limit::SQLITE_LIMIT_ATTACHED, 0);
-    conn.set_limit(Limit::SQLITE_LIMIT_VDBE_OP, 100000);
+    conn.set_limit(Limit::SQLITE_LIMIT_LENGTH, 1024 * 1024)?;
+    conn.set_limit(Limit::SQLITE_LIMIT_SQL_LENGTH, 64 * 1024)?;
+    conn.set_limit(Limit::SQLITE_LIMIT_COLUMN, 128)?;
+    conn.set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 256)?;
+    conn.set_limit(Limit::SQLITE_LIMIT_ATTACHED, 0)?;
+    conn.set_limit(Limit::SQLITE_LIMIT_VDBE_OP, 100000)?;
     Ok(conn)
 }
 pub fn initialize(path: &Path) -> Result<()> {

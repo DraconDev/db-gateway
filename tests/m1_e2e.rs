@@ -87,10 +87,12 @@ fn error_code(body: &Value) -> String {
     body["error"]["code"].as_str().unwrap_or_default().to_string()
 }
 
-fn owner_bootstrap(address: &str) -> String {
-    let (status, body) = request(address, "POST", "/v1/owner/bootstrap", None, None, Some(&json!({"key": "owner-test-credential"})));
-    assert_eq!(status, 200, "bootstrap: {body}");
-    body["owner_key"].as_str().unwrap().to_string()
+fn owner_bootstrap(server: &Server) -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_dg"))
+        .args(["init", "--data-dir", server.data_dir.path().to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "bootstrap: {}", String::from_utf8_lossy(&output.stderr));
+    serde_json::from_slice::<Value>(&output.stdout).unwrap()["owner_key"].as_str().unwrap().to_string()
 }
 
 fn create_database(address: &str, owner: &str, name: &str) {
@@ -114,7 +116,7 @@ fn issue_key(address: &str, owner: &str, name: &str, role: &str, databases: &[&s
 #[test]
 fn round_trip_write_read_persists_across_restart() {
     let mut server = start_server();
-    let owner = owner_bootstrap(&server.address);
+    let owner = owner_bootstrap(&server);
     create_database(&server.address, &owner, "game_a");
 
     let (status, body) = request(
@@ -195,7 +197,7 @@ fn start_server_with_dir(data_dir: &std::path::Path) -> Server {
 #[test]
 fn scoped_keys_enforce_boundaries() {
     let server = start_server();
-    let owner = owner_bootstrap(&server.address);
+    let owner = owner_bootstrap(&server);
     create_database(&server.address, &owner, "one");
     create_database(&server.address, &owner, "two");
     let ro = issue_key(&server.address, &owner, "reader", "database_read_only", &["one"]);
@@ -214,7 +216,7 @@ fn scoped_keys_enforce_boundaries() {
     // Read-only key may read but not write.
     let (status, _) = request(&server.address, "POST", "/v1/databases/one/query", Some(&ro), None, Some(&json!({"sql": "SELECT 1"})));
     assert_eq!(status, 200);
-    let (status, body) = request(&server.address, "POST", "/v1/databases/one/query", Some(&ro), None, Some(&json!({"sql": "INSERT INTO sqlite_master VALUES (1)"})));
+    let (status, body) = request(&server.address, "POST", "/v1/databases/one/query", Some(&ro), None, Some(&json!({"sql": "CREATE TABLE forbidden(v INTEGER)"})));
     assert_eq!(status, 403, "read-only write must be rejected: {body}");
 
     // Revoked keys stop working.
@@ -233,7 +235,7 @@ fn scoped_keys_enforce_boundaries() {
 #[test]
 fn atomic_batch_rolls_back_and_limits_bind() {
     let server = start_server();
-    let owner = owner_bootstrap(&server.address);
+    let owner = owner_bootstrap(&server);
     create_database(&server.address, &owner, "batchtest");
 
     let (status, _) = request(
@@ -281,7 +283,7 @@ fn atomic_batch_rolls_back_and_limits_bind() {
 #[test]
 fn idempotency_key_replays_committed_write() {
     let server = start_server();
-    let owner = owner_bootstrap(&server.address);
+    let owner = owner_bootstrap(&server);
     create_database(&server.address, &owner, "idem");
     let (status, _) = request(&server.address, "POST", "/v1/databases/idem/query", Some(&owner), None, Some(&json!({"sql": "CREATE TABLE n (v INTEGER)"})));
     assert_eq!(status, 200);
@@ -307,10 +309,12 @@ fn idempotency_key_replays_committed_write() {
 #[test]
 fn bootstrap_refuses_second_owner() {
     let server = start_server();
-    let owner = owner_bootstrap(&server.address);
-    let (status, body) = request(&server.address, "POST", "/v1/owner/bootstrap", None, None, Some(&json!({"key": "attacker"})));
-    assert_eq!(status, 409, "{body}");
-    assert_eq!(error_code(&body), "already_bootstrapped");
+    let owner = owner_bootstrap(&server);
+    let output = Command::new(env!("CARGO_BIN_EXE_dg"))
+        .args(["init", "--data-dir", server.data_dir.path().to_str().unwrap()])
+        .output().unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("already_bootstrapped"));
     // The owner key still authenticates.
     let (status, _) = request(&server.address, "GET", "/v1/databases", Some(&owner), None, None);
     assert_eq!(status, 200);
