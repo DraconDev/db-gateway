@@ -1,10 +1,10 @@
 //! Protocol-neutral foundation. Database execution and credentials are not implemented.
 
-pub mod client;
 pub mod api;
-pub mod store;
+pub mod client;
 pub mod error;
 pub mod execution;
+pub mod store;
 pub mod values;
 
 use std::{fmt, net::SocketAddr};
@@ -73,7 +73,10 @@ pub fn router() -> Router {
 
 pub async fn serve(listen: SocketAddr, data_dir: std::path::PathBuf) -> Result<(), ServerError> {
     validate_listen(listen)?;
-    let store = tokio::task::spawn_blocking(move || store::Store::open(&data_dir)).await.map_err(|_| ServerError::Application(error::Error::internal()))?.map_err(ServerError::Application)?;
+    let store = tokio::task::spawn_blocking(move || store::Store::open(&data_dir))
+        .await
+        .map_err(|_| ServerError::Application(error::Error::internal()))?
+        .map_err(ServerError::Application)?;
     let app = router().merge(api::router(std::sync::Arc::new(store)));
     let listener = TcpListener::bind(listen).await?;
     tracing::info!(address = %listener.local_addr()?, "liveness server listening");

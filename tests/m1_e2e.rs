@@ -40,11 +40,11 @@ fn start_server() -> Server {
     let mut address = None;
     for line in BufReader::new(stderr).lines() {
         let line = line.unwrap();
-        if let Ok(log) = serde_json::from_str::<Value>(&line) {
-            if let Some(addr) = log["fields"]["address"].as_str() {
-                address = Some(addr.to_string());
-                break;
-            }
+        if let Ok(log) = serde_json::from_str::<Value>(&line)
+            && let Some(addr) = log["fields"]["address"].as_str()
+        {
+            address = Some(addr.to_string());
+            break;
         }
     }
     Server {
@@ -84,19 +84,41 @@ fn request(
 }
 
 fn error_code(body: &Value) -> String {
-    body["error"]["code"].as_str().unwrap_or_default().to_string()
+    body["error"]["code"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string()
 }
 
 fn owner_bootstrap(server: &Server) -> String {
     let output = Command::new(env!("CARGO_BIN_EXE_dg"))
-        .args(["init", "--data-dir", server.data_dir.path().to_str().unwrap()])
-        .output().unwrap();
-    assert!(output.status.success(), "bootstrap: {}", String::from_utf8_lossy(&output.stderr));
-    serde_json::from_slice::<Value>(&output.stdout).unwrap()["owner_key"].as_str().unwrap().to_string()
+        .args([
+            "init",
+            "--data-dir",
+            server.data_dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "bootstrap: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice::<Value>(&output.stdout).unwrap()["owner_key"]
+        .as_str()
+        .unwrap()
+        .to_string()
 }
 
 fn create_database(address: &str, owner: &str, name: &str) {
-    let (status, body) = request(address, "POST", "/v1/databases", Some(owner), None, Some(&json!({"name": name})));
+    let (status, body) = request(
+        address,
+        "POST",
+        "/v1/databases",
+        Some(owner),
+        None,
+        Some(&json!({"name": name})),
+    );
     assert_eq!(status, 200, "create {name}: {body}");
 }
 
@@ -172,7 +194,13 @@ fn round_trip_write_read_persists_across_restart() {
 
 fn start_server_with_dir(data_dir: &std::path::Path) -> Server {
     let mut child = Command::new(env!("CARGO_BIN_EXE_dg"))
-        .args(["serve", "--listen", "127.0.0.1:0", "--data-dir", data_dir.to_str().unwrap()])
+        .args([
+            "serve",
+            "--listen",
+            "127.0.0.1:0",
+            "--data-dir",
+            data_dir.to_str().unwrap(),
+        ])
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
@@ -180,11 +208,11 @@ fn start_server_with_dir(data_dir: &std::path::Path) -> Server {
     let mut address = None;
     for line in BufReader::new(stderr).lines() {
         let line = line.unwrap();
-        if let Ok(log) = serde_json::from_str::<Value>(&line) {
-            if let Some(addr) = log["fields"]["address"].as_str() {
-                address = Some(addr.to_string());
-                break;
-            }
+        if let Ok(log) = serde_json::from_str::<Value>(&line)
+            && let Some(addr) = log["fields"]["address"].as_str()
+        {
+            address = Some(addr.to_string());
+            break;
         }
     }
     Server {
@@ -200,34 +228,95 @@ fn scoped_keys_enforce_boundaries() {
     let owner = owner_bootstrap(&server);
     create_database(&server.address, &owner, "one");
     create_database(&server.address, &owner, "two");
-    let ro = issue_key(&server.address, &owner, "reader", "database_read_only", &["one"]);
-    let rw = issue_key(&server.address, &owner, "writer", "database_read_write", &["one"]);
+    let ro = issue_key(
+        &server.address,
+        &owner,
+        "reader",
+        "database_read_only",
+        &["one"],
+    );
+    let rw = issue_key(
+        &server.address,
+        &owner,
+        "writer",
+        "database_read_write",
+        &["one"],
+    );
 
     // Cross-database denial: key scoped to `one` cannot touch `two`.
-    let (status, body) = request(&server.address, "POST", "/v1/databases/two/query", Some(&rw), None, Some(&json!({"sql": "SELECT 1"})));
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/two/query",
+        Some(&rw),
+        None,
+        Some(&json!({"sql": "SELECT 1"})),
+    );
     assert_eq!(status, 403);
     assert_eq!(error_code(&body), "database_forbidden");
 
     // Management routes are denied to app keys.
-    let (status, body) = request(&server.address, "POST", "/v1/databases", Some(&rw), None, Some(&json!({"name": "sneaky"})));
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases",
+        Some(&rw),
+        None,
+        Some(&json!({"name": "sneaky"})),
+    );
     assert_eq!(status, 403);
     assert_eq!(error_code(&body), "forbidden");
 
     // Read-only key may read but not write.
-    let (status, _) = request(&server.address, "POST", "/v1/databases/one/query", Some(&ro), None, Some(&json!({"sql": "SELECT 1"})));
+    let (status, _) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/one/query",
+        Some(&ro),
+        None,
+        Some(&json!({"sql": "SELECT 1"})),
+    );
     assert_eq!(status, 200);
-    let (status, body) = request(&server.address, "POST", "/v1/databases/one/query", Some(&ro), None, Some(&json!({"sql": "CREATE TABLE forbidden(v INTEGER)"})));
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/one/query",
+        Some(&ro),
+        None,
+        Some(&json!({"sql": "CREATE TABLE forbidden(v INTEGER)"})),
+    );
     assert_eq!(status, 403, "read-only write must be rejected: {body}");
 
     // Revoked keys stop working.
-    let (status, body) = request(&server.address, "DELETE", "/v1/keys/reader", Some(&owner), None, None);
+    let (status, body) = request(
+        &server.address,
+        "DELETE",
+        "/v1/keys/reader",
+        Some(&owner),
+        None,
+        None,
+    );
     assert_eq!(status, 200, "revoke: {body}");
-    let (status, body) = request(&server.address, "POST", "/v1/databases/one/query", Some(&ro), None, Some(&json!({"sql": "SELECT 1"})));
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/one/query",
+        Some(&ro),
+        None,
+        Some(&json!({"sql": "SELECT 1"})),
+    );
     assert_eq!(status, 401);
     assert_eq!(error_code(&body), "invalid_credential");
 
     // Missing database is an explicit 404, never a silent creation.
-    let (status, body) = request(&server.address, "POST", "/v1/databases/nope/query", Some(&owner), None, Some(&json!({"sql": "SELECT 1"})));
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/nope/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "SELECT 1"})),
+    );
     assert_eq!(status, 404);
     assert_eq!(error_code(&body), "database_not_found");
 }
@@ -261,7 +350,14 @@ fn atomic_batch_rolls_back_and_limits_bind() {
         ]})),
     );
     assert_ne!(status, 200, "failing batch must error: {body}");
-    let (status, body) = request(&server.address, "POST", "/v1/databases/batchtest/query", Some(&owner), None, Some(&json!({"sql": "SELECT count(*) FROM t"})));
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/batchtest/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "SELECT count(*) FROM t"})),
+    );
     assert_eq!(status, 200);
     assert_eq!(body["rows"], json!([[0]]), "rollback: {body}");
 
@@ -272,10 +368,19 @@ fn atomic_batch_rolls_back_and_limits_bind() {
         "/v1/databases/batchtest/query",
         Some(&owner),
         None,
-        Some(&json!({"sql": "INSERT INTO t WITH RECURSIVE s(v) AS (SELECT 1 UNION ALL SELECT v+1 FROM s WHERE v < 50000) SELECT v FROM s"})),
+        Some(
+            &json!({"sql": "INSERT INTO t WITH RECURSIVE s(v) AS (SELECT 1 UNION ALL SELECT v+1 FROM s WHERE v < 50000) SELECT v FROM s"}),
+        ),
     );
     assert_eq!(status, 200, "seed rows: insert 50k rows");
-    let (status, body) = request(&server.address, "POST", "/v1/databases/batchtest/query", Some(&owner), None, Some(&json!({"sql": "SELECT v FROM t"})));
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/batchtest/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "SELECT v FROM t"})),
+    );
     assert_eq!(status, 413, "oversized result: {body}");
     assert_eq!(error_code(&body), "result_limit_exceeded");
 }
@@ -285,23 +390,58 @@ fn idempotency_key_replays_committed_write() {
     let server = start_server();
     let owner = owner_bootstrap(&server);
     create_database(&server.address, &owner, "idem");
-    let (status, _) = request(&server.address, "POST", "/v1/databases/idem/query", Some(&owner), None, Some(&json!({"sql": "CREATE TABLE n (v INTEGER)"})));
+    let (status, _) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/idem/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "CREATE TABLE n (v INTEGER)"})),
+    );
     assert_eq!(status, 200);
 
     let write = json!({"sql": "INSERT INTO n (v) VALUES (7)"});
-    let (status, first) = request(&server.address, "POST", "/v1/databases/idem/query", Some(&owner), Some("match-final-9182"), Some(&write));
+    let (status, first) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/idem/query",
+        Some(&owner),
+        Some("match-final-9182"),
+        Some(&write),
+    );
     assert_eq!(status, 200, "{first}");
 
     // Same key, same body: stored result replayed, no second execution.
-    let (status, replay) = request(&server.address, "POST", "/v1/databases/idem/query", Some(&owner), Some("match-final-9182"), Some(&write));
+    let (status, replay) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/idem/query",
+        Some(&owner),
+        Some("match-final-9182"),
+        Some(&write),
+    );
     assert_eq!(status, 200);
     assert_eq!(replay, first);
 
-    let (_, body) = request(&server.address, "POST", "/v1/databases/idem/query", Some(&owner), None, Some(&json!({"sql": "SELECT count(*) FROM n"})));
+    let (_, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/idem/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "SELECT count(*) FROM n"})),
+    );
     assert_eq!(body["rows"], json!([[1]]), "write must not execute twice");
 
     // Same key with a different body is rejected.
-    let (status, body) = request(&server.address, "POST", "/v1/databases/idem/query", Some(&owner), Some("match-final-9182"), Some(&json!({"sql": "INSERT INTO n (v) VALUES (8)"})));
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/idem/query",
+        Some(&owner),
+        Some("match-final-9182"),
+        Some(&json!({"sql": "INSERT INTO n (v) VALUES (8)"})),
+    );
     assert_eq!(status, 409);
     assert_eq!(error_code(&body), "idempotency_key_conflict");
 }
@@ -311,11 +451,23 @@ fn bootstrap_refuses_second_owner() {
     let server = start_server();
     let owner = owner_bootstrap(&server);
     let output = Command::new(env!("CARGO_BIN_EXE_dg"))
-        .args(["init", "--data-dir", server.data_dir.path().to_str().unwrap()])
-        .output().unwrap();
+        .args([
+            "init",
+            "--data-dir",
+            server.data_dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("already_bootstrapped"));
     // The owner key still authenticates.
-    let (status, _) = request(&server.address, "GET", "/v1/databases", Some(&owner), None, None);
+    let (status, _) = request(
+        &server.address,
+        "GET",
+        "/v1/databases",
+        Some(&owner),
+        None,
+        None,
+    );
     assert_eq!(status, 200);
 }
