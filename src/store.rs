@@ -464,50 +464,29 @@ mod tests {
         store.bootstrap().unwrap();
         store.create("src").unwrap();
         let path = store.path("src").unwrap();
-        crate::execution::execute(
-            &path,
-            &[crate::execution::Statement {
-                sql: "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)".into(),
-                args: vec![],
-            }],
-            false,
-            false,
-            "owner",
-            None,
-        )
-        .unwrap();
+        for sql in [
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)",
+            "INSERT INTO t (v) VALUES ('alpha'),('beta')",
+        ] {
+            crate::execution::execute(
+                &path,
+                &[crate::execution::Statement {
+                    sql: sql.into(),
+                    args: vec![],
+                }],
+                false,
+                false,
+                "owner",
+                None,
+            )
+            .unwrap();
+        }
         // Clone via store API only.
         let result = store.clone_database("src", "copy1");
         if let Err(ref e) = result {
             panic!("clone failed: {e}");
         }
         let copy = store.path("copy1").unwrap();
-        // Debug: inspect what actually landed in the destination.
-        let tables: Vec<String> = rusqlite::Connection::open_with_flags(
-            &copy,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap()
-        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
-        .unwrap()
-        .query_map([], |r| r.get::<_, String>(0))
-        .unwrap()
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .unwrap();
-        eprintln!("clone destination tables: {tables:?}");
-        let rows = crate::execution::execute(
-            &copy,
-            &[crate::execution::Statement {
-                sql: "SELECT * FROM t".into(),
-                args: vec![],
-            }],
-            false,
-            false,
-            "owner",
-            None,
-        )
-        .unwrap();
-        eprintln!("clone destination rows: {rows}");
         let count = crate::execution::execute(
             &copy,
             &[crate::execution::Statement {
@@ -520,6 +499,6 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(count["rows"][0][0], 1);
+        assert_eq!(count["rows"][0][0], 2);
     }
 }
