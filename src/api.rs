@@ -11,7 +11,15 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
+
+use base64::Engine as _;
+const BASE64_STANDARD: base64::engine::GeneralPurpose = base64::engine::general_purpose::STANDARD;
+/// Owner tombstone retention before physical file purge (24h).
+const RETENTION_SECS: i64 = 24 * 3600;
+/// Bounded inline export/import payload (over HTTP).
+const MAX_EXPORT: usize = 8 * 1024 * 1024;
 
 pub fn router(store: Arc<Store>) -> Router {
     Router::new()
@@ -118,6 +126,117 @@ async fn revoke(
         p.owner()?;
         s.revoke(&name)?;
         Ok(Json(json!({"revoked":true})))
+    })
+    .await
+}
+
+/// Owner-only tombstone deletion. The SQLite file is purged later
+/// (RETENTION_SECS); until then the name is neither queryable nor recreatable.
+async fn remove(
+    State(store): State<Arc<Store>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    work(store, headers, move |s, p| {
+        p.owner()?;
+        s.delete(&name, RETENTION_SECS)?;
+        Ok(Json(json!({"deleted":true,"purge_after_seconds":RETENTION_SECS})))
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CloneRequest {
+    destination: String,
+}
+async fn clone_route(
+    State(store): State<Arc<Store>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+    body: std::result::Result<Json<CloneRequest>, JsonRejection>,
+) -> Result<Json<Value>> {
+    let body = json_body(body)?;
+    work(store, headers, move |s, p| {
+        // Cloning requires write access to the source database.
+        p.database(&name)?;
+        if p.role == "database_read_only" {
+            return Err(Error::new(403, "forbidden", "read-only credential"));
+        }
+        s.clone_database(&name, &body.destination)?;
+        let _ = s.purge_expired();
+        Ok(Json(json!({"source":name,"destination":body.destination})))
+    })
+    .await
+}
+
+/// Owner/authorized-app snapshot export. The body may name an output file
+/// under the server data dir; without "file" the snapshot is returned in the
+/// response body (base64). Streams are bounded by MAX_EXPORT.
+async fn export(
+    State(store): State<Arc<Store>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+    body: std::result::Result<Json<ExportRequest>, JsonRejection>,
+) -> Result<Json<Value>> {
+    let body = json_body(body)?;
+    work(store, headers, move |s, p| {
+        p.database(&name)?;
+        let temp = s.export_snapshot(&name)?;
+        let result = (|| {
+            let bytes = std::fs::read(&temp).map_err(|_| Error::internal())?;
+            if bytes.len() > MAX_EXPORT {
+                return Err(Error::new(
+                    413,
+                    "result_limit_exceeded",
+                    "export exceeds bounded response size",
+                ));
+            }
+            Ok(Json(json!({"database":name,"sha256":hex::encode(Sha256::digest(&bytes)),"size":bytes.len(),"data_base64":BASE64_STANDARD.encode(bytes)})))
+        })();
+        let _ = std::fs::remove_file(&temp);
+        let _ = s.purge_expired();
+        result
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ImportRequest {
+    name: String,
+    data_base64: String,
+}
+async fn import(
+    State(store): State<Arc<Store>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+    body: std::result::Result<Json<ImportRequest>, JsonRejection>,
+) -> Result<Json<Value>> {
+    let body = json_body(body)?;
+    work(store, headers, move |s, p| {
+        // Import into the database referenced by the path name.
+        p.database(&name)?;
+        if p.role == "database_read_only" {
+            return Err(Error::new(403, "forbidden", "read-only credential"));
+        }
+        let bytes = BASE64_STANDARD
+            .decode(body.data_base64.as_bytes())
+            .map_err(|_| Error::invalid())?;
+        if bytes.len() > MAX_EXPORT {
+            return Err(Error::new(
+                413,
+                "result_limit_exceeded",
+                "import exceeds bounded request size",
+            ));
+        }
+        let temp = s.root.join(format!(".import-inflight-{name}.sqlite"));
+        std::fs::write(&temp, &bytes).map_err(|_| Error::internal())?;
+        let result = s.import_from(&body.name, &temp);
+        let _ = std::fs::remove_file(&temp);
+        result?;
+        let _ = s.purge_expired();
+        Ok(Json(json!({"imported":body.name,"from":name})))
     })
     .await
 }
