@@ -878,26 +878,14 @@ fn clone_during_writes_takes_consistent_snapshot() {
         Some(&json!({"sql": "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)", "args": []})),
     );
     assert_eq!(status, 200);
-    // One writer thread keeps committing; the clone must still succeed and
-    // yield a self-consistent snapshot (a committed prefix, not torn data).
-    let address = server.address.clone();
-    let owner2 = owner.clone();
-    let writer = std::thread::spawn(move || {
-        for i in 0..25 {
-            let (status, _) = request(
-                &address,
-                "POST",
-                "/v1/databases/busy/query",
-                Some(&owner2),
-                None,
-                Some(
-                    &json!({"sql": "INSERT INTO t (v) VALUES (?)", "args": [json!(format!("w{i}"))]}),
-                ),
-            );
-            assert_eq!(status, 200);
-        }
-    });
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    // Hold a real uncommitted multi-statement WAL transaction throughout
+    // the HTTP clone. The clone must see the exact previous commit, never
+    // either half of the pending transaction; no sleep establishes overlap.
+    let mut writer = rusqlite::Connection::open(server.data_dir.path().join("busy.sqlite")).unwrap();
+    writer.execute_batch("INSERT INTO t VALUES (1,'committed'),(2,'pair');").unwrap();
+    let transaction = writer.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).unwrap();
+    transaction.execute("UPDATE t SET v='pending' WHERE id=1", []).unwrap();
+    transaction.execute("INSERT INTO t VALUES (3,'pending_pair')", []).unwrap();
     let (status, body) = request(
         &server.address,
         "POST",
@@ -906,19 +894,19 @@ fn clone_during_writes_takes_consistent_snapshot() {
         None,
         Some(&json!({"destination": "snap"})),
     );
-    writer.join().unwrap();
+    assert!(!transaction.is_autocommit(), "writer transaction overlaps the completed clone");
     assert_eq!(status, 200, "{body}");
-    // Snapshot is a committed prefix: between 0 and 25 rows, integrity intact.
+    transaction.commit().unwrap();
+    // Exact committed snapshot, including values, not just a row-count range.
     let (_, body) = request(
         &server.address,
         "POST",
         "/v1/databases/snap/query",
         Some(&owner),
         None,
-        Some(&json!({"sql": "SELECT count(*) FROM t", "args": []})),
+        Some(&json!({"sql": "SELECT id,v FROM t ORDER BY id", "args": []})),
     );
-    let snap_count = body["rows"][0][0].as_i64().unwrap();
-    assert!((0..=25).contains(&snap_count));
+    assert_eq!(body["rows"], json!([[1,"committed"],[2,"pair"]]));
     let (_, body) = request(
         &server.address,
         "POST",
@@ -927,8 +915,9 @@ fn clone_during_writes_takes_consistent_snapshot() {
         None,
         Some(&json!({"sql": "SELECT count(*) FROM t", "args": []})),
     );
-    assert_eq!(body["rows"][0][0], 25);
-    let _ = snap_count;
+    assert_eq!(body["rows"][0][0], 3);
+    let snapshot = rusqlite::Connection::open(server.data_dir.path().join("snap.sqlite")).unwrap();
+    assert_eq!(snapshot.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0)).unwrap(), "ok");
 }
 
 #[test]
@@ -1023,25 +1012,11 @@ fn delete_with_active_writer_is_safe_and_never_recreates() {
         Some(&json!({"sql": "CREATE TABLE t (id INTEGER PRIMARY KEY)", "args": []})),
     );
     assert_eq!(status, 200);
-    // In-flight writer overlaps the delete; every request must either succeed
-    // or fail cleanly — never corrupt, and never resurrect the name.
-    let address = server.address.clone();
-    let owner2 = owner.clone();
-    let writer = std::thread::spawn(move || {
-        for i in 0..20 {
-            let (status, _) = request(
-                &address,
-                "POST",
-                "/v1/databases/victim/query",
-                Some(&owner2),
-                None,
-                Some(&json!({"sql": "INSERT INTO t (id) VALUES (?)", "args": [json!(i)]})),
-            );
-            // 200 while live; 404 database_not_found once tombstoned. Never 5xx.
-            assert!(status == 200 || status == 404, "writer got {status}");
-        }
-    });
-    std::thread::sleep(std::time::Duration::from_millis(30));
+    // Hold an actual uncommitted writer through the HTTP delete response.
+    // The retained file must remain usable by this already-open connection.
+    let mut writer = rusqlite::Connection::open(server.data_dir.path().join("victim.sqlite")).unwrap();
+    let transaction = writer.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).unwrap();
+    transaction.execute("INSERT INTO t VALUES (1)", []).unwrap();
     let (status, body) = request(
         &server.address,
         "DELETE",
@@ -1050,8 +1025,14 @@ fn delete_with_active_writer_is_safe_and_never_recreates() {
         None,
         None,
     );
-    writer.join().unwrap();
+    assert!(!transaction.is_autocommit(), "writer is active when deletion returns");
     assert_eq!(status, 200, "{body}");
+    transaction.commit().unwrap();
+    assert_eq!(writer.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0)).unwrap(), "ok");
+    assert_eq!(writer.query_row("SELECT count(*) FROM t", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+    let (status, listed) = request(&server.address, "GET", "/v1/databases", Some(&owner), None, None);
+    assert_eq!(status, 200);
+    assert_eq!(listed["databases"], json!([]));
     // Deleted name: 404, and recreation is refused while the tombstone holds.
     let (status, body) = request(
         &server.address,

@@ -535,6 +535,52 @@ mod purge_tests {
     use super::*;
 
     #[test]
+    fn request_owned_staging_survives_same_name_operations() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store.create("source").unwrap();
+        let first = store.export_snapshot("source").unwrap();
+        let bytes = std::fs::read(first.path()).unwrap();
+        let second = store.export_snapshot("source").unwrap();
+        assert_ne!(first.path(), second.path());
+        drop(second);
+        assert_eq!(std::fs::read(first.path()).unwrap(), bytes);
+        let import_a = store.import_staging("target").unwrap();
+        std::fs::write(import_a.path(), &bytes).unwrap();
+        let import_b = store.import_staging("target").unwrap();
+        std::fs::write(import_b.path(), b"invalid").unwrap();
+        assert_ne!(import_a.path(), import_b.path());
+        assert!(store.import_from("target", import_b.path()).is_err());
+        drop(import_b);
+        store.import_from("target", import_a.path()).unwrap();
+        assert_eq!(std::fs::read(import_a.path()).unwrap(), bytes);
+    }
+
+    #[test]
+    fn purge_defers_until_inflight_request_closes_connection() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store.create("active").unwrap();
+        let request = store.request_lease().unwrap();
+        let path = store.path("active").unwrap();
+        let mut writer = Connection::open(&path).unwrap();
+        let tx = writer.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).unwrap();
+        tx.execute_batch("CREATE TABLE pending(v); INSERT INTO pending VALUES (1);").unwrap();
+        store.delete("active", 0).unwrap();
+        // Actual lease and transaction remain live, not a timing assumption.
+        assert!(store.purge_expired().unwrap().is_empty());
+        assert!(path.exists());
+        assert_eq!(store.path("active").unwrap_err().code, "database_not_found");
+        tx.commit().unwrap();
+        drop(writer);
+        drop(request);
+        assert_eq!(store.purge_expired().unwrap(), vec!["active"]);
+        store.create("active").unwrap();
+        assert!(store.purge_expired().unwrap().is_empty());
+        assert!(store.path("active").unwrap().exists());
+    }
+
+    #[test]
     fn tombstone_purges_after_retention_window() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(dir.path()).unwrap();
