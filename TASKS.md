@@ -16,7 +16,9 @@ This file is a plan, not authorization to deploy, migrate production data, delet
 
 This is the canonical project checklist. Mark items complete only with implementation or documentation evidence and the relevant passing checks. The phases below are a roadmap, not ten tasks to implement in one pass.
 
-### M0 — local foundation (complete, pending review)
+### M0 — local foundation (implemented; historical evidence)
+
+The original foundation is present in [Cargo.toml](Cargo.toml), [src/lib.rs](src/lib.rs), [tests/cli.rs](tests/cli.rs), and [CI](.github/workflows/ci.yml). No standalone M0 approval archive is available locally; subsequent approved milestones include this foundation. The route-only statements and five-test count below describe M0 at that time, not today's authenticated server.
 
 - [x] Add a Rust workspace exposing the `dg` executable.
 - [x] Provide `dg --help`, `dg --version`, and a loopback-only `dg serve` with a minimal liveness endpoint; no SQL or management routes yet.
@@ -28,7 +30,9 @@ Acceptance: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-target
 
 Evidence 2026-09-17: fmt/clippy/tests clean (5 tests), live `curl` against a randomly bound loopback port returned `200 {"status":"ok"}`, SIGTERM exited 0, working tree clean. A test asserts `/v1/databases` is still absent.
 
-### M1 — first authenticated database round trip (complete, pending review)
+### M1 — first authenticated database round trip (approved)
+
+Approval: [M1 archive](.pi-glla/archive/20260917185718-ll0713.md). Behavioral evidence: [M1 E2Es](tests/m1_e2e.rs), [execution tests](src/execution.rs), and [TypeScript integration tests](client/test/integration.test.mjs). Counts below are historical milestone evidence.
 
 Per TASKS.md, implemented over the M0 foundation with confirmed decisions: custom JSON HTTP API, TypeScript first client, `Idempotency-Key` support, full M1 scope (owner bootstrap via local `dg init`, revocable database-scoped keys, `dg list/create/query/batch/key`, parameterized statements, atomic batches, bounded execution, restart persistence, negative-path tests, TS client integration suite).
 
@@ -36,7 +40,9 @@ Evidence 2026-09-17: `cargo test --workspace --locked` 16 passed (unit incl. inv
 
 Audit repair evidence 2026-09-17: Rust 16/16 and root `npm test` 2/2 pass, including the verbatim `docs/api.md` CLI walkthrough on a local server (valid `bot_a`, exact key response, tables, batch, revocation). Type-check regressions reject integer-object arguments; live SQL tests verify supported values and object rejection for execute/batch. Both app roles are tested across all four management routes. fmt/clippy remain clean.
 
-### M2 — safe lifecycle operations (implemented, pending audit)
+### M2 — safe lifecycle operations (approved)
+
+Approval: [M2 archive](.pi-glla/archive/20260917203823-isball.md). Behavioral evidence: [lifecycle E2Es](tests/m2_lifecycle.rs), [M1/lifecycle E2Es](tests/m1_e2e.rs), and [store tests](src/store.rs). The repair history below records earlier test totals; it is not pending work.
 
 Implemented per phase 6 with confirmed decisions: tombstone + delayed purge deletion (owner-only, 24h retention, exact typed-name `--confirm NAME` gate) and `.sqlite` snapshot exports via SQLite's online backup API. Routes: `POST /v1/databases/{name}/clone`, `POST /v1/databases/{name}/export` (base64, 8 MiB cap), `POST /v1/databases/{name}/import` (validated + atomic publication, 12 MiB cap), `DELETE /v1/databases/{name}`. CLI: `dg clone/export/import/delete` (delete requires `--confirm NAME`). Import rejects corrupted files, foreign-key violations, and smuggled `_dg_*` tables (own `_dg_replay` excepted).
 
@@ -46,21 +52,26 @@ Audit repair evidence 2026-09-17: `cargo test --workspace --locked` **28 passed,
 
 Second audit repair 2026-09-17: imported external SQLite files are prepared with the replay schema before publication, so M1 keyed writes and replays work on imported databases; any pre-existing `_dg_replay` table must match the canonical definition exactly (normalized comparison) or the import is rejected before publication, and foreign-key violations reject imports with negative tests for both (`imported_replay_table_must_match_canonical_schema`, `foreign_key_violations_reject_import` in src/execution.rs). The regression `imported_external_sqlite_file_supports_m1_keyed_writes` (tests/m2_lifecycle.rs) now sends a real `Idempotency-Key` header and uses a non-idempotent INSERT: the replay returns the stored original response and the row exists exactly once after both requests. `cargo test --workspace --locked` **31 passed, 0 failed**; fmt/clippy clean; `npm test` 2/2.
 
-### Subsequent milestones
+### Interactive shell (approved)
 
-1. **M2 — safe lifecycle:** phase 6; clone/export/import/delete concurrency and failure tests.
-2. **M3 — verified recovery:** phase 7; backup failure visibility and a verified restore to a separate target.
-3. **M4 — release readiness:** phases 8–9; measured 1 GB resource budget, failure tests, packaging, then explicitly approved micro2 deployment.
-4. **M5 — migration:** phase 10; separately approved cutovers with verified rollback artifacts.
+Approval: [shell archive](.pi-glla/archive/20260917221933-q22wef.md). Implementation: [src/shell.rs](src/shell.rs); contract: [shell reference](docs/api.md#interactive-shell). Four [shell E2Es](tests/shell_e2e.rs) cover database selection, query/error/recovery, batches, JSON, schema inspection, keyed replay, and lost acknowledgements without retries. Three unit tests cover prompts, oversized input, and output failure. The approved shell snapshot records **38 Rust tests passed**, fmt/Clippy clean, and **2 TypeScript integration tests passed**. This is archived evidence, not a new test run for this checklist edit.
+
+### Remaining milestones and authorization boundaries
+
+1. **M3 — verified recovery:** phase 7; owner recovery decisions, backup failure visibility, and verified restore to a separate target. Local snapshot tests do not establish OVH coverage.
+2. **M4 — release readiness:** phases 8–9; measured 1 GB resource budget, failure tests, packaging, then separately approved micro2 deployment.
+3. **M5 — migration:** phase 10; separately approved cutovers with verified rollback artifacts.
+
+The confirmed preparation queue permits local disposable fixtures and public research only. It includes recovery decision/compatibility briefs, local drills and resilience tests, resource measurements, packaging, and deployment/migration preparation. It does **not** authorize OVH/micro2/Turso access, remote writes, deployments, production migration, or subscription changes. Live milestone acceptance remains open. Later capabilities below remain optional, not implicitly added release requirements.
 
 ### Decisions to resolve before dependent work
 
-- **Before M1 protocol implementation:** inventory the first application's client language and any required `@libsql/client` compatibility; choose custom HTTP or protocol compatibility explicitly.
-- **Before M1 writes:** document value encoding, transaction boundaries, ambiguous outcomes, and retry/idempotency behavior.
+- **Resolved in M1:** TypeScript first client and custom JSON HTTP API; no libSQL compatibility promise. See [decision register](docs/architecture.md#required-decisions-and-evidence).
+- **Resolved in M1:** value encoding, transaction boundaries, ambiguous outcomes, and retry/idempotency behavior are documented in [API reference](docs/api.md).
 - **Before M3:** agree recovery objectives and verify the actual OVH endpoint/tool version. Do not promise a backup interval as a guaranteed data-loss bound.
 - **Before deployment:** confirm micro2 architecture/disk/network details and measure the complete stack's memory consumption.
 
-These decisions do not block the protocol-neutral M0 foundation. No external infrastructure or production credentials are needed for M0.
+The remaining decisions do not block local preparation. Accepted production RPO/RTO/retention, verified OVH compatibility, and target-host facts remain prerequisites for dependent live work.
 
 ## 1. Define the initial contract
 
@@ -68,16 +79,16 @@ These decisions do not block the protocol-neutral M0 foundation. No external inf
 - [x] Inventory existing client requirements before deciding between a custom protocol/client and libSQL compatibility.
 - [x] Define write acknowledgement, ambiguous timeout outcomes, retry behaviour, and idempotency support.
 - [ ] Define recovery objectives and acceptable downtime/data-loss window; distinguish local durability from asynchronous bucket backup.
-- [x] Establish an initial memory/concurrency budget for the complete 1 GB deployment.
+- [ ] Establish a memory budget for the complete 1 GB deployment. (Initial gateway concurrency/cache/result limits exist in [execution core](src/execution.rs) and [decision register](docs/architecture.md); measured gateway + backup + OS headroom remains unverified.)
 
 Done when: the initial architecture and explicit non-goals are documented, with unresolved compatibility and durability decisions identified.
 
 ## 2. Establish the Rust workspace
 
-- [ ] Scaffold the gateway and CLI, preferably exposed through one `dg` executable with subcommands.
-- [ ] Add configuration validation, structured errors/logging, formatting, linting, tests, and CI.
-- [ ] Separate HTTP handling, database execution, lifecycle management, and credential handling.
-- [ ] Add local development instructions with no production credentials required.
+- [x] Scaffold the gateway and CLI through one `dg` executable with subcommands. ([Cargo.toml](Cargo.toml), [src/main.rs](src/main.rs))
+- [x] Add configuration validation, structured errors/logging, formatting, linting, tests, and CI. ([CLI tests](tests/cli.rs), [error types](src/error.rs), [CI](.github/workflows/ci.yml); broader logging-canary verification remains open in phase 4.)
+- [x] Separate HTTP handling, database execution, lifecycle management, and credential handling. ([api](src/api.rs), [execution](src/execution.rs), [store](src/store.rs), [client](src/client.rs); credential registry/authorization is owned by Store, not a separate placeholder module.)
+- [x] Add local development instructions with no production credentials required. ([README quick start](README.md#quick-start-local-only))
 
 Done when: a clean checkout builds and passes formatting, linting, and starter tests.
 
@@ -105,7 +116,7 @@ Done when: positive and negative authorization tests pass, including cross-datab
 
 ## 5. Deliver the CLI and minimal client
 
-- [x] Implement server/profile configuration and protected local credential storage.
+- [x] Implement explicit server configuration and protected local credential-file access. ([CLI flags](src/main.rs), [read_key](src/client.rs); no named-profile manager is claimed.)
 - [x] Implement `dg list`, `create`, `query`, and an interactive `shell` with schema/table inspection. (`src/shell.rs`, `tests/shell_e2e.rs`: persistent database selection, query/batch, tables/schema, text/JSON, recovery and explicit replay.)
 - [x] Add stable JSON output, exit codes, and noninteractive operation for scripts and coding agents.
 - [x] Provide a minimal client for the first actual application language, based on the compatibility decision.
@@ -113,13 +124,11 @@ Done when: positive and negative authorization tests pass, including cross-datab
 
 Done when: CLI and client integration tests create a database, write/read data, and report errors correctly through the same API. (Met by the M1 CLI and TS client integration tests; the shell now has four piped-stdin E2Es and three unit tests.)
 
-Done when: CLI and client integration tests create a database, write/read data, and report errors correctly through the same API.
-
 ## 6. Implement safe database lifecycle operations
 
 - [x] Implement consistent clone and export using SQLite-aware backup mechanisms, not raw copying of active WAL databases. (`Store::export_to` uses the online backup API; `clone_during_writes_takes_consistent_snapshot` proves consistency during concurrent writes)
 - [x] Implement validated import into a new database with integrity checks and atomic publication. (`execution::validate_import`: integrity_check + foreign-key check + protected-table screening; `Store::import_from` publishes in one registry transaction)
-- [x] Coordinate clone, delete, import, and restore with active connections and requests. (deletion tombstones make the name unqueryable/uncreatable/unimportable atomically; failed imports/clone temp files are always removed; backup API avoids writer exclusion)
+- [x] Coordinate clone, delete, and import with active connections and requests; restore orchestration remains in phase 7. (deletion tombstones make the name unqueryable/uncreatable/unimportable atomically; failed imports/clone temp files are always removed; backup API avoids writer exclusion)
 - [x] Require explicit destructive-operation intent; define deletion and backup-retention behaviour separately. (`dg delete NAME --confirm NAME` gate; tombstone + 24h purge_after retention, independent server maintenance documented in docs/api.md)
 - [x] Add corresponding CLI commands and tests for concurrent lifecycle operations. (`dg clone/export/import/delete`, `cli_lifecycle_commands_against_running_server`, `lifecycle_clone_export_import_delete`, `failed_import_and_missing_source_never_publish`)
 
