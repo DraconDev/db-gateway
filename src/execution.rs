@@ -50,7 +50,10 @@ fn open(path: &Path) -> Result<Connection> {
 }
 pub fn initialize(path: &Path) -> Result<()> {
     let conn = Connection::open(path)?;
-    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE _dg_replay (principal TEXT NOT NULL, key TEXT NOT NULL, hash TEXT NOT NULL, result TEXT NOT NULL, created INTEGER NOT NULL, PRIMARY KEY(principal,key));")?;
+    // IF NOT EXISTS keeps clone (export of a database that already has the
+    // table) idempotent; validation has already rejected foreign _dg_ tables,
+    // so a recreated table here can only be the canonical one.
+    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS _dg_replay (principal TEXT NOT NULL, key TEXT NOT NULL, hash TEXT NOT NULL, result TEXT NOT NULL, created INTEGER NOT NULL, PRIMARY KEY(principal,key));")?;
     Ok(())
 }
 /// An imported file must be a standalone, fully consistent SQLite database
