@@ -1,8 +1,8 @@
 //! Server metadata is separate from application SQL. Credentials are generated
 //! locally by `dg init`/owner-only key issuance and only their SHA-256 hashes persist.
 use crate::error::{Error, Result};
-use rusqlite::{Connection, params};
 use rusqlite::backup::{Backup, StepResult};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -270,10 +270,8 @@ impl Store {
         // snapshot while writes continue (the copy restarts if the source
         // changes between steps). Bounding the step count keeps a
         // pathological concurrent-writer restart loop finite.
-        let src = Connection::open_with_flags(
-            &src_path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )?;
+        let src =
+            Connection::open_with_flags(&src_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         src.busy_timeout(Duration::from_millis(250))?;
         let mut dst = Connection::open(dest)?;
         dst.busy_timeout(Duration::from_millis(250))?;
@@ -286,9 +284,7 @@ impl Store {
                 result = StepResult::Busy;
                 break;
             }
-            result = backup
-                .step(64)
-                .map_err(crate::error::Error::from)?;
+            result = backup.step(64).map_err(crate::error::Error::from)?;
         }
         drop(backup);
         match result {
@@ -383,9 +379,7 @@ impl Store {
         validate_name(name)?;
         let mut conn = self.meta()?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        if tx.query_row("SELECT count(*) FROM databases", [], |r| {
-            r.get::<_, i64>(0)
-        })? >= 128 {
+        if tx.query_row("SELECT count(*) FROM databases", [], |r| r.get::<_, i64>(0))? >= 128 {
             return Err(Error::busy());
         }
         let exists: bool = tx.query_row(

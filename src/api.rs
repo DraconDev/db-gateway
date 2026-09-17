@@ -143,7 +143,9 @@ async fn remove(
     work(store, headers, move |s, p| {
         p.owner()?;
         s.delete(&name, RETENTION_SECS)?;
-        Ok(Json(json!({"deleted":true,"purge_after_seconds":RETENTION_SECS})))
+        Ok(Json(
+            json!({"deleted":true,"purge_after_seconds":RETENTION_SECS}),
+        ))
     })
     .await
 }

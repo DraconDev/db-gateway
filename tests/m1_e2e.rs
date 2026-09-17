@@ -731,7 +731,10 @@ fn lifecycle_clone_export_import_delete() {
         None,
         Some(&json!({"name": "copy1"})),
     );
-    assert_eq!(status, 409, "recreating a tombstoned name must fail: {body}");
+    assert_eq!(
+        status, 409,
+        "recreating a tombstoned name must fail: {body}"
+    );
     // Double delete: second is 409 already_deleted.
     let (status, body) = request(
         &server.address,
@@ -753,7 +756,13 @@ fn lifecycle_clone_export_import_delete() {
     );
     assert_eq!(status, 404, "{body}");
     // App keys cannot delete.
-    let rw = issue_key(&server.address, &owner, "writer", "database_read_write", &["src"]);
+    let rw = issue_key(
+        &server.address,
+        &owner,
+        "writer",
+        "database_read_write",
+        &["src"],
+    );
     let (status, _) = request(
         &server.address,
         "DELETE",
@@ -868,7 +877,9 @@ fn clone_during_writes_takes_consistent_snapshot() {
                 "/v1/databases/busy/query",
                 Some(&owner2),
                 None,
-                Some(&json!({"sql": "INSERT INTO t (v) VALUES (?)", "args": [json!(format!("w{i}"))]})),
+                Some(
+                    &json!({"sql": "INSERT INTO t (v) VALUES (?)", "args": [json!(format!("w{i}"))]}),
+                ),
             );
             assert_eq!(status, 200);
         }
@@ -919,12 +930,20 @@ fn cli_lifecycle_commands_against_running_server() {
     let (ok, body, _) = run(&["create", "clidb2"], &key_path);
     assert!(ok, "{body}");
     let (ok, body, _) = run(
-        &["query", "clidb2", "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)"],
+        &[
+            "query",
+            "clidb2",
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)",
+        ],
         &key_path,
     );
     assert!(ok, "{body}");
     let (ok, body, _) = run(
-        &["query", "clidb2", "INSERT INTO t (v) VALUES ('one'),('two')"],
+        &[
+            "query",
+            "clidb2",
+            "INSERT INTO t (v) VALUES ('one'),('two')",
+        ],
         &key_path,
     );
     assert!(ok, "{body}");
@@ -950,7 +969,10 @@ fn cli_lifecycle_commands_against_running_server() {
         &key_path,
     );
     assert!(ok, "import: {body}");
-    let (ok, _body, stdout) = run(&["query", "reimported", "SELECT count(*) FROM t"], &key_path);
+    let (ok, _body, stdout) = run(
+        &["query", "reimported", "SELECT count(*) FROM t"],
+        &key_path,
+    );
     // The import path argument IS the new database name: 'reimported'.
     assert!(ok, "query reimported: {stdout}");
     assert_eq!(_body["rows"], json!([[2]]));

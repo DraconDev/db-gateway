@@ -112,7 +112,10 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 None,
             )
         }
-        Command::Clone { source, destination } => {
+        Command::Clone {
+            source,
+            destination,
+        } => {
             dg::store::validate_name(&source).map_err(Application)?;
             dg::store::validate_name(&destination).map_err(Application)?;
             (
@@ -124,11 +127,9 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         }
         Command::Export { name, out } => {
             dg::store::validate_name(&name).map_err(Application)?;
-            let key = dg::client::read_key(cli.key_file.as_deref().ok_or(Application(Error::new(
-                400,
-                "missing_credential",
-                "--key-file required",
-            )))?)
+            let key = dg::client::read_key(cli.key_file.as_deref().ok_or(Application(
+                Error::new(400, "missing_credential", "--key-file required"),
+            ))?)
             .map_err(Application)?;
             let response = dg::client::request(
                 &cli.server,
@@ -163,10 +164,8 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         Command::Import { name, from } => {
             dg::store::validate_name(&name).map_err(Application)?;
             let bytes = std::fs::read(&from).map_err(|_| Application(Error::invalid()))?;
-            let encoded = base64::Engine::encode(
-                &base64::engine::general_purpose::STANDARD,
-                &bytes,
-            );
+            let encoded =
+                base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
             (
                 Method::POST,
                 format!("/v1/databases/{name}/import"),
@@ -183,12 +182,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                     "destructive operation: rerun with --yes",
                 )));
             }
-            (
-                Method::DELETE,
-                format!("/v1/databases/{name}"),
-                None,
-                None,
-            )
+            (Method::DELETE, format!("/v1/databases/{name}"), None, None)
         }
         Command::Query {
             name,
