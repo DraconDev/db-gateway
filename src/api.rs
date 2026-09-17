@@ -25,8 +25,14 @@ pub fn router(store: Arc<Store>) -> Router {
 }
 fn json_body<T>(body: std::result::Result<Json<T>, JsonRejection>) -> Result<T> {
     body.map(|Json(value)| value).map_err(|err| {
+        // Schema errors are bad requests in our public API, not Axum's 422.
+        // Preserve other categories (notably 413 size and 415 content type).
+        let status = match &err {
+            JsonRejection::JsonDataError(_) => 400,
+            _ => err.status().as_u16(),
+        };
         Error::new(
-            err.status().as_u16(),
+            status,
             "invalid_request",
             "malformed or oversized JSON body",
         )
