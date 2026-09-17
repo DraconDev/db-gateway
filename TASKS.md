@@ -107,11 +107,11 @@ Done when: CLI and client integration tests create a database, write/read data, 
 
 ## 6. Implement safe database lifecycle operations
 
-- [ ] Implement consistent clone and export using SQLite-aware backup mechanisms, not raw copying of active WAL databases.
-- [ ] Implement validated import into a new database with integrity checks and atomic publication.
-- [ ] Coordinate clone, delete, import, and restore with active connections and requests.
-- [ ] Require explicit destructive-operation intent; define deletion and backup-retention behaviour separately.
-- [ ] Add corresponding CLI commands and tests for concurrent lifecycle operations.
+- [x] Implement consistent clone and export using SQLite-aware backup mechanisms, not raw copying of active WAL databases. (`Store::export_to` uses the online backup API; `clone_during_writes_takes_consistent_snapshot` proves consistency during concurrent writes)
+- [x] Implement validated import into a new database with integrity checks and atomic publication. (`execution::validate_import`: integrity_check + foreign-key check + protected-table screening; `Store::import_from` publishes in one registry transaction)
+- [x] Coordinate clone, delete, import, and restore with active connections and requests. (deletion tombstones make the name unqueryable/uncreatable/unimportable atomically; failed imports/clone temp files are always removed; backup API avoids writer exclusion)
+- [x] Require explicit destructive-operation intent; define deletion and backup-retention behaviour separately. (`dg delete --yes` gate; tombstone + 24h purge_after retention documented in docs/api.md)
+- [x] Add corresponding CLI commands and tests for concurrent lifecycle operations. (`dg clone/export/import/delete`, `cli_lifecycle_commands_against_running_server`, `lifecycle_clone_export_import_delete`, `failed_import_and_missing_source_never_publish`)
 
 Done when: clones/exports remain consistent during writes, failed operations do not publish partial databases, and deletion cannot race active work into accidental recreation.
 

@@ -29,6 +29,10 @@ Store key files with `0600` permissions; the CLI refuses group/world-readable ke
 | `DELETE /v1/keys/{name}` | owner | — | `{"revoked":true}` |
 | `POST /v1/databases/{name}/query` | scoped key | `{"sql":"INSERT … VALUES (?)","args":[…]}` | `{"columns":[…],"rows":[[…]],"rows_affected":n}` |
 | `POST /v1/databases/{name}/batch` | scoped key | `{"atomic":true,"statements":[{"sql":…,"args":[…]},…]}` | `{"results":[ …query results… ]}` |
+| `POST /v1/databases/{name}/clone` | read-write key on source | `{"destination":"name2"}` | `{"source":"…","destination":"…"}` |
+| `POST /v1/databases/{name}/export` | scoped key | `{}` | `{"database":"…","sha256":"…","size":n,"data_base64":"…"}` |
+| `POST /v1/databases/{name}/import` | read-write key on path database | `{"name":"new_name","data_base64":"…"}` | `{"imported":"…","from":"…"}` |
+| `DELETE /v1/databases/{name}` | owner | — | `{"deleted":true,"purge_after_seconds":86400}` |
 
 Names: `[a-z0-9_]+`, not starting with `_`, max 64 chars. Queries never create databases — a missing database is `404 database_not_found`.
 
@@ -49,15 +53,25 @@ Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1
 | `invalid_sql` | 400 | Syntax error, wrong parameter count, unknown table/column |
 | `result_limit_exceeded` | 413 | Result exceeds 256 KiB or 1000 rows |
 | `idempotency_key_conflict` | 409 | Same key, different request body |
-| `database_exists` | 409 | Name already registered/file exists |
+| `database_exists` | 409 | Name already registered/file exists, or tombstoned (delete not yet purged) |
 | `already_bootstrapped` | 409 | Second `dg init` attempt |
 | `key_exists` | 409 | Credential name reused |
+| `file_exists` | 409 | Export destination or clone target already exists on disk |
+| `confirmation_required` | 400 | `dg delete` invoked without `--yes` |
 | `capacity_exceeded` | 429 | Global task, per-database queue, credential, or replay capacity full |
 | `query_deadline_exceeded` | 408 | Execution passed the 2s deadline; transaction rolled back |
 
 ## Write semantics, Idempotency-Key, retries
 
 Every request runs in one managed transaction; a write is acknowledged only after commit (WAL, `synchronous=FULL`). A failed statement rolls back the whole request. An explicit `query_deadline_exceeded` response means the transaction rolled back. If the transport dies after a write was sent, the outcome is unknown — **never blindly retry an unkeyed write**. To make a write safely replayable, send `Idempotency-Key: <key>`: with the same key and identical body, the server replays the stored original result without re-executing. Key scope is (database, principal, key); retention is 24h, at most 256 keys per principal per database (429 `capacity_exceeded` for new keys at capacity; existing replays still work; other principals unaffected). Same key + different body = 409. The TS client's `Database.retry(sql,args,key)` is a convenience for explicit replay; resending the original keyed request through the CLI or HTTP API is also supported; no hidden retries exist in client or CLI. Details: `docs/architecture.md`.
+
+## Lifecycle: clone, export, import, delete (M2)
+
+Clones and exports use SQLite's **online backup API**, never raw file copying: the snapshot is a consistent committed point in time even while writes continue on the source (WAL readers do not block writers). Exported files are standalone SQLite databases in DELETE journal mode.
+
+**Import** validates the file (`PRAGMA integrity_check`, foreign-key check, no protected tables besides the server's own `_dg_replay`) and publishes it in one atomic registry step — a failed import leaves no partial database. Import targets must not collide with live **or tombstoned** names.
+
+**Delete is owner-only and tombstoned:** the registry row keeps `deleted_at`/`purge_after` so the name is immediately unqueryable (`404 database_not_found`), uncreatable (`409`), and unimportable; the SQLite file remains on disk untouched for **24 hours** (retention) and is purged opportunistically by the server after that. Until M3 backups exist, this window is the only recovery path — export before deleting anything important. `dg delete` requires `--yes`.
 
 ## CLI
 
@@ -77,6 +91,15 @@ dg --key-file owner.key query game_a "INSERT INTO matches VALUES (?)" --args '[7
 printf '%s\n' '{"atomic":true,"statements":[{"sql":"SELECT count(*) FROM players"}]}' > batch.json
 dg --key-file owner.key batch game_a batch.json
 dg --key-file owner.key key revoke bot_a
+```
+
+Lifecycle commands (M2):
+
+```sh
+dg --key-file owner.key clone game_a game_a_copy
+dg --key-file owner.key export game_a --out ./game_a_snapshot.sqlite   # writes the file, prints {name,out,size,sha256}
+dg --key-file owner.key import restored --from ./game_a_snapshot.sqlite
+dg --key-file owner.key delete game_a_copy --yes   # tombstone; file purge after 24h retention
 ```
 
 Exit codes: `0` success; nonzero on any error. HTTP API errors produce JSON on stdout (the CLI also adds `status`); local validation, configuration and transport errors are logged to stderr instead. Destructive actions are not interactive in M1 — scripts and agents should call deliberately.
