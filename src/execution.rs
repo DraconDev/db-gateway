@@ -86,7 +86,85 @@ pub fn validate_import(path: &Path) -> Result<()> {
             "imported database contains protected tables",
         ));
     }
+    // A file may carry its own _dg_replay (e.g. a gateway snapshot). It is
+    // published only if the definition is the canonical one; initialize's
+    // CREATE TABLE IF NOT EXISTS must never paper over a different schema.
+    let replay_sql: Option<String> = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='_dg_replay'",
+            [],
+            |r| r.get(0),
+        )
+        .map(Some)
+        .or(rusqlite::Error::QueryReturnedNoRows.into_result().map(|_: ()| None))
+        .map_err(Error::from)?;
+    if replay_sql
+        .map(|sql| normalize(&sql) != REPLAY_DDL)
+        .unwrap_or(false)
+    {
+        return Err(Error::new(
+            400,
+            "invalid_request",
+            "imported database has an incompatible _dg_replay schema",
+        ));
+    }
     Ok(())
+}
+
+/// Canonical replay schema: identical up to quoting/whitespace/case so that
+/// gateway exports and freshly initialized files both validate.
+const REPLAY_DDL: &str = "create table if not exists _dg_replay (principal text not null, key text not null, hash text not null, result text not null, created integer not null, primary key(principal,key))";
+
+fn normalize(sql: &str) -> String {
+    // Compare tokens: strip the IF NOT EXISTS variant and all whitespace, and
+    // lowercase so quoting/spacing differences do not cause false rejections.
+    let lowered = sql.to_ascii_lowercase().replace("if not exists ", "");
+    lowered.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+#[cfg(test)]
+mod import_schema_tests {
+    use super::*;
+
+    #[test]
+    fn imported_replay_table_must_match_canonical_schema() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("candidate.sqlite");
+        let make = |ddl: &str| {
+            let _ = std::fs::remove_file(&path);
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(ddl).unwrap();
+            conn
+        };
+        // Canonical (as gateway initialize writes it, with IF NOT EXISTS).
+        make(&format!(
+            "CREATE TABLE {}_dg_replay (principal TEXT NOT NULL, key TEXT NOT NULL, hash TEXT NOT NULL, result TEXT NOT NULL, created INTEGER NOT NULL, PRIMARY KEY(principal,key));",
+            ""
+        ));
+        validate_import(&path).unwrap();
+        // Same columns, different constraints: rejected.
+        drop(make("CREATE TABLE _dg_replay (principal TEXT, key TEXT)"));
+        assert!(validate_import(&path).is_err());
+        // Extra column: rejected.
+        drop(make("CREATE TABLE _dg_replay (principal TEXT NOT NULL, key TEXT NOT NULL, hash TEXT NOT NULL, result TEXT NOT NULL, created INTEGER NOT NULL, extra TEXT, PRIMARY KEY(principal,key))"));
+        assert!(validate_import(&path).is_err());
+    }
+
+    #[test]
+    fn foreign_key_violations_reject_import() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("fk.sqlite");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             CREATE TABLE parent (id INTEGER PRIMARY KEY);
+             CREATE TABLE child (pid INTEGER REFERENCES parent(id));
+             INSERT INTO child VALUES (99);",
+        )
+        .unwrap();
+        drop(conn);
+        assert!(validate_import(&path).is_err());
+    }
 }
 fn protected(name: &str) -> bool {
     name.to_ascii_lowercase().starts_with("_dg_")
