@@ -203,7 +203,11 @@ pub fn execute(
             Err(rusqlite::Error::QueryReturnedNoRows) => {}
             Err(error) => return Err(error.into()),
         }
-        let count: i64 = tx.query_row("SELECT count(*) FROM _dg_replay", [], |r| r.get(0))?;
+        let count: i64 = tx.query_row(
+            "SELECT count(*) FROM _dg_replay WHERE principal=?",
+            params![principal],
+            |r| r.get(0),
+        )?;
         if count >= MAX_REPLAYS {
             return Err(Error::busy());
         }
