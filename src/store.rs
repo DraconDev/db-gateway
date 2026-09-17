@@ -311,6 +311,14 @@ impl Store {
         Ok(temp)
     }
 
+    /// Staging file for an import into the database named by the path.
+    pub fn import_staging(&self, name: &str) -> Result<PathBuf> {
+        validate_name(name)?;
+        let temp = self.root.join(format!(".import-inflight-{name}.sqlite"));
+        remove_database_files(&temp);
+        Ok(temp)
+    }
+
     /// Tombstone `name`: registry row keeps the file under lock so the
     /// name can neither be queried nor recreated. Physical purge is delayed
     /// `retention_secs` and recorded via `purge_after`.
