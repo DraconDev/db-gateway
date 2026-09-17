@@ -112,6 +112,63 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 None,
             )
         }
+        Command::Clone { source, destination } => {
+            dg::store::validate_name(&source).map_err(Application)?;
+            dg::store::validate_name(&destination).map_err(Application)?;
+            (
+                Method::POST,
+                format!("/v1/databases/{source}/clone"),
+                Some(json!({"destination":destination})),
+                None,
+            )
+        }
+        Command::Export { name, out } => {
+            dg::store::validate_name(&name).map_err(Application)?;
+            let response = lifecycle_export(&cli.server, &key_source(cli)?, &name).await?;
+            let bytes = base64::Engine::decode(
+                &base64::engine::general_purpose::STANDARD,
+                response["data_base64"]
+                    .as_str()
+                    .ok_or(Application(Error::internal()))?,
+            )
+            .map_err(|_| Application(Error::internal()))?;
+            std::fs::write(&out, bytes).map_err(|_| Application(Error::internal()))?;
+            println!(
+                "{}",
+                json!({"name":name,"out":out.as_os_str(),"size":response["size"],"sha256":response["sha256"]})
+            );
+            return Ok(());
+        }
+        Command::Import { name, from } => {
+            dg::store::validate_name(&name).map_err(Application)?;
+            let bytes = std::fs::read(&from).map_err(|_| Application(Error::invalid()))?;
+            let encoded = base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                &bytes,
+            );
+            (
+                Method::POST,
+                format!("/v1/databases/{name}/import"),
+                Some(json!({"name":name,"data_base64":encoded})),
+                None,
+            )
+        }
+        Command::Delete { name, yes } => {
+            dg::store::validate_name(&name).map_err(Application)?;
+            if !yes {
+                return Err(Application(Error::new(
+                    400,
+                    "confirmation_required",
+                    "destructive operation: rerun with --yes",
+                )));
+            }
+            (
+                Method::DELETE,
+                format!("/v1/databases/{name}"),
+                None,
+                None,
+            )
+        }
         Command::Query {
             name,
             sql,
