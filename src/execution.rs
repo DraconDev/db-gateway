@@ -99,7 +99,7 @@ pub fn validate_import(path: &Path) -> Result<()> {
         Err(error) => return Err(error.into()),
     };
     if replay_sql
-        .map(|sql| normalize(&sql) != REPLAY_DDL)
+        .map(|sql| normalize(&sql) != normalize(REPLAY_DDL))
         .unwrap_or(false)
     {
         return Err(Error::new(
