@@ -278,13 +278,13 @@ impl Store {
                 .step(64)
                 .map_err(crate::error::Error::from)?;
         }
+        drop(backup);
         match result {
             StepResult::Done => {
                 dst.pragma_update(None, "journal_mode", "DELETE")?;
                 Ok(())
             }
             _ => {
-                drop(backup);
                 drop(dst);
                 let _ = std::fs::remove_file(dest);
                 let _ = std::fs::remove_file(dest.with_extension("sqlite-wal"));
