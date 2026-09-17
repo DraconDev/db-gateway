@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
+import crypto from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Gateway, GatewayError } from '../dist/index.js';
@@ -90,6 +91,35 @@ test('execute, atomic batch, idempotent replay, and denial paths', async () => {
     // Cross-database denial.
     await gateway.request('/v1/databases', 'POST', { name: 'other' });
     await assert.rejects(writerGw.database('other').execute('SELECT 1'), (error) => error.code === 'database_forbidden');
+
+    // M2 lifecycle: clone via the API and verify an independent, complete copy.
+    await db.execute('INSERT INTO players (name) VALUES (?)', ['pre-clone']);
+    await gateway.request('/v1/databases/game_a/clone', 'POST', { destination: 'game_a_copy' });
+    const copyDb = new Gateway(`http://${address}`, ownerKey).database('game_a_copy');
+    const cloned = await copyDb.execute('SELECT count(*) FROM players');
+    const original = await db.execute('SELECT count(*) FROM players');
+    assert.equal(cloned.rows[0][0], original.rows[0][0], 'clone must carry all committed rows');
+    // Writes to the original after cloning do not affect the copy.
+    await db.execute('INSERT INTO players (name) VALUES (?)', ['post-clone']);
+    const after = await db.execute('SELECT count(*) FROM players');
+    const copyAfter = await copyDb.execute('SELECT count(*) FROM players');
+    assert.equal(after.rows[0][0], original.rows[0][0] + 1);
+    assert.equal(copyAfter.rows[0][0], cloned.rows[0][0], 'clone must be independent');
+
+    // Export via the API: base64 snapshot decodes to a valid SQLite file.
+    const exported = await gateway.request('/v1/databases/game_a/export', 'POST', {});
+    const snapshot = Buffer.from(exported.data_base64, 'base64');
+    assert.equal(exported.size, snapshot.length);
+    assert.equal(exported.sha256, crypto.createHash('sha256').update(snapshot).digest('hex'));
+    writeFileSync(join(dataDir, 'api-export.sqlite'), snapshot);
+    // Import it back as a new database through the API.
+    await gateway.request('/v1/databases/game_a/import', 'POST', {
+      name: 'game_a_restored',
+      data_base64: exported.data_base64,
+    });
+    const restored = await new Gateway(`http://${address}`, ownerKey).database('game_a_restored')
+      .execute('SELECT count(*) FROM players');
+    assert.equal(restored.rows[0][0], original.rows[0][0]);
   });
 });
 

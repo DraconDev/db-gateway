@@ -503,3 +503,26 @@ mod tests {
         assert_eq!(count["rows"][0][0], 2);
     }
 }
+
+#[cfg(test)]
+mod purge_tests {
+    use super::*;
+
+    #[test]
+    fn tombstone_purges_after_retention_window() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store.bootstrap().unwrap();
+        store.create("doomed").unwrap();
+        let path = store.path("doomed").unwrap();
+        assert!(path.exists());
+        // Tombstone with 0-second retention; purge must remove file + row.
+        store.delete("doomed", 0).unwrap();
+        let purged = store.purge_expired().unwrap();
+        assert_eq!(purged, vec!["doomed".to_string()]);
+        assert!(!path.exists(), "file must be physically removed after retention");
+        assert!(!path.with_extension("sqlite-wal").exists());
+        // Registry row is gone: recreate works.
+        store.create("doomed").unwrap();
+    }
+}
