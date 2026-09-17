@@ -352,11 +352,54 @@ mod tests {
             "capacity_exceeded"
         );
         // ...but principal B is unaffected (regression: capacity was global).
-        let (status_key) = execute(&path, &[s("INSERT INTO n VALUES (1)")], false, false, "writer_b", Some("b-first"));
+        let status_key = execute(&path, &[s("INSERT INTO n VALUES (1)")], false, false, "writer_b", Some("b-first"));
         assert!(status_key.is_ok(), "other principal must not be locked out: {status_key:?}");
-        // Replay at capacity still replays instead of failing.
-        let replay = execute(&path, &[s("INSERT INTO n VALUES (0)")], false, false, "writer_a", Some("key-0"));
+        // Replay at capacity still replays instead of failing (same key + identical body).
+        let replay = execute(&path, &[s("INSERT INTO n VALUES (1)")], false, false, "writer_a", Some("key-0"));
         assert!(replay.is_ok());
+    }
+
+    #[test]
+    fn contention_and_parallel_independent_databases() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths: Vec<_> = (0..4)
+            .map(|i| {
+                let p = dir.path().join(format!("db{i}.sqlite"));
+                initialize(&p).unwrap();
+                execute(&p, &[Statement { sql: "CREATE TABLE t (v INTEGER)".into(), args: vec![] }], true, false, "owner", None).unwrap();
+                p
+            })
+            .collect();
+        // Parallel writers against independent databases must all succeed;
+        // per-database limits are enforced at the API layer (one permit per
+        // database), so the core must not corrupt or serialize across files.
+        let handles: Vec<_> = paths
+            .iter()
+            .enumerate()
+            .map(|(i, path)| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    for n in 0..20 {
+                        execute(
+                            &path,
+                            &[Statement { sql: "INSERT INTO t VALUES (?)".into(), args: vec![json!(n)] }],
+                            false,
+                            false,
+                            "owner",
+                            Some(&format!("db{i}-key-{n}")),
+                        )?;
+                    }
+                    Ok::<(), crate::error::Error>(())
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().unwrap().unwrap();
+        }
+        for (i, path) in paths.iter().enumerate() {
+            let count = execute(path, &[Statement { sql: "SELECT count(*) FROM t".into(), args: vec![] }], false, true, "owner", None).unwrap();
+            assert_eq!(count["rows"], json!([[20]]), "db{i}");
+        }
     }
 
     #[test]
