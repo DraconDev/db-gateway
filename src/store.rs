@@ -482,6 +482,32 @@ mod tests {
             panic!("clone failed: {e}");
         }
         let copy = store.path("copy1").unwrap();
+        // Debug: inspect what actually landed in the destination.
+        let tables: Vec<String> = rusqlite::Connection::open_with_flags(
+            &copy,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap()
+        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+        .unwrap()
+        .query_map([], |r| r.get::<_, String>(0))
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+        eprintln!("clone destination tables: {tables:?}");
+        let rows = crate::execution::execute(
+            &copy,
+            &[crate::execution::Statement {
+                sql: "SELECT * FROM t".into(),
+                args: vec![],
+            }],
+            false,
+            false,
+            "owner",
+            None,
+        )
+        .unwrap();
+        eprintln!("clone destination rows: {rows}");
         let count = crate::execution::execute(
             &copy,
             &[crate::execution::Statement {
