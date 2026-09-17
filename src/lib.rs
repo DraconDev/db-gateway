@@ -1,5 +1,6 @@
 //! Protocol-neutral foundation. Database execution and credentials are not implemented.
 
+pub mod client;
 pub mod api;
 pub mod store;
 pub mod error;
