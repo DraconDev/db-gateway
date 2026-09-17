@@ -8,8 +8,8 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit",
-    "test": "npm run build && cargo build --manifest-path ../Cargo.toml --locked && node --test test/*.test.mjs"
+    "typecheck": "tsc --noEmit && tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext test/values.typecheck.ts",
+    "test": "npm run typecheck && npm run build && cargo build --manifest-path ../Cargo.toml --locked && node --test test/*.test.mjs"
   },
   "devDependencies": { "typescript": "^5.9.3" }
 }

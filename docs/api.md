@@ -25,7 +25,7 @@ Store key files with `0600` permissions; the CLI refuses group/world-readable ke
 | `GET /health/live` | none | — | `{"status":"ok"}` |
 | `POST /v1/databases` | owner | `{"name":"game_a"}` | `{"name":"game_a"}` |
 | `GET /v1/databases` | owner | — | `{"databases":["game_a", …]}` |
-| `POST /v1/keys` | owner | `{"name":"bot-a","role":"database_read_only\|database_read_write","databases":["game_a"]}` | `{"key":"<64 hex>","name":"bot-a","role":…,"databases":[…]}` |
+| `POST /v1/keys` | owner | `{"name":"bot_a","role":"database_read_write","databases":["game_a"]}` (or role `database_read_only`) | `{"key":"<64 hex>"}` |
 | `DELETE /v1/keys/{name}` | owner | — | `{"revoked":true}` |
 | `POST /v1/databases/{name}/query` | scoped key | `{"sql":"INSERT … VALUES (?)","args":[…]}` | `{"columns":[…],"rows":[[…]],"rows_affected":n}` |
 | `POST /v1/databases/{name}/batch` | scoped key | `{"atomic":true,"statements":[{"sql":…,"args":[…]},…]}` | `{"results":[ …query results… ]}` |
@@ -34,7 +34,7 @@ Names: `[a-z0-9_]+`, not starting with `_`, max 64 chars. Queries never create d
 
 ### SQL value encoding
 
-Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1`, `number→INTEGER/REAL` (unsigned integers above `2^63-1` are rejected), `string→TEXT`, `array of 0–255 integers→BLOB` (returned as arrays of numbers). Objects are rejected.
+Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1`, `number→INTEGER/REAL` (unsigned integers above `2^63-1` are rejected), `string→TEXT`, `array of 0–255 integers→BLOB` (returned as arrays of numbers). Objects (including `{ "integer": "42" }`) are rejected. The TypeScript client uses JavaScript numbers: integers outside ±(2^53−1) are not guaranteed exact. For exact large identifiers, store and transmit decimal TEXT; there is no integer-wrapper encoding in M1.
 
 ### Errors (stable codes)
 
@@ -57,7 +57,7 @@ Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1
 
 ## Write semantics, Idempotency-Key, retries
 
-Every request runs in one managed transaction; a write is acknowledged only after commit (WAL, `synchronous=FULL`). A failed statement rolls back the whole request. If the transport dies or the 2s deadline fires after a write was sent, the outcome is unknown — **never blindly retry an unkeyed write**. To make a write safely replayable, send `Idempotency-Key: <key>`: with the same key and identical body, the server replays the stored original result without re-executing. Key scope is (database, principal, key); retention is 24h, at most 256 keys per principal per database (429 `capacity_exceeded` for new keys at capacity; existing replays still work; other principals unaffected). Same key + different body = 409. The TS client's `Database.retry(sql,args,key)` is the only sanctioned replay path; no hidden retries exist in client or CLI. Details: `docs/architecture.md`.
+Every request runs in one managed transaction; a write is acknowledged only after commit (WAL, `synchronous=FULL`). A failed statement rolls back the whole request. An explicit `query_deadline_exceeded` response means the transaction rolled back. If the transport dies after a write was sent, the outcome is unknown — **never blindly retry an unkeyed write**. To make a write safely replayable, send `Idempotency-Key: <key>`: with the same key and identical body, the server replays the stored original result without re-executing. Key scope is (database, principal, key); retention is 24h, at most 256 keys per principal per database (429 `capacity_exceeded` for new keys at capacity; existing replays still work; other principals unaffected). Same key + different body = 409. The TS client's `Database.retry(sql,args,key)` is a convenience for explicit replay; resending the original keyed request through the CLI or HTTP API is also supported; no hidden retries exist in client or CLI. Details: `docs/architecture.md`.
 
 ## CLI
 
@@ -68,12 +68,15 @@ dg init --data-dir state/dg            # once per data dir; prints {"owner_key":
 dg serve --listen 127.0.0.1:7432 --data-dir state/dg
 dg --key-file owner.key list
 dg --key-file owner.key create game_a
-dg --key-file owner.key key create bot-a --role database_read_write --database game_a   # prints {"key": …} once
+dg --key-file owner.key key create bot_a --role database_read_write --database game_a   # prints {"key": …} once
+dg --key-file owner.key query game_a "CREATE TABLE players (id INTEGER PRIMARY KEY, name TEXT)"
+dg --key-file owner.key query game_a "CREATE TABLE matches (id INTEGER PRIMARY KEY)"
 dg --key-file owner.key query game_a "INSERT INTO players (name) VALUES (?)" --args '["aria"]'
 dg --key-file owner.key query game_a "SELECT id, name FROM players"
 dg --key-file owner.key query game_a "INSERT INTO matches VALUES (?)" --args '[7]' --idempotency-key match-final-9182
-dg --key-file owner.key batch game_a batch.json          # {"atomic":true,"statements":[…]}
-dg --key-file owner.key key revoke bot-a
+printf '%s\n' '{"atomic":true,"statements":[{"sql":"SELECT count(*) FROM players"}]}' > batch.json
+dg --key-file owner.key batch game_a batch.json
+dg --key-file owner.key key revoke bot_a
 ```
 
-Exit codes: `0` success; nonzero on any error, with the stable error JSON on stdout. Destructive actions are not interactive in M1 — scripts and agents should call deliberately.
+Exit codes: `0` success; nonzero on any error. HTTP API errors produce JSON on stdout (the CLI also adds `status`); local validation, configuration and transport errors are logged to stderr instead. Destructive actions are not interactive in M1 — scripts and agents should call deliberately.
