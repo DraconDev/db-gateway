@@ -160,6 +160,33 @@ fn issue_key(address: &str, owner: &str, name: &str, role: &str, databases: &[&s
 }
 
 #[test]
+fn json_schema_errors_match_http_contract() {
+    let server = start_server();
+    let owner = owner_bootstrap(&server);
+    create_database(&server.address, &owner, "schema");
+    for (path, body) in [
+        ("/v1/databases", json!({"name":"newdb", "unknown":true})),
+        ("/v1/keys", json!({"name":"app", "role":"database_read_only", "databases":["schema"], "unknown":true})),
+        ("/v1/databases/schema/query", json!({"sql":"SELECT 1", "unknown":true})),
+        ("/v1/databases/schema/query", json!({"sql":42})),
+        ("/v1/databases/schema/batch", json!({"atomic":true,"statements":[{"sql":"SELECT 1"}],"unknown":true})),
+        ("/v1/databases/schema/batch", json!({"atomic":true,"statements":[{"sql":"SELECT 1","unknown":true}]})),
+    ] {
+        let (status, response) = request(&server.address, "POST", path, Some(&owner), None, Some(&body));
+        assert_eq!(status, 400, "{path}: {response}");
+        assert_eq!(error_code(&response), "invalid_request");
+    }
+    let (status, response) = request(&server.address, "POST", "/v1/databases/schema/query", Some(&owner), None,
+        Some(&json!({"sql":"x".repeat(65537)})));
+    assert_eq!(status, 413);
+    assert_eq!(error_code(&response), "invalid_request");
+    // No Content-Type: preserve the extractor's unsupported media-type response.
+    let (status, response) = request(&server.address, "POST", "/v1/databases/schema/query", Some(&owner), None, None);
+    assert_eq!(status, 415);
+    assert_eq!(error_code(&response), "invalid_request");
+}
+
+#[test]
 fn round_trip_write_read_persists_across_restart() {
     let mut server = start_server();
     let owner = owner_bootstrap(&server);
