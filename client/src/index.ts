@@ -1,4 +1,5 @@
-export type SqlValue = null | boolean | number | string | number[] | { integer: string };
+// Matches the server's JSON encoding; objects (including integer wrappers) are unsupported.
+export type SqlValue = null | boolean | number | string | number[];
 export interface Statement { sql: string; args?: SqlValue[] }
 export interface QueryResult { columns: string[]; rows: SqlValue[][]; rows_affected: number }
 export interface BatchResult { results: QueryResult[] }
@@ -9,8 +10,7 @@ export class GatewayError extends Error {
 const object = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 function isValue(v: unknown): v is SqlValue {
   return v === null || typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v)) ||
-    (Array.isArray(v) && v.every(b => Number.isInteger(b) && b >= 0 && b <= 255)) ||
-    (object(v) && Object.keys(v).length === 1 && typeof v.integer === 'string' && /^-?\d+$/.test(v.integer));
+    (Array.isArray(v) && v.every(b => Number.isInteger(b) && b >= 0 && b <= 255));
 }
 function isResult(v: unknown): v is QueryResult {
   return object(v) && Array.isArray(v.columns) && v.columns.every(c => typeof c === 'string') &&
