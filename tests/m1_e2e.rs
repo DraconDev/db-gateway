@@ -290,16 +290,18 @@ fn scoped_keys_enforce_boundaries() {
         ),
         ("DELETE", "/v1/keys/reader", None),
     ] {
-        let (status, body) = request(
-            &server.address,
-            method,
-            path,
-            Some(&rw),
-            None,
-            body.as_ref(),
-        );
-        assert_eq!(status, 403, "{method} {path}: {body}");
-        assert_eq!(error_code(&body), "forbidden");
+        for key in [&rw, &ro] {
+            let (status, body) = request(
+                &server.address,
+                method,
+                path,
+                Some(key),
+                None,
+                body.as_ref(),
+            );
+            assert_eq!(status, 403, "{method} {path}: {body}");
+            assert_eq!(error_code(&body), "forbidden");
+        }
     }
 
     // Read-only key may read but not write.
