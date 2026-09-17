@@ -62,7 +62,9 @@ async fn work<T: Send + 'static>(
     .map_err(|_| Error::internal())?
 }
 async fn list(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<Json<Value>> {
+    // Listing is a management route: owner only, like create/issue/revoke.
     work(store, headers, |s, p| {
+        p.owner()?;
         Ok(Json(json!({"databases":s.list(&p)?})))
     })
     .await

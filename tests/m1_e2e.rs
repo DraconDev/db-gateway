@@ -10,6 +10,30 @@ use std::{
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
+fn key_file(dir: &std::path::Path, key: &str) -> std::path::PathBuf {
+    let path = dir.join("cli.key");
+    std::fs::write(&path, format!("{key}\n")).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    path
+}
+
+/// Run the real `dg` CLI against a running server; asserts process exit code.
+fn dgcli(server: &str, key_path: &std::path::Path, args: &[&str]) -> (bool, Value, String) {
+    let output = Command::new(env!("CARGO_BIN_EXE_dg"))
+        .args(["--server", server, "--key-file"])
+        .arg(key_path)
+        .args(args)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let parsed = serde_json::from_str(&stdout).unwrap_or(Value::Null);
+    (output.status.success(), parsed, stdout)
+}
+
 struct Server {
     child: Child,
     address: String,
@@ -255,17 +279,17 @@ fn scoped_keys_enforce_boundaries() {
     assert_eq!(status, 403);
     assert_eq!(error_code(&body), "database_forbidden");
 
-    // Management routes are denied to app keys.
-    let (status, body) = request(
-        &server.address,
-        "POST",
-        "/v1/databases",
-        Some(&rw),
-        None,
-        Some(&json!({"name": "sneaky"})),
-    );
-    assert_eq!(status, 403);
-    assert_eq!(error_code(&body), "forbidden");
+    // Management routes are denied to app keys: create, list, issue, revoke.
+    for (method, path, body) in [
+        ("POST", "/v1/databases", Some(json!({"name": "sneaky"}))),
+        ("GET", "/v1/databases", None),
+        ("POST", "/v1/keys", Some(json!({"name": "esc", "role": "database_read_only", "databases": ["one"]}))),
+        ("DELETE", "/v1/keys/reader", None),
+    ] {
+        let (status, body) = request(&server.address, method, path, Some(&rw), None, body.as_ref());
+        assert_eq!(status, 403, "{method} {path}: {body}");
+        assert_eq!(error_code(&body), "forbidden");
+    }
 
     // Read-only key may read but not write.
     let (status, _) = request(
@@ -470,4 +494,52 @@ fn bootstrap_refuses_second_owner() {
         None,
     );
     assert_eq!(status, 200);
+}
+
+#[test]
+fn cli_commands_against_running_server() {
+    let mut server = start_server();
+    let owner = owner_bootstrap(&server);
+    let key_path = key_file(server.data_dir.path(), &owner);
+    let base = ["--server", &format!("http://{}", server.address), "--key-file"];
+    let run = |args: &[&str], key: &std::path::Path| dgcli(&format!("http://{}", server.address), key, args);
+
+    // dg create / list / parameterized query / --json behaviour.
+    let (ok, body, _) = run(&["create", "clidb"], &key_path);
+    assert!(ok, "create: {body}");
+    assert_eq!(body["name"], "clidb");
+
+    let (ok, body) = run(&["list"], &key_path);
+    assert!(ok, "list: {body}");
+    assert_eq!(body["databases"], json!(["clidb"]));
+
+    let (ok, body, stdout) = run(
+        &["query", "clidb", "CREATE TABLE players (id INTEGER PRIMARY KEY, name TEXT NOT NULL)"],
+        &key_path,
+    );
+    assert!(ok, "create table: {body}");
+
+    let (ok, body) = run(
+        &["query", "clidb", "INSERT INTO players (name) VALUES (?)", "--args", "[\"cli-aria\"]"],
+        &key_path,
+    );
+    assert!(ok, "parameterized insert: {body}");
+    assert_eq!(body["rows_affected"], 1);
+
+    let (ok, body) = run(&["--json", "query", "clidb", "SELECT name FROM players"], &key_path);
+    assert!(ok, "select: {body}");
+    assert_eq!(body["rows"], json!([["aria" == "aria"; 0].len().to_string().len().to_string(); 0].iter().map(|_| "aria").collect::<Vec<_>>()), "sanity");
+    assert_eq!(body["rows"], json!([["aria"]]));
+    let _ = stdout;
+
+    // Failure exit: missing database is a nonzero exit with a JSON error body.
+    let (ok, body) = run(&["query", "missing_db", "SELECT 1"], &key_path);
+    assert!(!ok, "missing database must exit nonzero");
+    assert_eq!(body["error"]["code"], "database_not_found");
+
+    // Authentication failure also exits nonzero with the stable error code.
+    let bad_key = key_file(server.data_dir.path(), &"0".repeat(64));
+    let (ok, body) = run(&["list"], &bad_key);
+    assert!(!ok);
+    assert_eq!(body["error"]["code"], "invalid_credential");
 }
