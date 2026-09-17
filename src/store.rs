@@ -2,6 +2,7 @@
 //! locally by `dg init`/owner-only key issuance and only their SHA-256 hashes persist.
 use crate::error::{Error, Result};
 use rusqlite::{Connection, params};
+use rusqlite::backup::{Backup, StepResult};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -221,8 +222,6 @@ impl Store {
         Ok(())
     }
     pub fn path(&self, name: &str) -> Result<PathBuf> {
-        validate_name(name)?;
-        let found: bool = self.meta()?.query_row(
             "SELECT EXISTS(SELECT 1 FROM databases WHERE name=?)",
             [name],
             |r| r.get(0),
