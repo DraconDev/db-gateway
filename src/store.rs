@@ -428,6 +428,7 @@ fn remove_database_files(base: &Path) {
         let _ = std::fs::remove_file(&p);
     }
 }
+
 pub fn unauthorized() -> Error {
     Error::new(
         401,
