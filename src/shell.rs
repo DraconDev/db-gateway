@@ -13,7 +13,7 @@ const HELP: &str = "dot-commands:
   .use <db>   switch the session to <db> (never creates a database)
   .tables     list tables in the current database
   .schema     show CREATE statements for the current database
-  :batch      on the next line, paste one JSON batch body ({\"atomic\":…,\"statements\":[…]}) and press enter
+  :batch      on the next line, paste one JSON batch body ({\"atomic\":true,\"statements\":[…]}) and press enter
   :key <key>  attach an idempotency key to the next write only (:key alone clears it)
   .json       toggle JSON output for results
   .help       show this help
@@ -30,7 +30,12 @@ struct Session<'a> {
 }
 
 /// Read statements until EOF or `.quit`. Errors print and the loop continues.
-pub fn run(server: &str, key: &str, input: impl std::io::Read, mut out: impl Write) -> Result<()> {
+pub async fn run(
+    server: &str,
+    key: &str,
+    input: impl std::io::Read,
+    mut out: impl Write,
+) -> Result<()> {
     let mut session = Session {
         server,
         key,
@@ -41,7 +46,7 @@ pub fn run(server: &str, key: &str, input: impl std::io::Read, mut out: impl Wri
     };
     for line in std::io::BufReader::new(input).lines() {
         let line = line.map_err(|_| Error::internal())?;
-        if session.step(&line, &mut out)? {
+        if session.step(&line, &mut out).await? {
             return Ok(());
         }
         let _ = out.flush();
@@ -50,18 +55,24 @@ pub fn run(server: &str, key: &str, input: impl std::io::Read, mut out: impl Wri
 }
 
 impl Session<'_> {
-    fn step(&mut self, line: &str, out: &mut dyn Write) -> Result<bool> {
-        match self.execute(line, out) {
+    async fn step(&mut self, line: &str, out: &mut dyn Write) -> Result<bool> {
+        match self.execute(line, out).await {
             Ok(quit) => Ok(quit),
             // Stable error line; the session always survives.
             Err(error) => {
-                let _ = writeln!(out, "error [{status}] {code}: {message}", status = error.status, code = error.code, message = error.message);
+                let _ = writeln!(
+                    out,
+                    "error [{status}] {code}: {message}",
+                    status = error.status,
+                    code = error.code,
+                    message = error.message
+                );
                 Ok(false)
             }
         }
     }
 
-    fn execute(&mut self, line: &str, out: &mut dyn Write) -> Result<bool> {
+    async fn execute(&mut self, line: &str, out: &mut dyn Write) -> Result<bool> {
         let trimmed = line.trim();
         if self.awaiting_batch {
             self.awaiting_batch = false;
@@ -78,12 +89,13 @@ impl Session<'_> {
                 &format!("/v1/databases/{database}/batch"),
                 Some(serde_json::to_value(batch).map_err(|_| Error::internal())?),
                 self.pending_key.take().as_deref(),
-            )?;
+            )
+            .await?;
             self.render(&response, out)?;
             return Ok(false);
         }
         if let Some(rest) = trimmed.strip_prefix('.') {
-            return self.dot_command(rest, out);
+            return self.dot(rest, out).await;
         }
         if let Some(rest) = trimmed.strip_prefix(':') {
             let (command, argument) = split_command(rest);
@@ -126,20 +138,25 @@ impl Session<'_> {
             &format!("/v1/databases/{database}/query"),
             Some(json!({"sql": trimmed, "args": []})),
             self.pending_key.take().as_deref(),
-        )?;
+        )
+        .await?;
         self.render(&response, out)?;
         Ok(false)
     }
 
-    fn dot(&mut self, rest: &str, out: &mut dyn Write) -> Result<bool> {
+    async fn dot(&mut self, rest: &str, out: &mut dyn Write) -> Result<bool> {
         let (command, argument) = split_command(rest);
         match command {
             "quit" | "exit" => return Ok(true),
             "help" => writeln!(out, "{HELP}").map_err(io)?,
             "json" => {
                 self.json_mode = !self.json_mode;
-                writeln!(out, "json output: {}", if self.json_mode { "on" } else { "off" })
-                    .map_err(io)?;
+                writeln!(
+                    out,
+                    "json output: {}",
+                    if self.json_mode { "on" } else { "off" }
+                )
+                .map_err(io)?;
             }
             "use" => {
                 validate_name(argument)?;
@@ -148,14 +165,12 @@ impl Session<'_> {
             }
             "tables" => {
                 let database = self.require_db()?;
-                let response = client::request(
-                    self.server,
-                    self.key,
-                    reqwest::Method::POST,
-                    &format!("/v1/databases/{database}/query"),
-                    Some(json!({"sql": "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '\\_dg\\_%' ESCAPE '\\'", "args": []})),
-                    None,
-                )?;
+                let response = self
+                    .query(
+                        &database,
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '\\_dg\\_%' ESCAPE '\\'",
+                    )
+                    .await?;
                 self.render(&response, out)?;
             }
             "schema" => {
@@ -165,14 +180,14 @@ impl Session<'_> {
                 } else {
                     format!(" AND name='{}'", argument.replace('\'', "''"))
                 };
-                let response = client::request(
-                    self.server,
-                    self.key,
-                    reqwest::Method::POST,
-                    &format!("/v1/databases/{database}/query"),
-                    Some(json!({"sql": format!("SELECT sql FROM sqlite_master WHERE sql IS NOT NULL AND substr(name,1,4)!='_dg_'{filter}"), "args": []})),
-                    None,
-                )?;
+                let response = self
+                    .query(
+                        &database,
+                        &format!(
+                            "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL AND substr(name,1,4)!='_dg_'{filter}"
+                        ),
+                    )
+                    .await?;
                 self.render(&response, out)?;
             }
             other => {
@@ -186,10 +201,22 @@ impl Session<'_> {
         Ok(false)
     }
 
+    async fn query(&self, database: &str, sql: &str) -> Result<Value> {
+        client::request(
+            self.server,
+            self.key,
+            reqwest::Method::POST,
+            &format!("/v1/databases/{database}/query"),
+            Some(json!({"sql": sql, "args": []})),
+            None,
+        )
+        .await
+    }
+
     fn require_db(&self) -> Result<&str> {
-        self.database.as_deref().ok_or_else(|| {
-            Error::new(400, "no_database_selected", "run .use <db> first")
-        })
+        self.database
+            .as_deref()
+            .ok_or_else(|| Error::new(400, "no_database_selected", "run .use <db> first"))
     }
 
     fn render(&self, response: &Value, out: &mut dyn Write) -> Result<()> {
@@ -224,7 +251,11 @@ impl Session<'_> {
                 writeln!(
                     out,
                     "{}",
-                    widths.iter().map(|w| "-".repeat(*w)).collect::<Vec<_>>().join("-+-")
+                    widths
+                        .iter()
+                        .map(|w| "-".repeat(*w))
+                        .collect::<Vec<_>>()
+                        .join("-+-")
                 )
                 .map_err(io)?;
                 for row in rows {
