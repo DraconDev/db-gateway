@@ -78,12 +78,7 @@ fn post_raw(address: &str, path: &str, key: &str, body: Vec<u8>) -> (u16, Value)
 }
 
 fn post_json(address: &str, path: &str, key: &str, body: &Value) -> (u16, Value) {
-    post_raw(
-        address,
-        path,
-        key,
-        serde_json::to_vec(body).unwrap(),
-    )
+    post_raw(address, path, key, serde_json::to_vec(body).unwrap())
 }
 
 #[test]
@@ -103,7 +98,12 @@ fn garbage_inputs_reject_cleanly_and_server_recovers() {
     let q = "/v1/databases/junk/query";
     let b = "/v1/databases/junk/batch";
 
-    let (status, body) = post_json(&server.address, "/v1/databases", &owner, &json!({"name": "junk"}));
+    let (status, body) = post_json(
+        &server.address,
+        "/v1/databases",
+        &owner,
+        &json!({"name": "junk"}),
+    );
     assert_eq!(status, 200, "create: {body}");
     let (status, body) = post_json(
         &server.address,
@@ -119,29 +119,89 @@ fn garbage_inputs_reject_cleanly_and_server_recovers() {
     let args257: Vec<Value> = (0..257).map(|i| json!(i)).collect();
     let bad_key = "0".repeat(64);
     let cases: Vec<(&str, &str, Vec<u8>, Option<&str>, u16)> = vec![
-        ("oversize_sql_70k", q, serde_json::to_vec(&json!({"sql": big_sql})).unwrap(), None, 413),
-        ("batch_33", b, serde_json::to_vec(&json!({"statements": many, "atomic": true})).unwrap(), None, 400),
-        ("batch_empty", b, serde_json::to_vec(&json!({"statements": [], "atomic": true})).unwrap(), None, 400),
-        ("batch_nonatomic", b, serde_json::to_vec(&json!({"statements": [{"sql": "SELECT 1"}], "atomic": false})).unwrap(), None, 400),
+        (
+            "oversize_sql_70k",
+            q,
+            serde_json::to_vec(&json!({"sql": big_sql})).unwrap(),
+            None,
+            413,
+        ),
+        (
+            "batch_33",
+            b,
+            serde_json::to_vec(&json!({"statements": many, "atomic": true})).unwrap(),
+            None,
+            400,
+        ),
+        (
+            "batch_empty",
+            b,
+            serde_json::to_vec(&json!({"statements": [], "atomic": true})).unwrap(),
+            None,
+            400,
+        ),
+        (
+            "batch_nonatomic",
+            b,
+            serde_json::to_vec(&json!({"statements": [{"sql": "SELECT 1"}], "atomic": false}))
+                .unwrap(),
+            None,
+            400,
+        ),
         ("malformed_json", q, b"{not json".to_vec(), None, 400),
         ("empty_body", q, vec![], None, 400),
-        ("non_utf8", q, b"\xff\xfe\x00\x01binary-junk".to_vec(), None, 400),
+        (
+            "non_utf8",
+            q,
+            b"\xff\xfe\x00\x01binary-junk".to_vec(),
+            None,
+            400,
+        ),
         ("wrong_shape", q, br#"{"sql": 123}"#.to_vec(), None, 400),
-        ("unknown_field", q, br#"{"sql": "SELECT 1", "bogus": true}"#.to_vec(), None, 400),
-        ("args_257", q, serde_json::to_vec(&json!({"sql": format!("SELECT {}", vec!["?"; 257].join("+")), "args": args257})).unwrap(), None, 400),
+        (
+            "unknown_field",
+            q,
+            br#"{"sql": "SELECT 1", "bogus": true}"#.to_vec(),
+            None,
+            400,
+        ),
+        (
+            "args_257",
+            q,
+            serde_json::to_vec(
+                &json!({"sql": format!("SELECT {}", vec!["?"; 257].join("+")), "args": args257}),
+            )
+            .unwrap(),
+            None,
+            400,
+        ),
         ("null_body", q, b"null".to_vec(), None, 400),
         ("array_body", q, b"[1,2]".to_vec(), None, 400),
-        ("bad_bearer", q, br#"{"sql": "SELECT 1"}"#.to_vec(), Some(bad_key.as_str()), 401),
+        (
+            "bad_bearer",
+            q,
+            br#"{"sql": "SELECT 1"}"#.to_vec(),
+            Some(bad_key.as_str()),
+            401,
+        ),
     ];
     for (name, path, raw, bearer, want) in &cases {
         let (status, body) = post_raw(&server.address, path, bearer.unwrap_or(&owner), raw.clone());
         assert_eq!(status, *want, "{name}: {body}");
-        assert!(body["error"]["code"].is_string(), "{name}: no error code: {body}");
+        assert!(
+            body["error"]["code"].is_string(),
+            "{name}: no error code: {body}"
+        );
     }
 
     // NUL byte: SQLite truncates at the NUL, so `SELECT 1` executes.
     // Pinned as observed behavior plus proof of no corruption after.
-    let (status, body) = post_json(&server.address, q, &owner, &json!({"sql": "SELECT 1\u{0000}"}));
+    let (status, body) = post_json(
+        &server.address,
+        q,
+        &owner,
+        &json!({"sql": "SELECT 1\u{0000}"}),
+    );
     assert_eq!(status, 200, "nul: {body}");
     assert_eq!(body["rows"], json!([[1]]));
 
@@ -154,7 +214,12 @@ fn garbage_inputs_reject_cleanly_and_server_recovers() {
     );
     assert_eq!(status, 200, "follow-up write: {body}");
     assert_eq!(body["rows_affected"], 1);
-    let (status, body) = post_json(&server.address, q, &owner, &json!({"sql": "SELECT a FROM t"}));
+    let (status, body) = post_json(
+        &server.address,
+        q,
+        &owner,
+        &json!({"sql": "SELECT a FROM t"}),
+    );
     assert_eq!(status, 200, "follow-up read: {body}");
     assert_eq!(body["rows"], json!([[7]]));
 }
