@@ -549,6 +549,134 @@ fn atomic_batch_rolls_back_and_limits_bind() {
 }
 
 #[test]
+fn request_result_boundaries_reject_cleanly_and_recover() {
+    let server = start_server();
+    let owner = owner_bootstrap(&server);
+    create_database(&server.address, &owner, "bounds");
+
+    let query = |sql: &str| {
+        request(
+            &server.address,
+            "POST",
+            "/v1/databases/bounds/query",
+            Some(&owner),
+            None,
+            Some(&json!({"sql": sql})),
+        )
+    };
+    let batch = |statements: Vec<Value>| {
+        request(
+            &server.address,
+            "POST",
+            "/v1/databases/bounds/batch",
+            Some(&owner),
+            None,
+            Some(&json!({"atomic": true, "statements": statements})),
+        )
+    };
+    let select = || json!({"sql": "SELECT 1"});
+
+    let (status, body) = query("CREATE TABLE t (v INTEGER)");
+    assert_eq!(status, 200, "ddl: {body}");
+    let (status, body) = query("INSERT INTO t VALUES (7)");
+    assert_eq!(status, 200, "seed: {body}");
+
+    // Batch statement count: 32 admitted, 33 rejected, empty rejected.
+    let (status, body) = batch((0..32).map(|_| select()).collect());
+    assert_eq!(status, 200, "32-statement batch: {body}");
+    let (status, body) = batch((0..33).map(|_| select()).collect());
+    assert_eq!(status, 400, "33-statement batch: {body}");
+    assert_eq!(error_code(&body), "invalid_request");
+    let (status, body) = batch(vec![]);
+    assert_eq!(status, 400, "empty batch: {body}");
+    assert_eq!(error_code(&body), "invalid_request");
+    // A rejected oversized batch with a leading write commits nothing.
+    let mut writes: Vec<Value> = vec![json!({"sql": "INSERT INTO t VALUES (8)"})];
+    writes.extend((0..32).map(|_| select()));
+    let (status, body) = batch(writes);
+    assert_eq!(status, 400, "write-carrying oversized batch: {body}");
+    assert_eq!(error_code(&body), "invalid_request");
+    let (status, body) = query("SELECT v FROM t");
+    assert_eq!(status, 200, "post-rejection read: {body}");
+    assert_eq!(body["rows"], json!([[7]]));
+
+    // SQL text length over HTTP: a 60 KiB statement fits the 64 KiB JSON body
+    // cap and succeeds; a 70 KiB statement is rejected at the body cap with
+    // 413. The exact 65536/65537 SQL-text boundary is covered at unit level.
+    let (status, body) = query(&format!("SELECT '{}'", "x".repeat(60_000)));
+    assert_eq!(status, 200, "60 KiB SQL: {body}");
+    let (status, body) = query(&format!("SELECT '{}'", "x".repeat(70_000)));
+    assert_eq!(status, 413, "over-cap SQL body: {body}");
+    assert_eq!(error_code(&body), "invalid_request");
+    let (status, body) = query("");
+    assert_eq!(status, 400, "empty SQL: {body}");
+    assert_eq!(error_code(&body), "invalid_request");
+
+    // Argument count: 256 admitted, 257 rejected.
+    let placeholders = |n: usize| vec!["?"; n].join(",");
+    let args = |n: usize| (1..=n as i64).collect::<Vec<_>>();
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/bounds/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": format!("SELECT {}", placeholders(256)), "args": args(256)})),
+    );
+    assert_eq!(status, 200, "256 args: {body}");
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/bounds/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": format!("SELECT {}", placeholders(257)), "args": args(257)})),
+    );
+    assert_eq!(status, 400, "257 args: {body}");
+    assert_eq!(error_code(&body), "invalid_request");
+
+    // Row count: exactly 1000 rows admitted, 1001 rejected with 413.
+    let (status, body) = query(
+        "INSERT INTO t WITH RECURSIVE s(v) AS (SELECT 1 UNION ALL SELECT v+1 FROM s WHERE v < 999) SELECT v FROM s",
+    );
+    assert_eq!(status, 200, "seed to 1000 rows: {body}");
+    let (status, body) = query("SELECT v FROM t");
+    assert_eq!(status, 200, "1000-row result: {body}");
+    assert_eq!(body["rows"].as_array().unwrap().len(), 1000);
+    let (status, _) = query("INSERT INTO t VALUES (1001)");
+    assert_eq!(status, 200);
+    let (status, body) = query("SELECT v FROM t");
+    assert_eq!(status, 413, "1001-row result: {body}");
+    assert_eq!(error_code(&body), "result_limit_exceeded");
+
+    // Byte size: one 300 KiB value in a single row exceeds 256 KiB with 413.
+    let (status, body) = query("CREATE TABLE big (v TEXT)");
+    assert_eq!(status, 200, "ddl: {body}");
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/bounds/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "INSERT INTO big VALUES (?)", "args": ["y".repeat(300_000)]})),
+    );
+    assert_eq!(status, 200, "seed big value: {body}");
+    let (status, body) = query("SELECT v FROM big");
+    assert_eq!(status, 413, "oversized-value result: {body}");
+    assert_eq!(error_code(&body), "result_limit_exceeded");
+
+    // Recovery: a normal write and exact read succeed after every rejection.
+    let (status, body) = query("CREATE TABLE ok (v INTEGER)");
+    assert_eq!(status, 200, "post-rejection ddl: {body}");
+    let (status, body) = query("INSERT INTO ok VALUES (1)");
+    assert_eq!(status, 200, "post-rejection write: {body}");
+    assert_eq!(body["rows_affected"], 1);
+    let (status, body) = query("SELECT v FROM ok");
+    assert_eq!(status, 200, "post-rejection read: {body}");
+    assert_eq!(body["rows"], json!([[1]]));
+}
+
+#[test]
 fn idempotency_key_replays_committed_write() {
     let server = start_server();
     let owner = owner_bootstrap(&server);

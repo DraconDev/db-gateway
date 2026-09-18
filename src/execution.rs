@@ -417,6 +417,75 @@ mod tests {
     }
 
     #[test]
+    fn statement_count_sql_length_and_argument_count_boundaries() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.sqlite");
+        initialize(&path).unwrap();
+        let s = |sql: String| Statement { sql, args: vec![] };
+        // Batch statement count: 32 admitted, 33 and empty rejected.
+        let ok: Vec<Statement> = (0..32).map(|_| s("SELECT 1".into())).collect();
+        assert!(execute(&path, &ok, true, false, "owner", None).is_ok());
+        let too_many: Vec<Statement> = (0..33).map(|_| s("SELECT 1".into())).collect();
+        assert_eq!(
+            execute(&path, &too_many, true, false, "owner", None)
+                .unwrap_err()
+                .code,
+            "invalid_request"
+        );
+        assert_eq!(
+            execute(&path, &[], true, false, "owner", None)
+                .unwrap_err()
+                .code,
+            "invalid_request"
+        );
+        // SQL text length: exactly 65536 bytes admitted, 65537 rejected.
+        let exact = format!("SELECT '{}'", "x".repeat(65536 - 9));
+        assert_eq!(exact.len(), 65536);
+        assert!(execute(&path, &[s(exact)], false, false, "owner", None).is_ok());
+        let over = format!("SELECT '{}'", "x".repeat(65537 - 9));
+        assert_eq!(over.len(), 65537);
+        assert_eq!(
+            execute(&path, &[s(over)], false, false, "owner", None)
+                .unwrap_err()
+                .code,
+            "invalid_request"
+        );
+        // Argument count: 256 admitted, 257 rejected.
+        let placeholders = |n: usize| vec!["?"; n].join(",");
+        let args = |n: usize| (1..=n as i64).map(json::Value::from).collect::<Vec<_>>();
+        assert!(
+            execute(
+                &path,
+                &[Statement {
+                    sql: format!("SELECT {}", placeholders(256)),
+                    args: args(256),
+                }],
+                false,
+                false,
+                "owner",
+                None,
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            execute(
+                &path,
+                &[Statement {
+                    sql: format!("SELECT {}", placeholders(257)),
+                    args: args(257),
+                }],
+                false,
+                false,
+                "owner",
+                None,
+            )
+            .unwrap_err()
+            .code,
+            "invalid_request"
+        );
+    }
+
+    #[test]
     fn deadline_interrupts_expensive_query_and_database_recovers() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.sqlite");
