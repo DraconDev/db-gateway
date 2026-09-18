@@ -1,8 +1,9 @@
 # Deployment configuration guide
 
 Template: `deploy/dg.service`. Validation: `scripts/validate-deploy.sh`.
-Nothing here installs, enables, or starts a service, and no target host
-(micro2 or otherwise) was accessed to prepare it.
+Nothing here installs, enables, or starts a service. The first
+supervised deploy to micro2 is recorded separately in
+docs/first-deploy-micro2.md.
 
 ## Prerequisites (owner runs on the target)
 
@@ -11,8 +12,11 @@ Nothing here installs, enables, or starts a service, and no target host
 2. Create the dedicated unprivileged user (see placeholder table).
 3. Place the `dg` binary at its final path, owned by root, executable.
 4. Create the data directory, owned by the service user, mode `0700`.
-5. Run `dg init --data-dir <dir>` once as the service user; redirect the
-   printed owner credential into a `0600` file owned by that user.
+5. Run `dg init --data-dir <dir>` once as the service user. It prints
+   JSON (`{"owner_key":"…"}`): extract the raw 64-hex value into the
+   `0600` file (e.g. `dg init … | python3 -c 'import json,sys;
+   print(json.load(sys.stdin)["owner_key"]) ' > owner.key`). The CLI
+   rejects anything but exactly 64 hex characters client-side.
 6. Copy the template to `/etc/systemd/system/dg.service` with placeholders
    substituted, `systemctl daemon-reload`, then enable/start explicitly.
 
