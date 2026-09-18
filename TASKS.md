@@ -56,6 +56,10 @@ Second audit repair 2026-09-17: imported external SQLite files are prepared with
 
 Approval: [shell archive](.pi-glla/archive/20260917221933-q22wef.md). Implementation: [src/shell.rs](src/shell.rs); contract: [shell reference](docs/api.md#interactive-shell). Four [shell E2Es](tests/shell_e2e.rs) cover database selection, query/error/recovery, batches, JSON, schema inspection, keyed replay, and lost acknowledgements without retries. Three unit tests cover prompts, oversized input, and output failure. The approved shell snapshot records **38 Rust tests passed**, fmt/Clippy clean, and **2 TypeScript integration tests passed**. This is archived evidence, not a new test run for this checklist edit.
 
+### Local preparation queue — evidence (2026-09-18, not live acceptance)
+
+Summary: [readiness summary](docs/readiness-summary.md). Gates re-run then: Rust 52/52, Clippy clean, fmt/diff clean, TS client 5/5. Delivered locally: recovery contract + snapshot/crash/keyed-replay/lost-ack/deadline/contention/boundary/publish-failure/interrupted-publish/logging-canary regressions; resource harness + budget ledger (conditional not-ready); release bundle + smoke test; systemd template + validator; upgrade/rollback runbook with recorded local rehearsal; deployment-readiness checklist (not-accepted verdict); migration inventory + synthetic fixture + cutover plan. Live phases 7 (OVH), 9 (micro2), and 10 (Turso) remain unchecked below — no bucket, host, or Turso system was accessed, and no production data moved. Remaining owner decisions are listed in the summary.
+
 ### Remaining milestones and authorization boundaries
 
 1. **M3 — verified recovery:** phase 7; owner recovery decisions, backup failure visibility, and verified restore to a separate target. Local snapshot tests do not establish OVH coverage.
