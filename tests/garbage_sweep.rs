@@ -118,79 +118,121 @@ fn garbage_inputs_reject_cleanly_and_server_recovers() {
     let many: Vec<Value> = (0..33).map(|_| json!({"sql": "SELECT 1"})).collect();
     let args257: Vec<Value> = (0..257).map(|i| json!(i)).collect();
     let bad_key = "0".repeat(64);
-    let cases: Vec<(&str, &str, Vec<u8>, Option<&str>, u16)> = vec![
-        (
-            "oversize_sql_70k",
-            q,
-            serde_json::to_vec(&json!({"sql": big_sql})).unwrap(),
-            None,
-            413,
-        ),
-        (
-            "batch_33",
-            b,
-            serde_json::to_vec(&json!({"statements": many, "atomic": true})).unwrap(),
-            None,
-            400,
-        ),
-        (
-            "batch_empty",
-            b,
-            serde_json::to_vec(&json!({"statements": [], "atomic": true})).unwrap(),
-            None,
-            400,
-        ),
-        (
-            "batch_nonatomic",
-            b,
-            serde_json::to_vec(&json!({"statements": [{"sql": "SELECT 1"}], "atomic": false}))
-                .unwrap(),
-            None,
-            400,
-        ),
-        ("malformed_json", q, b"{not json".to_vec(), None, 400),
-        ("empty_body", q, vec![], None, 400),
-        (
-            "non_utf8",
-            q,
-            b"\xff\xfe\x00\x01binary-junk".to_vec(),
-            None,
-            400,
-        ),
-        ("wrong_shape", q, br#"{"sql": 123}"#.to_vec(), None, 400),
-        (
-            "unknown_field",
-            q,
-            br#"{"sql": "SELECT 1", "bogus": true}"#.to_vec(),
-            None,
-            400,
-        ),
-        (
-            "args_257",
-            q,
-            serde_json::to_vec(
+    struct Case {
+        name: &'static str,
+        path: &'static str,
+        raw: Vec<u8>,
+        bearer: Option<String>,
+        want: u16,
+    }
+    let j = |v: &Value| serde_json::to_vec(v).unwrap();
+    let cases = vec![
+        Case {
+            name: "oversize_sql_70k",
+            path: q,
+            raw: j(&json!({"sql": big_sql})),
+            bearer: None,
+            want: 413,
+        },
+        Case {
+            name: "batch_33",
+            path: b,
+            raw: j(&json!({"statements": many, "atomic": true})),
+            bearer: None,
+            want: 400,
+        },
+        Case {
+            name: "batch_empty",
+            path: b,
+            raw: j(&json!({"statements": [], "atomic": true})),
+            bearer: None,
+            want: 400,
+        },
+        Case {
+            name: "batch_nonatomic",
+            path: b,
+            raw: j(&json!({"statements": [{"sql": "SELECT 1"}], "atomic": false})),
+            bearer: None,
+            want: 400,
+        },
+        Case {
+            name: "malformed_json",
+            path: q,
+            raw: b"{not json".to_vec(),
+            bearer: None,
+            want: 400,
+        },
+        Case {
+            name: "empty_body",
+            path: q,
+            raw: vec![],
+            bearer: None,
+            want: 400,
+        },
+        Case {
+            name: "non_utf8",
+            path: q,
+            raw: b"\xff\xfe\x00\x01binary-junk".to_vec(),
+            bearer: None,
+            want: 400,
+        },
+        Case {
+            name: "wrong_shape",
+            path: q,
+            raw: br#"{"sql": 123}"#.to_vec(),
+            bearer: None,
+            want: 400,
+        },
+        Case {
+            name: "unknown_field",
+            path: q,
+            raw: br#"{"sql": "SELECT 1", "bogus": true}"#.to_vec(),
+            bearer: None,
+            want: 400,
+        },
+        Case {
+            name: "args_257",
+            path: q,
+            raw: j(
                 &json!({"sql": format!("SELECT {}", vec!["?"; 257].join("+")), "args": args257}),
-            )
-            .unwrap(),
-            None,
-            400,
-        ),
-        ("null_body", q, b"null".to_vec(), None, 400),
-        ("array_body", q, b"[1,2]".to_vec(), None, 400),
-        (
-            "bad_bearer",
-            q,
-            br#"{"sql": "SELECT 1"}"#.to_vec(),
-            Some(bad_key.as_str()),
-            401,
-        ),
+            ),
+            bearer: None,
+            want: 400,
+        },
+        Case {
+            name: "null_body",
+            path: q,
+            raw: b"null".to_vec(),
+            bearer: None,
+            want: 400,
+        },
+        Case {
+            name: "array_body",
+            path: q,
+            raw: b"[1,2]".to_vec(),
+            bearer: None,
+            want: 400,
+        },
+        Case {
+            name: "bad_bearer",
+            path: q,
+            raw: br#"{"sql": "SELECT 1"}"#.to_vec(),
+            bearer: Some(bad_key),
+            want: 401,
+        },
     ];
-    for (name, path, raw, bearer, want) in &cases {
-        let (status, body) = post_raw(&server.address, path, bearer.unwrap_or(&owner), raw.clone());
-        assert_eq!(status, *want, "{name}: {body}");
+    for case in &cases {
+        let (status, body) = post_raw(
+            &server.address,
+            case.path,
+            case.bearer.as_deref().unwrap_or(&owner),
+            case.raw.clone(),
+        );
+        assert_eq!(status, case.want, "{}: {body}", case.name);
         assert!(
             body["error"]["code"].is_string(),
-            "{name}: no error code: {body}"
+            "{}: no error code: {body}",
+            case.name
         );
     }
 
