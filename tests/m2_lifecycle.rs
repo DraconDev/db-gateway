@@ -305,60 +305,6 @@ fn imported_external_sqlite_file_supports_m1_keyed_writes() {
         json!([[1]]),
         "exactly one committed mutation despite the second keyed request"
     );
-    // Contended capacity rejects with 429 and the server stays usable.
-    // Synchronization is barrier release plus observed 429 responses, never
-    // sleep-based overlap: the poll loop only exits on a real rejection.
-    for name in ["hot", "g0", "g1", "g2", "g3"] {
-        server.ok("POST", "/v1/databases", json!({"name": name}));
-        server.query(name, "CREATE TABLE t (v INTEGER)");
-    }
-    // Phase 1: one slow query holds the per-database queue (size 1); a
-    // concurrent read on the same database must see 429 capacity_exceeded.
-    std::thread::scope(|scope| {
-        let barrier = Arc::new(Barrier::new(2));
-        let holder_barrier = barrier.clone();
-        let holder = scope.spawn(move || {
-            holder_barrier.wait();
-            server.call(
-                "POST",
-                "/v1/databases/hot/query",
-                json!({"sql": "INSERT INTO t WITH RECURSIVE c(v) AS (SELECT 1 UNION ALL SELECT v+1 FROM c) SELECT v FROM c"}),
-            )
-        });
-        barrier.wait();
-        assert_observes_429(&server, "hot");
-        assert_eq!(holder.join().unwrap().0, 408);
-    });
-    // Phase 2: four slow queries on distinct databases hold all four global
-    // permits; another request must see 429 capacity_exceeded.
-    std::thread::scope(|scope| {
-        let barrier = Arc::new(Barrier::new(5));
-        let holders: Vec<_> = ["g0", "g1", "g2", "g3"]
-            .into_iter()
-            .map(|name| {
-                let holder_barrier = barrier.clone();
-                scope.spawn(move || {
-                    holder_barrier.wait();
-                    server.call(
-                        "POST",
-                        &format!("/v1/databases/{name}/query"),
-                        json!({"sql": "INSERT INTO t WITH RECURSIVE c(v) AS (SELECT 1 UNION ALL SELECT v+1 FROM c) SELECT v FROM c"}),
-                    )
-                })
-            })
-            .collect();
-        barrier.wait();
-        assert_observes_429(&server, "hot");
-        for holder in holders {
-            assert_eq!(holder.join().unwrap().0, 408);
-        }
-    });
-    // Post-contention recovery: normal writes and exact reads work again.
-    server.query("hot", "INSERT INTO t VALUES (1)");
-    assert_eq!(
-        server.query("hot", "SELECT v FROM t")["rows"],
-        json!([[1]])
-    );
     // The published file is a full gateway database with the replay schema.
     let store = dg::store::Store::open(server.dir.path()).unwrap();
     let path = store.path("imported").unwrap();
@@ -371,4 +317,96 @@ fn imported_external_sqlite_file_supports_m1_keyed_writes() {
         )
         .unwrap();
     assert_eq!(replay_tables, 1);
+}
+
+/// Poll a quick read until the server really rejects it: the observed 429 is
+/// the contention signal, so no sleep-based overlap is assumed. Returns after
+/// the first rejection or panics past a bounded wait.
+fn assert_observes_429(server: &Server, name: &str) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let (status, body) = server.call(
+            "POST",
+            &format!("/v1/databases/{name}/query"),
+            json!({"sql": "SELECT 1"}),
+        );
+        if status == 429 {
+            assert_eq!(body["error"]["code"], "capacity_exceeded", "{body}");
+            return;
+        }
+        assert_eq!(
+            status, 200,
+            "unexpected status while awaiting contention: {body}"
+        );
+        assert!(
+            Instant::now() < deadline,
+            "holders never overlapped; no 429 observed"
+        );
+    }
+}
+
+const SLOW_INSERT: &str =
+    "INSERT INTO t WITH RECURSIVE c(v) AS (SELECT 1 UNION ALL SELECT v+1 FROM c) SELECT v FROM c";
+
+#[test]
+fn contended_capacity_rejects_with_429_and_server_recovers() {
+    let server = Server::start();
+    for name in ["hot", "g0", "g1", "g2", "g3"] {
+        server.ok("POST", "/v1/databases", json!({"name": name}));
+        server.query(name, "CREATE TABLE t (v INTEGER)");
+    }
+    // Phase 1: one slow query holds the per-database queue (size 1); a
+    // concurrent read on the same database must see 429 capacity_exceeded.
+    std::thread::scope(|scope| {
+        let server = &server;
+        let barrier = Arc::new(Barrier::new(2));
+        let holder_barrier = barrier.clone();
+        let holder = scope.spawn(move || {
+            holder_barrier.wait();
+            server.call(
+                "POST",
+                "/v1/databases/hot/query",
+                json!({"sql": SLOW_INSERT}),
+            )
+        });
+        barrier.wait();
+        assert_observes_429(server, "hot");
+        assert_eq!(holder.join().unwrap().0, 408);
+    });
+    // Phase 2: four slow queries on distinct databases hold all four global
+    // permits; another request must see 429 capacity_exceeded.
+    std::thread::scope(|scope| {
+        let server = &server;
+        let barrier = Arc::new(Barrier::new(5));
+        let holders: Vec<_> = ["g0", "g1", "g2", "g3"]
+            .into_iter()
+            .map(|name| {
+                let holder_barrier = barrier.clone();
+                scope.spawn(move || {
+                    holder_barrier.wait();
+                    server.call(
+                        "POST",
+                        &format!("/v1/databases/{name}/query"),
+                        json!({"sql": SLOW_INSERT}),
+                    )
+                })
+            })
+            .collect();
+        barrier.wait();
+        assert_observes_429(server, "hot");
+        for holder in holders {
+            assert_eq!(holder.join().unwrap().0, 408);
+        }
+    });
+    // Post-contention recovery: normal writes and exact reads work again, and
+    // the interrupted inserts left no partial rows anywhere.
+    server.query("hot", "INSERT INTO t VALUES (1)");
+    assert_eq!(server.query("hot", "SELECT v FROM t")["rows"], json!([[1]]));
+    for name in ["g0", "g1", "g2", "g3"] {
+        assert_eq!(
+            server.query(name, "SELECT count(*) FROM t")["rows"],
+            json!([[0]]),
+            "{name} holds partial rows from an interrupted insert"
+        );
+    }
 }
