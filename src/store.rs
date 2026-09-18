@@ -500,6 +500,161 @@ mod tests {
     use super::*;
 
     #[test]
+    fn failed_publication_leaves_no_partial_database_and_recovers() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store.bootstrap().unwrap();
+        store.create("src").unwrap();
+        let path = store.path("src").unwrap();
+        for sql in [
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)",
+            "INSERT INTO t (v) VALUES ('alpha'),('beta')",
+        ] {
+            crate::execution::execute(
+                &path,
+                &[crate::execution::Statement {
+                    sql: sql.into(),
+                    args: vec![],
+                }],
+                false,
+                false,
+                "owner",
+                None,
+            )
+            .unwrap();
+        }
+        // Copy the snapshot bytes aside and release staging before the
+        // failure, so any remaining `.lifecycle-` directory is a real leak.
+        let source = dir.path().join("source.sqlite");
+        {
+            let snapshot = store.export_snapshot("src").unwrap();
+            std::fs::copy(snapshot.path(), &source).unwrap();
+        }
+        // Deterministic publish failure: an orphan file (as left by an
+        // interrupted publish) makes the hard_link syscall fail with a real
+        // filesystem error after staging validation already passed. No host
+        // mounts, permissions, or disk capacity are touched.
+        let orphan = store.root.join("blocked.sqlite");
+        std::fs::write(&orphan, b"orphan bytes").unwrap();
+        let failed = store.import_from("blocked", &source);
+        assert_eq!(failed.unwrap_err().code, "database_exists");
+        // No partial publication: no registry row, no queryable database,
+        // the orphan file is not clobbered, and staging cleaned itself up.
+        let meta = Connection::open(store.root.join("metadata.sqlite")).unwrap();
+        let rows: i64 = meta
+            .query_row(
+                "SELECT count(*) FROM databases WHERE name='blocked'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(rows, 0);
+        assert_eq!(
+            store.path("blocked").unwrap_err().code,
+            "database_not_found"
+        );
+        assert_eq!(std::fs::read(&orphan).unwrap(), b"orphan bytes");
+        assert!(
+            !std::fs::read_dir(&store.root).unwrap().any(|entry| entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".lifecycle-")),
+            "failed import must not leak staging directories"
+        );
+        // Recovery: removing the orphan lets the identical import succeed
+        // with exact data.
+        std::fs::remove_file(&orphan).unwrap();
+        store.import_from("blocked", &source).unwrap();
+        let published = store.path("blocked").unwrap();
+        let count = crate::execution::execute(
+            &published,
+            &[crate::execution::Statement {
+                sql: "SELECT count(*) FROM t".into(),
+                args: vec![],
+            }],
+            false,
+            false,
+            "owner",
+            None,
+        )
+        .unwrap();
+        assert_eq!(count["rows"][0][0], 2);
+    }
+
+    #[test]
+    fn interrupted_publish_exposes_nothing_and_never_overwrites() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source.sqlite");
+        {
+            let store = Store::open(dir.path()).unwrap();
+            store.bootstrap().unwrap();
+            store.create("src").unwrap();
+            let path = store.path("src").unwrap();
+            for sql in [
+                "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)",
+                "INSERT INTO t (v) VALUES ('alpha'),('beta')",
+            ] {
+                crate::execution::execute(
+                    &path,
+                    &[crate::execution::Statement {
+                        sql: sql.into(),
+                        args: vec![],
+                    }],
+                    false,
+                    false,
+                    "owner",
+                    None,
+                )
+                .unwrap();
+            }
+            let snapshot = store.export_snapshot("src").unwrap();
+            std::fs::copy(snapshot.path(), &source).unwrap();
+        }
+        // Simulate a crash between file publication (hard_link) and the
+        // registry commit: the file exists with no registry row. This is the
+        // exact on-disk state of an interrupted import_from.
+        let orphan = dir.path().join("interrupted.sqlite");
+        std::fs::copy(&source, &orphan).unwrap();
+        // Restart: reopen the store against the same directory.
+        let store = Store::open(dir.path()).unwrap();
+        // No partial exposure: the unregistered file is invisible.
+        assert_eq!(
+            store.path("interrupted").unwrap_err().code,
+            "database_not_found"
+        );
+        // No silent overwrite or adoption: creation refuses, and the orphan
+        // bytes are untouched.
+        assert_eq!(
+            store.create("interrupted").unwrap_err().code,
+            "database_exists"
+        );
+        assert_eq!(
+            std::fs::read(&orphan).unwrap(),
+            std::fs::read(&source).unwrap()
+        );
+        // A later valid operation on another name still succeeds.
+        store.import_from("elsewhere", &source).unwrap();
+        // Operator recovery: remove the orphan, re-import, exact data.
+        std::fs::remove_file(&orphan).unwrap();
+        store.import_from("interrupted", &source).unwrap();
+        let published = store.path("interrupted").unwrap();
+        let count = crate::execution::execute(
+            &published,
+            &[crate::execution::Statement {
+                sql: "SELECT count(*) FROM t".into(),
+                args: vec![],
+            }],
+            false,
+            false,
+            "owner",
+            None,
+        )
+        .unwrap();
+        assert_eq!(count["rows"][0][0], 2);
+    }
+
+    #[test]
     fn clone_import_delete_roundtrip_at_store_level() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(dir.path()).unwrap();
