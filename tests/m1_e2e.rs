@@ -275,6 +275,71 @@ fn round_trip_write_read_persists_across_restart() {
     assert_eq!(body["rows"], json!([[1]]));
 }
 
+/// Deadline failure over HTTP: stable 408/code, server recovers for normal
+/// writes, and the interrupted statement leaves no partial rows.
+#[test]
+fn deadline_failure_recovers_over_http() {
+    let server = start_server();
+    let owner = owner_bootstrap(&server);
+    create_database(&server.address, &owner, "game_a");
+
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/game_a/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "CREATE TABLE heavy (v INTEGER)"})),
+    );
+    assert_eq!(status, 200, "ddl: {body}");
+
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/game_a/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "INSERT INTO heavy VALUES (7)"})),
+    );
+    assert_eq!(status, 200, "seed: {body}");
+
+    // Recursive CTE far past the 2s execution deadline.
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/game_a/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "INSERT INTO heavy WITH RECURSIVE c(v) AS (SELECT 1 UNION ALL SELECT v+1 FROM c) SELECT v FROM c"})),
+    );
+    assert_eq!(status, 408, "deadline status: {body}");
+    assert_eq!(error_code(&body), "query_deadline_exceeded");
+
+    // A normal request succeeds immediately after the failure.
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/game_a/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "INSERT INTO heavy VALUES (8)"})),
+    );
+    assert_eq!(status, 200, "post-failure write: {body}");
+    assert_eq!(body["rows_affected"], 1);
+
+    // Exact data: seed + recovery row only, no partial CTE rows.
+    let (status, body) = request(
+        &server.address,
+        "POST",
+        "/v1/databases/game_a/query",
+        Some(&owner),
+        None,
+        Some(&json!({"sql": "SELECT v FROM heavy ORDER BY v"})),
+    );
+    assert_eq!(status, 200, "post-failure read: {body}");
+    assert_eq!(body["rows"], json!([[7], [8]]));
+}
+
 fn start_server_with_dir(data_dir: &std::path::Path) -> Server {
     let mut child = Command::new(env!("CARGO_BIN_EXE_dg"))
         .args([
