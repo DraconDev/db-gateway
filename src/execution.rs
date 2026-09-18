@@ -450,9 +450,10 @@ mod tests {
                 .code,
             "invalid_request"
         );
-        // Argument count: 256 admitted, 257 rejected.
-        let placeholders = |n: usize| vec!["?"; n].join(",");
-        let args = |n: usize| (1..=n as i64).map(json::Value::from).collect::<Vec<_>>();
+        // Argument count: 256 admitted, 257 rejected (single result column
+        // so the 128-column output cap does not mask the argument boundary).
+        let placeholders = |n: usize| vec!["?"; n].join("+");
+        let args = |n: usize| (1..=n as i64).map(Value::from).collect::<Vec<_>>();
         assert!(
             execute(
                 &path,

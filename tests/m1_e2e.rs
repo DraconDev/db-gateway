@@ -612,8 +612,9 @@ fn request_result_boundaries_reject_cleanly_and_recover() {
     assert_eq!(status, 400, "empty SQL: {body}");
     assert_eq!(error_code(&body), "invalid_request");
 
-    // Argument count: 256 admitted, 257 rejected.
-    let placeholders = |n: usize| vec!["?"; n].join(",");
+    // Argument count: 256 admitted, 257 rejected (single result column so
+    // the 128-column output cap does not mask the argument boundary).
+    let placeholders = |n: usize| vec!["?"; n].join("+");
     let args = |n: usize| (1..=n as i64).collect::<Vec<_>>();
     let (status, body) = request(
         &server.address,
@@ -650,16 +651,11 @@ fn request_result_boundaries_reject_cleanly_and_recover() {
     assert_eq!(error_code(&body), "result_limit_exceeded");
 
     // Byte size: one 300 KiB value in a single row exceeds 256 KiB with 413.
+    // The value is generated server-side so the small request stays under
+    // the 64 KiB JSON body cap.
     let (status, body) = query("CREATE TABLE big (v TEXT)");
     assert_eq!(status, 200, "ddl: {body}");
-    let (status, body) = request(
-        &server.address,
-        "POST",
-        "/v1/databases/bounds/query",
-        Some(&owner),
-        None,
-        Some(&json!({"sql": "INSERT INTO big VALUES (?)", "args": ["y".repeat(300_000)]})),
-    );
+    let (status, body) = query("INSERT INTO big SELECT hex(randomblob(150000))");
     assert_eq!(status, 200, "seed big value: {body}");
     let (status, body) = query("SELECT v FROM big");
     assert_eq!(status, 413, "oversized-value result: {body}");
