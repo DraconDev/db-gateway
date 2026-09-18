@@ -348,6 +348,39 @@ fn assert_observes_429(server: &Server, name: &str) {
 const SLOW_INSERT: &str =
     "INSERT INTO t WITH RECURSIVE c(v) AS (SELECT 1 UNION ALL SELECT v+1 FROM c) SELECT v FROM c";
 
+/// Send the slow insert until the server admits it (any non-429), bounded.
+/// A thread-start barrier cannot synchronize server-side permit acquisition:
+/// a racing poller may win the permit first, so a single holder attempt can
+/// be rejected while no contention window ever exists. Retrying until
+/// admission guarantees the holder actually holds its permit for ~2s, during
+/// which the polling side must observe a 429.
+fn slow_insert_until_admitted(server: &Server, name: &str) -> (u16, Value) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let result = server.call(
+            "POST",
+            &format!("/v1/databases/{name}/query"),
+            json!({"sql": SLOW_INSERT}),
+        );
+        if result.0 != 429 {
+            return result;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "slow holder never admitted past 20s of 429s"
+        );
+    }
+}
+
+fn assert_holder_hit_deadline(result: (u16, Value)) {
+    assert_eq!(
+        result.0, 408,
+        "holder must run into the deadline: {}",
+        result.1
+    );
+    assert_eq!(result.1["error"]["code"], "query_deadline_exceeded");
+}
+
 #[test]
 fn contended_capacity_rejects_with_429_and_server_recovers() {
     let server = Server::start();
@@ -359,43 +392,21 @@ fn contended_capacity_rejects_with_429_and_server_recovers() {
     // concurrent read on the same database must see 429 capacity_exceeded.
     std::thread::scope(|scope| {
         let server = &server;
-        let barrier = Arc::new(Barrier::new(2));
-        let holder_barrier = barrier.clone();
-        let holder = scope.spawn(move || {
-            holder_barrier.wait();
-            server.call(
-                "POST",
-                "/v1/databases/hot/query",
-                json!({"sql": SLOW_INSERT}),
-            )
-        });
-        barrier.wait();
+        let holder = scope.spawn(move || slow_insert_until_admitted(server, "hot"));
         assert_observes_429(server, "hot");
-        assert_eq!(holder.join().unwrap().0, 408);
+        assert_holder_hit_deadline(holder.join().unwrap());
     });
     // Phase 2: four slow queries on distinct databases hold all four global
     // permits; another request must see 429 capacity_exceeded.
     std::thread::scope(|scope| {
         let server = &server;
-        let barrier = Arc::new(Barrier::new(5));
         let holders: Vec<_> = ["g0", "g1", "g2", "g3"]
             .into_iter()
-            .map(|name| {
-                let holder_barrier = barrier.clone();
-                scope.spawn(move || {
-                    holder_barrier.wait();
-                    server.call(
-                        "POST",
-                        &format!("/v1/databases/{name}/query"),
-                        json!({"sql": SLOW_INSERT}),
-                    )
-                })
-            })
+            .map(|name| scope.spawn(move || slow_insert_until_admitted(server, name)))
             .collect();
-        barrier.wait();
         assert_observes_429(server, "hot");
         for holder in holders {
-            assert_eq!(holder.join().unwrap().0, 408);
+            assert_holder_hit_deadline(holder.join().unwrap());
         }
     });
     // Post-contention recovery: normal writes and exact reads work again, and
