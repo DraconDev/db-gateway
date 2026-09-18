@@ -1,0 +1,38 @@
+# DB Gateway service template (non-installing).
+#
+# Copy to /etc/systemd/system/dg.service on the target host, replace every
+# braced placeholder (see docs/deployment.md for the value table), then
+#   systemctl daemon-reload
+# Nothing in this repository installs, enables, or starts this unit.
+
+[Unit]
+Description=DB Gateway — personal SQLite service
+After=network.target
+
+[Service]
+Type=simple
+User={{DG_USER}}
+Group={{DG_USER}}
+ExecStart={{DG_BINARY}} serve --listen {{DG_LISTEN}} --data-dir {{DG_DATA_DIR}}
+WorkingDirectory={{DG_DATA_DIR}}
+Restart=on-failure
+RestartSec=5s
+
+# Data directory stays writable and owned by the service user; everything
+# else is read-only to the process.
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths={{DG_DATA_DIR}}
+
+# Credentials never appear here: the owner credential is created once with
+# `dg init` (output redirected to a 0600 file), and client keys travel in
+# 0600 --key-file files owned by {{DG_USER}}. No Environment= secrets.
+
+# Optional containment once docs/resource-budget.md items 1-5 are measured
+# on the target host. Uncomment with a measured value, never a guess.
+# MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target
