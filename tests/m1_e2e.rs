@@ -310,7 +310,9 @@ fn deadline_failure_recovers_over_http() {
         "/v1/databases/game_a/query",
         Some(&owner),
         None,
-        Some(&json!({"sql": "INSERT INTO heavy WITH RECURSIVE c(v) AS (SELECT 1 UNION ALL SELECT v+1 FROM c) SELECT v FROM c"})),
+        Some(
+            &json!({"sql": "INSERT INTO heavy WITH RECURSIVE c(v) AS (SELECT 1 UNION ALL SELECT v+1 FROM c) SELECT v FROM c"}),
+        ),
     );
     assert_eq!(status, 408, "deadline status: {body}");
     assert_eq!(error_code(&body), "query_deadline_exceeded");
