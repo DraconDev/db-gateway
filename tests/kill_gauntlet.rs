@@ -117,7 +117,7 @@ fn twenty_kills_leave_zero_unaccounted_rows() {
     let mut admitted: Vec<i64> = vec![0; 20];
     let mut unknowns_total = 0;
 
-    for round in 0..20 {
+    for (round, admitted_db) in admitted.iter_mut().enumerate() {
         let db = format!("g{round:02}");
         let mut server = spawn_on(data_dir.path());
         let (status, body) = send(
@@ -129,7 +129,12 @@ fn twenty_kills_leave_zero_unaccounted_rows() {
         )
         .unwrap();
         assert_eq!(status, 200, "round {round} create: {body}");
-        let (status, _) = read(&server.address, &owner, &db, "CREATE TABLE k(id INTEGER PRIMARY KEY, tag TEXT)");
+        let (status, _) = read(
+            &server.address,
+            &owner,
+            &db,
+            "CREATE TABLE k(id INTEGER PRIMARY KEY, tag TEXT)",
+        );
         assert_eq!(status, 200);
 
         let ops = 15 + rng.next(25);
@@ -155,7 +160,7 @@ fn twenty_kills_leave_zero_unaccounted_rows() {
                 let idem_replay = format!("g-{round}-{i}");
                 let body_replay = json!({"sql": "INSERT INTO k(tag) VALUES (?)", "args": [tag]});
                 match handle.join().unwrap() {
-                    Ok((200, _)) => admitted[round] += 1,
+                    Ok((200, _)) => *admitted_db += 1,
                     Ok((status, body)) => panic!("round {round}: kill-slot wrote {status}: {body}"),
                     Err(_) => {
                         unknowns_total += 1;
@@ -175,7 +180,7 @@ fn twenty_kills_leave_zero_unaccounted_rows() {
                     )
                     .unwrap();
                     assert_eq!(status, 200, "round {round} op {i}: {body}");
-                    admitted[round] += 1;
+                    *admitted_db += 1;
                 }
                 1 => {
                     let (status, body) = send(
@@ -193,7 +198,7 @@ fn twenty_kills_leave_zero_unaccounted_rows() {
                     )
                     .unwrap();
                     assert_eq!(status, 200, "round {round} op {i}: {body}");
-                    admitted[round] += 5;
+                    *admitted_db += 5;
                 }
                 _ => {
                     let (status, _) = read(&server.address, &owner, &db, "SELECT count(*) FROM k");
@@ -217,13 +222,13 @@ fn twenty_kills_leave_zero_unaccounted_rows() {
             )
             .unwrap();
             assert_eq!(status, 200, "round {round}: replay {idem} failed");
-            admitted[round] += 1;
+            *admitted_db += 1;
         }
         let (status, body) = read(&server.address, &owner, &db, "SELECT count(*) FROM k");
         assert_eq!(status, 200, "round {round}: final count failed: {body}");
         assert_eq!(
             body["rows"],
-            json!([[admitted[round]]]),
+            json!([[*admitted_db]]),
             "round {round}: unaccounted rows"
         );
         server.child.kill().unwrap();
@@ -233,7 +238,10 @@ fn twenty_kills_leave_zero_unaccounted_rows() {
     // The replay path must have been exercised at least once: with kill
     // delays of 0-15ms against ~2ms requests, all 20 kills landing
     // post-response would mean the gauntlet never went in-flight.
-    assert!(unknowns_total > 0, "no in-flight kill happened; replay untested");
+    assert!(
+        unknowns_total > 0,
+        "no in-flight kill happened; replay untested"
+    );
 
     // Finale: all 20 databases present with exact counts, no more, no less.
     let server = spawn_on(data_dir.path());
@@ -255,7 +263,12 @@ fn twenty_kills_leave_zero_unaccounted_rows() {
     let want: Vec<String> = (0..20).map(|r| format!("g{r:02}")).collect();
     assert_eq!(names, want);
     for (round, total) in admitted.iter().enumerate() {
-        let (status, body) = read(&server.address, &owner, &format!("g{round:02}"), "SELECT count(*) FROM k");
+        let (status, body) = read(
+            &server.address,
+            &owner,
+            &format!("g{round:02}"),
+            "SELECT count(*) FROM k",
+        );
         assert_eq!(status, 200);
         assert_eq!(body["rows"], json!([[*total]]), "g{round:02} drifted");
     }
