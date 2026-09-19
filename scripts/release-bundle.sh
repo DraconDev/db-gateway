@@ -76,7 +76,7 @@ built_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 target: $RELEASE_TARGET
 interpreter: ${EXPECTED_INTERPRETER:-host-default}
 verified_executable: true
-note: local bundle only; not published, not cross-platform.
+note: local bundle for the current host architecture only; not published, not cross-platform.
 EOF
 
 log "generating checksums"
