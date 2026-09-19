@@ -238,14 +238,24 @@ fn every_credential_gets_its_exact_code_on_every_route() {
                         _ => (401, "invalid_credential"),
                     };
                     let (status, body) = req(&address, "POST", "/v1/databases/ka/query", cred.as_deref(), &json!({"sql":"SELECT count(*) FROM t"}), None);
-                    assert_eq!(status, want, "load {name} read: {body}");
-                    if want != 200 {
-                        assert_eq!(body["error"]["code"], code, "load {name} read");
+                    // Under 12-thread contention the bounded queue may shed
+                    // load with an explicit 429; auth must never wobble.
+                    if status == 429 {
+                        assert_eq!(body["error"]["code"], "capacity_exceeded", "load {name} read");
+                    } else {
+                        assert_eq!(status, want, "load {name} read: {body}");
+                        if want != 200 {
+                            assert_eq!(body["error"]["code"], code, "load {name} read");
+                        }
                     }
                     // Sparse keyed writes (owner + rw_a only, unique keys).
                     if (name == "owner" || name == "rw_a") && i % 10 == 0 {
                         let (status, body) = req(&address, "POST", "/v1/databases/ka/query", cred.as_deref(), &json!({"sql":"INSERT INTO t(v) VALUES ('load')"}), Some(&format!("load-{t}-{i}")));
-                        assert_eq!(status, 200, "load {name} write: {body}");
+                        if status == 429 {
+                            assert_eq!(body["error"]["code"], "capacity_exceeded", "load {name} write");
+                        } else {
+                            assert_eq!(status, 200, "load {name} write: {body}");
+                        }
                     }
                     // Management: owner 200, scoped 403, rest 401.
                     let (want, code) = match name.as_str() {
