@@ -39,18 +39,54 @@ fn fleet_lives_side_by_side() {
     for db in DBS {
         assert_eq!(fleet.cli.ok("create", &["create", db])["name"], db);
     }
-    apply(&fleet, "fleet_tasks", include_str!("../fleet/task_tracker_schema.sql"));
-    apply(&fleet, "fleet_tasks", include_str!("../fleet/task_tracker_seed.sql"));
-    apply(&fleet, "fleet_blog", include_str!("../fleet/blog_schema.sql"));
+    apply(
+        &fleet,
+        "fleet_tasks",
+        include_str!("../fleet/task_tracker_schema.sql"),
+    );
+    apply(
+        &fleet,
+        "fleet_tasks",
+        include_str!("../fleet/task_tracker_seed.sql"),
+    );
+    apply(
+        &fleet,
+        "fleet_blog",
+        include_str!("../fleet/blog_schema.sql"),
+    );
     apply(&fleet, "fleet_blog", include_str!("../fleet/blog_seed.sql"));
-    apply(&fleet, "fleet_shop", include_str!("../fleet/shop_schema.sql"));
+    apply(
+        &fleet,
+        "fleet_shop",
+        include_str!("../fleet/shop_schema.sql"),
+    );
     apply(&fleet, "fleet_shop", include_str!("../fleet/shop_seed.sql"));
-    apply(&fleet, "fleet_analytics", include_str!("../fleet/analytics_schema.sql"));
-    apply(&fleet, "fleet_analytics", include_str!("../fleet/analytics_seed.sql"));
-    apply(&fleet, "fleet_chat", include_str!("../fleet/chat_schema.sql"));
+    apply(
+        &fleet,
+        "fleet_analytics",
+        include_str!("../fleet/analytics_schema.sql"),
+    );
+    apply(
+        &fleet,
+        "fleet_analytics",
+        include_str!("../fleet/analytics_seed.sql"),
+    );
+    apply(
+        &fleet,
+        "fleet_chat",
+        include_str!("../fleet/chat_schema.sql"),
+    );
     apply(&fleet, "fleet_chat", include_str!("../fleet/chat_seed.sql"));
-    apply(&fleet, "fleet_flags", include_str!("../fleet/flags_schema.sql"));
-    apply(&fleet, "fleet_flags", include_str!("../fleet/flags_seed.sql"));
+    apply(
+        &fleet,
+        "fleet_flags",
+        include_str!("../fleet/flags_schema.sql"),
+    );
+    apply(
+        &fleet,
+        "fleet_flags",
+        include_str!("../fleet/flags_seed.sql"),
+    );
 
     // Cross-fleet check: every DB answers its signature query exactly.
     assert_eq!(
@@ -67,7 +103,13 @@ fn fleet_lives_side_by_side() {
             "fleet_blog",
             "SELECT slug FROM posts WHERE status = 'published' ORDER BY published_at DESC"
         ),
-        json!([["soak-report"], ["rust-notes"], ["gateway-bridge"], ["hello-world"], ["old-news"]])
+        json!([
+            ["soak-report"],
+            ["rust-notes"],
+            ["gateway-bridge"],
+            ["hello-world"],
+            ["old-news"]
+        ])
     );
     assert_eq!(
         fleet.cli.q(
@@ -83,7 +125,12 @@ fn fleet_lives_side_by_side() {
             "fleet_analytics",
             "SELECT name, count(*) FROM events GROUP BY name ORDER BY name"
         ),
-        json!([["heartbeat", 3], ["page_view", 20], ["purchase", 3], ["signup", 4]])
+        json!([
+            ["heartbeat", 3],
+            ["page_view", 20],
+            ["purchase", 3],
+            ["signup", 4]
+        ])
     );
     assert_eq!(
         fleet.cli.q(
@@ -94,7 +141,9 @@ fn fleet_lives_side_by_side() {
         json!([["gateway-ops", 4], ["general", 3], ["random", 5]])
     );
     assert_eq!(
-        fleet.cli.q("flags count", "fleet_flags", "SELECT count(*) FROM flags"),
+        fleet
+            .cli
+            .q("flags count", "fleet_flags", "SELECT count(*) FROM flags"),
         json!([[6]])
     );
 
@@ -126,22 +175,37 @@ fn fleet_lives_side_by_side() {
         "INSERT INTO tasks(project_id, title) VALUES (1, 'Side quest')",
     );
     assert_eq!(
-        fleet.cli.q("tasks now", "fleet_tasks", "SELECT count(*) FROM tasks"),
+        fleet
+            .cli
+            .q("tasks now", "fleet_tasks", "SELECT count(*) FROM tasks"),
         json!([[13]])
     );
     assert_eq!(
-        fleet.cli.q("blog still", "fleet_blog", "SELECT count(*) FROM posts"),
+        fleet
+            .cli
+            .q("blog still", "fleet_blog", "SELECT count(*) FROM posts"),
         json!([[6]])
     );
 
     // Export/import round-trip: the shop copy aggregates identically.
     let dir = tempfile::tempdir().unwrap();
     let snap = dir.path().join("shop.sqlite");
-    let exported = fleet.cli.ok("export", &["export", "fleet_shop", "--out", snap.to_str().unwrap()]);
+    let exported = fleet.cli.ok(
+        "export",
+        &["export", "fleet_shop", "--out", snap.to_str().unwrap()],
+    );
     assert!(exported["size"].as_u64().unwrap() > 0);
     assert!(snap.exists(), "export wrote no file");
     assert_eq!(
-        fleet.cli.ok("import", &["import", "fleet_shop_copy", "--from", snap.to_str().unwrap()])["imported"],
+        fleet.cli.ok(
+            "import",
+            &[
+                "import",
+                "fleet_shop_copy",
+                "--from",
+                snap.to_str().unwrap()
+            ]
+        )["imported"],
         "fleet_shop_copy"
     );
     for (label, sql) in [
