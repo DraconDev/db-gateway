@@ -33,7 +33,7 @@ Store key files with `0600` permissions; the CLI refuses group/world-readable ke
 | `POST /v1/databases/{name}/batch` | scoped key | `{"atomic":true,"statements":[{"sql":…,"args":[…]},…]}` | `{"results":[ …query results… ]}` |
 | `POST /v1/databases/{name}/clone` | read-write key on source | `{"destination":"name2"}` | `{"source":"…","destination":"…"}` |
 | `POST /v1/databases/{name}/export` | scoped key | `{}` | `{"database":"…","sha256":"…","size":n,"data_base64":"…"}` |
-| `POST /v1/databases/{name}/import` | read-write key on path database | `{"name":"new_name","data_base64":"…"}` | `{"imported":"…","from":"…"}` |
+| `POST /v1/databases/{name}/import` | owner | `{"name":"new_name","data_base64":"…"}` | `{"imported":"…","from":"…"}` |
 | `DELETE /v1/databases/{name}` | owner | — | `{"deleted":true,"purge_after_seconds":86400}` |
 
 Names: `[a-z0-9_]+`, not starting with `_`, max 64 chars. Queries never create databases — a missing database is `404 database_not_found`.
@@ -72,7 +72,7 @@ Every request runs in one managed transaction; a write is acknowledged only afte
 
 Clones and exports use SQLite's **online backup API**, never raw file copying: the snapshot is a consistent committed point in time even while writes continue on the source (WAL readers do not block writers). Exported files are standalone SQLite databases in DELETE journal mode.
 
-**Import** validates the file (`PRAGMA integrity_check`, foreign-key check, no protected tables besides the server's own `_dg_replay`) and publishes it in one atomic registry step — a failed import leaves no partial database. Import targets must not collide with live **or tombstoned** names. Before publication the gateway ensures its `_dg_replay` schema exists, so **keyed writes and replays work immediately on imported databases**; ordinary external SQLite files need no preparation. A file that already carries a `_dg_replay` table is published only if its definition matches the canonical schema (a smuggled or incompatible variant is rejected), and other `_dg_*` tables are always rejected.
+**Import is owner-only.** It validates the file (`PRAGMA integrity_check`, foreign-key check, no protected tables besides the server's own `_dg_replay`) and publishes it in one atomic registry step — a failed import leaves no partial database. Import targets must not collide with live **or tombstoned** names. Before publication the gateway ensures its `_dg_replay` schema exists, so **keyed writes and replays work immediately on imported databases**; ordinary external SQLite files need no preparation. A file that already carries a `_dg_replay` table is published only if its definition matches the canonical schema (a smuggled or incompatible variant is rejected), and other `_dg_*` tables are always rejected. Read-write application keys may export or clone within their scope, but cannot publish database imports.
 
 Interruption boundary: publication links the file first and commits the registry row second. A crash between the two leaves an unregistered orphan file. After restart the orphan is invisible (`404`), `create`/import refuse to overwrite or adopt it (`409`), and an unrelated valid import still succeeds; operator recovery is deleting the orphan file and re-importing, which then publishes exact data.
 

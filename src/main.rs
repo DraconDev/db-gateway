@@ -112,7 +112,7 @@ enum Command {
         #[arg(long, required = true)]
         out: PathBuf,
     },
-    /// Import a local .sqlite file as a new database (owner/app key).
+    /// Import a local .sqlite file as a new database (owner key only).
     Import {
         name: String,
         #[arg(long, required = true)]

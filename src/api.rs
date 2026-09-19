@@ -236,11 +236,8 @@ async fn import(
 ) -> Result<Json<Value>> {
     let body = json_body(body)?;
     work(store, headers, move |s, p| {
-        // Import into the database referenced by the path name.
-        s.authorize(&p, &name)?;
-        if p.role == "database_read_only" {
-            return Err(Error::new(403, "forbidden", "read-only credential"));
-        }
+        // Import publishes a new database and is an owner-only management operation.
+        p.owner()?;
         let bytes = BASE64_STANDARD
             .decode(body.data_base64.as_bytes())
             .map_err(|_| Error::invalid())?;
