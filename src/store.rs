@@ -162,11 +162,15 @@ impl Store {
             |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
         );
         match result {
-            Ok((role, dbs)) => Ok(Principal {
-                hash,
-                role,
-                databases: serde_json::from_str(&dbs).map_err(|_| Error::internal())?,
-            }),
+            Ok((role, dbs)) => {
+                let scopes = parse_scopes(&dbs)?;
+                Ok(Principal {
+                    hash,
+                    role,
+                    databases: scope_names(&scopes),
+                    scopes,
+                })
+            }
             Err(rusqlite::Error::QueryReturnedNoRows) => Err(unauthorized()),
             Err(error) => Err(error.into()),
         }
@@ -184,7 +188,7 @@ impl Store {
             return Err(Error::invalid());
         }
         for name in &request.databases {
-            self.path(name)?;
+            validate_name(name)?;
         }
         let mut conn = self.meta()?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -194,6 +198,30 @@ impl Store {
         {
             return Err(Error::busy());
         }
+        let mut scopes = Vec::with_capacity(request.databases.len());
+        for name in &request.databases {
+            let generation: Option<String> = tx
+                .query_row(
+                    "SELECT generation FROM databases WHERE name=? AND deleted_at IS NULL",
+                    [name],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let Some(generation) = generation else {
+                return Err(Error::new(
+                    404,
+                    "database_not_found",
+                    "database not found",
+                ));
+            };
+            if generation.is_empty() {
+                return Err(Error::internal());
+            }
+            scopes.push(DatabaseScope {
+                name: name.clone(),
+                generation,
+            });
+        }
         let key = generate_key();
         tx.execute(
             "INSERT INTO credentials VALUES (?,?,?,?)",
@@ -201,7 +229,7 @@ impl Store {
                 request.name,
                 hash(&key),
                 request.role,
-                serde_json::to_string(&request.databases).map_err(|_| Error::internal())?
+                serde_json::to_string(&scopes).map_err(|_| Error::internal())?
             ],
         )
         .map_err(|_| Error::new(409, "key_exists", "credential name already exists"))?;
@@ -217,11 +245,17 @@ impl Store {
         let keys = stmt
             .query_map([], |r| {
                 let databases: String = r.get(2)?;
+                let scopes = parse_scopes(&databases).map_err(|_| {
+                    rusqlite::Error::InvalidColumnType(
+                        2,
+                        "databases".into(),
+                        rusqlite::types::Type::Text,
+                    )
+                })?;
                 Ok(serde_json::json!({
                     "name": r.get::<_, String>(0)?,
                     "role": r.get::<_, String>(1)?,
-                    "databases": serde_json::from_str::<serde_json::Value>(&databases)
-                        .unwrap_or(serde_json::Value::Null),
+                    "databases": scope_names(&scopes),
                 }))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
