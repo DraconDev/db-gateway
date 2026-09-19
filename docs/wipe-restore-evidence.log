@@ -1,0 +1,21 @@
+initialized original data dir
+serving on 127.0.0.1:34409 (pid 426)
+seeded: w1=200 kv, w2=100 parent + 300 child, w3=50 misc (NULL/unicode/5KB edges)
+pre-wipe w1.kv: 200 rows
+pre-wipe w2.parent: 100 rows
+pre-wipe w2.child: 300 rows
+pre-wipe w3.misc: 50 rows
+export w1: 28672 bytes sha256=871e2165a36e29c1…
+export w2: 53248 bytes sha256=c970eb588fd56ee0…
+export w3: 77824 bytes sha256=7f6f31babb8fa24f…
+data dir wiped
+re-initialized with a fresh owner key
+serving on 127.0.0.1:38643 (pid 814)
+imported w1
+imported w2
+imported w3
+post-restore w1.kv: 200 rows byte-exact
+post-restore w2.parent: 100 rows byte-exact
+post-restore w2.child: 300 rows byte-exact
+post-restore w3.misc: 50 rows byte-exact
+WIPE-AND-RESTORE PASS
