@@ -40,7 +40,13 @@ fn spawn(data_dir: &std::path::Path) -> (Server, String) {
         .unwrap()
         .to_string();
     let mut child = Command::new(env!("CARGO_BIN_EXE_dg"))
-        .args(["serve", "--listen", "127.0.0.1:0", "--data-dir", data_dir.to_str().unwrap()])
+        .args([
+            "serve",
+            "--listen",
+            "127.0.0.1:0",
+            "--data-dir",
+            data_dir.to_str().unwrap(),
+        ])
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
@@ -92,7 +98,8 @@ fn big_file(path: &std::path::Path, rows: usize) {
     conn.execute("CREATE TABLE t(v TEXT)", []).unwrap();
     let chunk = "x".repeat(6000);
     for _ in 0..rows {
-        conn.execute("INSERT INTO t(v) VALUES (?)", [&chunk]).unwrap();
+        conn.execute("INSERT INTO t(v) VALUES (?)", [&chunk])
+            .unwrap();
     }
     conn.close().unwrap();
 }
@@ -112,18 +119,48 @@ fn every_wall_accepts_at_the_line_and_rejects_past_it() {
     let b = |db: &str, body: &Value| post(a, &owner, &format!("/v1/databases/{db}/batch"), body);
 
     // Batch statement count: 32 admitted, 33 rejected.
-    let stmts: Vec<Value> = (0..32).map(|i| json!({"sql": format!("SELECT {i}")})).collect();
-    check("batch 32", b("b00", &json!({"statements": stmts, "atomic": true})), 200, "-");
-    let stmts: Vec<Value> = (0..33).map(|i| json!({"sql": format!("SELECT {i}")})).collect();
-    check("batch 33", b("b00", &json!({"statements": stmts, "atomic": true})), 400, "invalid_request");
+    let stmts: Vec<Value> = (0..32)
+        .map(|i| json!({"sql": format!("SELECT {i}")}))
+        .collect();
+    check(
+        "batch 32",
+        b("b00", &json!({"statements": stmts, "atomic": true})),
+        200,
+        "-",
+    );
+    let stmts: Vec<Value> = (0..33)
+        .map(|i| json!({"sql": format!("SELECT {i}")}))
+        .collect();
+    check(
+        "batch 33",
+        b("b00", &json!({"statements": stmts, "atomic": true})),
+        400,
+        "invalid_request",
+    );
 
     // Argument count: 256 admitted, 257 rejected.
     let sum256 = (0..256).map(|_| "?").collect::<Vec<_>>().join("+");
     let args256: Vec<Value> = (0..256).map(|_| json!(1)).collect();
-    check("args 256", q("b01", &json!({"sql": format!("SELECT {sum256}"), "args": args256})), 200, "-");
+    check(
+        "args 256",
+        q(
+            "b01",
+            &json!({"sql": format!("SELECT {sum256}"), "args": args256}),
+        ),
+        200,
+        "-",
+    );
     let sum257 = (0..257).map(|_| "?").collect::<Vec<_>>().join("+");
     let args257: Vec<Value> = (0..257).map(|_| json!(1)).collect();
-    check("args 257", q("b01", &json!({"sql": format!("SELECT {sum257}"), "args": args257})), 400, "invalid_request");
+    check(
+        "args 257",
+        q(
+            "b01",
+            &json!({"sql": format!("SELECT {sum257}"), "args": args257}),
+        ),
+        400,
+        "invalid_request",
+    );
 
     // JSON body: exactly 65536 bytes admitted, 65537 rejected.
     let base = json!({"sql": "SELECT 1"});
@@ -131,7 +168,11 @@ fn every_wall_accepts_at_the_line_and_rejects_past_it() {
     for (label, total) in [("body 65536", 65536), ("body 65537", 65537)] {
         let sql = format!("SELECT 1{}", " ".repeat(total - base_len));
         let body = json!({"sql": sql});
-        assert_eq!(serde_json::to_string(&body).unwrap().len(), total, "{label} sizing");
+        assert_eq!(
+            serde_json::to_string(&body).unwrap().len(),
+            total,
+            "{label} sizing"
+        );
         if total == 65536 {
             check(label, q("b02", &body), 200, "-");
         } else {
@@ -140,25 +181,51 @@ fn every_wall_accepts_at_the_line_and_rejects_past_it() {
     }
 
     // Result rows: 1000 admitted, 1001 rejected.
-    let rows = |n: u32| format!("WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c WHERE x<{n}) SELECT x FROM c");
+    let rows = |n: u32| {
+        format!(
+            "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c WHERE x<{n}) SELECT x FROM c"
+        )
+    };
     let (status, body) = q("b03", &json!({"sql": rows(1000)}));
     check("rows 1000", (status, body.clone()), 200, "-");
     assert_eq!(body["rows"].as_array().unwrap().len(), 1000);
-    check("rows 1001", q("b03", &json!({"sql": rows(1001)})), 413, "result_limit_exceeded");
+    check(
+        "rows 1001",
+        q("b03", &json!({"sql": rows(1001)})),
+        413,
+        "result_limit_exceeded",
+    );
 
     // Result bytes: ~240KiB admitted, ~280KiB rejected (wall 256KiB).
     let (status, body) = q("b04", &json!({"sql": "SELECT hex(randomblob(120000))"}));
     check("bytes 240KiB", (status, body.clone()), 200, "-");
     assert!(body["rows"][0][0].as_str().unwrap().len() > 200_000);
-    check("bytes 280KiB", q("b04", &json!({"sql": "SELECT hex(randomblob(140000))"})), 413, "result_limit_exceeded");
+    check(
+        "bytes 280KiB",
+        q("b04", &json!({"sql": "SELECT hex(randomblob(140000))"})),
+        413,
+        "result_limit_exceeded",
+    );
 
     // Export wall (8MiB): ~600KiB file exports, ~8.4MiB file rejected.
     for (db, rows) in [("b05", 100usize), ("b06", 1400usize)] {
-        check(&format!("{db} ddl"), q(db, &json!({"sql": "CREATE TABLE t(v TEXT)"})), 200, "-");
+        check(
+            &format!("{db} ddl"),
+            q(db, &json!({"sql": "CREATE TABLE t(v TEXT)"})),
+            200,
+            "-",
+        );
         for chunk in 0..rows.div_ceil(20) {
             let n = 20.min(rows - chunk * 20);
-            let stmts: Vec<Value> = (0..n).map(|_| json!({"sql": "INSERT INTO t(v) SELECT hex(randomblob(3000))"})).collect();
-            check(&format!("{db} fill {chunk}"), b(db, &json!({"statements": stmts, "atomic": true})), 200, "-");
+            let stmts: Vec<Value> = (0..n)
+                .map(|_| json!({"sql": "INSERT INTO t(v) SELECT hex(randomblob(3000))"}))
+                .collect();
+            check(
+                &format!("{db} fill {chunk}"),
+                b(db, &json!({"statements": stmts, "atomic": true})),
+                200,
+                "-",
+            );
         }
         let (_, cnt) = q(db, &json!({"sql": "SELECT count(*) FROM t"}));
         assert_eq!(cnt["rows"], json!([[rows]]), "{db} fill count");
@@ -166,7 +233,12 @@ fn every_wall_accepts_at_the_line_and_rejects_past_it() {
     let (status, small) = post(a, &owner, "/v1/databases/b05/export", &json!({}));
     check("export 600KiB", (status, small.clone()), 200, "-");
     assert!(small["size"].as_u64().unwrap() > 500_000, "{small:?}");
-    check("export 8.4MiB", post(a, &owner, "/v1/databases/b06/export", &json!({})), 413, "result_limit_exceeded");
+    check(
+        "export 8.4MiB",
+        post(a, &owner, "/v1/databases/b06/export", &json!({})),
+        413,
+        "result_limit_exceeded",
+    );
 
     // Import wall (12MiB body): ~600KiB file imports, ~13MiB file rejected.
     let dir = tempfile::tempdir().unwrap();
@@ -174,24 +246,55 @@ fn every_wall_accepts_at_the_line_and_rejects_past_it() {
     big_file(&dir.path().join("big.db"), 2200);
     let small_bytes = std::fs::read(dir.path().join("small.db")).unwrap();
     let big_bytes = std::fs::read(dir.path().join("big.db")).unwrap();
-    assert!(big_bytes.len() > 12 * 1024 * 1024, "big fixture too small: {}", big_bytes.len());
+    assert!(
+        big_bytes.len() > 12 * 1024 * 1024,
+        "big fixture too small: {}",
+        big_bytes.len()
+    );
     use base64::{Engine, engine::general_purpose::STANDARD};
     check(
         "import 600KiB",
-        post(a, &owner, "/v1/databases/imp_small/import", &json!({"name": "imp_small", "data_base64": STANDARD.encode(&small_bytes)})),
-        200, "-",
+        post(
+            a,
+            &owner,
+            "/v1/databases/imp_small/import",
+            &json!({"name": "imp_small", "data_base64": STANDARD.encode(&small_bytes)}),
+        ),
+        200,
+        "-",
     );
     check(
         "import 13MiB",
-        post(a, &owner, "/v1/databases/imp_big/import", &json!({"name": "imp_big", "data_base64": STANDARD.encode(&big_bytes)})),
-        413, "invalid_request",
+        post(
+            a,
+            &owner,
+            "/v1/databases/imp_big/import",
+            &json!({"name": "imp_big", "data_base64": STANDARD.encode(&big_bytes)}),
+        ),
+        413,
+        "invalid_request",
     );
 
     // Control: rejects left no trace — failed batch wrote nothing, failed
     // import published nothing, b09 untouched and fully functional.
-    check("b09 ddl", q("b09", &json!({"sql": "CREATE TABLE t(id INTEGER PRIMARY KEY)"})), 200, "-");
-    let stmts: Vec<Value> = (0..33).map(|_| json!({"sql": "INSERT INTO t(id) VALUES (1)"})).collect();
-    check("b09 bad batch", b("b09", &json!({"statements": stmts, "atomic": true})), 400, "invalid_request");
+    check(
+        "b09 ddl",
+        q(
+            "b09",
+            &json!({"sql": "CREATE TABLE t(id INTEGER PRIMARY KEY)"}),
+        ),
+        200,
+        "-",
+    );
+    let stmts: Vec<Value> = (0..33)
+        .map(|_| json!({"sql": "INSERT INTO t(id) VALUES (1)"}))
+        .collect();
+    check(
+        "b09 bad batch",
+        b("b09", &json!({"statements": stmts, "atomic": true})),
+        400,
+        "invalid_request",
+    );
     let (_, cnt) = q("b09", &json!({"sql": "SELECT count(*) FROM t"}));
     assert_eq!(cnt["rows"], json!([[0]]), "rejected batch leaked rows");
     let (status, list) = post(a, &owner, "/v1/databases", &json!({}));
@@ -209,8 +312,14 @@ fn every_wall_accepts_at_the_line_and_rejects_past_it() {
         .iter()
         .map(|d| d.as_str().unwrap().to_string())
         .collect();
-    assert!(!listed.contains(&"imp_big".to_string()), "rejected import published: {listed:?}");
+    assert!(
+        !listed.contains(&"imp_big".to_string()),
+        "rejected import published: {listed:?}"
+    );
     for i in 0..10 {
-        assert!(listed.contains(&format!("b{i:02}")), "missing b{i:02}: {listed:?}");
+        assert!(
+            listed.contains(&format!("b{i:02}")),
+            "missing b{i:02}: {listed:?}"
+        );
     }
 }
