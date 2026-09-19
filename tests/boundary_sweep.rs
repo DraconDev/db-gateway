@@ -250,8 +250,8 @@ fn every_wall_accepts_at_the_line_and_rejects_past_it() {
     let small_bytes = std::fs::read(dir.path().join("small.db")).unwrap();
     let big_bytes = std::fs::read(dir.path().join("big.db")).unwrap();
     assert!(
-        big_bytes.len() > 12 * 1024 * 1024,
-        "big fixture too small: {}",
+        big_bytes.len() > 8 * 1024 * 1024,
+        "big fixture too small for the decoded import wall: {}",
         big_bytes.len()
     );
     use base64::{Engine, engine::general_purpose::STANDARD};
