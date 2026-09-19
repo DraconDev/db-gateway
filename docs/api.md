@@ -16,7 +16,7 @@ Authentication is `Authorization: Bearer <credential>` on every route. Credentia
 | `database_read_only` | `dg key create` (owner) | SQL reads on its scoped databases |
 | `database_read_write` | `dg key create` (owner) | SQL reads + writes on its scoped databases |
 
-Store key files with `0600` permissions; the CLI refuses group/world-readable key files. **Automated development clients should use scoped dev credentials, never the owner key.**
+Store key files with `0600` permissions; the CLI refuses group/world-readable key files. **Automated development clients should use scoped dev credentials, never the owner key.** Each registered database also has a durable opaque generation identity. A scoped credential stores the database name together with the generation it was issued for; after tombstone purge and same-name recreation, the old credential receives `database_forbidden` while a newly issued credential can access the replacement. Legacy name-only scope metadata is migrated to the current generation without broadening access.
 
 ## Routes
 
