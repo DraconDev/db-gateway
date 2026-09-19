@@ -7,7 +7,7 @@
 //! batch 32/33, args 256/257, JSON body 65536/65537 bytes,
 //! result rows 1000/1001, result bytes ~240KiB/~280KiB,
 //! export ~600KiB/~8.4MiB against the 8MiB wall,
-//! import ~600KiB/~13MiB against the 12MiB body wall.
+//! import ~600KiB/~8.4MiB against the 8MiB decoded-data wall.
 //! A final control database proves rejected requests left no trace.
 
 use std::{
@@ -243,7 +243,10 @@ fn every_wall_accepts_at_the_line_and_rejects_past_it() {
     // Import wall (12MiB body): ~600KiB file imports, ~13MiB file rejected.
     let dir = tempfile::tempdir().unwrap();
     big_file(&dir.path().join("small.db"), 100);
-    big_file(&dir.path().join("big.db"), 2200);
+    // Keep the encoded request below the import route's 12MiB transport
+    // envelope so the server can consume it and return the decoded 8MiB
+    // payload error deterministically instead of closing the upload early.
+    big_file(&dir.path().join("big.db"), 1400);
     let small_bytes = std::fs::read(dir.path().join("small.db")).unwrap();
     let big_bytes = std::fs::read(dir.path().join("big.db")).unwrap();
     assert!(
@@ -264,7 +267,7 @@ fn every_wall_accepts_at_the_line_and_rejects_past_it() {
         "-",
     );
     check(
-        "import 13MiB",
+        "import 8.4MiB",
         post(
             a,
             &owner,
@@ -272,7 +275,7 @@ fn every_wall_accepts_at_the_line_and_rejects_past_it() {
             &json!({"name": "imp_big", "data_base64": STANDARD.encode(&big_bytes)}),
         ),
         413,
-        "invalid_request",
+        "result_limit_exceeded",
     );
 
     // Control: rejects left no trace — failed batch wrote nothing, failed

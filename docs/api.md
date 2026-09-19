@@ -52,7 +52,7 @@ Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1
 | `sql_forbidden` | 403 | Read-only write attempt, or SQL touching protected `_dg_*` tables / disallowed features (attach, pragmas, triggers/views, virtual tables, load_extension, user transactions) |
 | `database_not_found` | 404 | No such database (never silently created) |
 | `invalid_request` | 400 | Malformed JSON, unknown fields, bad name, unsupported arg, empty batch, more than 32 batch statements, SQL text over 64 KiB, more than 256 args, or malformed idempotency key |
-| `invalid_request` | 413 | JSON body over the 64 KiB request cap (12 MiB on the import route) |
+| `invalid_request` | 413 | JSON body over the 64 KiB general cap; import requests have a 12 MiB encoded transport envelope, while decoded import data is capped at 8 MiB |
 | `invalid_sql` | 400 | Syntax error, wrong parameter count, unknown table/column |
 | `result_limit_exceeded` | 413 | Result exceeds 256 KiB or 1000 rows |
 | `idempotency_key_conflict` | 409 | Same key, different request body |
