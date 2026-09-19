@@ -273,16 +273,49 @@ impl Store {
         )?;
         Ok(())
     }
+    /// Authorize a principal against the database's current generation.
+    /// Missing rows are left to `path()` so a scoped credential retains the
+    /// existing 404 behavior for a purged database, while a replacement with
+    /// a different generation is denied before SQLite is opened.
+    pub fn authorize(&self, principal: &Principal, name: &str) -> Result<()> {
+        if principal.role == "owner" {
+            return Ok(());
+        }
+        let generation = self.generation_for(name)?;
+        principal.database(name, generation.as_deref())
+    }
+
+    fn generation_for(&self, name: &str) -> Result<Option<String>> {
+        validate_name(name)?;
+        let row: Option<Option<String>> = self
+            .meta()?
+            .query_row(
+                "SELECT generation FROM databases WHERE name=?",
+                [name],
+                |r| r.get(0),
+            )
+            .optional()?;
+        match row {
+            Some(Some(generation)) if !generation.is_empty() => Ok(Some(generation)),
+            Some(Some(_)) | Some(None) => Err(Error::internal()),
+            None => Ok(None),
+        }
+    }
+
     pub fn list(&self, principal: &Principal) -> Result<Vec<String>> {
         let conn = self.meta()?;
-        let mut stmt =
-            conn.prepare("SELECT name FROM databases WHERE deleted_at IS NULL ORDER BY name")?;
+        let mut stmt = conn.prepare(
+            "SELECT name,generation FROM databases WHERE deleted_at IS NULL ORDER BY name",
+        )?;
         let names = stmt
-            .query_map([], |r| r.get::<_, String>(0))?
+            .query_map([], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(names
             .into_iter()
-            .filter(|name| principal.database(name).is_ok())
+            .filter(|(name, generation)| principal.database(name, Some(generation)).is_ok())
+            .map(|(name, _)| name)
             .collect())
     }
     /// Owner-visible database facts: size, user tables with row counts,
