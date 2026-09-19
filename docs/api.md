@@ -27,6 +27,7 @@ Store key files with `0600` permissions; the CLI refuses group/world-readable ke
 | `GET /v1/databases/{name}` | owner | — | `{"name":"…","tombstoned":false,"size_bytes":n,"created_at":epoch,"tables":[{"name":"…","rows":n},…]}` (tombstoned names report `{"name":"…","tombstoned":true,"purge_after":epoch,"size_bytes":n}` instead; unknown names are `404 database_not_found`) |
 | `GET /v1/databases` | owner | — | `{"databases":["game_a", …]}` |
 | `POST /v1/keys` | owner | `{"name":"bot_a","role":"database_read_write","databases":["game_a"]}` (or role `database_read_only`) | `{"key":"<64 hex>"}` |
+| `GET /v1/keys` | owner | — | `{"keys":[{"name":"…","role":"…","databases":[…]}]}` (hashes never shown; the owner row is listed) |
 | `DELETE /v1/keys/{name}` | owner | — | `{"revoked":true}` |
 | `POST /v1/databases/{name}/query` | scoped key | `{"sql":"INSERT … VALUES (?)","args":[…]}` | `{"columns":[…],"rows":[[…]],"rows_affected":n}` |
 | `POST /v1/databases/{name}/batch` | scoped key | `{"atomic":true,"statements":[{"sql":…,"args":[…]},…]}` | `{"results":[ …query results… ]}` |
@@ -94,6 +95,7 @@ dg --key-file owner.key list
 dg --key-file owner.key create game_a
 dg --key-file owner.key info game_a       # size, tables+rows, created_at, tombstone state
 dg --key-file owner.key key create bot_a --role database_read_write --database game_a   # prints {"key": …} once
+dg --key-file owner.key key list
 dg --key-file owner.key query game_a "CREATE TABLE players (id INTEGER PRIMARY KEY, name TEXT)"
 dg --key-file owner.key query game_a "CREATE TABLE matches (id INTEGER PRIMARY KEY)"
 dg --key-file owner.key query game_a "INSERT INTO players (name) VALUES (?)" --args '["aria"]'

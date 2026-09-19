@@ -93,6 +93,8 @@ enum Command {
 }
 #[derive(Subcommand)]
 enum KeyCommand {
+    /// List outstanding credentials with scope and role (hashes never shown).
+    List,
     Create {
         name: String,
         #[arg(long,value_parser=["database_read_only","database_read_write"])]
@@ -278,6 +280,9 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             Some(json!({"name":name,"role":role,"databases":database})),
             None,
         ),
+        Command::Key {
+            command: KeyCommand::List,
+        } => (Method::GET, "/v1/keys".into(), None, None),
         Command::Key {
             command: KeyCommand::Revoke { name },
         } => {

@@ -213,6 +213,25 @@ impl Store {
         tx.commit()?;
         Ok(key)
     }
+    /// Owner-visible credential inventory: name, role, and scope.
+    /// Hashes never leave the server; the owner row itself is listed.
+    pub fn list_keys(&self) -> Result<serde_json::Value> {
+        let conn = self.meta()?;
+        let mut stmt =
+            conn.prepare("SELECT name, role, databases FROM credentials ORDER BY name")?;
+        let keys = stmt
+            .query_map([], |r| {
+                let databases: String = r.get(2)?;
+                Ok(serde_json::json!({
+                    "name": r.get::<_, String>(0)?,
+                    "role": r.get::<_, String>(1)?,
+                    "databases": serde_json::from_str::<serde_json::Value>(&databases)
+                        .unwrap_or(serde_json::Value::Null),
+                }))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(serde_json::json!({"keys": keys}))
+    }
     pub fn revoke(&self, name: &str) -> Result<()> {
         validate_name(name)?;
         if name == "owner" {

@@ -31,7 +31,7 @@ pub fn router(store: Arc<Store>) -> Router {
             "/v1/databases/{name}/import",
             post(import).layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
         )
-        .route("/v1/keys", post(issue))
+        .route("/v1/keys", get(list_keys).post(issue))
         .route("/v1/keys/{name}", delete(revoke))
         .route("/v1/databases/{name}/query", post(query))
         .route("/v1/databases/{name}/batch", post(batch))
@@ -118,6 +118,14 @@ async fn issue(
     work(store, headers, move |s, p| {
         p.owner()?;
         Ok(Json(json!({"key":s.issue(body)?})))
+    })
+    .await
+}
+/// Owner-only credential inventory. Hashes are never serialized.
+async fn list_keys(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<Json<Value>> {
+    work(store, headers, |s, p| {
+        p.owner()?;
+        Ok(Json(s.list_keys()?))
     })
     .await
 }
