@@ -51,6 +51,9 @@ impl Cli {
         serde_json::from_str(&stdout).unwrap_or_else(|_| panic!("{label} not JSON: {stdout}"))
     }
 
+    /// Assert a `dg` subcommand fails with the given error code.
+    /// (Shared harness: only some fleet tests exercise error paths.)
+    #[allow(dead_code)]
     pub fn err(&self, label: &str, args: &[&str], code: &str) -> (bool, String, String) {
         let (success, stdout, stderr) = self.run(args);
         assert!(!success, "{label} unexpectedly succeeded: {stdout}");
