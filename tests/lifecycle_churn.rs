@@ -89,6 +89,7 @@ fn three_hundred_ops_keep_registry_and_files_exact() {
     let server = Server::start();
     let names: Vec<String> = (0..30).map(|i| format!("ch_{i:02}")).collect();
     let mut live: HashSet<String> = HashSet::new();
+    let mut tombstoned: HashSet<String> = HashSet::new();
     let mut admitted: HashMap<String, i64> = HashMap::new();
     let mut rng = Lcg(0xC0FFEE);
     let mut key_seq = 0u64;
@@ -132,6 +133,8 @@ fn create_table(server: &Server, name: &str, idem: &str) -> bool {
                 );
                 if live.contains(&name) {
                     assert_eq!(status, 409, "iter {i}: recreate of live {name} not 409");
+                } else if tombstoned.contains(&name) {
+                    assert_eq!(status, 409, "iter {i}: recreate of tombstoned {name} not 409");
                 } else {
                     assert_eq!(status, 200, "iter {i}: create of dead {name} failed");
                     assert!(create_table(&server, &name, &key()), "iter {i}: seed {name}");
@@ -146,6 +149,7 @@ fn create_table(server: &Server, name: &str, idem: &str) -> bool {
                 if live.remove(&name) {
                     assert_eq!(status, 200, "iter {i}: delete of live {name} failed");
                     admitted.remove(&name);
+                    tombstoned.insert(name);
                 } else {
                     assert_eq!(status, 404, "iter {i}: delete of dead {name} not 404");
                 }
@@ -194,6 +198,7 @@ fn create_table(server: &Server, name: &str, idem: &str) -> bool {
                     assert_eq!(status, 409, "iter {i}: tombstoned {name} recreatable");
                     live.remove(&name);
                     admitted.remove(&name);
+                    tombstoned.insert(name);
                 } else {
                     let (status, _) = server.call(
                         "POST",
