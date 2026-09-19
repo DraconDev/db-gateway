@@ -84,7 +84,7 @@ The server retains the SQLite file for **24 hours** and checks expired tombstone
 
 ## CLI
 
-Non-shell command output is JSON; the shell defaults to aligned text. Global flags: `--server <url>` (default `http://127.0.0.1:7432`; HTTPS or literal loopback only), `--key-file <path>` (required; `0600`), `--json`.
+Non-shell command output is JSON; the shell defaults to aligned text. One exception: `dg query` renders the shell's aligned table when stdout is a terminal and `--json` is absent — piped output always stays JSON, so scripts are unaffected. Global flags: `--server <url>` (default `http://127.0.0.1:7432`; HTTPS or literal loopback only), `--key-file <path>` (required; `0600`), `--json`.
 
 Connection resolution, highest precedence first: `--server` / `--key-file` flags, then `DG_SERVER` / `DG_KEY_FILE` environment variables, then defaults (`http://127.0.0.1:7432` and `$HOME/.config/dg/key`). With the env vars set — or the default key file in place — daily commands need no flags at all: `dg list`, `dg query game_a "SELECT …"`.
 
