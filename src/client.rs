@@ -1,7 +1,10 @@
 //! CLI transport. Never retries writes implicitly or follows redirects with keys.
 use crate::error::{Error, Result};
 use serde_json::{Value, json};
-use std::{path::{Path, PathBuf}, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 /// Default credential location when neither `--key-file` nor `DG_KEY_FILE`
 /// is set: `$HOME/.config/dg/key`. Returns `None` when HOME is unknown or

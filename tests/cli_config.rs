@@ -15,7 +15,12 @@ use common::Fleet;
 use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 
-fn bare(server_env: Option<&str>, key_env: Option<&str>, home: &std::path::Path, args: &[&str]) -> (bool, String, String) {
+fn bare(
+    server_env: Option<&str>,
+    key_env: Option<&str>,
+    home: &std::path::Path,
+    args: &[&str],
+) -> (bool, String, String) {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_dg"));
     cmd.args(args);
     cmd.env_remove("DG_SERVER");
@@ -48,7 +53,12 @@ fn bare_commands_resolve_flag_over_env_over_default() {
     std::fs::create_dir_all(&home).unwrap();
 
     // 1. Env-only: bare `list` works.
-    let (ok, stdout, stderr) = bare(Some(&fleet.cli.server), Some(key_src.to_str().unwrap()), &home, &["list"]);
+    let (ok, stdout, stderr) = bare(
+        Some(&fleet.cli.server),
+        Some(key_src.to_str().unwrap()),
+        &home,
+        &["list"],
+    );
     assert!(ok, "env-only list failed: {stdout} {stderr}");
     assert!(stdout.contains("cfg_db"), "env-only list wrong: {stdout}");
 
@@ -60,12 +70,21 @@ fn bare_commands_resolve_flag_over_env_over_default() {
     std::fs::set_permissions(&default_key, std::fs::Permissions::from_mode(0o600)).unwrap();
     let (ok, stdout, stderr) = bare(Some(&fleet.cli.server), None, &home, &["list"]);
     assert!(ok, "default-key list failed: {stdout} {stderr}");
-    assert!(stdout.contains("cfg_db"), "default-key list wrong: {stdout}");
+    assert!(
+        stdout.contains("cfg_db"),
+        "default-key list wrong: {stdout}"
+    );
 
     // 3. Explicit flags beat a poisoned env.
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_dg"));
     let out = cmd
-        .args(["--server", &fleet.cli.server, "--key-file", key_src.to_str().unwrap(), "list"])
+        .args([
+            "--server",
+            &fleet.cli.server,
+            "--key-file",
+            key_src.to_str().unwrap(),
+            "list",
+        ])
         .env("DG_SERVER", "http://127.0.0.1:1")
         .env("DG_KEY_FILE", "/nonexistent")
         .env("HOME", &home)
@@ -73,7 +92,10 @@ fn bare_commands_resolve_flag_over_env_over_default() {
         .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
     assert!(out.status.success(), "flag-over-env list failed: {stdout}");
-    assert!(stdout.contains("cfg_db"), "flag-over-env list wrong: {stdout}");
+    assert!(
+        stdout.contains("cfg_db"),
+        "flag-over-env list wrong: {stdout}"
+    );
 
     // 4. Nothing anywhere: local missing_credential failure.
     let empty_home = dir.path().join("empty_home");
