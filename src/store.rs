@@ -993,6 +993,43 @@ mod tests {
     }
 
     #[test]
+    fn legacy_scopes_are_migrated_to_current_database_generations() {
+        let dir = tempfile::tempdir().unwrap();
+        let key = "a".repeat(64);
+        let metadata = Connection::open(dir.path().join("metadata.sqlite")).unwrap();
+        metadata
+            .execute_batch(
+                "CREATE TABLE credentials(name TEXT PRIMARY KEY, hash TEXT UNIQUE NOT NULL, role TEXT NOT NULL, databases TEXT NOT NULL);
+                 CREATE TABLE databases(name TEXT PRIMARY KEY);
+                 INSERT INTO databases(name) VALUES ('legacy');",
+            )
+            .unwrap();
+        metadata
+            .execute(
+                "INSERT INTO credentials VALUES ('app',?,'database_read_write','[\"legacy\"]')",
+                [hash(&key)],
+            )
+            .unwrap();
+        drop(metadata);
+
+        let store = Store::open(dir.path()).unwrap();
+        let principal = store.authenticate(&key).unwrap();
+        assert_eq!(principal.databases, vec!["legacy"]);
+        assert_eq!(principal.scopes.len(), 1);
+        assert!(!principal.scopes[0].generation.is_empty());
+        store.authorize(&principal, "legacy").unwrap();
+        let metadata = Connection::open(dir.path().join("metadata.sqlite")).unwrap();
+        let generation: String = metadata
+            .query_row(
+                "SELECT generation FROM databases WHERE name='legacy'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(generation, principal.scopes[0].generation);
+    }
+
+    #[test]
     fn metadata_migration_propagates_backfill_failures() {
         let dir = tempfile::tempdir().unwrap();
         let mut conn = Connection::open(dir.path().join("metadata.sqlite")).unwrap();
