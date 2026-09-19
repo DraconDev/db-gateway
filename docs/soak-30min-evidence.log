@@ -1,0 +1,36 @@
+# 30-minute soak evidence (2026-09-19, local dummy load)
+# scripts/soak.py --seconds 1800, 4 DBs, mixed read/write
+## summary (stdout)
+{"seconds": 1800, "reqs": 285528, "errors": 0, "inserted": 124044, "p50_ms": 4.49, "p99_ms": 32.68, "rss_start_kb": 15188, "rss_end_kb": 9396}
+SOAK PASS
+## per-minute samples
+{"minute": 1, "rss_kb": 16196, "reqs": 15107, "errs": 0, "p50_ms": 2.01, "p99_ms": 19.47}
+{"minute": 2, "rss_kb": 16356, "reqs": 30655, "errs": 0, "p50_ms": 1.96, "p99_ms": 19.4}
+{"minute": 3, "rss_kb": 16556, "reqs": 44190, "errs": 0, "p50_ms": 2.14, "p99_ms": 19.35}
+{"minute": 4, "rss_kb": 16840, "reqs": 60342, "errs": 0, "p50_ms": 2.14, "p99_ms": 18.8}
+{"minute": 5, "rss_kb": 16252, "reqs": 76139, "errs": 0, "p50_ms": 2.16, "p99_ms": 18.58}
+{"minute": 6, "rss_kb": 15752, "reqs": 91732, "errs": 0, "p50_ms": 2.23, "p99_ms": 18.23}
+{"minute": 7, "rss_kb": 15196, "reqs": 105821, "errs": 0, "p50_ms": 2.34, "p99_ms": 18.5}
+{"minute": 8, "rss_kb": 15208, "reqs": 120669, "errs": 0, "p50_ms": 2.46, "p99_ms": 18.32}
+{"minute": 9, "rss_kb": 15212, "reqs": 133903, "errs": 0, "p50_ms": 2.56, "p99_ms": 18.68}
+{"minute": 10, "rss_kb": 15148, "reqs": 146800, "errs": 0, "p50_ms": 2.67, "p99_ms": 18.74}
+{"minute": 11, "rss_kb": 15304, "reqs": 157583, "errs": 0, "p50_ms": 2.79, "p99_ms": 18.68}
+{"minute": 12, "rss_kb": 9008, "reqs": 168200, "errs": 0, "p50_ms": 2.9, "p99_ms": 18.93}
+{"minute": 13, "rss_kb": 8940, "reqs": 179185, "errs": 0, "p50_ms": 2.99, "p99_ms": 19.08}
+{"minute": 14, "rss_kb": 8956, "reqs": 188415, "errs": 0, "p50_ms": 3.09, "p99_ms": 19.22}
+{"minute": 15, "rss_kb": 8960, "reqs": 199789, "errs": 0, "p50_ms": 3.19, "p99_ms": 19.29}
+{"minute": 16, "rss_kb": 8960, "reqs": 210329, "errs": 0, "p50_ms": 3.31, "p99_ms": 19.2}
+{"minute": 17, "rss_kb": 8952, "reqs": 219228, "errs": 0, "p50_ms": 3.42, "p99_ms": 19.47}
+{"minute": 18, "rss_kb": 8952, "reqs": 227793, "errs": 0, "p50_ms": 3.53, "p99_ms": 19.66}
+{"minute": 19, "rss_kb": 9472, "reqs": 234704, "errs": 0, "p50_ms": 3.64, "p99_ms": 20.17}
+{"minute": 20, "rss_kb": 9312, "reqs": 241365, "errs": 0, "p50_ms": 3.75, "p99_ms": 20.59}
+{"minute": 21, "rss_kb": 9272, "reqs": 245595, "errs": 0, "p50_ms": 3.82, "p99_ms": 22.4}
+{"minute": 22, "rss_kb": 9364, "reqs": 250968, "errs": 0, "p50_ms": 3.91, "p99_ms": 23.54}
+{"minute": 23, "rss_kb": 9320, "reqs": 255349, "errs": 0, "p50_ms": 3.97, "p99_ms": 24.84}
+{"minute": 24, "rss_kb": 9336, "reqs": 260813, "errs": 0, "p50_ms": 4.07, "p99_ms": 25.79}
+{"minute": 25, "rss_kb": 9396, "reqs": 263687, "errs": 0, "p50_ms": 4.11, "p99_ms": 27.19}
+{"minute": 26, "rss_kb": 9404, "reqs": 268056, "errs": 0, "p50_ms": 4.19, "p99_ms": 28.6}
+{"minute": 27, "rss_kb": 9376, "reqs": 272252, "errs": 0, "p50_ms": 4.26, "p99_ms": 30.14}
+{"minute": 28, "rss_kb": 9328, "reqs": 276151, "errs": 0, "p50_ms": 4.33, "p99_ms": 31.43}
+{"minute": 29, "rss_kb": 9348, "reqs": 280900, "errs": 0, "p50_ms": 4.41, "p99_ms": 32.07}
+{"minute": 30, "rss_kb": 9332, "reqs": 285528, "errs": 0, "p50_ms": 4.49, "p99_ms": 32.68}
