@@ -44,7 +44,13 @@ fn spawn(data_dir: &std::path::Path) -> (Server, String) {
         .unwrap()
         .to_string();
     let mut child = Command::new(env!("CARGO_BIN_EXE_dg"))
-        .args(["serve", "--listen", "127.0.0.1:0", "--data-dir", data_dir.to_str().unwrap()])
+        .args([
+            "serve",
+            "--listen",
+            "127.0.0.1:0",
+            "--data-dir",
+            data_dir.to_str().unwrap(),
+        ])
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
@@ -68,13 +74,7 @@ fn spawn(data_dir: &std::path::Path) -> (Server, String) {
     )
 }
 
-fn query(
-    address: &str,
-    cred: &str,
-    db: &str,
-    body: &Value,
-    idem: Option<&str>,
-) -> (u16, Value) {
+fn query(address: &str, cred: &str, db: &str, body: &Value, idem: Option<&str>) -> (u16, Value) {
     let mut request = reqwest::blocking::Client::new()
         .post(format!("http://{address}/v1/databases/{db}/query"))
         .bearer_auth(cred)
@@ -88,7 +88,13 @@ fn query(
 }
 
 fn count(address: &str, cred: &str, db: &str) -> i64 {
-    let (status, body) = query(address, cred, db, &json!({"sql": "SELECT count(*) FROM t"}), None);
+    let (status, body) = query(
+        address,
+        cred,
+        db,
+        &json!({"sql": "SELECT count(*) FROM t"}),
+        None,
+    );
     assert_eq!(status, 200, "{db} count: {body}");
     body["rows"][0][0].as_i64().unwrap()
 }
@@ -113,7 +119,13 @@ fn replay_contract_holds_across_restart_cap_conflict_and_namespaces() {
     create("ra");
     create("rb");
     for db in ["ra", "rb"] {
-        let (status, body) = query(&a, &owner, db, &json!({"sql": "CREATE TABLE t(id INTEGER PRIMARY KEY, v TEXT)"}), Some(&format!("ddl-{db}")));
+        let (status, body) = query(
+            &a,
+            &owner,
+            db,
+            &json!({"sql": "CREATE TABLE t(id INTEGER PRIMARY KEY, v TEXT)"}),
+            Some(&format!("ddl-{db}")),
+        );
         assert_eq!(status, 200, "{db} ddl: {body}");
     }
     // Second write-capable principal scoped to both databases.
@@ -141,21 +153,39 @@ fn replay_contract_holds_across_restart_cap_conflict_and_namespaces() {
     server.child.wait().unwrap();
     server = spawn_on(data_dir.path(), &owner);
     let a = server.address.clone();
-    for (key, body, original) in [("deep-write", &write_body, &write_v1), ("deep-read", &read_body, &read_v1)] {
+    for (key, body, original) in [
+        ("deep-write", &write_body, &write_v1),
+        ("deep-read", &read_body, &read_v1),
+    ] {
         let (status, replayed) = query(&a, &owner, "ra", body, Some(key));
         assert_eq!(status, 200, "replay {key}: {replayed}");
         assert_eq!(&replayed, original, "replay {key} bytes drifted");
     }
     assert_eq!(count(&a, &owner, "ra"), 1, "replay re-executed the write");
     // The keyed read now reports the old count even though the data moved on.
-    let (status, _) = query(&a, &owner, "ra", &json!({"sql": "INSERT INTO t(v) VALUES ('later')"}), Some("later-1"));
+    let (status, _) = query(
+        &a,
+        &owner,
+        "ra",
+        &json!({"sql": "INSERT INTO t(v) VALUES ('later')"}),
+        Some("later-1"),
+    );
     assert_eq!(status, 200);
     let (status, stale) = query(&a, &owner, "ra", &read_body, Some("deep-read"));
     assert_eq!(status, 200);
-    assert_eq!(stale, read_v1, "keyed read was re-executed instead of replayed");
+    assert_eq!(
+        stale, read_v1,
+        "keyed read was re-executed instead of replayed"
+    );
 
     // 3. Same key, different body: 409, nothing changes.
-    let (status, body) = query(&a, &owner, "ra", &json!({"sql": "INSERT INTO t(v) VALUES ('evil')"}), Some("deep-write"));
+    let (status, body) = query(
+        &a,
+        &owner,
+        "ra",
+        &json!({"sql": "INSERT INTO t(v) VALUES ('evil')"}),
+        Some("deep-write"),
+    );
     assert_eq!(status, 409, "{body}");
     assert_eq!(body["error"]["code"], "idempotency_key_conflict");
     assert_eq!(count(&a, &owner, "ra"), 2);
@@ -168,19 +198,38 @@ fn replay_contract_holds_across_restart_cap_conflict_and_namespaces() {
     assert_eq!((s1, s2, s3), (200, 200, 200));
     let (s4, app_replay) = query(&a, &app, "ra", &shared, Some("shared"));
     assert_eq!(s4, 200);
-    assert_eq!(app_first, app_replay, "cross-principal replay bytes drifted");
+    assert_eq!(
+        app_first, app_replay,
+        "cross-principal replay bytes drifted"
+    );
     // Namespaces isolate keys, not data: owner-shared and app-shared are two
     // rows in the same table (no 409 across principals, each replays its own).
-    assert_eq!(count(&a, &owner, "ra"), 4, "cross-namespace write leaked into ra");
+    assert_eq!(
+        count(&a, &owner, "ra"),
+        4,
+        "cross-namespace write leaked into ra"
+    );
     assert_eq!(count(&a, &owner, "rb"), 1, "cross-database write leaked");
 
     // 2. Fill the owner's ra namespace to the 256-key cap.
     // Used so far on (owner, ra): ddl-ra, deep-write, deep-read, later-1, shared = 5.
     for i in 0..251 {
-        let (status, body) = query(&a, &owner, "ra", &json!({"sql": "INSERT INTO t(v) VALUES ('fill')"}), Some(&format!("fill-{i}")));
+        let (status, body) = query(
+            &a,
+            &owner,
+            "ra",
+            &json!({"sql": "INSERT INTO t(v) VALUES ('fill')"}),
+            Some(&format!("fill-{i}")),
+        );
         assert_eq!(status, 200, "fill {i}: {body}");
     }
-    let (status, body) = query(&a, &owner, "ra", &json!({"sql": "INSERT INTO t(v) VALUES ('over')"}), Some("fill-over"));
+    let (status, body) = query(
+        &a,
+        &owner,
+        "ra",
+        &json!({"sql": "INSERT INTO t(v) VALUES ('over')"}),
+        Some("fill-over"),
+    );
     assert_eq!(status, 429, "{body}");
     assert_eq!(body["error"]["code"], "capacity_exceeded");
     // Existing keys still replay 200 with identical bytes at capacity.
@@ -188,16 +237,34 @@ fn replay_contract_holds_across_restart_cap_conflict_and_namespaces() {
     assert_eq!(status, 200, "{replayed}");
     assert_eq!(replayed, write_v1, "replay at cap drifted");
     // Other namespaces are unaffected by (owner, ra) hitting the cap.
-    let (status, body) = query(&a, &owner, "rb", &json!({"sql": "INSERT INTO t(v) VALUES ('rb-fine')"}), Some("rb-after-cap"));
+    let (status, body) = query(
+        &a,
+        &owner,
+        "rb",
+        &json!({"sql": "INSERT INTO t(v) VALUES ('rb-fine')"}),
+        Some("rb-after-cap"),
+    );
     assert_eq!(status, 200, "{body}");
-    let (status, body) = query(&a, &app, "ra", &json!({"sql": "INSERT INTO t(v) VALUES ('app-fine')"}), Some("app-after-cap"));
+    let (status, body) = query(
+        &a,
+        &app,
+        "ra",
+        &json!({"sql": "INSERT INTO t(v) VALUES ('app-fine')"}),
+        Some("app-after-cap"),
+    );
     assert_eq!(status, 200, "{body}");
 }
 
 fn spawn_on(data_dir: &std::path::Path, owner: &str) -> Server {
     let _ = owner;
     let mut child = Command::new(env!("CARGO_BIN_EXE_dg"))
-        .args(["serve", "--listen", "127.0.0.1:0", "--data-dir", data_dir.to_str().unwrap()])
+        .args([
+            "serve",
+            "--listen",
+            "127.0.0.1:0",
+            "--data-dir",
+            data_dir.to_str().unwrap(),
+        ])
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
