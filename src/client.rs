@@ -4,13 +4,12 @@ use serde_json::{Value, json};
 use std::{path::{Path, PathBuf}, time::Duration};
 
 /// Default credential location when neither `--key-file` nor `DG_KEY_FILE`
-/// is set: `$HOME/.config/dg/key`. Returns `None` when HOME is unknown.
+/// is set: `$HOME/.config/dg/key`. Returns `None` when HOME is unknown or
+/// the default file is absent (callers then report missing_credential).
 pub fn default_key_file() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|home| {
-        let mut p = PathBuf::from(home);
-        p.push(".config/dg/key");
-        p
-    })
+    let mut p = PathBuf::from(std::env::var_os("HOME")?);
+    p.push(".config/dg/key");
+    p.is_file().then_some(p)
 }
 
 pub fn read_key(path: &Path) -> Result<String> {
