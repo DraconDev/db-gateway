@@ -5,10 +5,12 @@ use std::{io::IsTerminal, net::SocketAddr, path::PathBuf, process::ExitCode};
 #[derive(Parser)]
 #[command(name = "dg", version, about = "DB Gateway — personal SQLite service")]
 struct Cli {
-    #[arg(long, global = true, default_value = "http://127.0.0.1:7432")]
+    /// Precedence: --server flag, then DG_SERVER, then the loopback default.
+    #[arg(long, global = true, env = "DG_SERVER", default_value = "http://127.0.0.1:7432")]
     server: String,
     /// File containing a raw credential (0600 on Unix). Never pass secrets as flags.
-    #[arg(long, global = true)]
+    /// Precedence: --key-file flag, then DG_KEY_FILE, then ~/.config/dg/key.
+    #[arg(long, global = true, env = "DG_KEY_FILE")]
     key_file: Option<PathBuf>,
     /// Emit JSON (default for all commands except the interactive shell).
     #[arg(long, global = true)]
@@ -100,6 +102,12 @@ enum KeyCommand {
 async fn run(cli: Cli) -> Result<(), dg::ServerError> {
     use dg::{ServerError::Application, error::Error};
     use reqwest::Method;
+    // Credential resolution: explicit flag, env, then the default key file.
+    // Missing everywhere is the same local error as before.
+    let key_path = cli
+        .key_file
+        .clone()
+        .or_else(dg::client::default_key_file);
     let (method, path, body, idempotency) = match cli.command {
         Command::Serve { listen, data_dir } => return dg::serve(listen, data_dir).await,
         Command::Init { data_dir } => {
@@ -138,7 +146,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         }
         Command::Export { name, out } => {
             dg::store::validate_name(&name).map_err(Application)?;
-            let key = dg::client::read_key(cli.key_file.as_deref().ok_or(Application(
+            let key = dg::client::read_key(key_path.as_deref().ok_or(Application(
                 Error::new(400, "missing_credential", "--key-file required"),
             ))?)
             .map_err(Application)?;
@@ -196,7 +204,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             (Method::DELETE, format!("/v1/databases/{name}"), None, None)
         }
         Command::Shell => {
-            let key = dg::client::read_key(cli.key_file.as_deref().ok_or(Application(
+            let key = dg::client::read_key(key_path.as_deref().ok_or(Application(
                 Error::new(400, "missing_credential", "--key-file required"),
             ))?)
             .map_err(Application)?;
@@ -271,7 +279,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             (Method::DELETE, format!("/v1/keys/{name}"), None, None)
         }
     };
-    let key = dg::client::read_key(cli.key_file.as_deref().ok_or(Application(Error::new(
+    let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
         400,
         "missing_credential",
         "--key-file required",

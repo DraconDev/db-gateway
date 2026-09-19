@@ -1,7 +1,17 @@
 //! CLI transport. Never retries writes implicitly or follows redirects with keys.
 use crate::error::{Error, Result};
 use serde_json::{Value, json};
-use std::{path::Path, time::Duration};
+use std::{path::{Path, PathBuf}, time::Duration};
+
+/// Default credential location when neither `--key-file` nor `DG_KEY_FILE`
+/// is set: `$HOME/.config/dg/key`. Returns `None` when HOME is unknown.
+pub fn default_key_file() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(|home| {
+        let mut p = PathBuf::from(home);
+        p.push(".config/dg/key");
+        p
+    })
+}
 
 pub fn read_key(path: &Path) -> Result<String> {
     let metadata = std::fs::metadata(path).map_err(|_| Error::invalid())?;
