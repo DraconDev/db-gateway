@@ -38,6 +38,11 @@ pub fn read_key(path: &Path) -> Result<String> {
     }
     Ok(key.to_string())
 }
+const MAX_GENERIC_RESPONSE: usize = crate::execution::MAX_RESULT + 4096;
+// Export responses contain base64 for an 8 MiB SQLite snapshot plus JSON
+// overhead; lifecycle responses are deliberately larger than query results.
+const MAX_LIFECYCLE_RESPONSE: usize = 12 * 1024 * 1024;
+
 pub async fn request(
     server: &str,
     key: &str,
@@ -86,6 +91,11 @@ pub async fn request(
     let response=req.send().await.map_err(|_|Error::new(502,"outcome_unknown","transport failed; writes may have committed, replay only with the same idempotency key within its retention window"))?;
     let status = response.status();
     // A bounded read protects CLI memory even when pointed at a bad endpoint.
+    let response_limit = if path.ends_with("/export") {
+        MAX_LIFECYCLE_RESPONSE
+    } else {
+        MAX_GENERIC_RESPONSE
+    };
     let mut response = response;
     let mut bytes = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(|_| {
@@ -95,7 +105,7 @@ pub async fn request(
             "response lost; write outcome unknown",
         )
     })? {
-        if bytes.len() + chunk.len() > crate::execution::MAX_RESULT + 4096 {
+        if bytes.len() + chunk.len() > response_limit {
             return Err(Error::new(
                 502,
                 "outcome_unknown",
