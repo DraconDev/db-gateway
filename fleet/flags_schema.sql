@@ -1,0 +1,2 @@
+CREATE TABLE flags(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE flag_changes(id INTEGER PRIMARY KEY, key TEXT NOT NULL, old_value TEXT, new_value TEXT NOT NULL, changed_at TEXT NOT NULL);
