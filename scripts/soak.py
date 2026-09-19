@@ -116,40 +116,52 @@ def main():
 
         lat, st, _ = call(base, owner, "POST", "/v1/databases", {"name": "soak"})
         assert st == 200, st
-        lat, st, _ = call(
-            base,
-            owner,
-            "POST",
-            "/v1/databases/soak/query",
-            {"sql": "CREATE TABLE events(id INTEGER PRIMARY KEY, tag TEXT, score REAL, payload BLOB)"},
-        )
-        assert st == 200, st
+        DBS = [f"soak_{c}" for c in "abcd"]
+        for db in DBS:
+            lat, st, _ = call(base, owner, "POST", "/v1/databases", {"name": db})
+            assert st == 200, (db, st)
+            lat, st, _ = call(
+                base,
+                owner,
+                "POST",
+                f"/v1/databases/{db}/query",
+                {"sql": "CREATE TABLE events(id INTEGER PRIMARY KEY, tag TEXT, score REAL, payload BLOB)"},
+            )
+            assert st == 200, (db, st)
 
         latencies, errors = [], 0
-        inserted = 0
+        admitted = {db: 0 for db in DBS}
         seq = 0
         end = time.monotonic() + args.seconds
         minute = 0
         minute_start = time.monotonic()
+        exported_once = False
         first_rss = vmrss_kb(server.pid)
         with open(args.out, "a") as log:
             while time.monotonic() < end:
+                # One mixed iteration, round-robin across four databases:
+                # unkeyed write, point read, aggregate read; every 25th adds
+                # an 8-row batch. No retries anywhere: any non-200 is an
+                # error. Bulk writes are unkeyed (documented, allowed); one
+                # keyed write per database per minute stays far under the
+                # 256-keys-per-principal-per-database cap.
                 # One mixed iteration: write, point read, range read;
                 # every 25th adds a batch, every 100th an export.
                 seq += 1
-                lat, st, _ = post_keyed(
+                db = DBS[seq % 4]
+                lat, st, _ = call(
                     base,
                     owner,
-                    "/v1/databases/soak/query",
+                    "POST",
+                    f"/v1/databases/{db}/query",
                     {
                         "sql": "INSERT INTO events(tag, score, payload) VALUES (?, ?, randomblob(64))",
                         "args": [f"soak-{seq}", seq * 0.5],
                     },
-                    f"soak-key-{seq}",
                 )
                 latencies.append(lat)
                 if st == 200:
-                    inserted += 1
+                    admitted[db] += 1
                 else:
                     errors += 1
 
@@ -157,7 +169,7 @@ def main():
                     base,
                     owner,
                     "POST",
-                    "/v1/databases/soak/query",
+                    f"/v1/databases/{db}/query",
                     {"sql": "SELECT tag, score FROM events WHERE id = ?", "args": [seq]},
                 )
                 latencies.append(lat)
@@ -167,8 +179,8 @@ def main():
                     base,
                     owner,
                     "POST",
-                    "/v1/databases/soak/query",
-                    {"sql": "SELECT count(*), avg(score) FROM events"},
+                    f"/v1/databases/{db}/query",
+                    {"sql": "SELECT count(*), max(id) FROM events"},
                 )
                 latencies.append(lat)
                 errors += st != 200
@@ -178,7 +190,7 @@ def main():
                         base,
                         owner,
                         "POST",
-                        "/v1/databases/soak/batch",
+                        f"/v1/databases/{db}/batch",
                         {
                             "statements": [
                                 {"sql": f"INSERT INTO events(tag) VALUES ('b-{seq}-{k}')"}
@@ -189,20 +201,36 @@ def main():
                     )
                     latencies.append(lat)
                     if st == 200:
-                        inserted += 8
+                        admitted[db] += 8
                     else:
                         errors += 1
-
-                if seq % 100 == 0:
-                    lat, st, _ = call(
-                        base, owner, "POST", "/v1/databases/soak/export", {}
-                    )
-                    latencies.append(lat)
-                    errors += st != 200
 
                 if time.monotonic() - minute_start >= 60 or time.monotonic() >= end:
                     minute += 1
                     minute_start = time.monotonic()
+                    # One keyed write per database per minute: unique keys,
+                    # ~30 per DB over the run, far under the 256 cap.
+                    for db in DBS:
+                        lat, st, _ = post_keyed(
+                            base,
+                            owner,
+                            f"/v1/databases/{db}/query",
+                            {"sql": "INSERT INTO events(tag) VALUES (?)",
+                             "args": [f"keyed-{db}-{minute}"]},
+                            f"soak-key-{db}-{minute}",
+                        )
+                        latencies.append(lat)
+                        if st == 200:
+                            admitted[db] += 1
+                        else:
+                            errors += 1
+                    if not exported_once:
+                        exported_once = True
+                        lat, st, _ = call(
+                            base, owner, "POST", "/v1/databases/soak_a/export", {}
+                        )
+                        latencies.append(lat)
+                        errors += st != 200
                     s = sorted(latencies)
                     sample = {
                         "minute": minute,
@@ -216,15 +244,19 @@ def main():
                     log.flush()
 
         assert server.poll() is None, f"server died mid-soak rc={server.returncode}"
-        lat, st, body = call(
-            base,
-            owner,
-            "POST",
-            "/v1/databases/soak/query",
-            {"sql": "SELECT count(*) FROM events"},
-        )
-        assert st == 200, body
-        assert body["rows"] == [[inserted]], f"count {body['rows']} != inserted {inserted}"
+        for db in DBS:
+            lat, st, body = call(
+                base,
+                owner,
+                "POST",
+                f"/v1/databases/{db}/query",
+                {"sql": "SELECT count(*) FROM events"},
+            )
+            assert st == 200, (db, body)
+            assert body["rows"] == [[admitted[db]]], \
+                f"{db} count {body['rows']} != admitted {admitted[db]}"
+
+        inserted = sum(admitted.values())
 
         s = sorted(latencies)
         p99 = s[min(len(s) - 1, int(len(s) * 0.99))]
