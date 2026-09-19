@@ -275,11 +275,10 @@ impl Store {
         let mut detail = Vec::with_capacity(tables.len());
         for table in tables {
             let quoted = table.replace('"', "\"\"");
-            let rows: i64 = db.query_row(
-                &format!("SELECT count(*) FROM \"{quoted}\""),
-                [],
-                |r| r.get(0),
-            )?;
+            let rows: i64 =
+                db.query_row(&format!("SELECT count(*) FROM \"{quoted}\""), [], |r| {
+                    r.get(0)
+                })?;
             detail.push(serde_json::json!({"name": table, "rows": rows}));
         }
         Ok(serde_json::json!({

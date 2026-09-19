@@ -24,6 +24,7 @@ Store key files with `0600` permissions; the CLI refuses group/world-readable ke
 | --- | --- | --- | --- |
 | `GET /health/live` | none | — | `{"status":"ok"}` |
 | `POST /v1/databases` | owner | `{"name":"game_a"}` | `{"name":"game_a"}` |
+| `GET /v1/databases/{name}` | owner | — | `{"name":"…","tombstoned":false,"size_bytes":n,"created_at":epoch,"tables":[{"name":"…","rows":n},…]}` (tombstoned names report `{"name":"…","tombstoned":true,"purge_after":epoch,"size_bytes":n}` instead; unknown names are `404 database_not_found`) |
 | `GET /v1/databases` | owner | — | `{"databases":["game_a", …]}` |
 | `POST /v1/keys` | owner | `{"name":"bot_a","role":"database_read_write","databases":["game_a"]}` (or role `database_read_only`) | `{"key":"<64 hex>"}` |
 | `DELETE /v1/keys/{name}` | owner | — | `{"revoked":true}` |
@@ -89,6 +90,7 @@ dg init --data-dir state/dg            # once per data dir; prints {"owner_key":
 dg serve --listen 127.0.0.1:7432 --data-dir state/dg
 dg --key-file owner.key list
 dg --key-file owner.key create game_a
+dg --key-file owner.key info game_a       # size, tables+rows, created_at, tombstone state
 dg --key-file owner.key key create bot_a --role database_read_write --database game_a   # prints {"key": …} once
 dg --key-file owner.key query game_a "CREATE TABLE players (id INTEGER PRIMARY KEY, name TEXT)"
 dg --key-file owner.key query game_a "CREATE TABLE matches (id INTEGER PRIMARY KEY)"

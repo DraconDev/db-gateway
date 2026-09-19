@@ -26,15 +26,24 @@ fn epoch() -> i64 {
 fn info_reports_exact_database_facts() {
     let fleet = Fleet::boot();
     let before = epoch();
-    assert_eq!(fleet.cli.ok("create", &["create", "info_db"])["name"], "info_db");
+    assert_eq!(
+        fleet.cli.ok("create", &["create", "info_db"])["name"],
+        "info_db"
+    );
     let after_create = epoch();
     fleet.cli.q(
         "ddl",
         "info_db",
         "CREATE TABLE t(id INTEGER PRIMARY KEY, v TEXT)",
     );
-    fleet.cli.q("seed", "info_db", "INSERT INTO t(v) VALUES ('a'), ('b'), ('c')");
-    fleet.cli.q("ddl2", "info_db", "CREATE TABLE u(id INTEGER PRIMARY KEY)");
+    fleet.cli.q(
+        "seed",
+        "info_db",
+        "INSERT INTO t(v) VALUES ('a'), ('b'), ('c')",
+    );
+    fleet
+        .cli
+        .q("ddl2", "info_db", "CREATE TABLE u(id INTEGER PRIMARY KEY)");
 
     let info = fleet.cli.ok("info", &["info", "info_db"]);
     assert_eq!(info["name"], "info_db");
@@ -55,7 +64,9 @@ fn info_reports_exact_database_facts() {
     );
 
     // Unknown names are 404, never silently created.
-    let (_, stdout, _) = fleet.cli.err("info missing", &["info", "nope"], "database_not_found");
+    let (_, stdout, _) = fleet
+        .cli
+        .err("info missing", &["info", "nope"], "database_not_found");
     assert!(stdout.contains("\"status\":404"), "info missing: {stdout}");
 
     // Scoped credential issued while the database is live.
@@ -86,12 +97,17 @@ fn info_reports_exact_database_facts() {
 
     // After delete the name reports tombstone state instead of tables.
     assert_eq!(
-        fleet.cli.ok("delete", &["delete", "info_db", "--confirm", "info_db"])["deleted"],
+        fleet
+            .cli
+            .ok("delete", &["delete", "info_db", "--confirm", "info_db"])["deleted"],
         true
     );
     let tomb = fleet.cli.ok("info tombstoned", &["info", "info_db"]);
     assert_eq!(tomb["tombstoned"], true);
-    assert!(tomb.get("tables").is_none(), "tombstone leaked tables: {tomb}");
+    assert!(
+        tomb.get("tables").is_none(),
+        "tombstone leaked tables: {tomb}"
+    );
     assert!(
         tomb["purge_after"].as_i64().unwrap() > epoch(),
         "purge deadline missing: {tomb}"
