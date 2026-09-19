@@ -141,9 +141,11 @@ def main():
             while time.monotonic() < end:
                 # One mixed iteration, round-robin across four databases:
                 # unkeyed write, point read, aggregate read; every 25th adds
-                # an 8-row batch. No retries anywhere: any non-200 is an
-                # error. Bulk writes are unkeyed (documented, allowed); one
-                # keyed write per database per minute stays far under the
+                # an 8-row batch. Every minute adds one keyed write per DB,
+                # one scratch-DB create, and one scratch-DB delete (tombstone)
+                # of the previous minute's scratch DB. No retries anywhere:
+                # any non-200 is an error. Bulk writes are unkeyed
+                # (documented, allowed); keyed writes stay far under the
                 # 256-keys-per-principal-per-database cap.
                 # One mixed iteration: write, point read, range read;
                 # every 25th adds a batch, every 100th an export.
@@ -231,6 +233,22 @@ def main():
                         )
                         latencies.append(lat)
                         errors += st != 200
+                    # Lifecycle churn: create this minute's scratch DB with
+                    # one row, tombstone the previous minute's scratch DB.
+                    cdb = f"churn_m{minute}"
+                    lat, st, _ = call(base, owner, "POST", "/v1/databases", {"name": cdb})
+                    latencies.append(lat)
+                    errors += st != 200
+                    lat, st, _ = call(
+                        base, owner, "POST", f"/v1/databases/{cdb}/query",
+                        {"sql": "CREATE TABLE t(id INTEGER PRIMARY KEY, v TEXT)"},
+                    )
+                    latencies.append(lat)
+                    errors += st != 200
+                    if minute > 1:
+                        lat, st, _ = call(base, owner, "DELETE", f"/v1/databases/churn_m{minute - 1}", {})
+                        latencies.append(lat)
+                        errors += st != 200
                     s = sorted(latencies)
                     sample = {
                         "minute": minute,
@@ -257,6 +275,17 @@ def main():
                 f"{db} count {body['rows']} != admitted {admitted[db]}"
 
         inserted = sum(admitted.values())
+
+        # Lifecycle registry proof: the latest scratch DB is live, the one
+        # before it is tombstoned (absent), soak DBs untouched by churn.
+        lat, st, body = call(base, owner, "GET", "/v1/databases", {})
+        assert st == 200, body
+        names = body["databases"]
+        assert f"churn_m{minute}" in names, names
+        if minute > 1:
+            assert f"churn_m{minute - 1}" not in names, names
+        for db in DBS + ["soak"]:
+            assert db in names, names
 
         s = sorted(latencies)
         p99 = s[min(len(s) - 1, int(len(s) * 0.99))]
