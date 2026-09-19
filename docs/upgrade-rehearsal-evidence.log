@@ -1,0 +1,9 @@
+serving debug on 127.0.0.1:43635 (pid 2213965)
+debug rows: 50
+snapshot sha: 85130b68dd92c3e9b106fa44de75952c679c7232572d4b9af08a4e5d93088b4a
+serving release on 127.0.0.1:43971 (pid 2214127)
+upgrade exact: 50 rows match
+serving rollback on 127.0.0.1:34891 (pid 2214206)
+rollback exact: 51 rows match, release-gen write intact
+{"columns":["v"],"rows":[["release-gen"],["rollback-gen"]],"rows_affected":0}
+UPGRADE REHEARSAL PASS
