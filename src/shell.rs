@@ -279,7 +279,7 @@ impl Session<'_> {
     }
 }
 
-fn render(response: &Value, json_mode: bool, out: &mut dyn Write) -> Result<()> {
+pub(crate) fn render(response: &Value, json_mode: bool, out: &mut dyn Write) -> Result<()> {
     if json_mode {
         return writeln!(out, "{response}").map_err(io);
     }
