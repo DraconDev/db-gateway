@@ -279,7 +279,10 @@ impl Session<'_> {
     }
 }
 
-pub(crate) fn render(response: &Value, json_mode: bool, out: &mut dyn Write) -> Result<()> {
+/// Human-readable renderer shared by the shell and one-shot tty output.
+/// `json_mode` forces raw JSON; otherwise errors print one line, column
+/// results print an aligned table, and write results print a row count.
+pub fn render(response: &Value, json_mode: bool, out: &mut dyn Write) -> Result<()> {
     if json_mode {
         return writeln!(out, "{response}").map_err(io);
     }
