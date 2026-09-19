@@ -34,6 +34,10 @@ enum Command {
     Create {
         name: String,
     },
+    /// Show size, tables, creation time, and tombstone state of a database.
+    Info {
+        name: String,
+    },
     /// Clone a database into a new one via the SQLite backup API.
     Clone {
         source: String,
@@ -106,6 +110,10 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             return Ok(());
         }
         Command::List => (Method::GET, "/v1/databases".into(), None, None),
+        Command::Info { name } => {
+            dg::store::validate_name(&name).map_err(Application)?;
+            (Method::GET, format!("/v1/databases/{name}"), None, None)
+        }
         Command::Create { name } => {
             dg::store::validate_name(&name).map_err(Application)?;
             (

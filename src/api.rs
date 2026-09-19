@@ -24,7 +24,7 @@ const MAX_EXPORT: usize = 8 * 1024 * 1024;
 pub fn router(store: Arc<Store>) -> Router {
     Router::new()
         .route("/v1/databases", get(list).post(create))
-        .route("/v1/databases/{name}", delete(remove))
+        .route("/v1/databases/{name}", get(info).delete(remove))
         .route("/v1/databases/{name}/clone", post(clone_route))
         .route("/v1/databases/{name}/export", post(export))
         .route(
@@ -130,6 +130,19 @@ async fn revoke(
         p.owner()?;
         s.revoke(&name)?;
         Ok(Json(json!({"revoked":true})))
+    })
+    .await
+}
+
+/// Owner-only database facts: size, tables, creation, tombstone state.
+async fn info(
+    State(store): State<Arc<Store>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    work(store, headers, move |s, p| {
+        p.owner()?;
+        Ok(Json(s.info(&name)?))
     })
     .await
 }
