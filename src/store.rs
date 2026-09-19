@@ -102,10 +102,28 @@ impl Store {
         store.meta()?.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS credentials(name TEXT PRIMARY KEY, hash TEXT UNIQUE NOT NULL, role TEXT NOT NULL, databases TEXT NOT NULL); CREATE TABLE IF NOT EXISTS databases(name TEXT PRIMARY KEY);")?;
         // M2 migration: tombstone support for safe deletion. ALTER fails
         // harmlessly when the columns already exist.
-        for column in ["deleted_at INTEGER", "purge_after INTEGER"] {
+        for column in [
+            "deleted_at INTEGER",
+            "purge_after INTEGER",
+            "created_at INTEGER",
+        ] {
             let _ = store
                 .meta()?
                 .execute_batch(&format!("ALTER TABLE databases ADD COLUMN {column};"));
+        }
+        // Backfill creation timestamps for databases predating the column:
+        // file mtime is the best surviving signal, 0 when the file is gone.
+        let backfill = store.meta()?;
+        let stale: Vec<String> = backfill
+            .prepare("SELECT name FROM databases WHERE created_at IS NULL")?
+            .query_map([], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?;
+        for name in stale {
+            let stamp = file_mtime_secs(&store.root.join(format!("{name}.sqlite")));
+            backfill.execute(
+                "UPDATE databases SET created_at=? WHERE name=?",
+                rusqlite::params![stamp, name],
+            )?;
         }
         Ok(store)
     }
