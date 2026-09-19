@@ -115,6 +115,7 @@ fn twenty_kills_leave_zero_unaccounted_rows() {
     let mut rng = Lcg(0x6A0071E7);
     // Per-DB admitted rows, across restarts (replay store lives in the file).
     let mut admitted: Vec<i64> = vec![0; 20];
+    let mut unknowns_total = 0;
 
     for round in 0..20 {
         let db = format!("g{round:02}");
@@ -156,7 +157,10 @@ fn twenty_kills_leave_zero_unaccounted_rows() {
                 match handle.join().unwrap() {
                     Ok((200, _)) => admitted[round] += 1,
                     Ok((status, body)) => panic!("round {round}: kill-slot wrote {status}: {body}"),
-                    Err(_) => unknowns.push((idem_replay, body_replay)),
+                    Err(_) => {
+                        unknowns_total += 1;
+                        unknowns.push((idem_replay, body_replay))
+                    }
                 }
                 break;
             }
@@ -225,6 +229,11 @@ fn twenty_kills_leave_zero_unaccounted_rows() {
         server.child.kill().unwrap();
         server.child.wait().unwrap();
     }
+
+    // The replay path must have been exercised at least once: with kill
+    // delays of 0-15ms against ~2ms requests, all 20 kills landing
+    // post-response would mean the gauntlet never went in-flight.
+    assert!(unknowns_total > 0, "no in-flight kill happened; replay untested");
 
     // Finale: all 20 databases present with exact counts, no more, no less.
     let server = spawn_on(data_dir.path());
