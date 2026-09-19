@@ -66,6 +66,8 @@ impl Cli {
     }
 
     /// Run one SQL statement; returns the `rows` value.
+    /// (Shared harness: only some CLI tests run queries.)
+    #[allow(dead_code)]
     pub fn q(&self, label: &str, db: &str, sql: &str) -> Value {
         self.ok(label, &["query", db, sql])["rows"].clone()
     }
