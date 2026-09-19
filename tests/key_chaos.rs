@@ -120,7 +120,7 @@ fn every_credential_gets_its_exact_code_on_every_route() {
     let ro_a = issue("ro_a", "database_read_only", &["ka"]);
     let rw_b = issue("rw_b", "database_read_write", &["kb"]);
     let gone = issue("gone", "database_read_write", &["ka"]);
-    let rw_imp = issue("rw_imp", "database_read_write", &["imp_rw"]);
+    let rw_imp = issue("rw_imp", "database_read_write", &["ka"]);
     check("dup key name", req(a, "POST", "/v1/keys", Some(&owner), &json!({"name":"rw_a","role":"database_read_write","databases":["ka"]}), None), 409, "key_exists");
     check("owner revoke gone", req(a, "DELETE", "/v1/keys/gone", Some(&owner), &json!({}), None), 200, "-");
 
@@ -208,7 +208,9 @@ fn every_credential_gets_its_exact_code_on_every_route() {
     let (_, exp) = req(a, "POST", "/v1/databases/ka/export", Some(&owner), &json!({}), None);
     let data = exp["data_base64"].as_str().unwrap().to_string();
     check("owner import", req(a, "POST", "/v1/databases/imp_owner/import", Some(&owner), &json!({"name":"imp_owner","data_base64":data}), None), 200, "-");
-    check("rw_imp import", req(a, "POST", "/v1/databases/imp_rw/import", Some(&rw_imp), &json!({"name":"imp_rw","data_base64":data}), None), 200, "-");
+    // Scoped import authorizes via the path database; the body name is the new database.
+    check("rw_imp import", req(a, "POST", "/v1/databases/ka/import", Some(&rw_imp), &json!({"name":"imp_rw","data_base64":data}), None), 200, "-");
+    check("scoped import over live", req(a, "POST", "/v1/databases/ka/import", Some(&rw_imp), &json!({"name":"ka","data_base64":data}), None), 409, "database_exists");
     check("rw_a import other", req(a, "POST", "/v1/databases/imp_no/import", Some(&rw_a), &json!({"name":"imp_no","data_base64":data}), None), 403, "database_forbidden");
     check("ro_a import", req(a, "POST", "/v1/databases/imp_no2/import", Some(&ro_a), &json!({"name":"imp_no2","data_base64":data}), None), 403, "forbidden");
     check("gone import", req(a, "POST", "/v1/databases/imp_no3/import", Some(&gone), &json!({"name":"imp_no3","data_base64":data}), None), 401, "invalid_credential");
