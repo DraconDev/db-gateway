@@ -236,6 +236,60 @@ impl Store {
             .filter(|name| principal.database(name).is_ok())
             .collect())
     }
+    /// Owner-visible database facts: size, user tables with row counts,
+    /// creation time, and tombstone state. Tombstoned names report their
+    /// retention deadline instead of table detail; unknown names are 404.
+    pub fn info(&self, name: &str) -> Result<serde_json::Value> {
+        validate_name(name)?;
+        let row: Option<(Option<i64>, Option<i64>, Option<i64>)> = self
+            .meta()?
+            .query_row(
+                "SELECT deleted_at, purge_after, created_at FROM databases WHERE name=?",
+                [name],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .map(Some)
+            .or_else(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                other => Err(other),
+            })?;
+        let Some((deleted_at, purge_after, created_at)) = row else {
+            return Err(Error::new(404, "database_not_found", "database not found"));
+        };
+        let path = self.root.join(format!("{name}.sqlite"));
+        let size_bytes = database_size_bytes(&path);
+        if deleted_at.is_some() {
+            return Ok(serde_json::json!({
+                "name": name,
+                "tombstoned": true,
+                "purge_after": purge_after,
+                "size_bytes": size_bytes,
+            }));
+        }
+        let db = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|_| Error::internal())?;
+        let tables: Vec<String> = db
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND substr(name,1,4)!='_dg_' ORDER BY name")?
+            .query_map([], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?;
+        let mut detail = Vec::with_capacity(tables.len());
+        for table in tables {
+            let quoted = table.replace('"', "\"\"");
+            let rows: i64 = db.query_row(
+                &format!("SELECT count(*) FROM \"{quoted}\""),
+                [],
+                |r| r.get(0),
+            )?;
+            detail.push(serde_json::json!({"name": table, "rows": rows}));
+        }
+        Ok(serde_json::json!({
+            "name": name,
+            "tombstoned": false,
+            "size_bytes": size_bytes,
+            "created_at": created_at,
+            "tables": detail,
+        }))
+    }
     pub fn create(&self, name: &str) -> Result<()> {
         validate_name(name)?;
         let mut conn = self.meta()?;
@@ -259,7 +313,10 @@ impl Store {
             })?;
         drop(file);
         crate::execution::initialize(&path)?;
-        tx.execute("INSERT INTO databases (name) VALUES (?)", [name])?;
+        tx.execute(
+            "INSERT INTO databases (name, created_at) VALUES (?, ?)",
+            rusqlite::params![name, now_secs()?],
+        )?;
         tx.commit()?;
         Ok(())
     }
@@ -466,7 +523,10 @@ impl Store {
             )
         })?;
         let result = (|| {
-            tx.execute("INSERT INTO databases (name) VALUES (?)", [name])?;
+            tx.execute(
+                "INSERT INTO databases (name, created_at) VALUES (?, ?)",
+                rusqlite::params![name, now_secs()?],
+            )?;
             tx.commit()?;
             Ok(())
         })();
@@ -503,6 +563,25 @@ fn remove_database_files(base: &Path) {
         let p = path_with_suffix(base, suffix);
         let _ = std::fs::remove_file(&p);
     }
+}
+
+/// Best-effort file modification time as unix seconds; 0 when unknown.
+fn file_mtime_secs(path: &Path) -> i64 {
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// Live database size: main file plus any WAL sidecars.
+fn database_size_bytes(path: &Path) -> u64 {
+    ["", "-wal", "-shm"]
+        .iter()
+        .filter_map(|s| std::fs::metadata(path_with_suffix(path, s)).ok())
+        .map(|m| m.len())
+        .sum()
 }
 
 pub fn unauthorized() -> Error {
