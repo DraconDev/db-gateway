@@ -1,37 +1,41 @@
 # micro2 deployment acceptance checklist
 
-Prepared without contacting the host. Each gate maps to evidence or an
-explicit unknown. **This document is not permission to deploy** — the
-authorization request at the end is the only path forward, and deployment
-instructions elsewhere (e.g. `docs/deployment.md`) describe procedure, not
-approval.
+Reconciled to the supervised micro2 deployment record in
+[`docs/first-deploy-micro2.md`](first-deploy-micro2.md) and its verbatim host
+evidence log. The first non-production smoke/restore deployment was explicitly
+owner-approved and is evidence of what was actually installed and exercised;
+it is **not** a blanket production-readiness approval. This checklist does not
+authorize any future host change, upgrade, migration, backup/TLS/monitoring
+installation, or production-data action.
 
 ## Gates
 
 | # | Gate | Status | Evidence / unknown |
 |---|---|---|---|
-| 1 | Architecture fit | **Unknown** | Release bundle is `x86_64` Linux (`scripts/release-bundle.sh`, `BUILD-INFO.txt`). micro2 CPU arch, OS, and systemd availability are unknown — no host access was used. |
-| 2 | Persistent disk | **Unknown** | Data dir needs a persistent, `0700`, service-user-owned path (`docs/deployment.md`). micro2 disk layout, size, and persistence across reboots are unknown. Disk growth rate is unmeasured (`docs/resource-budget.md`). |
-| 3 | Network / TLS or private access | **Accepted: SSH tunnel** | `dg serve` speaks plain HTTP on loopback only and refuses non-loopback binds (unchanged — no gateway or CLI modifications). Remote CLI use goes through `ssh -L 7432:127.0.0.1:7432 <host>`, then `dg --server http://127.0.0.1:7432 --key-file <0600 key>`. TLS-terminating proxy and mesh VPN stay documented future upgrades on evidence of friction, not current requirements. No TLS in the gateway. |
-| 4 | Service isolation | Ready (template) | `deploy/dg.service` validated by `scripts/validate-deploy.sh` (systemd-analyze clean): dedicated user, `ProtectSystem=strict`, `NoNewPrivileges`, writable data dir only, no secrets in the unit. Not installed anywhere. |
-| 5 | Measured resource budget | **Not ready** | `docs/resource-budget.md`: release idle ~4.2 MiB locally, but OS baseline, backup sidecar, burst peak, and disk growth are unmeasured; five target-host measurements block a 1 GB fit claim. |
-| 6 | Liveness vs readiness | Ready (defined) | Liveness: unauthenticated `GET /health/live` → `{"status":"ok"}` (deliberately not DB/backup health, `src/lib.rs`). Readiness: the JSON `listening` log line with the bound address (the signal every test harness waits on) plus one authenticated known-row query. No readiness endpoint exists — do not mistake `/health/live` for one. |
-| 7 | Recovery rehearsal | Partial | Manual snapshot drill (`tests/recovery_drill.rs`), crash/restart tests, and the upgrade/rollback rehearsal (`docs/upgrade-rollback.md`) all pass locally. Continuous backup (Litestream → OVH) is configured nowhere and its restore path is unrehearsed. |
+| 1 | Architecture fit | **Verified for supervised deploy** | The recorded target is Ubuntu, x86_64, 2 vCPU, glibc 2.39, with systemd; the micro2 release bundle's ELF machine and `/lib64/ld-linux-x86-64.so.2` interpreter were verified on-host. See [`first-deploy-micro2.md`](first-deploy-micro2.md). |
+| 2 | Persistent disk | **Verified for current layout; growth unmeasured** | `/var/lib/dg` is `dg:dg`, mode `0700`, with 25 GiB free during the recorded drill; restart persistence was verified. Long-term growth, reboot persistence, and backup-sidecar disk use remain unmeasured. |
+| 3 | Network / TLS or private access | **Accepted: SSH tunnel** | `dg serve` speaks plain HTTP on loopback only and refuses non-loopback binds. Remote CLI use goes through `ssh -L 7432:127.0.0.1:7432 <host>`, then `dg --server http://127.0.0.1:7432 --key-file <0600 key>`. TLS-terminating proxy and mesh VPN remain future options; there is no TLS in the gateway. |
+| 4 | Service isolation | **Ready and verified on micro2** | `deploy/dg.service` passed `scripts/validate-deploy.sh`; the recorded service uses a dedicated `dg` user, `ProtectSystem=strict`, `NoNewPrivileges`, a writable data dir only, and no secrets in the unit. It is active and enabled on the recorded host. |
+| 5 | Measured resource budget | **Not ready** | `docs/resource-budget.md`: the recorded host sample reports 8292 KiB idle after the drill, but OS baseline, backup sidecar, burst peak, and disk growth are unmeasured; five target-host measurements still block a 1 GB fit claim. |
+| 6 | Liveness vs readiness | **Ready and exercised** | Liveness remains unauthenticated `GET /health/live` → `{"status":"ok"}` (deliberately not DB/backup health, `src/lib.rs`). The recorded service was active, survived restart, and passed authenticated known-row smoke and restore queries. No readiness endpoint exists — do not mistake `/health/live` for one. |
+| 7 | Recovery rehearsal | **Partial; host snapshot drill verified** | The recorded micro2 drill exported/imported throwaway databases and verified copy independence; local crash/restart tests and the upgrade/rollback rehearsal also pass. Continuous backup (Litestream → OVH) is configured nowhere and its restore path is unrehearsed. |
 | 8 | Operator rollback decisions | **Awaiting owner** | Runbook exists (`docs/upgrade-rollback.md`). Undecided: soak period before deleting pre-upgrade snapshots, snapshot retention count, who holds the owner credential copy, and the post-snapshot write-loss window acceptance. |
 
 ## Verdict
 
-**Not accepted for deployment.** Gates 1, 2, 5 are unknown/unmeasured and
-gates 3, 8 await owner decisions. Gate 4 and 6 are ready as artifacts only.
+**The first supervised non-production deploy is evidenced and operationally
+verified, but production readiness is not accepted.** Gates 1–4 and 6 are
+verified for the recorded deployment; gate 5 remains not ready, gate 7 lacks
+continuous backup, and gate 8 still awaits owner decisions. No production
+migration or backup/TLS/monitoring rollout is implied by the smoke/restore
+record.
 
-## Authorization request
+## Future authorization boundary
 
-When the owner wants to proceed, the request to approve is precisely:
-
-> Approve (a) answering the architecture/disk/network questions in gates
-> 1–3 (by providing micro2 specs or access for a read-only survey), (b) the
-> five target-host measurements in `docs/resource-budget.md`, (c) the
-> rollback decisions in gate 8, and (d) a first supervised deploy window
-> following `docs/deployment.md` with the `docs/upgrade-rollback.md`
-> snapshot steps. Until all four are explicitly approved, no host is
-> contacted and no service is installed.
+The first supervised deploy was authorized separately and is recorded in
+[`docs/first-deploy-micro2.md`](first-deploy-micro2.md). This checklist does
+not authorize a future upgrade, migration, production-data operation, or new
+host-side component. A future live-change request must explicitly approve the
+specific window and action after the remaining resource, recovery, and rollback
+requirements are resolved; `docs/deployment.md` remains procedure, not
+approval.
