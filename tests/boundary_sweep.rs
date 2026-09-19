@@ -153,7 +153,7 @@ fn every_wall_accepts_at_the_line_and_rejects_past_it() {
     check("bytes 280KiB", q("b04", &json!({"sql": "SELECT hex(randomblob(140000))"})), 413, "result_limit_exceeded");
 
     // Export wall (8MiB): ~600KiB file exports, ~8.4MiB file rejected.
-    for (db, rows) in [("b05", 100), ("b06", 1400)] {
+    for (db, rows) in [("b05", 100usize), ("b06", 1400usize)] {
         check(&format!("{db} ddl"), q(db, &json!({"sql": "CREATE TABLE t(v TEXT)"})), 200, "-");
         for chunk in 0..rows.div_ceil(20) {
             let n = 20.min(rows - chunk * 20);
