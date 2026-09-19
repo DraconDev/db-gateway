@@ -98,15 +98,15 @@ fn three_hundred_ops_keep_registry_and_files_exact() {
         format!("churn-{key_seq}")
     };
 
-fn create_table(server: &Server, name: &str, idem: &str) -> bool {
-    let (status, _) = server.call(
-        "POST",
-        &format!("/v1/databases/{name}/query"),
-        json!({"sql": "CREATE TABLE d(id INTEGER PRIMARY KEY, v TEXT)"}),
-        Some(idem),
-    );
-    status == 200
-}
+    fn create_table(server: &Server, name: &str, idem: &str) -> bool {
+        let (status, _) = server.call(
+            "POST",
+            &format!("/v1/databases/{name}/query"),
+            json!({"sql": "CREATE TABLE d(id INTEGER PRIMARY KEY, v TEXT)"}),
+            Some(idem),
+        );
+        status == 200
+    }
     let count = |server: &Server, name: &str| -> Option<i64> {
         let (status, body) = server.call(
             "POST",
@@ -125,19 +125,20 @@ fn create_table(server: &Server, name: &str, idem: &str) -> bool {
         match rng.next(6) {
             // Create: 200 iff dead, 409 iff live.
             0 => {
-                let (status, _) = server.call(
-                    "POST",
-                    "/v1/databases",
-                    json!({"name": name}),
-                    None,
-                );
+                let (status, _) = server.call("POST", "/v1/databases", json!({"name": name}), None);
                 if live.contains(&name) {
                     assert_eq!(status, 409, "iter {i}: recreate of live {name} not 409");
                 } else if tombstoned.contains(&name) {
-                    assert_eq!(status, 409, "iter {i}: recreate of tombstoned {name} not 409");
+                    assert_eq!(
+                        status, 409,
+                        "iter {i}: recreate of tombstoned {name} not 409"
+                    );
                 } else {
                     assert_eq!(status, 200, "iter {i}: create of dead {name} failed");
-                    assert!(create_table(&server, &name, &key()), "iter {i}: seed {name}");
+                    assert!(
+                        create_table(&server, &name, &key()),
+                        "iter {i}: seed {name}"
+                    );
                     live.insert(name.clone());
                     admitted.insert(name.clone(), 0);
                 }
@@ -151,7 +152,10 @@ fn create_table(server: &Server, name: &str, idem: &str) -> bool {
                     admitted.remove(&name);
                     tombstoned.insert(name);
                 } else if tombstoned.contains(&name) {
-                    assert_eq!(status, 409, "iter {i}: re-delete of tombstoned {name} not 409");
+                    assert_eq!(
+                        status, 409,
+                        "iter {i}: re-delete of tombstoned {name} not 409"
+                    );
                 } else {
                     assert_eq!(status, 404, "iter {i}: delete of dead {name} not 404");
                 }
@@ -175,7 +179,11 @@ fn create_table(server: &Server, name: &str, idem: &str) -> bool {
             3 => {
                 let got = count(&server, &name);
                 if live.contains(&name) {
-                    assert_eq!(got, Some(admitted[&name]), "iter {i}: count drift on {name}");
+                    assert_eq!(
+                        got,
+                        Some(admitted[&name]),
+                        "iter {i}: count drift on {name}"
+                    );
                 } else {
                     assert_eq!(got, None, "iter {i}: dead {name} readable");
                 }
@@ -183,36 +191,27 @@ fn create_table(server: &Server, name: &str, idem: &str) -> bool {
             // Delete-then-recreate: fresh generation iff it was live.
             4 => {
                 if live.contains(&name) {
-                    let (status, _) = server.call(
-                        "DELETE",
-                        &format!("/v1/databases/{name}"),
-                        json!({}),
-                        None,
-                    );
+                    let (status, _) =
+                        server.call("DELETE", &format!("/v1/databases/{name}"), json!({}), None);
                     assert_eq!(status, 200, "iter {i}: cycle delete {name} failed");
                     // Tombstoned: immediate recreate must be refused.
-                    let (status, _) = server.call(
-                        "POST",
-                        "/v1/databases",
-                        json!({"name": name}),
-                        None,
-                    );
+                    let (status, _) =
+                        server.call("POST", "/v1/databases", json!({"name": name}), None);
                     assert_eq!(status, 409, "iter {i}: tombstoned {name} recreatable");
                     live.remove(&name);
                     admitted.remove(&name);
                     tombstoned.insert(name);
                 } else {
-                    let (status, _) = server.call(
-                        "POST",
-                        "/v1/databases",
-                        json!({"name": name}),
-                        None,
-                    );
+                    let (status, _) =
+                        server.call("POST", "/v1/databases", json!({"name": name}), None);
                     // Dead names here are either never-created (200) or
                     // tombstoned by an earlier delete (409); both are
                     // correct, and the model must follow reality.
                     if status == 200 {
-                        assert!(create_table(&server, &name, &key()), "iter {i}: reseed {name}");
+                        assert!(
+                            create_table(&server, &name, &key()),
+                            "iter {i}: reseed {name}"
+                        );
                         live.insert(name.clone());
                         admitted.insert(name.clone(), 0);
                     } else {
@@ -257,7 +256,11 @@ fn create_table(server: &Server, name: &str, idem: &str) -> bool {
             want.sort();
             assert_eq!(listed, want, "iter {i}: registry drift");
             for name in &live {
-                assert_eq!(count(&server, name), Some(admitted[name]), "iter {i}: drift {name}");
+                assert_eq!(
+                    count(&server, name),
+                    Some(admitted[name]),
+                    "iter {i}: drift {name}"
+                );
             }
         }
     }
@@ -275,15 +278,15 @@ fn create_table(server: &Server, name: &str, idem: &str) -> bool {
     let mut want: Vec<String> = live.iter().cloned().collect();
     want.sort();
     assert_eq!(listed, want);
-    assert!(!live.is_empty(), "churn killed everything; test proves nothing");
+    assert!(
+        !live.is_empty(),
+        "churn killed everything; test proves nothing"
+    );
 
     let mut stems: HashSet<String> = HashSet::new();
     for entry in std::fs::read_dir(server.dir.path()).unwrap() {
         let name = entry.unwrap().file_name().to_string_lossy().into_owned();
-        assert!(
-            !name.starts_with(".lifecycle-"),
-            "staging residue: {name}"
-        );
+        assert!(!name.starts_with(".lifecycle-"), "staging residue: {name}");
         if name == "metadata.sqlite" {
             continue;
         }
