@@ -58,22 +58,22 @@ Approval: [shell archive](.pi-glla/archive/20260917221933-q22wef.md). Implementa
 
 ### Local preparation queue — evidence (2026-09-18, not live acceptance)
 
-Summary: [readiness summary](docs/readiness-summary.md). Gates re-run then: Rust 52/52, Clippy clean, fmt/diff clean, TS client 5/5. Delivered locally: recovery contract + snapshot/crash/keyed-replay/lost-ack/deadline/contention/boundary/publish-failure/interrupted-publish/logging-canary regressions; resource harness + budget ledger (conditional not-ready); release bundle + smoke test; systemd template + validator; upgrade/rollback runbook with recorded local rehearsal; deployment-readiness checklist (not-accepted verdict); migration inventory + synthetic fixture + cutover plan. Live phases 7 (OVH), 9 (micro2), and 10 (Turso) remain unchecked below — no bucket, host, or Turso system was accessed, and no production data moved. Remaining owner decisions are listed in the summary.
+Summary: [readiness summary](docs/readiness-summary.md). Gates re-run then: Rust 52/52, Clippy clean, fmt/diff clean, TS client 5/5. Delivered locally: recovery contract + snapshot/crash/keyed-replay/lost-ack/deadline/contention/boundary/publish-failure/interrupted-publish/logging-canary regressions; resource harness + budget ledger (conditional not-ready); release bundle + smoke test; systemd template + validator; upgrade/rollback runbook with recorded local rehearsal; deployment-readiness checklist (reconciled, production not accepted); migration inventory + synthetic fixture + cutover plan. A separately authorized supervised micro2 deploy, restart check, smoke query, and throwaway restore drill are recorded in [the first-deploy record](docs/first-deploy-micro2.md). Live phases 7 (OVH), 9 (full micro2 release readiness), and 10 (Turso) remain incomplete below; no production data moved and no future live action is authorized by this plan. Remaining owner decisions are listed in the summary.
 
 ### Remaining milestones and authorization boundaries
 
 1. **M3 — verified recovery:** phase 7; owner recovery decisions, backup failure visibility, and verified restore to a separate target. Local snapshot tests do not establish OVH coverage.
-2. **M4 — release readiness:** phases 8–9; measured 1 GB resource budget, failure tests, packaging, then separately approved micro2 deployment.
+2. **M4 — release readiness:** phases 8–9; measured 1 GB resource budget, failure tests, packaging, and any future micro2 live action separately approved. The first supervised non-production smoke/restore deploy is recorded, but does not close full release readiness.
 3. **M5 — migration:** phase 10; separately approved cutovers with verified rollback artifacts.
 
-The confirmed preparation queue permits local disposable fixtures and public research only. It includes recovery decision/compatibility briefs, local drills and resilience tests, resource measurements, packaging, and deployment/migration preparation. It does **not** authorize OVH/micro2/Turso access, remote writes, deployments, production migration, or subscription changes. Live milestone acceptance remains open. Later capabilities below remain optional, not implicitly added release requirements.
+The confirmed preparation queue permits local disposable fixtures and public research only. It includes recovery decision/compatibility briefs, local drills and resilience tests, resource measurements, packaging, and deployment/migration preparation. The first supervised micro2 access/deploy was separately approved and is recorded; this plan does **not** authorize any additional OVH/micro2/Turso access, remote writes, upgrades, deployments, production migration, or subscription changes. Live milestone acceptance remains open. Later capabilities below remain optional, not implicitly added release requirements.
 
 ### Decisions to resolve before dependent work
 
 - **Resolved in M1:** TypeScript first client and custom JSON HTTP API; no libSQL compatibility promise. See [decision register](docs/architecture.md#required-decisions-and-evidence).
 - **Resolved in M1:** value encoding, transaction boundaries, ambiguous outcomes, and retry/idempotency behavior are documented in [API reference](docs/api.md).
 - **Before M3:** agree recovery objectives and verify the actual OVH endpoint/tool version. Do not promise a backup interval as a guaranteed data-loss bound.
-- **Before deployment:** confirm micro2 architecture/disk/network details and measure the complete stack's memory consumption.
+- **Before production readiness or any further live change:** use the recorded micro2 architecture/disk/network facts, resolve the SSH-tunnel/private-access boundary, and measure the complete stack's memory consumption; the first supervised deploy does not waive these remaining gates.
 
 The remaining decisions do not block local preparation. Accepted production RPO/RTO/retention, verified OVH compatibility, and target-host facts remain prerequisites for dependent live work.
 
@@ -162,12 +162,12 @@ Done when: bounded test results and known limitations are recorded, including re
 
 ## 9. Package and deploy to micro2
 
-- [ ] Verify host architecture, persistent disk, available resources, and network approach before selecting release artifacts.
+- [x] Verify host architecture, persistent disk, available resources, and network approach before selecting release artifacts. (Supervised micro2 evidence is recorded in `docs/first-deploy-micro2.md`; long-term resource growth remains open.)
 - [ ] Package reproducible installation/configuration for the gateway and backup component.
 - [ ] Run under a dedicated non-root service account with restart policy, graceful shutdown, and resource limits.
 - [ ] Configure HTTPS or private access, protected secrets, and restricted listening interfaces.
 - [ ] Document upgrades, rollback, monitoring, and full host replacement/restore.
-- [ ] With explicit deployment approval, run a non-production smoke test and restore drill on micro2.
+- [x] With explicit deployment approval, run a non-production smoke test and restore drill on micro2. (`docs/first-deploy-micro2.md` and `docs/first-deploy-micro2-evidence.log`; this does not authorize future live changes.)
 
 Done when: the installed service survives restart and can be recovered using the documented procedure without relying on the original host's files.
 
