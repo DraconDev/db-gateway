@@ -640,12 +640,15 @@ fn migrate_metadata(conn: &mut Connection, root: &Path) -> Result<()> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     tx.execute_batch(
         "CREATE TABLE IF NOT EXISTS credentials(name TEXT PRIMARY KEY, hash TEXT UNIQUE NOT NULL, role TEXT NOT NULL, databases TEXT NOT NULL);
-         CREATE TABLE IF NOT EXISTS databases(name TEXT PRIMARY KEY);",
+         CREATE TABLE IF NOT EXISTS databases(name TEXT PRIMARY KEY, generation TEXT NOT NULL);",
     )?;
     for (column, declaration) in [
         ("deleted_at", "INTEGER"),
         ("purge_after", "INTEGER"),
         ("created_at", "INTEGER"),
+        // Existing registries need a nullable migration step because SQLite
+        // cannot add a NOT NULL column to a table that already has rows.
+        ("generation", "TEXT"),
     ] {
         let exists: bool = tx
             .prepare("SELECT 1 FROM pragma_table_info('databases') WHERE name=?")?
@@ -671,8 +674,102 @@ fn migrate_metadata(conn: &mut Connection, root: &Path) -> Result<()> {
             rusqlite::params![stamp, name],
         )?;
     }
+    // Every registry row must have an opaque identity before credentials are
+    // migrated. The identity survives tombstoning and disappears only when
+    // the registry row is purged.
+    let missing_generations: Vec<String> = tx
+        .prepare("SELECT name FROM databases WHERE generation IS NULL OR generation=''" )?
+        .query_map([], |r| r.get(0))?
+        .collect::<std::result::Result<_, _>>()?;
+    for name in missing_generations {
+        let generation = new_generation(&tx)?;
+        tx.execute(
+            "UPDATE databases SET generation=? WHERE name=?",
+            params![generation, name],
+        )?;
+    }
+    migrate_legacy_scopes(&tx)?;
     tx.commit()?;
     Ok(())
+}
+
+fn migrate_legacy_scopes(conn: &Connection) -> Result<()> {
+    let credentials: Vec<(String, String)> = conn
+        .prepare("SELECT name,databases FROM credentials")?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<std::result::Result<_, _>>()?;
+    for (credential, raw) in credentials {
+        let value: Value = serde_json::from_str(&raw).map_err(|_| Error::internal())?;
+        let entries = value.as_array().ok_or_else(Error::internal)?;
+        // New-format rows are already generation-bound. Parsing validates
+        // their shape and rejects malformed metadata rather than broadening
+        // it at startup.
+        if !entries.iter().all(Value::is_string) {
+            parse_scopes(&raw)?;
+            continue;
+        }
+        let mut scopes = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let name = entry.as_str().ok_or_else(Error::internal)?;
+            if validate_name(name).is_err() {
+                return Err(Error::internal());
+            }
+            let generation: Option<String> = conn
+                .query_row(
+                    "SELECT generation FROM databases WHERE name=?",
+                    [name],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            // A previously purged scope is retained only as a dropped access
+            // grant. Omitting it is safe; inventing a generation is not.
+            if let Some(generation) = generation {
+                if generation.is_empty() {
+                    return Err(Error::internal());
+                }
+                scopes.push(DatabaseScope {
+                    name: name.to_string(),
+                    generation,
+                });
+            }
+        }
+        let encoded = serde_json::to_string(&scopes).map_err(|_| Error::internal())?;
+        conn.execute(
+            "UPDATE credentials SET databases=? WHERE name=?",
+            params![encoded, credential],
+        )?;
+    }
+    Ok(())
+}
+
+fn parse_scopes(raw: &str) -> Result<Vec<DatabaseScope>> {
+    let scopes: Vec<DatabaseScope> = serde_json::from_str(raw).map_err(|_| Error::internal())?;
+    if scopes
+        .iter()
+        .any(|scope| scope.generation.is_empty() || validate_name(&scope.name).is_err())
+    {
+        return Err(Error::internal());
+    }
+    Ok(scopes)
+}
+
+fn scope_names(scopes: &[DatabaseScope]) -> Vec<String> {
+    scopes.iter().map(|scope| scope.name.clone()).collect()
+}
+
+fn new_generation(conn: &Connection) -> Result<String> {
+    for _ in 0..16 {
+        let generation = hex::encode(rand::random::<[u8; 16]>());
+        let exists: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM databases WHERE generation=?)",
+            [&generation],
+            |r| r.get(0),
+        )?;
+        if !exists {
+            return Ok(generation);
+        }
+    }
+    Err(Error::internal())
 }
 
 fn now_secs() -> Result<i64> {
