@@ -291,7 +291,7 @@ fn twenty_shapes_survive_restart_exactly() {
         for (table, cols, order) in DUMPS {
             let select: Vec<String> = cols.iter().map(|c| format!("hex({c})")).collect();
             let (status, body) = query(
-                &server,
+                server,
                 "shapes",
                 &format!("SELECT {} FROM {table} ORDER BY {order}", select.join(", ")),
             );
@@ -302,8 +302,7 @@ fn twenty_shapes_survive_restart_exactly() {
     };
     let before = dump(&server);
     let total: usize = before.iter().map(|r| r.as_array().unwrap().len()).sum();
-    // 5000 seeded + 1 FK parent + 250 t10 children-of-plan rows are all in
-    // the 5000; only the single parent seed is extra.
+    // 5000 seeded rows plus the single FK parent seed.
     assert_eq!(total, 5001, "row total");
 
     // Restart on the same data dir: everything must be identical.
