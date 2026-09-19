@@ -8,8 +8,9 @@
 //! is enforced at runtime). Forbidden objects are pinned to their
 //! fail-closed codes (CREATE INDEX included: the authorizer falls
 //! through to deny, so M1 has no indexes). 5000 mixed rows go in via
-//! atomic batches; every table is dumped, the server is killed and
-//! restarted on the same data dir, and every dump must be identical.
+//! atomic batches; every table is dumped in rowid order with blobs
+//! hex-encoded, the server is killed and restarted on the same data
+//! dir, and every dump must be identical.
 
 use serde_json::{Value, json};
 use std::{
@@ -20,7 +21,6 @@ use std::{
 
 struct Server {
     child: Child,
-    dir: tempfile::TempDir,
     address: String,
     owner: String,
 }
@@ -31,10 +31,10 @@ impl Drop for Server {
     }
 }
 
-fn spawn_on(dir: &tempfile::TempDir, owner: &str) -> Server {
+fn spawn_on(data_dir: &std::path::Path, owner: &str) -> Server {
     let mut child = Command::new(env!("CARGO_BIN_EXE_dg"))
         .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
-        .arg(dir.path())
+        .arg(data_dir)
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
@@ -51,7 +51,6 @@ fn spawn_on(dir: &tempfile::TempDir, owner: &str) -> Server {
     }
     Server {
         child,
-        dir: tempfile::tempdir().unwrap(),
         address: address.expect("server logged its listen address"),
         owner: owner.to_string(),
     }
@@ -101,6 +100,30 @@ const DDLS: &[&str] = &[
     "CREATE TABLE t19(id INTEGER PRIMARY KEY, uni TEXT, em TEXT, nl TEXT)",
 ];
 
+/// (table, columns, order-by) for stable full dumps.
+const DUMPS: &[(&str, &[&str], &str)] = &[
+    ("t00", &["id", "a", "b", "c"], "rowid"),
+    ("t01", &["id", "x", "y", "z"], "rowid"),
+    ("t02", &["id", "s", "v", "ch"], "rowid"),
+    ("t03", &["id", "p", "q"], "rowid"),
+    ("t04", &["id", "n", "d", "b"], "rowid"),
+    ("t05", &["id", "req", "def", "num"], "rowid"),
+    ("t06", &["id", "u", "w"], "rowid"),
+    ("t07", &["id", "pos", "name"], "rowid"),
+    ("t08", &["a", "b", "c"], "rowid"),
+    ("t09", &["k", "v"], "k"),
+    ("t10", &["parent", "label"], "rowid"),
+    ("t11", &["child", "parent", "note"], "rowid"),
+    ("t12", &["id", "ts", "dt", "t"], "rowid"),
+    ("t13", &["id", "j", "big"], "rowid"),
+    ("t14", &["id", "v"], "rowid"),
+    ("t15", &["rowid", "a", "b", "c", "d"], "rowid"),
+    ("t16", &["id", "e", "f", "g"], "rowid"),
+    ("t17", &["id", "m", "n", "o"], "rowid"),
+    ("t18", &["id", "low", "high"], "rowid"),
+    ("t19", &["id", "uni", "em", "nl"], "rowid"),
+];
+
 /// Fail-closed objects: (sql, status, code). Pinned by probe 2026-09-19.
 const FORBIDDEN: &[(&str, u16, &str)] = &[
     ("CREATE VIEW fv AS SELECT 1", 403, "sql_forbidden"),
@@ -111,6 +134,31 @@ const FORBIDDEN: &[(&str, u16, &str)] = &[
     ("CREATE UNIQUE INDEX fuidx ON t01(x)", 403, "sql_forbidden"),
     ("INSERT INTO t11(child, parent) VALUES (1, 99999)", 400, "invalid_sql"),
 ];
+
+fn seed_sql(t: usize, table: &str, r: i64) -> String {
+    match t {
+        0 => format!("INSERT INTO {table}(a, b, c) VALUES ({}, {r}, {})", r - 125, r % 7),
+        1 => format!("INSERT INTO {table}(x, y, z) VALUES ({}, 1e308, -1e-10)", r as f64 * 0.5),
+        2 => format!("INSERT INTO {table}(s, v, ch) VALUES ('txt-{r}-ünïcödé-🎉', 'v{r}', 'c{r}')"),
+        3 => format!("INSERT INTO {table}(p, q) VALUES (randomblob({}), x'00FF{:02X}')", 8 + r % 64, r % 256),
+        4 => format!("INSERT INTO {table}(n, d, b) VALUES ({r}.5, {r}.99, {})", r % 2),
+        5 => format!("INSERT INTO {table}(req) VALUES ({})", if r % 5 == 0 { "NULL" } else { "'present'" }),
+        6 => format!("INSERT INTO {table}(u, w) VALUES ('u-{t}-{r}', {r})"),
+        7 => format!("INSERT INTO {table}(pos, name) VALUES ({}, 'n{r}')", r + 1),
+        8 => format!("INSERT INTO {table}(a, b, c) VALUES ({r}, 'k-{t}-{r}', {r})"),
+        9 => format!("INSERT INTO {table}(k, v) VALUES ('k-{r}', randomblob(24))"),
+        10 => format!("INSERT INTO {table}(parent, label) VALUES ({}, 'p{r}')", r + 2),
+        11 => format!("INSERT INTO {table}(child, parent, note) VALUES ({r}, 1, {})", if r % 4 == 0 { "NULL" } else { "'ok'" }),
+        12 => format!("INSERT INTO {table}(ts, dt, t) VALUES ('2024-05-{day:02} 12:34:56', '2024-05-{day:02}', '12:34:56')", day = (r % 28) + 1),
+        13 => format!("INSERT INTO {table}(j, big) VALUES ('{{\"r\":{r}}}', zeroblob({}))", 100 + r),
+        14 => format!("INSERT INTO {table}(v) VALUES ({r})"),
+        15 => format!("INSERT INTO {table}(a, b, c, d) VALUES ({r}, {r}, {r}, {r})"),
+        16 => format!("INSERT INTO {table}(g) VALUES ({})", if r % 3 == 0 { "NULL" } else { "x'DEAD'" }),
+        17 => format!("INSERT INTO {table}(m, n, o) VALUES ('', NULL, 'x')"),
+        18 => format!("INSERT INTO {table}(id) VALUES ({})", r + 1),
+        _ => format!("INSERT INTO {table}(uni, em, nl) VALUES ('héllo-{r}', '😀😀', NULL)"),
+    }
+}
 
 #[test]
 fn twenty_shapes_survive_restart_exactly() {
@@ -126,7 +174,7 @@ fn twenty_shapes_survive_restart_exactly() {
         .unwrap()
         .to_string();
 
-    let server = spawn_on(&dir, &owner);
+    let server = spawn_on(dir.path(), &owner);
     let (status, body) = post(&server, "POST", "/v1/databases", &json!({"name": "shapes"}));
     assert_eq!(status, 200, "create: {body}");
 
@@ -146,42 +194,18 @@ fn twenty_shapes_survive_restart_exactly() {
         assert_eq!(got_body["error"]["code"], *code, "{sql}");
     }
 
-    // Seed parents before children (FK chain t10 -> t11 enforced).
+    // Seed the FK parent first (t10): t11 rows reference parent = 1.
     let (status, body) = query(&server, "shapes", "INSERT INTO t10(parent, label) VALUES (1, 'one')");
     assert_eq!(status, 200, "parent seed: {body}");
 
-    // 5000 mixed rows: 250 per table, NULLs, extremes, unicode, blobs.
+    // 5000 mixed rows, 250 per table, in atomic 32-statement batches.
     let mut stmts: Vec<Value> = Vec::new();
     for (t, ddl) in DDLS.iter().enumerate() {
         let table = &ddl[13..16];
         for r in 0..250 {
-            let sql = match t % 10 {
-                0 => format!("INSERT INTO {table}(a, b, c) VALUES ({}, {}, {})", r as i64 - 125, r, r % 7),
-                1 => format!("INSERT INTO {table}(x, y, z) VALUES ({}, 1e308, -1e-10)", r as f64 * 0.5),
-                2 => format!("INSERT INTO {table}(s, v, ch) VALUES ('txt-{r}-ünïcödé-🎉', 'v{r}', 'c{r}')"),
-                3 => format!("INSERT INTO {table}(p, q) VALUES (randomblob({}), x'00FF{r:02X}')", 8 + r % 64),
-                4 => format!("INSERT INTO {table}(n, d, b) VALUES ({r}.5, {r}.99, {})", r % 2),
-                5 => format!("INSERT INTO {table}(req) VALUES ({})", if r % 5 == 0 { "NULL" } else { "'present'" }),
-                6 => format!("INSERT INTO {table}(u, w) VALUES ('u-{t}-{r}', {r})"),
-                7 => format!("INSERT INTO {table}(pos, name) VALUES ({}, 'n{r}')", r + 1),
-                8 => format!("INSERT INTO {table}(a, b, c) VALUES ({r}, 'k-{t}-{r}', {r})"),
-                _ => format!("INSERT INTO {table} VALUES ({}, {}, {})", r + 1, r, r),
-            };
-            // Tables whose shape differs get tailored rows.
-            let sql = match t {
-                9 => format!("INSERT INTO {table}(k, v) VALUES ('k-{r}', randomblob(24))"),
-                11 => format!("INSERT INTO {table}(child, parent, note) VALUES ({r}, 1, {})", if r % 4 == 0 { "NULL" } else { "'ok'" }),
-                13 => format!("INSERT INTO {table}(j, big) VALUES ('{{\"r\":{r}}}', zeroblob({}))", 100 + r),
-                14 => format!("INSERT INTO {table}(v) VALUES ({r})"),
-                16 => format!("INSERT INTO {table}(g) VALUES ({})", if r % 3 == 0 { "NULL" } else { "x'DEAD'" }),
-                17 => format!("INSERT INTO {table}(m, n, o) VALUES ('', NULL, 'x')"),
-                19 => format!("INSERT INTO {table}(uni, em, nl) VALUES ('héllo-{r}', '😀😀', NULL)"),
-                _ => sql,
-            };
-            stmts.push(json!({"sql": sql}));
+            stmts.push(json!({"sql": seed_sql(t, table, r)}));
         }
     }
-    // t11 ids start at 0; child PK allows 0. t08 composite rows distinct.
     let mut done = 0;
     for chunk in stmts.chunks(32) {
         let (status, body) = post(
@@ -202,31 +226,18 @@ fn twenty_shapes_survive_restart_exactly() {
         "SELECT type, name FROM sqlite_master WHERE name NOT LIKE '_dg_%' AND name NOT LIKE 'sqlite_%' ORDER BY name",
     );
     assert_eq!(status, 200, "master: {body}");
-    let types: Vec<String> = body["rows"].as_array().unwrap().iter().map(|r| r[0].as_str().unwrap().to_string()).collect();
-    assert_eq!(types.len(), 20, "unexpected objects: {body}");
-    assert!(types.iter().all(|t| t == "table"), "non-table objects: {body}");
+    let rows = body["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 20, "unexpected objects: {body}");
+    assert!(rows.iter().all(|r| r[0] == "table"), "non-table objects: {body}");
 
-    // Full ordered dump of every table (blobs hex-encoded for stability).
     let dump = |server: &Server| -> Vec<Value> {
         let mut out = Vec::new();
-        for ddl in DDLS {
-            let table = &ddl[13..16];
-            // Column list from the live schema keeps the dump exact.
-            let (status, cols) = query(&server, "shapes", &format!("SELECT name FROM pragma_table_info('{table}') ORDER BY cid"));
-            assert_eq!(status, 200, "cols {table}: {cols}");
-            let select: Vec<String> = cols["rows"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|r| {
-                    let c = r[0].as_str().unwrap();
-                    format!("hex({c})")
-                })
-                .collect();
+        for (table, cols, order) in DUMPS {
+            let select: Vec<String> = cols.iter().map(|c| format!("hex({c})")).collect();
             let (status, body) = query(
                 &server,
                 "shapes",
-                &format!("SELECT {} FROM {table} ORDER BY 1", select.join(", ")),
+                &format!("SELECT {} FROM {table} ORDER BY {order}", select.join(", ")),
             );
             assert_eq!(status, 200, "dump {table}: {body}");
             out.push(body["rows"].clone());
@@ -235,18 +246,20 @@ fn twenty_shapes_survive_restart_exactly() {
     };
     let before = dump(&server);
     let total: usize = before.iter().map(|r| r.as_array().unwrap().len()).sum();
-    assert_eq!(total, 5000 + 1, "row total (5000 + 1 parent seed)");
+    // 5000 seeded + 1 FK parent + 250 t10 children-of-plan rows are all in
+    // the 5000; only the single parent seed is extra.
+    assert_eq!(total, 5001, "row total");
 
     // Restart on the same data dir: everything must be identical.
-    drop(server);
-    let dir2 = dir;
+    // Re-init must refuse a bootstrapped dir (guard before the restart).
     let output = Command::new(env!("CARGO_BIN_EXE_dg"))
         .args(["init", "--data-dir"])
-        .arg(dir2.path())
+        .arg(dir.path())
         .output()
         .unwrap();
     assert!(!output.status.success(), "re-init must refuse a bootstrapped dir");
-    let server2 = spawn_on(&dir2, &owner);
+    drop(server);
+    let server2 = spawn_on(dir.path(), &owner);
     let after = dump(&server2);
     assert_eq!(before, after, "post-restart dump differs");
 }
