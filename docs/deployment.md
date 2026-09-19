@@ -1,9 +1,11 @@
 # Deployment configuration guide
 
 Template: `deploy/dg.service`. Validation: `scripts/validate-deploy.sh`.
-Nothing here installs, enables, or starts a service. The first
-supervised deploy to micro2 is recorded separately in
-docs/first-deploy-micro2.md.
+Nothing here installs, enables, or starts a service, and this guide is not
+live-deploy authorization. The first supervised deploy to micro2 is recorded
+separately in `docs/first-deploy-micro2.md`; that record supplies the resolved
+values for the installed instance while this guide intentionally retains
+placeholders for future/repeated deployments.
 
 ## Prerequisites (owner runs on the target)
 

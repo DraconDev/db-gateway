@@ -165,7 +165,7 @@ Done when: bounded test results and known limitations are recorded, including re
 - [x] Verify host architecture, persistent disk, available resources, and network approach before selecting release artifacts. (Supervised micro2 evidence is recorded in `docs/first-deploy-micro2.md`; long-term resource growth remains open.)
 - [ ] Package reproducible installation/configuration for the gateway and backup component.
 - [ ] Run under a dedicated non-root service account with restart policy, graceful shutdown, and resource limits.
-- [ ] Configure HTTPS or private access, protected secrets, and restricted listening interfaces.
+- [x] Configure HTTPS or private access, protected secrets, and restricted listening interfaces. (The supervised deployment uses loopback-only listening plus the accepted SSH tunnel; `/etc/dg/owner.key` is `0600`. No in-gateway TLS was added.)
 - [ ] Document upgrades, rollback, monitoring, and full host replacement/restore.
 - [x] With explicit deployment approval, run a non-production smoke test and restore drill on micro2. (`docs/first-deploy-micro2.md` and `docs/first-deploy-micro2-evidence.log`; this does not authorize future live changes.)
 
