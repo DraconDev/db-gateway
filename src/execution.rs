@@ -73,13 +73,18 @@ pub fn validate_import(path: &Path) -> Result<()> {
     if bad > 0 {
         return Err(Error::invalid());
     }
-    let protected: i64 = conn
+    let protected: Vec<String> = conn
         .prepare(
-            "SELECT count(*) FROM sqlite_master WHERE type='table' AND substr(name,1,4)='_dg_' AND name<>'_dg_replay'",
+            "SELECT name FROM sqlite_master WHERE type='table' AND lower(substr(name,1,4))='_dg_' ORDER BY name",
         )?
-        .query_row([], |r| r.get(0))?;
-    if protected > 0 {
-        // Imported files must not smuggle server-owned tables.
+        .query_map([], |r| r.get(0))?
+        .collect::<std::result::Result<_, _>>()?;
+    if protected
+        .iter()
+        .any(|name| !name.eq_ignore_ascii_case("_dg_replay"))
+    {
+        // Imported files must not smuggle server-owned tables. SQLite table
+        // names are case-insensitive, so screen case variants too.
         return Err(Error::new(
             400,
             "invalid_request",
@@ -90,7 +95,7 @@ pub fn validate_import(path: &Path) -> Result<()> {
     // published only if the definition is the canonical one; initialize's
     // CREATE TABLE IF NOT EXISTS must never paper over a different schema.
     let replay_sql: Option<String> = match conn.query_row(
-        "SELECT sql FROM sqlite_master WHERE type='table' AND name='_dg_replay'",
+        "SELECT sql FROM sqlite_master WHERE type='table' AND lower(name)='_dg_replay'",
         [],
         |r| r.get(0),
     ) {
@@ -150,6 +155,23 @@ mod import_schema_tests {
             "CREATE TABLE _dg_replay (principal TEXT NOT NULL, key TEXT NOT NULL, hash TEXT NOT NULL, result TEXT NOT NULL, created INTEGER NOT NULL, extra TEXT, PRIMARY KEY(principal,key))",
         ));
         assert!(validate_import(&path).is_err());
+    }
+
+    #[test]
+    fn protected_import_tables_are_rejected_case_insensitively() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("candidate.sqlite");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch("CREATE TABLE \"_DG_secret\" (value TEXT);")
+            .unwrap();
+        drop(conn);
+        assert_eq!(validate_import(&path).unwrap_err().code, "invalid_request");
+
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch("DROP TABLE \"_DG_secret\"; CREATE TABLE \"_DG_REPLAY\" (principal TEXT);")
+            .unwrap();
+        drop(conn);
+        assert_eq!(validate_import(&path).unwrap_err().code, "invalid_request");
     }
 
     #[test]
