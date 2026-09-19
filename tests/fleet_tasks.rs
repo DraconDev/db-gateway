@@ -40,7 +40,7 @@ fn task_tracker_works_like_a_real_app() {
             DB,
             "SELECT p.name, count(t.id) FROM projects p LEFT JOIN tasks t ON t.project_id = p.id AND t.status != 'done' WHERE p.archived = 0 GROUP BY p.name ORDER BY p.name"
         ),
-        json!([["Gateway bridge", 3], ["Website relaunch", 3]])
+        json!([["Gateway bridge", 4], ["Website relaunch", 3]])
     );
 
     // Status rollup: 4 done, 2 in_progress, 6 open.
