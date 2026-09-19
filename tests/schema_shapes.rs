@@ -74,7 +74,12 @@ fn post(server: &Server, method: &str, path: &str, body: &Value) -> (u16, Value)
 }
 
 fn query(server: &Server, db: &str, sql: &str) -> (u16, Value) {
-    post(server, "POST", &format!("/v1/databases/{db}/query"), &json!({"sql": sql}))
+    post(
+        server,
+        "POST",
+        &format!("/v1/databases/{db}/query"),
+        &json!({"sql": sql}),
+    )
 }
 
 const DDLS: &[&str] = &[
@@ -127,33 +132,77 @@ const DUMPS: &[(&str, &[&str], &str)] = &[
 /// Fail-closed objects: (sql, status, code). Pinned by probe 2026-09-19.
 const FORBIDDEN: &[(&str, u16, &str)] = &[
     ("CREATE VIEW fv AS SELECT 1", 403, "sql_forbidden"),
-    ("CREATE TRIGGER ftr AFTER INSERT ON t00 BEGIN SELECT 1; END", 403, "sql_forbidden"),
+    (
+        "CREATE TRIGGER ftr AFTER INSERT ON t00 BEGIN SELECT 1; END",
+        403,
+        "sql_forbidden",
+    ),
     ("CREATE TEMP TABLE ftt(x)", 403, "sql_forbidden"),
-    ("ALTER TABLE t00 ADD COLUMN extra TEXT", 403, "sql_forbidden"),
+    (
+        "ALTER TABLE t00 ADD COLUMN extra TEXT",
+        403,
+        "sql_forbidden",
+    ),
     ("CREATE INDEX fidx ON t00(a)", 403, "sql_forbidden"),
     ("CREATE UNIQUE INDEX fuidx ON t01(x)", 403, "sql_forbidden"),
-    ("INSERT INTO t11(child, parent) VALUES (1, 99999)", 400, "invalid_sql"),
+    (
+        "INSERT INTO t11(child, parent) VALUES (1, 99999)",
+        400,
+        "invalid_sql",
+    ),
 ];
 
 fn seed_sql(t: usize, table: &str, r: i64) -> String {
     match t {
-        0 => format!("INSERT INTO {table}(a, b, c) VALUES ({}, {r}, {})", r - 125, r % 7),
-        1 => format!("INSERT INTO {table}(x, y, z) VALUES ({}, 1e308, -1e-10)", r as f64 * 0.5),
+        0 => format!(
+            "INSERT INTO {table}(a, b, c) VALUES ({}, {r}, {})",
+            r - 125,
+            r % 7
+        ),
+        1 => format!(
+            "INSERT INTO {table}(x, y, z) VALUES ({}, 1e308, -1e-10)",
+            r as f64 * 0.5
+        ),
         2 => format!("INSERT INTO {table}(s, v, ch) VALUES ('txt-{r}-ünïcödé-🎉', 'v{r}', 'c{r}')"),
-        3 => format!("INSERT INTO {table}(p, q) VALUES (randomblob({}), x'00FF{:02X}')", 8 + r % 64, r % 256),
-        4 => format!("INSERT INTO {table}(n, d, b) VALUES ({r}.5, {r}.99, {})", r % 2),
-        5 => format!("INSERT INTO {table}(req, def) VALUES ('present-{r}', {})", if r % 5 == 0 { "NULL" } else { "'custom'" }),
+        3 => format!(
+            "INSERT INTO {table}(p, q) VALUES (randomblob({}), x'00FF{:02X}')",
+            8 + r % 64,
+            r % 256
+        ),
+        4 => format!(
+            "INSERT INTO {table}(n, d, b) VALUES ({r}.5, {r}.99, {})",
+            r % 2
+        ),
+        5 => format!(
+            "INSERT INTO {table}(req, def) VALUES ('present-{r}', {})",
+            if r % 5 == 0 { "NULL" } else { "'custom'" }
+        ),
         6 => format!("INSERT INTO {table}(u, w) VALUES ('u-{t}-{r}', {r})"),
         7 => format!("INSERT INTO {table}(pos, name) VALUES ({}, 'n{r}')", r + 1),
         8 => format!("INSERT INTO {table}(a, b, c) VALUES ({r}, 'k-{t}-{r}', {r})"),
         9 => format!("INSERT INTO {table}(k, v) VALUES ('k-{r}', randomblob(24))"),
-        10 => format!("INSERT INTO {table}(parent, label) VALUES ({}, 'p{r}')", r + 2),
-        11 => format!("INSERT INTO {table}(child, parent, note) VALUES ({r}, 1, {})", if r % 4 == 0 { "NULL" } else { "'ok'" }),
-        12 => format!("INSERT INTO {table}(ts, dt, t) VALUES ('2024-05-{day:02} 12:34:56', '2024-05-{day:02}', '12:34:56')", day = (r % 28) + 1),
-        13 => format!("INSERT INTO {table}(j, big) VALUES ('{{\"r\":{r}}}', zeroblob({}))", 100 + r),
+        10 => format!(
+            "INSERT INTO {table}(parent, label) VALUES ({}, 'p{r}')",
+            r + 2
+        ),
+        11 => format!(
+            "INSERT INTO {table}(child, parent, note) VALUES ({r}, 1, {})",
+            if r % 4 == 0 { "NULL" } else { "'ok'" }
+        ),
+        12 => format!(
+            "INSERT INTO {table}(ts, dt, t) VALUES ('2024-05-{day:02} 12:34:56', '2024-05-{day:02}', '12:34:56')",
+            day = (r % 28) + 1
+        ),
+        13 => format!(
+            "INSERT INTO {table}(j, big) VALUES ('{{\"r\":{r}}}', zeroblob({}))",
+            100 + r
+        ),
         14 => format!("INSERT INTO {table}(v) VALUES ({r})"),
         15 => format!("INSERT INTO {table}(a, b, c, d) VALUES ({r}, {r}, {r}, {r})"),
-        16 => format!("INSERT INTO {table}(g) VALUES ({})", if r % 3 == 0 { "NULL" } else { "x'DEAD'" }),
+        16 => format!(
+            "INSERT INTO {table}(g) VALUES ({})",
+            if r % 3 == 0 { "NULL" } else { "x'DEAD'" }
+        ),
         17 => format!("INSERT INTO {table}(m, n, o) VALUES ('', NULL, 'x')"),
         18 => format!("INSERT INTO {table}(id) VALUES ({})", r + 1),
         _ => format!("INSERT INTO {table}(uni, em, nl) VALUES ('héllo-{r}', '😀😀', NULL)"),
@@ -195,7 +244,11 @@ fn twenty_shapes_survive_restart_exactly() {
     }
 
     // Seed the FK parent first (t10): t11 rows reference parent = 1.
-    let (status, body) = query(&server, "shapes", "INSERT INTO t10(parent, label) VALUES (1, 'one')");
+    let (status, body) = query(
+        &server,
+        "shapes",
+        "INSERT INTO t10(parent, label) VALUES (1, 'one')",
+    );
     assert_eq!(status, 200, "parent seed: {body}");
 
     // 5000 mixed rows, 250 per table, in atomic 32-statement batches.
@@ -228,7 +281,10 @@ fn twenty_shapes_survive_restart_exactly() {
     assert_eq!(status, 200, "master: {body}");
     let rows = body["rows"].as_array().unwrap();
     assert_eq!(rows.len(), 20, "unexpected objects: {body}");
-    assert!(rows.iter().all(|r| r[0] == "table"), "non-table objects: {body}");
+    assert!(
+        rows.iter().all(|r| r[0] == "table"),
+        "non-table objects: {body}"
+    );
 
     let dump = |server: &Server| -> Vec<Value> {
         let mut out = Vec::new();
@@ -257,7 +313,10 @@ fn twenty_shapes_survive_restart_exactly() {
         .arg(dir.path())
         .output()
         .unwrap();
-    assert!(!output.status.success(), "re-init must refuse a bootstrapped dir");
+    assert!(
+        !output.status.success(),
+        "re-init must refuse a bootstrapped dir"
+    );
     drop(server);
     let server2 = spawn_on(dir.path(), &owner);
     let after = dump(&server2);
