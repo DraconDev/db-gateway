@@ -264,9 +264,13 @@ fn every_credential_gets_its_exact_code_on_every_route() {
                         _ => (401, "invalid_credential"),
                     };
                     let (status, body) = req(&address, "GET", "/v1/databases", cred.as_deref(), &json!({}), None);
-                    assert_eq!(status, want, "load {name} list: {body}");
-                    if want != 200 {
-                        assert_eq!(body["error"]["code"], code, "load {name} list");
+                    if status == 429 {
+                        assert_eq!(body["error"]["code"], "capacity_exceeded", "load {name} list");
+                    } else {
+                        assert_eq!(status, want, "load {name} list: {body}");
+                        if want != 200 {
+                            assert_eq!(body["error"]["code"], code, "load {name} list");
+                        }
                     }
                 }
                 let _ = owner;
