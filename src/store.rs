@@ -597,6 +597,7 @@ impl Store {
             // tombstoned row would silently overwrite the retained file.
             return Err(Error::new(409, "database_exists", "database exists"));
         }
+        let generation = new_generation(&tx)?;
         let path = self.root.join(format!("{name}.sqlite"));
         // Validate in private staging, then publish without overwriting orphans.
         let staged = self.staging()?;
@@ -614,8 +615,8 @@ impl Store {
         })?;
         let result = (|| {
             tx.execute(
-                "INSERT INTO databases (name, created_at) VALUES (?, ?)",
-                rusqlite::params![name, now_secs()?],
+                "INSERT INTO databases (name, created_at, generation) VALUES (?, ?, ?)",
+                rusqlite::params![name, now_secs()?, generation],
             )?;
             tx.commit()?;
             Ok(())
