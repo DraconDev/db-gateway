@@ -1,8 +1,10 @@
-# Readiness summary — local preparation queue close-out
+# Readiness summary — local preparation and supervised micro2 evidence
 
-Date: 2026-09-18. This is an evidence-backed summary of completed local
-preparation, **not a claim of production readiness**. No OVH, micro2, or
-Turso system was accessed; all evidence below is local or explicitly marked.
+Updated: 2026-09-19. This is an evidence-backed summary of completed local
+preparation plus the explicitly authorized supervised micro2 smoke/restore
+deploy. It is **not a claim of production readiness**. The authoritative
+host/service facts are in [`first-deploy-micro2.md`](first-deploy-micro2.md);
+this summary does not authorize any further live change.
 
 ## Gates re-run for this summary
 
@@ -29,12 +31,14 @@ not-ready), `scripts/release-bundle.sh` (+ smoke test),
 `deploy/dg.service` (+ `scripts/validate-deploy.sh`, `docs/deployment.md`),
 `docs/upgrade-rollback.md` (rehearsed locally with recorded results).
 
-Deployment/migration prep (docs only): `docs/deployment-readiness.md`
-(8 gates, not-accepted verdict), `docs/migration-inventory.md` (11 risks +
-empty inventory), `docs/migration-cutover.md` (staged plan + rollback),
+Deployment/migration prep: `docs/deployment-readiness.md` (8 gates,
+reconciled to the supervised micro2 record; production readiness remains not
+accepted), `docs/migration-inventory.md` (11 risks + empty inventory),
+`docs/migration-cutover.md` (staged plan + rollback),
 `docs/recovery-decisions.md`, `docs/recovery-contract.md`,
 `docs/backup-compatibility.md` (Litestream v0.5.17 pinned, endpoint
-unverified).
+unverified). The supervised micro2 install, restart check, smoke query, and
+throwaway export/import drill are recorded in `docs/first-deploy-micro2.md`.
 
 ## Reconciliation
 
@@ -44,17 +48,22 @@ interrupted-publish invariant, logging-canary audit, resource harness +
 budget ledger, release bundle, service template + validator, upgrade/rollback
 rehearsal, deployment checklist, migration inventory/fixture/cutover plan.
 
-Remaining owner decisions: RPO/RTO/retention acceptance, micro2 survey
-answers (arch/disk/network), remote-access mechanism (tunnel vs proxy, no
-TLS in-gateway), memory-limit value, rollback/soak choices, Turso
-plan/target/trial verification.
+Remaining owner decisions: RPO/RTO/retention acceptance, complete resource
+budget and memory-limit value, backup-sidecar plan, rollback/soak choices,
+future TLS/monitoring needs, and Turso plan/target/trial verification. The
+micro2 architecture/disk survey and SSH-tunnel access choice are evidenced for
+the supervised deploy; they do not authorize production migration or future
+live changes.
 
 ## Explicitly unperformed live work
 
 - OVH: no bucket survey, no Litestream deployment, no backup/restore to or
   from OVH, no credential or encryption setup.
-- micro2: no host survey, no installation, no service start, no smoke test
-  or restore drill on the host.
+- micro2: the first supervised deploy is complete and recorded: host survey,
+  installed active service, restart survival, authenticated smoke query, and
+  throwaway export/import/copy-independence drill. No backup sidecar, TLS
+  terminator, monitoring, production migration, or further live change was
+  authorized or performed.
 - Turso: no account/database access, no trial import, no application
   repository survey, no cutover of any kind.
 - No production data was read, written, or moved at any point.
