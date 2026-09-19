@@ -242,23 +242,24 @@ impl Store {
         let conn = self.meta()?;
         let mut stmt =
             conn.prepare("SELECT name, role, databases FROM credentials ORDER BY name")?;
-        let keys = stmt
+        let rows: Vec<(String, String, String)> = stmt
             .query_map([], |r| {
-                let databases: String = r.get(2)?;
-                let scopes = parse_scopes(&databases).map_err(|_| {
-                    rusqlite::Error::InvalidColumnType(
-                        2,
-                        "databases".into(),
-                        rusqlite::types::Type::Text,
-                    )
-                })?;
-                Ok(serde_json::json!({
-                    "name": r.get::<_, String>(0)?,
-                    "role": r.get::<_, String>(1)?,
-                    "databases": scope_names(&scopes),
-                }))
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
             })?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+            .collect::<std::result::Result<_, _>>()?;
+        let mut keys = Vec::with_capacity(rows.len());
+        for (name, role, databases) in rows {
+            let scopes = parse_scopes(&databases)?;
+            keys.push(serde_json::json!({
+                "name": name,
+                "role": role,
+                "databases": scope_names(&scopes),
+            }));
+        }
         Ok(serde_json::json!({"keys": keys}))
     }
     pub fn revoke(&self, name: &str) -> Result<()> {
