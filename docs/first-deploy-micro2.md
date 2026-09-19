@@ -59,15 +59,15 @@ and **active**.
 ## Build note (portability)
 
 The local toolchain links a Nix-store absolute interpreter path, which
-does not exist on Ubuntu. The deployed binary was built with
-`RUSTFLAGS="-C link-args=-Wl,-dynamic-linker,/lib64/ld-linux-x86-64.so.2"`
-(max required symbol `GLIBC_2.38`, host provides 2.39) and the staged
-bundle binary was confirmed to carry `/lib64/ld-linux-x86-64.so.2`
-before transfer. A plain (unflagged) rebuild reverts the interpreter,
-so any re-bundle for micro2 must reuse the flag. A first transfer
-without the flag failed on-host with `cannot execute: required file
-not found` despite `sha256sum -c` passing — checksum validity does not
-imply executability.
+does not exist on Ubuntu. `scripts/release-bundle.sh` now defaults to
+`DG_RELEASE_TARGET=micro2`, adds
+`-C link-args=-Wl,-dynamic-linker,/lib64/ld-linux-x86-64.so.2`, and verifies
+both the x86_64 ELF machine and interpreter before staging. The staged
+bundle binary was confirmed to carry `/lib64/ld-linux-x86-64.so.2` before
+transfer (max required symbol `GLIBC_2.38`, host provides 2.39). A first
+transfer without the flag failed on-host with `cannot execute: required file
+not found` despite `sha256sum -c` passing — checksum validity does not imply
+executability.
 
 ## Deploy-guide correction applied
 
