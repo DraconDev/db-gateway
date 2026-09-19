@@ -170,11 +170,13 @@ fn every_credential_gets_its_exact_code_on_every_route() {
             want, code,
         );
     }
-    // Writes on ka.
+    // Writes on ka. Contract subtlety: read-only credentials may not send
+    // Idempotency-Key at all (replay is a write path), so a keyed ro write
+    // is rejected at the transport layer (400) before SQL ever runs.
     for (name, cred) in creds {
         let (want, code) = match *name {
             "owner" | "rw_a" => (200, "-"),
-            "ro_a" => (403, "sql_forbidden"),
+            "ro_a" => (400, "invalid_request"),
             "rw_b" => (403, "database_forbidden"),
             _ => (401, "invalid_credential"),
         };
@@ -184,7 +186,9 @@ fn every_credential_gets_its_exact_code_on_every_route() {
             want, code,
         );
     }
-    // Management routes: owner-only.
+    check("ro_a unkeyed write ka", req(a, "POST", "/v1/databases/ka/query", Some(&ro_a), &json!({"sql":"INSERT INTO t(v) VALUES ('x')"}), None), 403, "sql_forbidden");
+    check("ro_a keyed read ka", req(a, "POST", "/v1/databases/ka/query", Some(&ro_a), &json!({"sql":"SELECT count(*) FROM t"}), Some("ro-keyed-read")), 400, "invalid_request");
+    check("owner keyed read ka", req(a, "POST", "/v1/databases/ka/query", Some(&owner), &json!({"sql":"SELECT count(*) FROM t"}), Some("owner-keyed-read")), 200, "-");
     for (name, cred) in creds {
         let (want, code) = if *name == "owner" { (200, "-") } else if *name == "gone" || *name == "wrong" || *name == "short" || *name == "missing" { (401, "invalid_credential") } else { (403, "forbidden") };
         check(
