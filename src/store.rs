@@ -2,8 +2,9 @@
 //! locally by `dg init`/owner-only key issuance and only their SHA-256 hashes persist.
 use crate::error::{Error, Result};
 use rusqlite::backup::{Backup, StepResult};
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
@@ -33,11 +34,21 @@ impl Staging {
         &self.path
     }
 }
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct DatabaseScope {
+    name: String,
+    generation: String,
+}
+
 #[derive(Clone)]
 pub struct Principal {
     pub hash: String,
     pub role: String,
+    /// Names are retained for the public inventory shape; authorization uses
+    /// the private generation-bound scopes below.
     pub databases: Vec<String>,
+    scopes: Vec<DatabaseScope>,
 }
 impl Principal {
     pub fn owner(&self) -> Result<()> {
@@ -47,8 +58,15 @@ impl Principal {
             Err(Error::new(403, "forbidden", "owner required"))
         }
     }
-    pub fn database(&self, name: &str) -> Result<()> {
-        if self.role == "owner" || self.databases.iter().any(|db| db == name) {
+    fn database(&self, name: &str, generation: Option<&str>) -> Result<()> {
+        let allowed = self.role == "owner"
+            || self.scopes.iter().any(|scope| {
+                scope.name == name
+                    && generation
+                        .map(|current| scope.generation == current)
+                        .unwrap_or(true)
+            });
+        if allowed {
             Ok(())
         } else {
             Err(Error::new(
