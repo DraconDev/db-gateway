@@ -12,9 +12,7 @@ const MAX_IMPORT_BYTES: u64 = 8 * 1024 * 1024;
 
 fn read_import_file(path: &Path) -> dg::error::Result<Vec<u8>> {
     let mut file = File::open(path).map_err(|_| dg::error::Error::invalid())?;
-    let metadata = file
-        .metadata()
-        .map_err(|_| dg::error::Error::invalid())?;
+    let metadata = file.metadata().map_err(|_| dg::error::Error::invalid())?;
     if !metadata.is_file() {
         return Err(dg::error::Error::invalid());
     }
@@ -44,8 +42,8 @@ fn publish_export(path: &Path, bytes: &[u8]) -> dg::error::Result<()> {
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let mut temp = tempfile::NamedTempFile::new_in(parent)
-        .map_err(|_| dg::error::Error::internal())?;
+    let mut temp =
+        tempfile::NamedTempFile::new_in(parent).map_err(|_| dg::error::Error::internal())?;
     temp.write_all(bytes)
         .and_then(|_| temp.as_file().sync_all())
         .map_err(|_| dg::error::Error::internal())?;
@@ -53,11 +51,7 @@ fn publish_export(path: &Path, bytes: &[u8]) -> dg::error::Result<()> {
     // supported Unix deployment. The temporary link is cleaned on return.
     std::fs::hard_link(temp.path(), path).map_err(|error| {
         if error.kind() == std::io::ErrorKind::AlreadyExists {
-            dg::error::Error::new(
-                409,
-                "file_exists",
-                "destination file already exists",
-            )
+            dg::error::Error::new(409, "file_exists", "destination file already exists")
         } else {
             dg::error::Error::internal()
         }

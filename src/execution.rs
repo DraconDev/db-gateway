@@ -168,8 +168,10 @@ mod import_schema_tests {
         assert_eq!(validate_import(&path).unwrap_err().code, "invalid_request");
 
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch("DROP TABLE \"_DG_secret\"; CREATE TABLE \"_DG_REPLAY\" (principal TEXT);")
-            .unwrap();
+        conn.execute_batch(
+            "DROP TABLE \"_DG_secret\"; CREATE TABLE \"_DG_REPLAY\" (principal TEXT);",
+        )
+        .unwrap();
         drop(conn);
         assert_eq!(validate_import(&path).unwrap_err().code, "invalid_request");
     }
