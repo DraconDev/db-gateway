@@ -202,7 +202,7 @@ fn twenty_export_import_cycles_with_corruption() {
         .as_array()
         .unwrap()
         .iter()
-        .map(|d| d["name"].as_str().unwrap().to_string())
+        .map(|d| d.as_str().unwrap().to_string())
         .collect();
     names.sort();
     let mut want: Vec<String> =
