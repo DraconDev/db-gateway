@@ -142,7 +142,7 @@ fn seed_sql(t: usize, table: &str, r: i64) -> String {
         2 => format!("INSERT INTO {table}(s, v, ch) VALUES ('txt-{r}-ünïcödé-🎉', 'v{r}', 'c{r}')"),
         3 => format!("INSERT INTO {table}(p, q) VALUES (randomblob({}), x'00FF{:02X}')", 8 + r % 64, r % 256),
         4 => format!("INSERT INTO {table}(n, d, b) VALUES ({r}.5, {r}.99, {})", r % 2),
-        5 => format!("INSERT INTO {table}(req) VALUES ({})", if r % 5 == 0 { "NULL" } else { "'present'" }),
+        5 => format!("INSERT INTO {table}(req, def) VALUES ('present-{r}', {})", if r % 5 == 0 { "NULL" } else { "'custom'" }),
         6 => format!("INSERT INTO {table}(u, w) VALUES ('u-{t}-{r}', {r})"),
         7 => format!("INSERT INTO {table}(pos, name) VALUES ({}, 'n{r}')", r + 1),
         8 => format!("INSERT INTO {table}(a, b, c) VALUES ({r}, 'k-{t}-{r}', {r})"),
