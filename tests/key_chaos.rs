@@ -212,7 +212,7 @@ fn every_credential_gets_its_exact_code_on_every_route() {
     check("rw_imp import", req(a, "POST", "/v1/databases/ka/import", Some(&rw_imp), &json!({"name":"imp_rw","data_base64":data}), None), 200, "-");
     check("scoped import over live", req(a, "POST", "/v1/databases/ka/import", Some(&rw_imp), &json!({"name":"ka","data_base64":data}), None), 409, "database_exists");
     check("rw_a import other", req(a, "POST", "/v1/databases/imp_no/import", Some(&rw_a), &json!({"name":"imp_no","data_base64":data}), None), 403, "database_forbidden");
-    check("ro_a import", req(a, "POST", "/v1/databases/imp_no2/import", Some(&ro_a), &json!({"name":"imp_no2","data_base64":data}), None), 403, "forbidden");
+    check("ro_a import", req(a, "POST", "/v1/databases/ka/import", Some(&ro_a), &json!({"name":"imp_ro","data_base64":data}), None), 403, "forbidden");
     check("gone import", req(a, "POST", "/v1/databases/imp_no3/import", Some(&gone), &json!({"name":"imp_no3","data_base64":data}), None), 401, "invalid_credential");
 
     // Concurrent load: 12 threads replay the matrix; every code exact.
