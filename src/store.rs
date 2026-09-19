@@ -722,6 +722,26 @@ mod tests {
     }
 
     #[test]
+    fn failed_create_removes_unregistered_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store.bootstrap().unwrap();
+        let metadata = Connection::open(dir.path().join("metadata.sqlite")).unwrap();
+        metadata
+            .execute_batch(
+                "CREATE TRIGGER reject_create BEFORE INSERT ON databases
+                 WHEN NEW.name='broken'
+                 BEGIN SELECT RAISE(ABORT, 'blocked'); END;",
+            )
+            .unwrap();
+        drop(metadata);
+
+        assert!(store.create("broken").is_err());
+        assert!(!dir.path().join("broken.sqlite").exists());
+        assert_eq!(store.path("broken").unwrap_err().code, "database_not_found");
+    }
+
+    #[test]
     fn interrupted_publish_exposes_nothing_and_never_overwrites() {
         let dir = tempfile::tempdir().unwrap();
         let source = dir.path().join("source.sqlite");
