@@ -1,6 +1,68 @@
 use clap::{Parser, Subcommand};
 use serde_json::{Value, json};
-use std::{io::IsTerminal, net::SocketAddr, path::PathBuf, process::ExitCode};
+use std::{
+    fs::File,
+    io::{IsTerminal, Read, Write},
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
+
+const MAX_IMPORT_BYTES: u64 = 8 * 1024 * 1024;
+
+fn read_import_file(path: &Path) -> dg::error::Result<Vec<u8>> {
+    let mut file = File::open(path).map_err(|_| dg::error::Error::invalid())?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| dg::error::Error::invalid())?;
+    if !metadata.is_file() {
+        return Err(dg::error::Error::invalid());
+    }
+    if metadata.len() > MAX_IMPORT_BYTES {
+        return Err(dg::error::Error::new(
+            413,
+            "result_limit_exceeded",
+            "import exceeds bounded local file size",
+        ));
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_IMPORT_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| dg::error::Error::invalid())?;
+    if bytes.len() as u64 > MAX_IMPORT_BYTES {
+        return Err(dg::error::Error::new(
+            413,
+            "result_limit_exceeded",
+            "import exceeds bounded local file size",
+        ));
+    }
+    Ok(bytes)
+}
+
+fn publish_export(path: &Path, bytes: &[u8]) -> dg::error::Result<()> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let mut temp = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|_| dg::error::Error::internal())?;
+    temp.write_all(bytes)
+        .and_then(|_| temp.as_file().sync_all())
+        .map_err(|_| dg::error::Error::internal())?;
+    // A same-directory hard link is an atomic no-clobber publication on the
+    // supported Unix deployment. The temporary link is cleaned on return.
+    std::fs::hard_link(temp.path(), path).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            dg::error::Error::new(
+                409,
+                "file_exists",
+                "destination file already exists",
+            )
+        } else {
+            dg::error::Error::internal()
+        }
+    })
+}
 
 #[derive(Parser)]
 #[command(name = "dg", version, about = "DB Gateway — personal SQLite service")]
@@ -179,7 +241,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 .ok_or(Application(Error::internal()))?;
             let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
                 .map_err(|_| Application(Error::internal()))?;
-            std::fs::write(&out, bytes).map_err(|_| Application(Error::internal()))?;
+            publish_export(&out, &bytes).map_err(Application)?;
             println!(
                 "{}",
                 json!({"name":name,"out":out.display().to_string(),"size":response["size"],"sha256":response["sha256"]})
@@ -188,7 +250,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         }
         Command::Import { name, from } => {
             dg::store::validate_name(&name).map_err(Application)?;
-            let bytes = std::fs::read(&from).map_err(|_| Application(Error::invalid()))?;
+            let bytes = read_import_file(&from).map_err(Application)?;
             let encoded =
                 base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
             (
