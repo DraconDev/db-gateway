@@ -71,6 +71,8 @@ impl Cli {
     }
 
     /// Run one keyed SQL statement; returns the full response value.
+    /// (Shared harness: only some fleet tests exercise keyed writes.)
+    #[allow(dead_code)]
     pub fn qkey(&self, label: &str, db: &str, sql: &str, key: &str) -> Value {
         self.ok(label, &["query", db, sql, "--idempotency-key", key])
     }
