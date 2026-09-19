@@ -186,7 +186,7 @@ async fn clone_route(
     let body = json_body(body)?;
     work(store, headers, move |s, p| {
         // Cloning requires write access to the source database.
-        p.database(&name)?;
+        s.authorize(&p, &name)?;
         if p.role == "database_read_only" {
             return Err(Error::new(403, "forbidden", "read-only credential"));
         }
@@ -207,7 +207,7 @@ async fn export(
 ) -> Result<Json<Value>> {
     json_body(body)?;
     work(store, headers, move |s, p| {
-        p.database(&name)?;
+        s.authorize(&p, &name)?;
         let temp = s.export_snapshot(&name)?;
         if std::fs::metadata(temp.path()).map_err(|_| Error::internal())?.len() > MAX_EXPORT as u64 {
             return Err(Error::new(413, "result_limit_exceeded", "export exceeds bounded response size"));
@@ -237,7 +237,7 @@ async fn import(
     let body = json_body(body)?;
     work(store, headers, move |s, p| {
         // Import into the database referenced by the path name.
-        p.database(&name)?;
+        s.authorize(&p, &name)?;
         if p.role == "database_read_only" {
             return Err(Error::new(403, "forbidden", "read-only credential"));
         }
@@ -270,7 +270,7 @@ async fn execute(
         .map(|h| h.to_str().map(str::to_string).map_err(|_| Error::invalid()))
         .transpose()?;
     work(store, headers, move |s, p| {
-        p.database(&name)?;
+        s.authorize(&p, &name)?;
         let path = s.path(&name)?;
         let permit = s
             .queue(&name)?

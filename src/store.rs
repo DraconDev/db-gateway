@@ -208,11 +208,7 @@ impl Store {
                 )
                 .optional()?;
             let Some(generation) = generation else {
-                return Err(Error::new(
-                    404,
-                    "database_not_found",
-                    "database not found",
-                ));
+                return Err(Error::new(404, "database_not_found", "database not found"));
             };
             if generation.is_empty() {
                 return Err(Error::internal());
@@ -308,9 +304,7 @@ impl Store {
             "SELECT name,generation FROM databases WHERE deleted_at IS NULL ORDER BY name",
         )?;
         let names = stmt
-            .query_map([], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-            })?
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(names
             .into_iter()
@@ -678,7 +672,7 @@ fn migrate_metadata(conn: &mut Connection, root: &Path) -> Result<()> {
     // migrated. The identity survives tombstoning and disappears only when
     // the registry row is purged.
     let missing_generations: Vec<String> = tx
-        .prepare("SELECT name FROM databases WHERE generation IS NULL OR generation=''" )?
+        .prepare("SELECT name FROM databases WHERE generation IS NULL OR generation=''")?
         .query_map([], |r| r.get(0))?
         .collect::<std::result::Result<_, _>>()?;
     for name in missing_generations {
