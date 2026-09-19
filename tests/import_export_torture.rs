@@ -126,11 +126,25 @@ fn twenty_export_import_cycles_with_corruption() {
         ], "atomic": true}),
     );
     assert_eq!(status, 200, "seed: {body}");
-    let (status, source) = query(&server.address, &owner, "src", "SELECT id, name, score, hex(payload), note FROM d ORDER BY id");
+    let (status, source) = query(
+        &server.address,
+        &owner,
+        "src",
+        "SELECT id, name, score, hex(payload), note FROM d ORDER BY id",
+    );
     assert_eq!(status, 200, "source read: {source}");
     assert_eq!(source["rows"].as_array().unwrap().len(), 3);
     assert_eq!(source["rows"][0][1], json!("alpha"));
-    assert_eq!(source["rows"][1], json!([2, "beta", -2.25, "00000000000000000000000000000000", "has-note"]));
+    assert_eq!(
+        source["rows"][1],
+        json!([
+            2,
+            "beta",
+            -2.25,
+            "00000000000000000000000000000000",
+            "has-note"
+        ])
+    );
     assert_eq!(source["rows"][2][1], json!("gamma"));
     assert_eq!(source["rows"][2][3], json!("DEADBEEF"));
     assert_eq!(source["rows"][2][0], json!(3));
@@ -158,9 +172,17 @@ fn twenty_export_import_cycles_with_corruption() {
                 &json!({"name": name, "data_base64": B64.encode(&bytes)}),
             );
             assert_eq!(status, 200, "cycle {i} import: {imp}");
-            let (status, rows) = query(&server.address, &owner, &name, "SELECT id, name, score, hex(payload), note FROM d ORDER BY id");
+            let (status, rows) = query(
+                &server.address,
+                &owner,
+                &name,
+                "SELECT id, name, score, hex(payload), note FROM d ORDER BY id",
+            );
             assert_eq!(status, 200, "cycle {i} read: {rows}");
-            assert_eq!(rows["rows"], source["rows"], "cycle {i}: copy differs from source");
+            assert_eq!(
+                rows["rows"], source["rows"],
+                "cycle {i}: copy differs from source"
+            );
         } else {
             // Corrupt path: header-magic flip on some rounds, severe
             // truncation on others. Both must be rejected with no publish.
@@ -205,8 +227,7 @@ fn twenty_export_import_cycles_with_corruption() {
         .map(|d| d.as_str().unwrap().to_string())
         .collect();
     names.sort();
-    let mut want: Vec<String> =
-        (0..20).step_by(2).map(|i| format!("rt_good_{i}")).collect();
+    let mut want: Vec<String> = (0..20).step_by(2).map(|i| format!("rt_good_{i}")).collect();
     want.push("src".to_string());
     want.sort();
     assert_eq!(names, want, "registry residue: {list}");
