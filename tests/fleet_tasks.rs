@@ -97,7 +97,11 @@ fn task_tracker_works_like_a_real_app() {
     );
 
     // Ship it: status update moves the rollup exactly.
-    fleet.cli.q("mark done", DB, "UPDATE tasks SET status = 'done' WHERE id = 13");
+    fleet.cli.q(
+        "mark done",
+        DB,
+        "UPDATE tasks SET status = 'done' WHERE id = 13",
+    );
     assert_eq!(
         fleet.cli.q(
             "rollup after ship",
@@ -110,7 +114,11 @@ fn task_tracker_works_like_a_real_app() {
     // Dangling references are rejected, never stored.
     fleet.cli.err(
         "task bad project",
-        &["query", DB, "INSERT INTO tasks(project_id, title) VALUES (999, 'ghost')"],
+        &[
+            "query",
+            DB,
+            "INSERT INTO tasks(project_id, title) VALUES (999, 'ghost')",
+        ],
         "invalid_sql",
     );
     fleet.cli.err(
