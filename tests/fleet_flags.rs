@@ -35,13 +35,17 @@ fn flags_serve_like_a_real_config_service() {
 
     // Point lookup.
     assert_eq!(
-        fleet.cli.q("get", DB, "SELECT value FROM flags WHERE key = 'dark.mode'"),
+        fleet
+            .cli
+            .q("get", DB, "SELECT value FROM flags WHERE key = 'dark.mode'"),
         json!([["off"]])
     );
 
     // Full dump in key order.
     assert_eq!(
-        fleet.cli.q("dump", DB, "SELECT key, value FROM flags ORDER BY key"),
+        fleet
+            .cli
+            .q("dump", DB, "SELECT key, value FROM flags ORDER BY key"),
         json!([
             ["api.rate_limit", "1000"],
             ["checkout.v2", "on"],
@@ -54,19 +58,31 @@ fn flags_serve_like_a_real_config_service() {
 
     // Prefix scan for one feature family.
     assert_eq!(
-        fleet.cli.q("prefix", DB, "SELECT key, value FROM flags WHERE key LIKE 'checkout.%' ORDER BY key"),
+        fleet.cli.q(
+            "prefix",
+            DB,
+            "SELECT key, value FROM flags WHERE key LIKE 'checkout.%' ORDER BY key"
+        ),
         json!([["checkout.v2", "on"]])
     );
 
     // Toggle with an audit row.
-    fleet.cli.q("toggle", DB, "UPDATE flags SET value = 'on', updated_at = '2026-03-01T09:00:00' WHERE key = 'dark.mode'");
+    fleet.cli.q(
+        "toggle",
+        DB,
+        "UPDATE flags SET value = 'on', updated_at = '2026-03-01T09:00:00' WHERE key = 'dark.mode'",
+    );
     fleet.cli.q(
         "audit toggle",
         DB,
         "INSERT INTO flag_changes(key, old_value, new_value, changed_at) VALUES ('dark.mode', 'off', 'on', '2026-03-01T09:00:00')",
     );
     assert_eq!(
-        fleet.cli.q("get toggled", DB, "SELECT value FROM flags WHERE key = 'dark.mode'"),
+        fleet.cli.q(
+            "get toggled",
+            DB,
+            "SELECT value FROM flags WHERE key = 'dark.mode'"
+        ),
         json!([["on"]])
     );
 
@@ -82,11 +98,19 @@ fn flags_serve_like_a_real_config_service() {
         "INSERT INTO flag_changes(key, old_value, new_value, changed_at) VALUES ('api.rate_limit', '1000', '2000', '2026-03-01T10:00:00')",
     );
     assert_eq!(
-        fleet.cli.q("one row", DB, "SELECT count(*) FROM flags WHERE key = 'api.rate_limit'"),
+        fleet.cli.q(
+            "one row",
+            DB,
+            "SELECT count(*) FROM flags WHERE key = 'api.rate_limit'"
+        ),
         json!([[1]])
     );
     assert_eq!(
-        fleet.cli.q("new limit", DB, "SELECT value FROM flags WHERE key = 'api.rate_limit'"),
+        fleet.cli.q(
+            "new limit",
+            DB,
+            "SELECT value FROM flags WHERE key = 'api.rate_limit'"
+        ),
         json!([["2000"]])
     );
 
@@ -102,7 +126,11 @@ fn flags_serve_like_a_real_config_service() {
         "INSERT INTO flag_changes(key, old_value, new_value, changed_at) VALUES ('search.v2', NULL, 'off', '2026-03-01T11:00:00')",
     );
     assert_eq!(
-        fleet.cli.q("new flag", DB, "SELECT value FROM flags WHERE key = 'search.v2'"),
+        fleet.cli.q(
+            "new flag",
+            DB,
+            "SELECT value FROM flags WHERE key = 'search.v2'"
+        ),
         json!([["off"]])
     );
 
@@ -122,9 +150,15 @@ fn flags_serve_like_a_real_config_service() {
     assert_eq!(first, replay, "keyed replay bytes drifted");
 
     // Retire a flag; it reads back empty.
-    fleet.cli.q("retire", DB, "DELETE FROM flags WHERE key = 'maintenance'");
+    fleet
+        .cli
+        .q("retire", DB, "DELETE FROM flags WHERE key = 'maintenance'");
     assert_eq!(
-        fleet.cli.q("retired", DB, "SELECT value FROM flags WHERE key = 'maintenance'"),
+        fleet.cli.q(
+            "retired",
+            DB,
+            "SELECT value FROM flags WHERE key = 'maintenance'"
+        ),
         json!([])
     );
 
@@ -135,7 +169,9 @@ fn flags_serve_like_a_real_config_service() {
         json!([[7]])
     );
     assert_eq!(
-        fleet.cli.q("changes", DB, "SELECT count(*) FROM flag_changes"),
+        fleet
+            .cli
+            .q("changes", DB, "SELECT count(*) FROM flag_changes"),
         json!([[5]])
     );
     assert_eq!(
