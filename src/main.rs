@@ -11,7 +11,7 @@ use std::{
 const MAX_IMPORT_BYTES: u64 = 8 * 1024 * 1024;
 
 fn read_import_file(path: &Path) -> dg::error::Result<Vec<u8>> {
-    let mut file = File::open(path).map_err(|_| dg::error::Error::invalid())?;
+    let file = File::open(path).map_err(|_| dg::error::Error::invalid())?;
     let metadata = file.metadata().map_err(|_| dg::error::Error::invalid())?;
     if !metadata.is_file() {
         return Err(dg::error::Error::invalid());
