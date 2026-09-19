@@ -7,8 +7,11 @@ docs/first-deploy-micro2.md.
 
 ## Prerequisites (owner runs on the target)
 
-1. Copy the release bundle (`scripts/release-bundle.sh`) to the target and
-   verify `SHA256SUMS` there.
+1. Build the release bundle with `scripts/release-bundle.sh` (the default
+   `DG_RELEASE_TARGET=micro2` verifies x86_64 Linux and the
+   `/lib64/ld-linux-x86-64.so.2` interpreter), copy it to the target, and
+   verify `SHA256SUMS` there. Use `DG_RELEASE_TARGET=host` only for an
+   explicitly local, non-micro2 bundle.
 2. Create the dedicated unprivileged user (see placeholder table).
 3. Place the `dg` binary at its final path, owned by root, executable.
 4. Create the data directory, owned by the service user, mode `0700`.

@@ -82,6 +82,8 @@ The server retains the SQLite file for **24 hours** and checks expired tombstone
 
 `dg delete NAME --confirm NAME` requires the exact name to be typed twice. Missing or mismatched confirmation fails locally with `confirmation_required` and sends no DELETE request; `--yes` is not supported. At the HTTP level, sending owner-authenticated `DELETE /v1/databases/{name}` is the explicit destructive request (no body). Lifecycle staging is private per request and automatically cleaned up on both success and error.
 
+The HTTP export/import payload limit is 8 MiB of decoded SQLite data. The CLI accepts only regular import files within that bound and rejects larger files before base64 encoding or sending them. `dg export --out PATH` writes through a same-directory temporary file and a no-clobber publication: an existing destination is preserved and returns `file_exists`; a successful export is never exposed as a partial file.
+
 ## CLI
 
 Non-shell command output is JSON; the shell defaults to aligned text. One exception: `dg query` renders the shell's aligned table when stdout is a terminal and `--json` is absent — piped output always stays JSON, so scripts are unaffected. Global flags: `--server <url>` (default `http://127.0.0.1:7432`; HTTPS or literal loopback only), `--key-file <path>` (required; `0600`), `--json`.
