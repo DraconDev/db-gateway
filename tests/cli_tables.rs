@@ -17,18 +17,31 @@ use std::process::Command;
 fn query_piped_json_pty_table() {
     let fleet = Fleet::boot();
     fleet.cli.ok("create", &["create", "tables_db"]);
-    fleet.cli.q("seed", "tables_db", "CREATE TABLE t (id INTEGER, name TEXT)");
-    fleet.cli.q("insert", "tables_db", "INSERT INTO t VALUES (1, 'ada'), (2, 'bob')");
+    fleet.cli.q(
+        "seed",
+        "tables_db",
+        "CREATE TABLE t (id INTEGER, name TEXT)",
+    );
+    fleet.cli.q(
+        "insert",
+        "tables_db",
+        "INSERT INTO t VALUES (1, 'ada'), (2, 'bob')",
+    );
 
     // Piped: parses as JSON; identical to --json.
-    let piped = fleet.cli.ok("query", &["query", "tables_db", "SELECT id, name FROM t ORDER BY id"]);
+    let piped = fleet.cli.ok(
+        "query",
+        &["query", "tables_db", "SELECT id, name FROM t ORDER BY id"],
+    );
     assert_eq!(
         piped["rows"].as_array().unwrap().len(),
         2,
         "piped query not JSON rows: {piped}"
     );
     assert!(
-        piped.to_string().starts_with("{\"columns\":[\"id\",\"name\"]"),
+        piped
+            .to_string()
+            .starts_with("{\"columns\":[\"id\",\"name\"]"),
         "piped query not JSON: {piped}"
     );
     let forced = Command::new(env!("CARGO_BIN_EXE_dg"))
@@ -65,5 +78,8 @@ fn query_piped_json_pty_table() {
     let screen = String::from_utf8_lossy(&pty.stdout).into_owned();
     assert!(screen.contains("id | name"), "no table header: {screen:?}");
     assert!(screen.contains("1  | ada"), "no table row: {screen:?}");
-    assert!(!screen.contains("\"rows\""), "JSON leaked to tty: {screen:?}");
+    assert!(
+        !screen.contains("\"rows\""),
+        "JSON leaked to tty: {screen:?}"
+    );
 }

@@ -238,14 +238,10 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 serde_json::from_str(&args).map_err(|_| Application(Error::invalid()))?;
             // Interactive terminals get the shell's aligned table; piped
             // output and --json stay machine-readable JSON.
-            if !cli.json
-                && std::io::IsTerminal::is_terminal(&std::io::stdout())
-            {
-                let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
-                    400,
-                    "missing_credential",
-                    "--key-file required",
-                )))?)
+            if !cli.json && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+                let key = dg::client::read_key(key_path.as_deref().ok_or(Application(
+                    Error::new(400, "missing_credential", "--key-file required"),
+                ))?)
                 .map_err(Application)?;
                 let result = dg::client::request(
                     &cli.server,
@@ -257,8 +253,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 )
                 .await
                 .map_err(Application)?;
-                dg::shell::render(&result, false, &mut std::io::stdout())
-                    .map_err(Application)?;
+                dg::shell::render(&result, false, &mut std::io::stdout()).map_err(Application)?;
                 if result.get("error").is_some() {
                     return Err(Application(Error::new(
                         400,
