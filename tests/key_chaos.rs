@@ -41,7 +41,13 @@ fn spawn(data_dir: &std::path::Path) -> (Server, String) {
         .unwrap()
         .to_string();
     let mut child = Command::new(env!("CARGO_BIN_EXE_dg"))
-        .args(["serve", "--listen", "127.0.0.1:0", "--data-dir", data_dir.to_str().unwrap()])
+        .args([
+            "serve",
+            "--listen",
+            "127.0.0.1:0",
+            "--data-dir",
+            data_dir.to_str().unwrap(),
+        ])
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
@@ -105,14 +111,81 @@ fn every_credential_gets_its_exact_code_on_every_route() {
         }
     };
 
-    check("owner create ka", req(a, "POST", "/v1/databases", Some(&owner), &json!({"name":"ka"}), None), 200, "-");
-    check("owner create kb", req(a, "POST", "/v1/databases", Some(&owner), &json!({"name":"kb"}), None), 200, "-");
-    check("owner create kdel", req(a, "POST", "/v1/databases", Some(&owner), &json!({"name":"kdel"}), None), 200, "-");
-    check("owner seed ka", req(a, "POST", "/v1/databases/ka/query", Some(&owner), &json!({"sql":"CREATE TABLE t(id INTEGER PRIMARY KEY, v TEXT)"}), Some("seed-ka")), 200, "-");
-    check("owner seed kb", req(a, "POST", "/v1/databases/kb/query", Some(&owner), &json!({"sql":"CREATE TABLE t(id INTEGER PRIMARY KEY, v TEXT)"}), Some("seed-kb")), 200, "-");
+    check(
+        "owner create ka",
+        req(
+            a,
+            "POST",
+            "/v1/databases",
+            Some(&owner),
+            &json!({"name":"ka"}),
+            None,
+        ),
+        200,
+        "-",
+    );
+    check(
+        "owner create kb",
+        req(
+            a,
+            "POST",
+            "/v1/databases",
+            Some(&owner),
+            &json!({"name":"kb"}),
+            None,
+        ),
+        200,
+        "-",
+    );
+    check(
+        "owner create kdel",
+        req(
+            a,
+            "POST",
+            "/v1/databases",
+            Some(&owner),
+            &json!({"name":"kdel"}),
+            None,
+        ),
+        200,
+        "-",
+    );
+    check(
+        "owner seed ka",
+        req(
+            a,
+            "POST",
+            "/v1/databases/ka/query",
+            Some(&owner),
+            &json!({"sql":"CREATE TABLE t(id INTEGER PRIMARY KEY, v TEXT)"}),
+            Some("seed-ka"),
+        ),
+        200,
+        "-",
+    );
+    check(
+        "owner seed kb",
+        req(
+            a,
+            "POST",
+            "/v1/databases/kb/query",
+            Some(&owner),
+            &json!({"sql":"CREATE TABLE t(id INTEGER PRIMARY KEY, v TEXT)"}),
+            Some("seed-kb"),
+        ),
+        200,
+        "-",
+    );
 
     let issue = |name: &str, role: &str, dbs: &[&str]| -> String {
-        let (status, body) = req(a, "POST", "/v1/keys", Some(&owner), &json!({"name":name,"role":role,"databases":dbs}), None);
+        let (status, body) = req(
+            a,
+            "POST",
+            "/v1/keys",
+            Some(&owner),
+            &json!({"name":name,"role":role,"databases":dbs}),
+            None,
+        );
         assert_eq!(status, 200, "issue {name}: {body}");
         body["key"].as_str().unwrap().to_string()
     };
@@ -121,8 +194,25 @@ fn every_credential_gets_its_exact_code_on_every_route() {
     let rw_b = issue("rw_b", "database_read_write", &["kb"]);
     let gone = issue("gone", "database_read_write", &["ka"]);
     let rw_imp = issue("rw_imp", "database_read_write", &["ka"]);
-    check("dup key name", req(a, "POST", "/v1/keys", Some(&owner), &json!({"name":"rw_a","role":"database_read_write","databases":["ka"]}), None), 409, "key_exists");
-    check("owner revoke gone", req(a, "DELETE", "/v1/keys/gone", Some(&owner), &json!({}), None), 200, "-");
+    check(
+        "dup key name",
+        req(
+            a,
+            "POST",
+            "/v1/keys",
+            Some(&owner),
+            &json!({"name":"rw_a","role":"database_read_write","databases":["ka"]}),
+            None,
+        ),
+        409,
+        "key_exists",
+    );
+    check(
+        "owner revoke gone",
+        req(a, "DELETE", "/v1/keys/gone", Some(&owner), &json!({}), None),
+        200,
+        "-",
+    );
 
     let wrong = "f".repeat(64);
     let creds: &[(&str, Option<String>)] = &[
@@ -163,11 +253,23 @@ fn every_credential_gets_its_exact_code_on_every_route() {
     for (name, cred) in creds {
         let (want, code) = code_of(name, *name != "rw_b", true);
         // `gone` is scoped to ka but revoked: 401 always wins over scope.
-        let (want, code) = if *name == "gone" { (401, "invalid_credential") } else { (want, code) };
+        let (want, code) = if *name == "gone" {
+            (401, "invalid_credential")
+        } else {
+            (want, code)
+        };
         check(
             &format!("{name} read ka"),
-            req(a, "POST", "/v1/databases/ka/query", cred.as_deref(), &json!({"sql":"SELECT count(*) FROM t"}), None),
-            want, code,
+            req(
+                a,
+                "POST",
+                "/v1/databases/ka/query",
+                cred.as_deref(),
+                &json!({"sql":"SELECT count(*) FROM t"}),
+                None,
+            ),
+            want,
+            code,
         );
     }
     // Writes on ka. Contract subtlety: read-only credentials may not send
@@ -182,51 +284,296 @@ fn every_credential_gets_its_exact_code_on_every_route() {
         };
         check(
             &format!("{name} write ka"),
-            req(a, "POST", "/v1/databases/ka/query", cred.as_deref(), &json!({"sql":"INSERT INTO t(v) VALUES ('x')"}), Some(&format!("chaos-{name}"))),
-            want, code,
+            req(
+                a,
+                "POST",
+                "/v1/databases/ka/query",
+                cred.as_deref(),
+                &json!({"sql":"INSERT INTO t(v) VALUES ('x')"}),
+                Some(&format!("chaos-{name}")),
+            ),
+            want,
+            code,
         );
     }
-    check("ro_a unkeyed write ka", req(a, "POST", "/v1/databases/ka/query", Some(&ro_a), &json!({"sql":"INSERT INTO t(v) VALUES ('x')"}), None), 403, "sql_forbidden");
-    check("ro_a keyed read ka", req(a, "POST", "/v1/databases/ka/query", Some(&ro_a), &json!({"sql":"SELECT count(*) FROM t"}), Some("ro-keyed-read")), 400, "invalid_request");
-    check("owner keyed read ka", req(a, "POST", "/v1/databases/ka/query", Some(&owner), &json!({"sql":"SELECT count(*) FROM t"}), Some("owner-keyed-read")), 200, "-");
+    check(
+        "ro_a unkeyed write ka",
+        req(
+            a,
+            "POST",
+            "/v1/databases/ka/query",
+            Some(&ro_a),
+            &json!({"sql":"INSERT INTO t(v) VALUES ('x')"}),
+            None,
+        ),
+        403,
+        "sql_forbidden",
+    );
+    check(
+        "ro_a keyed read ka",
+        req(
+            a,
+            "POST",
+            "/v1/databases/ka/query",
+            Some(&ro_a),
+            &json!({"sql":"SELECT count(*) FROM t"}),
+            Some("ro-keyed-read"),
+        ),
+        400,
+        "invalid_request",
+    );
+    check(
+        "owner keyed read ka",
+        req(
+            a,
+            "POST",
+            "/v1/databases/ka/query",
+            Some(&owner),
+            &json!({"sql":"SELECT count(*) FROM t"}),
+            Some("owner-keyed-read"),
+        ),
+        200,
+        "-",
+    );
     for (name, cred) in creds {
-        let (want, code) = if *name == "owner" { (200, "-") } else if *name == "gone" || *name == "wrong" || *name == "short" || *name == "missing" { (401, "invalid_credential") } else { (403, "forbidden") };
+        let (want, code) = if *name == "owner" {
+            (200, "-")
+        } else if *name == "gone" || *name == "wrong" || *name == "short" || *name == "missing" {
+            (401, "invalid_credential")
+        } else {
+            (403, "forbidden")
+        };
         check(
             &format!("{name} list"),
             req(a, "GET", "/v1/databases", cred.as_deref(), &json!({}), None),
-            want, code,
+            want,
+            code,
         );
     }
     // Delete-db: scoped keys refused, owner works (on scratch kdel).
-    check("rw_a delete kdel", req(a, "DELETE", "/v1/databases/kdel", Some(&rw_a), &json!({}), None), 403, "forbidden");
-    check("ro_a delete kdel", req(a, "DELETE", "/v1/databases/kdel", Some(&ro_a), &json!({}), None), 403, "forbidden");
-    check("gone delete kdel", req(a, "DELETE", "/v1/databases/kdel", Some(&gone), &json!({}), None), 401, "invalid_credential");
-    check("owner delete kdel", req(a, "DELETE", "/v1/databases/kdel", Some(&owner), &json!({}), None), 200, "-");
+    check(
+        "rw_a delete kdel",
+        req(
+            a,
+            "DELETE",
+            "/v1/databases/kdel",
+            Some(&rw_a),
+            &json!({}),
+            None,
+        ),
+        403,
+        "forbidden",
+    );
+    check(
+        "ro_a delete kdel",
+        req(
+            a,
+            "DELETE",
+            "/v1/databases/kdel",
+            Some(&ro_a),
+            &json!({}),
+            None,
+        ),
+        403,
+        "forbidden",
+    );
+    check(
+        "gone delete kdel",
+        req(
+            a,
+            "DELETE",
+            "/v1/databases/kdel",
+            Some(&gone),
+            &json!({}),
+            None,
+        ),
+        401,
+        "invalid_credential",
+    );
+    check(
+        "owner delete kdel",
+        req(
+            a,
+            "DELETE",
+            "/v1/databases/kdel",
+            Some(&owner),
+            &json!({}),
+            None,
+        ),
+        200,
+        "-",
+    );
     // Export / clone scoping.
-    check("rw_b export ka", req(a, "POST", "/v1/databases/ka/export", Some(&rw_b), &json!({}), None), 403, "database_forbidden");
-    check("ro_a export ka", req(a, "POST", "/v1/databases/ka/export", Some(&ro_a), &json!({}), None), 200, "-");
-    check("ro_a clone ka", req(a, "POST", "/v1/databases/ka/clone", Some(&ro_a), &json!({"destination":"kc_no"}), None), 403, "forbidden");
-    check("rw_b clone ka", req(a, "POST", "/v1/databases/ka/clone", Some(&rw_b), &json!({"destination":"kc_no"}), None), 403, "database_forbidden");
-    check("rw_a clone ka", req(a, "POST", "/v1/databases/ka/clone", Some(&rw_a), &json!({"destination":"kc_yes"}), None), 200, "-");
+    check(
+        "rw_b export ka",
+        req(
+            a,
+            "POST",
+            "/v1/databases/ka/export",
+            Some(&rw_b),
+            &json!({}),
+            None,
+        ),
+        403,
+        "database_forbidden",
+    );
+    check(
+        "ro_a export ka",
+        req(
+            a,
+            "POST",
+            "/v1/databases/ka/export",
+            Some(&ro_a),
+            &json!({}),
+            None,
+        ),
+        200,
+        "-",
+    );
+    check(
+        "ro_a clone ka",
+        req(
+            a,
+            "POST",
+            "/v1/databases/ka/clone",
+            Some(&ro_a),
+            &json!({"destination":"kc_no"}),
+            None,
+        ),
+        403,
+        "forbidden",
+    );
+    check(
+        "rw_b clone ka",
+        req(
+            a,
+            "POST",
+            "/v1/databases/ka/clone",
+            Some(&rw_b),
+            &json!({"destination":"kc_no"}),
+            None,
+        ),
+        403,
+        "database_forbidden",
+    );
+    check(
+        "rw_a clone ka",
+        req(
+            a,
+            "POST",
+            "/v1/databases/ka/clone",
+            Some(&rw_a),
+            &json!({"destination":"kc_yes"}),
+            None,
+        ),
+        200,
+        "-",
+    );
     // Import scoping (need export bytes first).
-    let (_, exp) = req(a, "POST", "/v1/databases/ka/export", Some(&owner), &json!({}), None);
+    let (_, exp) = req(
+        a,
+        "POST",
+        "/v1/databases/ka/export",
+        Some(&owner),
+        &json!({}),
+        None,
+    );
     let data = exp["data_base64"].as_str().unwrap().to_string();
-    check("owner import", req(a, "POST", "/v1/databases/imp_owner/import", Some(&owner), &json!({"name":"imp_owner","data_base64":data}), None), 200, "-");
+    check(
+        "owner import",
+        req(
+            a,
+            "POST",
+            "/v1/databases/imp_owner/import",
+            Some(&owner),
+            &json!({"name":"imp_owner","data_base64":data}),
+            None,
+        ),
+        200,
+        "-",
+    );
     // Scoped import authorizes via the path database; the body name is the new database.
-    check("rw_imp import", req(a, "POST", "/v1/databases/ka/import", Some(&rw_imp), &json!({"name":"imp_rw","data_base64":data}), None), 200, "-");
-    check("scoped import over live", req(a, "POST", "/v1/databases/ka/import", Some(&rw_imp), &json!({"name":"ka","data_base64":data}), None), 409, "database_exists");
-    check("rw_a import other", req(a, "POST", "/v1/databases/imp_no/import", Some(&rw_a), &json!({"name":"imp_no","data_base64":data}), None), 403, "database_forbidden");
-    check("ro_a import", req(a, "POST", "/v1/databases/ka/import", Some(&ro_a), &json!({"name":"imp_ro","data_base64":data}), None), 403, "forbidden");
-    check("gone import", req(a, "POST", "/v1/databases/imp_no3/import", Some(&gone), &json!({"name":"imp_no3","data_base64":data}), None), 401, "invalid_credential");
+    check(
+        "rw_imp import",
+        req(
+            a,
+            "POST",
+            "/v1/databases/ka/import",
+            Some(&rw_imp),
+            &json!({"name":"imp_rw","data_base64":data}),
+            None,
+        ),
+        200,
+        "-",
+    );
+    check(
+        "scoped import over live",
+        req(
+            a,
+            "POST",
+            "/v1/databases/ka/import",
+            Some(&rw_imp),
+            &json!({"name":"ka","data_base64":data}),
+            None,
+        ),
+        409,
+        "database_exists",
+    );
+    check(
+        "rw_a import other",
+        req(
+            a,
+            "POST",
+            "/v1/databases/imp_no/import",
+            Some(&rw_a),
+            &json!({"name":"imp_no","data_base64":data}),
+            None,
+        ),
+        403,
+        "database_forbidden",
+    );
+    check(
+        "ro_a import",
+        req(
+            a,
+            "POST",
+            "/v1/databases/ka/import",
+            Some(&ro_a),
+            &json!({"name":"imp_ro","data_base64":data}),
+            None,
+        ),
+        403,
+        "forbidden",
+    );
+    check(
+        "gone import",
+        req(
+            a,
+            "POST",
+            "/v1/databases/imp_no3/import",
+            Some(&gone),
+            &json!({"name":"imp_no3","data_base64":data}),
+            None,
+        ),
+        401,
+        "invalid_credential",
+    );
 
     // Concurrent load: 12 threads replay the matrix; every code exact.
     let barrier = Arc::new(Barrier::new(12));
     let address = Arc::new(a.clone());
-    let creds_owned: Vec<(String, Option<String>)> = creds.iter().map(|(n, c)| (n.to_string(), c.clone())).collect();
+    let creds_owned: Vec<(String, Option<String>)> = creds
+        .iter()
+        .map(|(n, c)| (n.to_string(), c.clone()))
+        .collect();
     let handles: Vec<_> = (0..12)
         .map(|t| {
-            let (barrier, address, creds_owned, owner) =
-                (barrier.clone(), address.clone(), creds_owned.clone(), owner.clone());
+            let (barrier, address, creds_owned, owner) = (
+                barrier.clone(),
+                address.clone(),
+                creds_owned.clone(),
+                owner.clone(),
+            );
             std::thread::spawn(move || {
                 barrier.wait();
                 for i in 0..60 {
@@ -237,11 +584,21 @@ fn every_credential_gets_its_exact_code_on_every_route() {
                         "rw_b" => (403, "database_forbidden"),
                         _ => (401, "invalid_credential"),
                     };
-                    let (status, body) = req(&address, "POST", "/v1/databases/ka/query", cred.as_deref(), &json!({"sql":"SELECT count(*) FROM t"}), None);
+                    let (status, body) = req(
+                        &address,
+                        "POST",
+                        "/v1/databases/ka/query",
+                        cred.as_deref(),
+                        &json!({"sql":"SELECT count(*) FROM t"}),
+                        None,
+                    );
                     // Under 12-thread contention the bounded queue may shed
                     // load with an explicit 429; auth must never wobble.
                     if status == 429 {
-                        assert_eq!(body["error"]["code"], "capacity_exceeded", "load {name} read");
+                        assert_eq!(
+                            body["error"]["code"], "capacity_exceeded",
+                            "load {name} read"
+                        );
                     } else {
                         assert_eq!(status, want, "load {name} read: {body}");
                         if want != 200 {
@@ -250,9 +607,19 @@ fn every_credential_gets_its_exact_code_on_every_route() {
                     }
                     // Sparse keyed writes (owner + rw_a only, unique keys).
                     if (name == "owner" || name == "rw_a") && i % 10 == 0 {
-                        let (status, body) = req(&address, "POST", "/v1/databases/ka/query", cred.as_deref(), &json!({"sql":"INSERT INTO t(v) VALUES ('load')"}), Some(&format!("load-{t}-{i}")));
+                        let (status, body) = req(
+                            &address,
+                            "POST",
+                            "/v1/databases/ka/query",
+                            cred.as_deref(),
+                            &json!({"sql":"INSERT INTO t(v) VALUES ('load')"}),
+                            Some(&format!("load-{t}-{i}")),
+                        );
                         if status == 429 {
-                            assert_eq!(body["error"]["code"], "capacity_exceeded", "load {name} write");
+                            assert_eq!(
+                                body["error"]["code"], "capacity_exceeded",
+                                "load {name} write"
+                            );
                         } else {
                             assert_eq!(status, 200, "load {name} write: {body}");
                         }
@@ -263,9 +630,19 @@ fn every_credential_gets_its_exact_code_on_every_route() {
                         "rw_a" | "ro_a" | "rw_b" => (403, "forbidden"),
                         _ => (401, "invalid_credential"),
                     };
-                    let (status, body) = req(&address, "GET", "/v1/databases", cred.as_deref(), &json!({}), None);
+                    let (status, body) = req(
+                        &address,
+                        "GET",
+                        "/v1/databases",
+                        cred.as_deref(),
+                        &json!({}),
+                        None,
+                    );
                     if status == 429 {
-                        assert_eq!(body["error"]["code"], "capacity_exceeded", "load {name} list");
+                        assert_eq!(
+                            body["error"]["code"], "capacity_exceeded",
+                            "load {name} list"
+                        );
                     } else {
                         assert_eq!(status, want, "load {name} list: {body}");
                         if want != 200 {
