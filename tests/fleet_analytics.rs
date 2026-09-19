@@ -50,7 +50,12 @@ fn analytics_rolls_up_like_a_real_pipeline() {
             DB,
             "SELECT name, count(*) FROM events GROUP BY name ORDER BY name"
         ),
-        json!([["heartbeat", 3], ["page_view", 20], ["purchase", 3], ["signup", 4]])
+        json!([
+            ["heartbeat", 3],
+            ["page_view", 20],
+            ["purchase", 3],
+            ["signup", 4]
+        ])
     );
 
     // Revenue: 5000 + 1299 + 799 = 7098 cents.
@@ -65,7 +70,9 @@ fn analytics_rolls_up_like_a_real_pipeline() {
 
     // Nine distinct users; NULL heartbeats do not count.
     assert_eq!(
-        fleet.cli.q("dau", DB, "SELECT count(DISTINCT user_id) FROM events"),
+        fleet
+            .cli
+            .q("dau", DB, "SELECT count(DISTINCT user_id) FROM events"),
         json!([[9]])
     );
 
@@ -84,12 +91,14 @@ fn analytics_rolls_up_like_a_real_pipeline() {
         statements.push_str("]}");
         let file = dir.path().join(format!("bulk{b}.json"));
         std::fs::write(&file, statements).unwrap();
-        fleet
-            .cli
-            .ok("bulk", &["batch", DB, file.to_str().unwrap()]);
+        fleet.cli.ok("bulk", &["batch", DB, file.to_str().unwrap()]);
     }
     assert_eq!(
-        fleet.cli.q("bulk count", DB, "SELECT count(*) FROM events WHERE name = 'bulk'"),
+        fleet.cli.q(
+            "bulk count",
+            DB,
+            "SELECT count(*) FROM events WHERE name = 'bulk'"
+        ),
         json!([[160]])
     );
     assert_eq!(
@@ -98,9 +107,13 @@ fn analytics_rolls_up_like_a_real_pipeline() {
     );
 
     // Retention purge drops the three heartbeats.
-    fleet.cli.q("purge", DB, "DELETE FROM events WHERE name = 'heartbeat'");
+    fleet
+        .cli
+        .q("purge", DB, "DELETE FROM events WHERE name = 'heartbeat'");
     assert_eq!(
-        fleet.cli.q("after purge", DB, "SELECT count(*) FROM events"),
+        fleet
+            .cli
+            .q("after purge", DB, "SELECT count(*) FROM events"),
         json!([[187]])
     );
 
@@ -121,7 +134,9 @@ fn analytics_rolls_up_like_a_real_pipeline() {
 
     // Finale: everything exact.
     assert_eq!(
-        fleet.cli.q("final total", DB, "SELECT count(*) FROM events"),
+        fleet
+            .cli
+            .q("final total", DB, "SELECT count(*) FROM events"),
         json!([[188]])
     );
     assert_eq!(
@@ -130,7 +145,12 @@ fn analytics_rolls_up_like_a_real_pipeline() {
             DB,
             "SELECT name, count(*) FROM events GROUP BY name ORDER BY name"
         ),
-        json!([["bulk", 160], ["page_view", 20], ["purchase", 4], ["signup", 4]])
+        json!([
+            ["bulk", 160],
+            ["page_view", 20],
+            ["purchase", 4],
+            ["signup", 4]
+        ])
     );
     assert_eq!(
         fleet.cli.q(
@@ -141,7 +161,11 @@ fn analytics_rolls_up_like_a_real_pipeline() {
         json!([[9598]])
     );
     assert_eq!(
-        fleet.cli.q("final users", DB, "SELECT count(DISTINCT user_id) FROM events"),
+        fleet.cli.q(
+            "final users",
+            DB,
+            "SELECT count(DISTINCT user_id) FROM events"
+        ),
         json!([[10]])
     );
 }
