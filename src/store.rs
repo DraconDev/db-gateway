@@ -378,6 +378,7 @@ impl Store {
         if tx.query_row("SELECT count(*) FROM databases", [], |r| r.get::<_, i64>(0))? >= 128 {
             return Err(Error::busy());
         }
+        let generation = new_generation(&tx)?;
         let path = self.root.join(format!("{name}.sqlite"));
         // create_new means an orphan after a crash is never overwritten. An
         // unregistered file needs operator recovery, not silent adoption.
@@ -396,8 +397,8 @@ impl Store {
         let result = (|| {
             crate::execution::initialize(&path)?;
             tx.execute(
-                "INSERT INTO databases (name, created_at) VALUES (?, ?)",
-                rusqlite::params![name, now_secs()?],
+                "INSERT INTO databases (name, created_at, generation) VALUES (?, ?, ?)",
+                rusqlite::params![name, now_secs()?, generation],
             )?;
             tx.commit()?;
             Ok(())
