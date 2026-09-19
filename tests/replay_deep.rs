@@ -152,7 +152,7 @@ fn replay_contract_holds_across_restart_cap_conflict_and_namespaces() {
     assert_eq!(status, 200);
     let (status, stale) = query(&a, &owner, "ra", &read_body, Some("deep-read"));
     assert_eq!(status, 200);
-    assert_eq!(stale, *read_v1, "keyed read was re-executed instead of replayed");
+    assert_eq!(stale, read_v1, "keyed read was re-executed instead of replayed");
 
     // 3. Same key, different body: 409, nothing changes.
     let (status, body) = query(&a, &owner, "ra", &json!({"sql": "INSERT INTO t(v) VALUES ('evil')"}), Some("deep-write"));
@@ -169,7 +169,9 @@ fn replay_contract_holds_across_restart_cap_conflict_and_namespaces() {
     let (s4, app_replay) = query(&a, &app, "ra", &shared, Some("shared"));
     assert_eq!(s4, 200);
     assert_eq!(app_first, app_replay, "cross-principal replay bytes drifted");
-    assert_eq!(count(&a, &owner, "ra"), 3, "cross-namespace write leaked into ra");
+    // Namespaces isolate keys, not data: owner-shared and app-shared are two
+    // rows in the same table (no 409 across principals, each replays its own).
+    assert_eq!(count(&a, &owner, "ra"), 4, "cross-namespace write leaked into ra");
     assert_eq!(count(&a, &owner, "rb"), 1, "cross-database write leaked");
 
     // 2. Fill the owner's ra namespace to the 256-key cap.
