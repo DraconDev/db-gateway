@@ -99,32 +99,9 @@ impl Store {
             queues: Mutex::new(HashMap::new()),
             lifecycle: RwLock::new(()),
         };
-        store.meta()?.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS credentials(name TEXT PRIMARY KEY, hash TEXT UNIQUE NOT NULL, role TEXT NOT NULL, databases TEXT NOT NULL); CREATE TABLE IF NOT EXISTS databases(name TEXT PRIMARY KEY);")?;
-        // M2 migration: tombstone support for safe deletion. ALTER fails
-        // harmlessly when the columns already exist.
-        for column in [
-            "deleted_at INTEGER",
-            "purge_after INTEGER",
-            "created_at INTEGER",
-        ] {
-            let _ = store
-                .meta()?
-                .execute_batch(&format!("ALTER TABLE databases ADD COLUMN {column};"));
-        }
-        // Backfill creation timestamps for databases predating the column:
-        // file mtime is the best surviving signal, 0 when the file is gone.
-        let backfill = store.meta()?;
-        let stale: Vec<String> = backfill
-            .prepare("SELECT name FROM databases WHERE created_at IS NULL")?
-            .query_map([], |r| r.get(0))?
-            .collect::<std::result::Result<_, _>>()?;
-        for name in stale {
-            let stamp = file_mtime_secs(&store.root.join(format!("{name}.sqlite")));
-            backfill.execute(
-                "UPDATE databases SET created_at=? WHERE name=?",
-                rusqlite::params![stamp, name],
-            )?;
-        }
+        let mut metadata = store.meta()?;
+        metadata.execute_batch("PRAGMA journal_mode=WAL;")?;
+        migrate_metadata(&mut metadata, &store.root)?;
         Ok(store)
     }
     fn meta(&self) -> Result<Connection> {
@@ -330,13 +307,21 @@ impl Store {
                 )
             })?;
         drop(file);
-        crate::execution::initialize(&path)?;
-        tx.execute(
-            "INSERT INTO databases (name, created_at) VALUES (?, ?)",
-            rusqlite::params![name, now_secs()?],
-        )?;
-        tx.commit()?;
-        Ok(())
+        let result = (|| {
+            crate::execution::initialize(&path)?;
+            tx.execute(
+                "INSERT INTO databases (name, created_at) VALUES (?, ?)",
+                rusqlite::params![name, now_secs()?],
+            )?;
+            tx.commit()?;
+            Ok(())
+        })();
+        if result.is_err() {
+            // Initialization and registry publication are one logical create:
+            // never leave a file behind when either pre-commit step fails.
+            remove_database_files(&path);
+        }
+        result
     }
     pub fn path(&self, name: &str) -> Result<PathBuf> {
         validate_name(name)?;
@@ -563,6 +548,45 @@ impl Store {
     }
 }
 
+fn migrate_metadata(conn: &mut Connection, root: &Path) -> Result<()> {
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    tx.execute_batch(
+        "CREATE TABLE IF NOT EXISTS credentials(name TEXT PRIMARY KEY, hash TEXT UNIQUE NOT NULL, role TEXT NOT NULL, databases TEXT NOT NULL);
+         CREATE TABLE IF NOT EXISTS databases(name TEXT PRIMARY KEY);",
+    )?;
+    for (column, declaration) in [
+        ("deleted_at", "INTEGER"),
+        ("purge_after", "INTEGER"),
+        ("created_at", "INTEGER"),
+    ] {
+        let exists: bool = tx
+            .prepare("SELECT 1 FROM pragma_table_info('databases') WHERE name=?")?
+            .exists([column])?;
+        if !exists {
+            // Only the explicit absence case is benign. Every ALTER error is
+            // returned so startup cannot proceed with a partial registry.
+            tx.execute_batch(&format!(
+                "ALTER TABLE databases ADD COLUMN {column} {declaration};"
+            ))?;
+        }
+    }
+    // Backfill creation timestamps for databases predating the column: file
+    // mtime is the best surviving signal, 0 when the file is gone.
+    let stale: Vec<String> = tx
+        .prepare("SELECT name FROM databases WHERE created_at IS NULL")?
+        .query_map([], |r| r.get(0))?
+        .collect::<std::result::Result<_, _>>()?;
+    for name in stale {
+        let stamp = file_mtime_secs(&root.join(format!("{name}.sqlite")));
+        tx.execute(
+            "UPDATE databases SET created_at=? WHERE name=?",
+            rusqlite::params![stamp, name],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
 fn now_secs() -> Result<i64> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -767,6 +791,21 @@ mod tests {
         )
         .unwrap();
         assert_eq!(count["rows"][0][0], 2);
+    }
+
+    #[test]
+    fn metadata_migration_propagates_backfill_failures() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = Connection::open(dir.path().join("metadata.sqlite")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE credentials(name TEXT PRIMARY KEY, hash TEXT UNIQUE NOT NULL, role TEXT NOT NULL, databases TEXT NOT NULL);
+             CREATE TABLE databases(name TEXT PRIMARY KEY, deleted_at INTEGER, purge_after INTEGER, created_at INTEGER);
+             INSERT INTO databases(name) VALUES ('legacy');
+             CREATE TRIGGER reject_backfill BEFORE UPDATE ON databases BEGIN SELECT RAISE(ABORT, 'blocked'); END;",
+        )
+        .unwrap();
+        let error = migrate_metadata(&mut conn, dir.path()).unwrap_err();
+        assert_eq!(error.code, "invalid_sql");
     }
 
     #[test]
