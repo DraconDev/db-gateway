@@ -469,7 +469,7 @@ fn every_credential_gets_its_exact_code_on_every_route() {
         200,
         "-",
     );
-    // Import scoping (need export bytes first).
+    // Import is owner-only (need export bytes first).
     let (_, exp) = req(
         a,
         "POST",
@@ -492,9 +492,8 @@ fn every_credential_gets_its_exact_code_on_every_route() {
         200,
         "-",
     );
-    // Scoped import authorizes via the path database; the body name is the new database.
     check(
-        "rw_imp import",
+        "rw_imp import denied",
         req(
             a,
             "POST",
@@ -503,11 +502,24 @@ fn every_credential_gets_its_exact_code_on_every_route() {
             &json!({"name":"imp_rw","data_base64":data}),
             None,
         ),
-        200,
-        "-",
+        403,
+        "forbidden",
     );
     check(
-        "scoped import over live",
+        "denied import publishes nothing",
+        req(
+            a,
+            "GET",
+            "/v1/databases/imp_rw",
+            Some(&owner),
+            &json!({}),
+            None,
+        ),
+        404,
+        "database_not_found",
+    );
+    check(
+        "scoped import over live denied",
         req(
             a,
             "POST",
@@ -516,11 +528,11 @@ fn every_credential_gets_its_exact_code_on_every_route() {
             &json!({"name":"ka","data_base64":data}),
             None,
         ),
-        409,
-        "database_exists",
+        403,
+        "forbidden",
     );
     check(
-        "rw_a import other",
+        "rw_a import other denied",
         req(
             a,
             "POST",
@@ -530,7 +542,7 @@ fn every_credential_gets_its_exact_code_on_every_route() {
             None,
         ),
         403,
-        "database_forbidden",
+        "forbidden",
     );
     check(
         "ro_a import",
