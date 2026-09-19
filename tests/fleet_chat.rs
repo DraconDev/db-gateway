@@ -101,21 +101,37 @@ fn chat_reads_like_a_real_client() {
     );
     assert_eq!(first, replay, "keyed replay bytes drifted");
     assert_eq!(
-        fleet.cli.q("room1 count", DB, "SELECT count(*) FROM messages WHERE room_id = 1"),
+        fleet.cli.q(
+            "room1 count",
+            DB,
+            "SELECT count(*) FROM messages WHERE room_id = 1"
+        ),
         json!([[4]])
     );
 
     // Edit a message in place.
-    fleet.cli.q("edit", DB, "UPDATE messages SET body = 'Deploy at noon, sharp' WHERE id = 3");
+    fleet.cli.q(
+        "edit",
+        DB,
+        "UPDATE messages SET body = 'Deploy at noon, sharp' WHERE id = 3",
+    );
     assert_eq!(
-        fleet.cli.q("edited", DB, "SELECT body FROM messages WHERE id = 3"),
+        fleet
+            .cli
+            .q("edited", DB, "SELECT body FROM messages WHERE id = 3"),
         json!([["Deploy at noon, sharp"]])
     );
 
     // Delete a message; room 3 drops to four.
-    fleet.cli.q("delete", DB, "DELETE FROM messages WHERE id = 11");
+    fleet
+        .cli
+        .q("delete", DB, "DELETE FROM messages WHERE id = 11");
     assert_eq!(
-        fleet.cli.q("room3 count", DB, "SELECT count(*) FROM messages WHERE room_id = 3"),
+        fleet.cli.q(
+            "room3 count",
+            DB,
+            "SELECT count(*) FROM messages WHERE room_id = 3"
+        ),
         json!([[4]])
     );
 
@@ -127,7 +143,10 @@ fn chat_reads_like_a_real_client() {
     );
 
     // Finale: everything exact (12 seeded + 1 sent - 1 deleted).
-    assert_eq!(fleet.cli.q("rooms", DB, "SELECT count(*) FROM rooms"), json!([[3]]));
+    assert_eq!(
+        fleet.cli.q("rooms", DB, "SELECT count(*) FROM rooms"),
+        json!([[3]])
+    );
     assert_eq!(
         fleet.cli.q("messages", DB, "SELECT count(*) FROM messages"),
         json!([[12]])
