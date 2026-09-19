@@ -13,7 +13,10 @@
 use std::{
     io::{BufRead, BufReader},
     process::{Child, Command, Stdio},
-    sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -139,7 +142,9 @@ fn twenty_clones_with_write_load_stay_exact() {
     assert_eq!(status, 200, "create: {body}");
 
     // 200 mixed-type dummy rows in one atomic batch of 32-statement chunks.
-    let mut seed: Vec<Value> = vec![json!({"sql": "CREATE TABLE d(id INTEGER PRIMARY KEY, name TEXT NOT NULL, score REAL, payload BLOB, note TEXT)"})];
+    let mut seed: Vec<Value> = vec![
+        json!({"sql": "CREATE TABLE d(id INTEGER PRIMARY KEY, name TEXT NOT NULL, score REAL, payload BLOB, note TEXT)"}),
+    ];
     for i in 0..200 {
         seed.push(json!({"sql": format!("INSERT INTO d(name, score, payload, note) VALUES ('seed-{i}', {}, randomblob(16), {})", i as f64 * 0.25, if i % 3 == 0 { "NULL" } else { "'n'" })}));
     }
@@ -167,7 +172,11 @@ fn twenty_clones_with_write_load_stay_exact() {
             &json!({"destination": name}),
         );
         assert_eq!(status, 200, "clone {name}: {body}");
-        assert_eq!(dump(&server.address, &owner, &name), base, "clone {name} differs");
+        assert_eq!(
+            dump(&server.address, &owner, &name),
+            base,
+            "clone {name} differs"
+        );
     }
 
     // Phase B: background keyed writer plus ten clones under load.
@@ -207,23 +216,51 @@ fn twenty_clones_with_write_load_stay_exact() {
         let rows = dump(&server.address, &owner, &name);
         loaded_counts.push(rows.as_array().unwrap().len());
         // Snapshot consistency: contiguous id prefix starting at 1.
-        let ids: Vec<i64> = rows.as_array().unwrap().iter().map(|r| r[0].as_i64().unwrap()).collect();
-        assert_eq!(ids, (1..=ids.len() as i64).collect::<Vec<_>>(), "clone {name} not a prefix snapshot");
+        let ids: Vec<i64> = rows
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r[0].as_i64().unwrap())
+            .collect();
+        assert_eq!(
+            ids,
+            (1..=ids.len() as i64).collect::<Vec<_>>(),
+            "clone {name} not a prefix snapshot"
+        );
     }
     stop.store(true, Ordering::Relaxed);
     writer.join().unwrap();
     let admitted = admitted.lock().unwrap();
+    assert!(
+        !admitted.is_empty(),
+        "background writer admitted nothing; load phase untested"
+    );
 
     // Source untouched by cloning: original 200 rows identical, total exact.
     let final_dump = dump(&server.address, &owner, "orig");
     let final_rows = final_dump.as_array().unwrap();
-    assert_eq!(final_rows.len(), 200 + admitted.len(), "source lost or gained rows");
-    assert_eq!(Value::Array(final_rows[..200].to_vec()), base, "original rows mutated");
+    assert_eq!(
+        final_rows.len(),
+        200 + admitted.len(),
+        "source lost or gained rows"
+    );
+    assert_eq!(
+        Value::Array(final_rows[..200].to_vec()),
+        base,
+        "original rows mutated"
+    );
     // Every loaded clone is a prefix snapshot within [200, final] bounds.
     for (i, n) in loaded_counts.iter().enumerate() {
-        assert!((200..=final_rows.len()).contains(n), "clone c_load_{i} count {n} out of bounds");
+        assert!(
+            (200..=final_rows.len()).contains(n),
+            "clone c_load_{i} count {n} out of bounds"
+        );
         let rows = dump(&server.address, &owner, &format!("c_load_{i}"));
-        assert_eq!(rows, Value::Array(final_rows[..*n].to_vec()), "clone c_load_{i} not a source prefix");
+        assert_eq!(
+            rows,
+            Value::Array(final_rows[..*n].to_vec()),
+            "clone c_load_{i} not a source prefix"
+        );
     }
 
     // Copy independence: write to a clone, source count unchanged.
