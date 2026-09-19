@@ -3,7 +3,7 @@ INSERT INTO tasks(id, project_id, title, status, priority, assignee) VALUES
  (1, 1, 'Draft homepage copy', 'done', 2, 'ana'),
  (2, 1, 'Pick typeface', 'done', 4, 'ben'),
  (3, 1, 'Build photo gallery', 'in_progress', 1, 'ana'),
- (4, 1, 'Write launch post', 'open', 3, NULL),
+ (4, 1, 'Write launch post', 'open', 3, 'ana'),
  (5, 2, 'Define JSON API', 'done', 1, 'cara'),
  (6, 2, 'Keyed replay drill', 'in_progress', 1, 'dan'),
  (7, 2, 'Soak the bridge', 'open', 2, 'dan'),
