@@ -39,7 +39,13 @@ fn blog_renders_like_a_real_cms() {
             DB,
             "SELECT slug FROM posts WHERE status = 'published' ORDER BY published_at DESC"
         ),
-        json!([["soak-report"], ["rust-notes"], ["gateway-bridge"], ["hello-world"], ["old-news"]])
+        json!([
+            ["soak-report"],
+            ["rust-notes"],
+            ["gateway-bridge"],
+            ["hello-world"],
+            ["old-news"]
+        ])
     );
 
     // Tag page: ops posts newest first.
@@ -98,7 +104,11 @@ fn blog_renders_like_a_real_cms() {
         DB,
         "UPDATE posts SET status = 'published', published_at = '2026-04-01' WHERE slug = 'draft-notes'",
     );
-    fleet.cli.q("tag draft", DB, "INSERT INTO post_tags(post_id, tag_id) VALUES (4, 3)");
+    fleet.cli.q(
+        "tag draft",
+        DB,
+        "INSERT INTO post_tags(post_id, tag_id) VALUES (4, 3)",
+    );
     assert_eq!(
         fleet.cli.q(
             "homepage after publish",
@@ -129,12 +139,21 @@ fn blog_renders_like_a_real_cms() {
         json!([[7]])
     );
     assert_eq!(
-        fleet.cli.q("published", DB, "SELECT count(*) FROM posts WHERE status = 'published'"),
+        fleet.cli.q(
+            "published",
+            DB,
+            "SELECT count(*) FROM posts WHERE status = 'published'"
+        ),
         json!([[7]])
     );
-    assert_eq!(fleet.cli.q("tags", DB, "SELECT count(*) FROM tags"), json!([[4]]));
     assert_eq!(
-        fleet.cli.q("post_tags", DB, "SELECT count(*) FROM post_tags"),
+        fleet.cli.q("tags", DB, "SELECT count(*) FROM tags"),
+        json!([[4]])
+    );
+    assert_eq!(
+        fleet
+            .cli
+            .q("post_tags", DB, "SELECT count(*) FROM post_tags"),
         json!([[8]])
     );
 }
