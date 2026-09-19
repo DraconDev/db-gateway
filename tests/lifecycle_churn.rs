@@ -150,6 +150,8 @@ fn create_table(server: &Server, name: &str, idem: &str) -> bool {
                     assert_eq!(status, 200, "iter {i}: delete of live {name} failed");
                     admitted.remove(&name);
                     tombstoned.insert(name);
+                } else if tombstoned.contains(&name) {
+                    assert_eq!(status, 409, "iter {i}: re-delete of tombstoned {name} not 409");
                 } else {
                     assert_eq!(status, 404, "iter {i}: delete of dead {name} not 404");
                 }
