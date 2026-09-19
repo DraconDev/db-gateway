@@ -97,15 +97,15 @@ fn three_hundred_ops_keep_registry_and_files_exact() {
         format!("churn-{key_seq}")
     };
 
-    let mut create_table = |server: &Server, name: &str| -> bool {
-        let (status, _) = server.call(
-            "POST",
-            &format!("/v1/databases/{name}/query"),
-            json!({"sql": "CREATE TABLE d(id INTEGER PRIMARY KEY, v TEXT)"}),
-            Some(&key()),
-        );
-        status == 200
-    };
+fn create_table(server: &Server, name: &str, idem: &str) -> bool {
+    let (status, _) = server.call(
+        "POST",
+        &format!("/v1/databases/{name}/query"),
+        json!({"sql": "CREATE TABLE d(id INTEGER PRIMARY KEY, v TEXT)"}),
+        Some(idem),
+    );
+    status == 200
+}
     let count = |server: &Server, name: &str| -> Option<i64> {
         let (status, body) = server.call(
             "POST",
@@ -134,7 +134,7 @@ fn three_hundred_ops_keep_registry_and_files_exact() {
                     assert_eq!(status, 409, "iter {i}: recreate of live {name} not 409");
                 } else {
                     assert_eq!(status, 200, "iter {i}: create of dead {name} failed");
-                    assert!(create_table(&server, &name), "iter {i}: seed {name}");
+                    assert!(create_table(&server, &name, &key()), "iter {i}: seed {name}");
                     live.insert(name.clone());
                     admitted.insert(name.clone(), 0);
                 }
@@ -205,7 +205,7 @@ fn three_hundred_ops_keep_registry_and_files_exact() {
                     // tombstoned by an earlier delete (409); both are
                     // correct, and the model must follow reality.
                     if status == 200 {
-                        assert!(create_table(&server, &name), "iter {i}: reseed {name}");
+                        assert!(create_table(&server, &name, &key()), "iter {i}: reseed {name}");
                         live.insert(name.clone());
                         admitted.insert(name.clone(), 0);
                     } else {
