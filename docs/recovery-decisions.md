@@ -99,28 +99,31 @@ Notes:
   1 GB headroom, encryption, retention, and bucket-outage behavior. The
   owner-selected working objective is explicit, but it is not adoption evidence.
 
-## 4. Recommendation with trade-offs (provisional, not accepted)
+## 4. Working Profile C recommendation (local preparation, not acceptance)
 
-**Start with profile B**: one verified snapshot per database per day, 30
-daily versions for production databases and 7 for development copies,
-restore always to a separate target with integrity and row-level
-verification before any cutover.
+Use Profile C as the **working local objective**: continuous WAL-style
+shipping with a five-minute lag objective, seven days of frequent recovery
+points, 30 daily production versions, and 7 daily development versions.
+Verify every sync and perform a daily restore to a separate target. The local
+rehearsal targets a 15-minute restore-to-verified-readable-copy objective;
+owner authorization is required before any cutover.
 
-Why B over A: A’s unbounded RPO is acceptable only while no data matters;
-B adds a bounded objective with the smallest new machinery (schedule +
-verify + retain around the existing export/import path).
+Why C over B for this preparation: the owner prefers an eager recovery point
+rather than accepting a 24-hour exposure window. The planning assumption that
+per-action object pricing is not the blocker does not remove storage,
+transfer, sidecar CPU/RSS, WAL/object growth, restore, or monitoring costs.
+Those costs and the five-minute lag remain unmeasured until the sandbox.
 
-Why B over C: C’s minutes-scale RPO is attractive but unpriced and
-unmeasured here — continuous replication competes for the same 1 GB host,
-adds failure modes (stalled replication looks healthy until restore), and
-requires the tool/bucket verification that is explicitly still open. B’s
-daily job can be observed end-to-end (success/failure, age of newest
-verified copy) before committing to C.
+Why C is not accepted yet: continuous replication can stall while serving
+writes continue, checkpoint contention can affect the gateway's 250ms busy
+window, and a local filesystem mock cannot prove Litestream/OVH behavior.
+The adoption packet must prove lag, failure visibility, resource headroom,
+retention, registry coverage, encryption, and separate-target restore.
 
-Trade-offs accepted under B: up to ~24h of committed writes can be lost on
-host failure even on a good day, longer on upload/verification failure days;
-storage grows with versions retained; restore is an operator-driven import
-and verification, not failover — expect ~1h per database, not minutes.
+Fallback: if any adoption gate fails, block rollout and retain the existing
+manual validated export/import path. A manual snapshot after a failed
+continuous attempt is recovery evidence for that point, not proof that the
+continuous path recovered.
 
 ## 5. Cost drivers to watch
 

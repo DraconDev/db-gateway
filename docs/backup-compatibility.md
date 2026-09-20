@@ -22,6 +22,31 @@ owner-accepted RPO/RTO/retention profile from `docs/recovery-decisions.md`.
 Until that packet exists, documentation must say **unverified** rather than
 implying OVH durability or a recoverable-point guarantee.
 
+## Local Profile C rehearsal boundary
+
+The local rehearsal uses a filesystem object mock around the gateway's
+SQLite-aware export and validated import paths. It records the owner-selected
+working objectives — continuous WAL-style shipping with a five-minute lag
+objective, seven days of frequent points, 30 daily production / 7 daily
+development versions, every-sync verification, daily separate-target restore,
+and a 15-minute RTO objective — but it does **not** emulate Litestream timing
+or S3 semantics. It injects crash-during-shipping, partial/corrupt object,
+permission/outage, and disk/WAL-pressure failures. A failed gate blocks rollout
+and leaves manual validated snapshots as the fallback.
+
+Run it with:
+
+```sh
+cargo run --locked --bin recovery_rehearsal
+cargo test --locked --test recovery_rehearsal
+```
+
+The command's JSON is evidence for local status transitions, corrupt-artifact
+rejection without publication, writes continuing during sink outage, WAL
+pressure, exact-row separate-target restore, and measured local restore time.
+It does not authorize OVH, Turso, provider credentials, production data, or
+micro2 access; the sandbox gates below remain required before any adoption.
+
 ## 1. Examined releases and sources (accessed 2026-09-18)
 
 | Component | Examined | Source |
@@ -108,8 +133,13 @@ coverage or restored databases lose their authorization context.
 
 ## 6. Sandbox checks required before adoption
 
-Run all of these against disposable data and a dedicated test bucket; no
-production databases, credentials, or subscriptions.
+The local rehearsal is a prerequisite trust-boundary check, not a substitute
+for this program. Run all of these against disposable data and a dedicated
+test bucket; no production databases, credentials, or subscriptions. Profile
+C adoption must demonstrate a five-minute lag objective after committed writes,
+seven days of frequent points plus 30/7 daily history, every-sync verification,
+and a separate-target restore within the 15-minute objective before those
+numbers are described as anything stronger than working objectives.
 
 1. **Pin and record**: install exactly `v0.5.17` in the sandbox, record
    `litestream version` output and the fetched config-reference date. Any
