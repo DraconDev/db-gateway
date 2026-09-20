@@ -15,6 +15,7 @@ Commands are reproducible; rerun them rather than trusting these numbers.
 | M1 | Idle + small-workload harness (debug) | `scripts/resource-report.sh`, see `docs/resource-harness.md` | idle RSS 14,792 KiB; loaded (3 DBs x 100 rows) 16,008 KiB; p50 SELECT 3.8 ms; data dir 86,016 bytes |
 | M2 | Release idle + 1 DB x 100 rows | `cargo build --release --locked`, manual `dg serve` + `VmRSS` sampling (2026-09-18) | idle RSS 4,260 KiB; loaded 4,276 KiB; data dir 45,056 bytes; release binary 12,571,768 bytes on disk |
 | M3 | Concurrency and per-request caps (code-derived bounds) | `src/store.rs:98` (4 global permits), `src/store.rs:269` (1 writer per DB), `src/execution.rs:40,52,65` (one connection per query, no pool), `docs/api.md` limits table | Worst-case concurrent query executions: 4 + maintenance purge; per-request memory bounded by 64 KiB body / 256 KiB or 1000-row results / 8 MiB export |
+| M4 | Supervised micro2 idle-after-drill sample | `docs/first-deploy-micro2.md` § Procedure evidence; `docs/first-deploy-micro2-evidence.log` | 8292 KiB gateway `VmRSS` after the smoke, restart, and throwaway export/import drill; one idle sample, not a host-budget acceptance |
 
 M2 is a manual spot check, not a harness run: `scripts/resource-report.sh`
 builds the debug profile. A release-mode harness run is listed below as a
@@ -25,10 +26,10 @@ release-blocking measurement.
 | Component | Status | Basis |
 |---|---|---|
 | Gateway process RSS, small workload | Measured (M1, M2) | ~4.3 MiB release idle; ~15 MiB debug loaded. Release + realistic data: **unmeasured**. |
-| OS baseline | Unmeasured | Dev host has 32 GiB; target host OS and its footprint are unknown. |
+| OS baseline | Partially known, workload unmeasured | The supervised target is an approximately 1 GiB Ubuntu micro2 host, but OS baseline, page-cache behavior, and concurrent workload footprint were not measured. |
 | SQLite connections / page cache | Bounded by construction, not stress-verified | No pool; ≤4 concurrent query connections + occasional purge connection; SQLite default cache ≈ 2 MiB per connection ⇒ ≈ 10 MiB order-of-magnitude ceiling. Sustained-burst peak RSS **unmeasured**. |
 | Backup tooling (Litestream sidecar) | Unmeasured | No sidecar runs locally; its RSS, disk staging, and replication bandwidth are unknown. See `docs/backup-compatibility.md` for the pinned version only. |
-| Burst headroom | Partially bounded | 2 s deadline + 429 capacity rejects cap concurrency (see contention test), but peak RSS under sustained capacity load is **unmeasured**. |
+| Burst headroom | Partially bounded | 2 s deadline + 429 capacity rejects cap concurrency (see contention test), but peak RSS under sustained capacity load is **unmeasured** on micro2. |
 | Disk growth | Baseline only | 86 KiB for 300 small rows + WAL + metadata. Growth per real workload, tombstone 24 h retention accumulation, and purge cadence effects are **unmeasured**. |
 
 ## Release-blocking measurements
@@ -48,10 +49,11 @@ host shape (or an equivalent VM), with the release profile:
 ## Conditional readiness conclusion
 
 **Not ready to declare.** The measured gateway process (~4-16 MiB in tiny
-workloads) leaves the 1 GiB envelope apparently ample, but the OS baseline,
-backup sidecar, burst peak, and disk growth — any one of which could dominate
-— are unmeasured. Completing items 1-5 above is the release gate; until then
-the budget position is "no evidence of pressure, no evidence of fit".
+workloads, including one 8292 KiB supervised micro2 sample) leaves the 1 GiB
+envelope apparently ample, but the OS baseline, backup sidecar, burst peak,
+and disk growth — any one of which could dominate — are unmeasured.
+Completing items 1-5 above is the release gate; until then the budget position
+is "no evidence of pressure, no evidence of fit".
 
 ## Assumptions and required target-host checks
 
@@ -60,6 +62,7 @@ the budget position is "no evidence of pressure, no evidence of fit".
   ledger — currently absent).
 - Assumes SQLite defaults (2 MiB page cache per connection); if the target
   tunes `PRAGMA cache_size`, re-derive the cache row.
-- Required on the target before deploy: run items 1-5, record host context
-  (`uname`, `nproc`, `MemTotal`), and attach the reports to the deployment
-  checklist. Do not carry dev-host numbers forward as target facts.
+- Required before production readiness or another live change: run items 1-5
+  with the release profile, record host context (`uname`, `nproc`, `MemTotal`),
+  and attach the reports to the deployment checklist. The 8292 KiB sample is a
+  target fact for the recorded drill, not a substitute for the full budget.
