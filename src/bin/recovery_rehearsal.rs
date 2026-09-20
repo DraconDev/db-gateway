@@ -221,7 +221,7 @@ impl LocalObjectStore {
             )
             .into());
         }
-        insert_event(&target, 2_000_000, "restored-only")?;
+        insert_event_named(&target, "restored", 2_000_000, "restored-only")?;
         let source_rows = rows_store(source)?;
         if &source_rows != expected {
             return Err("restored copy modified the source".into());
@@ -257,8 +257,8 @@ fn require(condition: bool, message: &str) -> AnyResult<()> {
     }
 }
 
-fn insert_event(store: &Store, id: i64, body: &str) -> AnyResult<()> {
-    let path = store.path("primary")?;
+fn insert_event_named(store: &Store, name: &str, id: i64, body: &str) -> AnyResult<()> {
+    let path = store.path(name)?;
     execution::execute(
         &path,
         &[Statement {
@@ -271,6 +271,10 @@ fn insert_event(store: &Store, id: i64, body: &str) -> AnyResult<()> {
         None,
     )?;
     Ok(())
+}
+
+fn insert_event(store: &Store, id: i64, body: &str) -> AnyResult<()> {
+    insert_event_named(store, "primary", id, body)
 }
 
 fn rows_path(path: &Path) -> AnyResult<Value> {
