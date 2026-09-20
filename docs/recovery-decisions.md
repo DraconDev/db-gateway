@@ -84,7 +84,7 @@ under rehearsed conditions, not a production SLA.
 | Profile | Backup cadence (objective) | Retention | RPO objective | RTO objective | What it costs | When it fits |
 | --- | --- | --- | --- | --- | --- | --- |
 | A — manual snapshots only | `export` before risky ops; no schedule | Ad hoc, operator-kept | Unbounded (since last manual export) | Hours (manual import + verify) | ~0; operator discipline only | Pre-M3 development; no production promise |
-| B — daily versioned snapshots (recommended start) | 1 verified snapshot per database per day | 7–30 daily versions per database | 24h | ~1h per database to a separate target | Storage = db size × versions retained; one daily upload + verify per db; small compute on the 1 GB host | Single-owner service with daily-change tolerance; simplest restore via existing validated `import` |
+| B — daily versioned snapshots | 1 verified snapshot per database per day | 7–30 daily versions per database | 24h | ~1h per database to a separate target | Storage = db size × versions retained; one daily upload + verify per db; small compute on the 1 GB host | Single-owner service with daily-change tolerance; simplest restore via existing validated `import` |
 | C — frequent snapshots + continuous WAL-style ship | Continuous WAL-style shipping; five-minute lag objective after committed changes | 7d frequent + 30 daily production / 7 daily development | 5m objective under successful verified operation; outage can extend it | 15m local rehearsal objective; not a production SLA | Highest: continuous compute + I/O on 1 GB host, more objects/monitoring, plus storage/transfer; needs headroom measurement first | Owner-selected working profile for local preparation; adoption remains gated |
 
 Notes:
