@@ -7,7 +7,7 @@
       "foreign_keys": 0,
       "independent": true,
       "integrity": "ok",
-      "rto_ms": 76,
+      "rto_ms": 101,
       "target": "separate-empty-store"
     },
     "status": {
@@ -32,7 +32,7 @@
       "foreign_keys": 0,
       "independent": true,
       "integrity": "ok",
-      "rto_ms": 82,
+      "rto_ms": 92,
       "target": "separate-empty-store"
     }
   },
@@ -55,7 +55,10 @@
   },
   "registry_artifact": {
     "file": "metadata.sqlite.bak",
-    "sha256": "00e19feabaeb0a2398f365272e50ff54b92ddec99f516c173bddd9b5a43c5cd5",
+    "sha256": "cf03052bb626da90ae7b969e74d58c08d42c2ffd5af77f04b139681727ce8924",
+    "integrity": "ok",
+    "database_rows": 1,
+    "credential_rows": 1,
     "verified": true
   },
   "scenarios": [
