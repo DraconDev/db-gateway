@@ -1,10 +1,12 @@
 # Observability contract (M3 design, not implementation)
 
 Status: **design-only, local preparation**. This contract defines the signals
-needed to operate DB Gateway and a future backup sidecar. It adds no endpoint,
-metric exporter, alert integration, or live host configuration. The first
-supervised micro2 deployment remains loopback-only and has no backup sidecar.
-Any implementation or live rollout requires separate owner approval.
+needed to operate DB Gateway and a future backup sidecar. The owner-selected
+working objective is continuous WAL-style shipping with a five-minute lag after
+committed changes, but it is not a production guarantee. This document adds no
+endpoint, metric exporter, alert integration, or live host configuration. The
+first supervised micro2 deployment remains loopback-only and has no backup
+sidecar. Any implementation or live rollout requires separate owner approval.
 
 ## 1. Signal classes
 
@@ -15,7 +17,7 @@ Any implementation or live rollout requires separate owner approval.
 | Request pressure | counts/rates for `capacity_exceeded`, `busy`, and `query_deadline_exceeded` | bounded load within the documented limits | sustained growth indicates overload or a resource regression; do not silently retry |
 | Disk pressure | free bytes/inodes for the data directory, WAL, staging, and recovery workspace | enough headroom for active files plus the retention policy | low disk or failed staging blocks safe writes/imports and needs operator action |
 | Resource pressure | gateway RSS, SQLite/page-cache behavior, CPU, and future sidecar RSS/I/O | measurements remain inside the accepted host budget | threshold and alarm action remain owner decisions until the resource budget is complete |
-| Backup freshness | newest verified copy per database, age, last success, last failure, and restore-test result | the newest verified copy is within the owner-accepted objective | `stale`, `failed`, or `unknown` must be visible; a scheduled job alone is not healthy |
+| Backup freshness | newest verified copy per database, lag after committed changes, last success, last failure, and restore-test result | the newest verified copy is within the five-minute working objective after committed changes | `stale`, `failed`, or `unknown` must be visible; a scheduled job alone is not healthy |
 | Restore readiness | checksum, SQLite integrity, foreign-key check, protected-table check, and exact application-data comparison | a separate-target restore passes all checks | any mismatch blocks trust in the backup and raises an incident |
 
 `/health/live` is intentionally only liveness. It must not be relabeled as
@@ -37,10 +39,13 @@ comparison pass on a separate target. Record, per database:
   included;
 - the restore-test date and exact target/result.
 
-The threshold is intentionally not fixed here. `docs/recovery-decisions.md`
-contains candidate objectives; the owner must accept one before an alert can
-be called an RPO breach. Before that decision, the safe status is `unknown`,
-not `fresh`.
+For the current local working policy, alert when committed changes are not
+represented by a verified copy within **300 seconds**. This is an objective,
+not an accepted RPO breach threshold: the sidecar, sink, resource headroom,
+and restore evidence remain unverified. During idle periods, report the last
+committed-change marker and last verified marker rather than declaring a
+healthy database stale solely because wall time advanced. Before production
+acceptance, the safe status remains `unknown`, not `fresh`.
 
 ## 3. Alert boundaries
 
@@ -49,7 +54,8 @@ Minimum future alerts are:
 1. service inactive or unexpectedly restarting;
 2. disk/inode headroom below the accepted operating floor;
 3. sustained request pressure or deadline failures;
-4. backup attempt failure, stale age, missing database, or missing registry;
+4. backup attempt failure, lag over 300 seconds after a committed change,
+   missing database, or missing registry;
 5. restore verification failure or an artifact checksum mismatch;
 6. resource measurements outside the accepted host budget.
 
@@ -66,8 +72,9 @@ Before implementation or live rollout, attach:
 - the Litestream/OVH sandbox matrices from
   `docs/backup-compatibility.md` §6;
 - the resource report required by `docs/resource-budget.md`;
-- a local failure-injection test proving stale/failed backup visibility while
-  serving writes remain available;
+- the local failure-injection rehearsal from
+  `cargo test --locked --test recovery_rehearsal`, proving stale/failed backup
+  visibility while serving writes remain available;
 - a separate-target restore report covering `metadata.sqlite`, database files,
   credentials/scopes, and exact application rows.
 
