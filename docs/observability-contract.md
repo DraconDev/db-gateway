@@ -25,7 +25,8 @@ report as separate evidence.
 
 ## 2. Backup freshness contract
 
-A backup point is **verified** only after the artifact checksum, SQLite
+The backup freshness signal is the age of the newest verified copy, not the
+start time of a scheduled job. A backup point is **verified** only after the artifact checksum, SQLite
 integrity, foreign-key check, protected-table check, and application-data
 comparison pass on a separate target. Record, per database:
 
