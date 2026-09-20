@@ -5,6 +5,23 @@ accessed, no bucket was touched, and no backup service was installed. Every
 live behavior below needs the sandbox checks in §6 before Litestream or any
 OVH bucket is trusted with real data.
 
+## Adoption boundary (updated 2026-09-19)
+
+This brief establishes a candidate path, not a deployment plan. The current
+candidate is Litestream **v0.5.17** feeding an explicitly configured OVH S3
+endpoint, with gateway exports and validated imports retained as the manual
+fallback. It is not selected until the sandbox proves WAL contention, required
+S3 operations, restore correctness, retention behavior, failure visibility,
+registry coverage, encryption, and 1 GiB headroom. The first supervised
+micro2 deploy did not install a backup sidecar and does not authorize one.
+
+The minimum adoption packet is: pinned binary/version output; redacted config
+shape and least-privilege credential scope; passing operation/restore/
+retention/failure matrices; resource report; cleanup evidence; and an
+owner-accepted RPO/RTO/retention profile from `docs/recovery-decisions.md`.
+Until that packet exists, documentation must say **unverified** rather than
+implying OVH durability or a recoverable-point guarantee.
+
 ## 1. Examined releases and sources (accessed 2026-09-18)
 
 | Component | Examined | Source |
