@@ -1,23 +1,30 @@
 # Recovery decisions (M3 input, not acceptance)
 
-Status: **decision brief, not an accepted policy**. Nothing in this document
-is an owner-accepted RPO/RTO/retention guarantee, a backup SLA, or verified
-OVH/tool coverage. It compares practical profiles for this single-owner
-SQLite service so the owner can choose one. Public sources only; live bucket,
+Status: **decision brief and working local policy, not an accepted production
+policy**. The owner has selected Profile C objectives for local preparation,
+but nothing in this document is an owner-accepted RPO/RTO/retention guarantee,
+a backup SLA, or verified OVH/tool coverage. Public sources only; live bucket,
 tool-version, and host verification remain open M3 work.
 
-## Decision status (updated 2026-09-19)
+## Decision status (updated 2026-09-20)
 
-- **Selected profile:** none. Profile B remains a provisional recommendation,
-  not an authorization to schedule backups or claim an RPO/RTO.
-- **RPO/RTO/retention:** owner decision required after cost, resource,
-  encryption, and restore evidence are available. The profile numbers below
-  are objectives for comparison, not promises.
-- **Live boundary:** no OVH account, bucket, credential, backup sidecar, or
-  production data may be touched by this brief. Adoption requires the sandbox
-  gates in `docs/backup-compatibility.md` §6 and a separate owner approval.
-- **Monitoring dependency:** whichever profile is selected must expose the
-  newest verified copy, age, failure state, and restore-test result; a cron
+- **Working profile:** C — continuous WAL-style shipping with a five-minute
+  lag objective after committed changes, seven days of frequent points, and
+  daily history of 30 production / 7 development versions.
+- **Working restore objective:** verify every sync and rehearse a separate-
+  target restore daily; target a 15-minute local RTO objective, with owner
+  authorization required before any cutover.
+- **Policy status:** these are owner-selected objectives for local preparation,
+  not an accepted production RPO/RTO/retention guarantee. The local rehearsal
+  reports a measurement but does not prove sidecar timing or host fit.
+- **Failure fallback:** an unresolved adoption gate blocks rollout; manual
+  validated snapshots remain the fallback.
+- **Live boundary:** no OVH account, bucket, credential, backup sidecar,
+  production data, or further micro2 action may be touched by this brief.
+  Adoption requires the sandbox gates in `docs/backup-compatibility.md` §6
+  and a separate owner approval.
+- **Monitoring dependency:** the implementation must expose the newest
+  verified copy, lag/age, failure state, and restore-test result; a scheduler
   entry without those signals is not backup coverage.
 
 ## 1. What is already durable locally (acknowledged)
@@ -78,7 +85,7 @@ under rehearsed conditions, not a production SLA.
 | --- | --- | --- | --- | --- | --- | --- |
 | A — manual snapshots only | `export` before risky ops; no schedule | Ad hoc, operator-kept | Unbounded (since last manual export) | Hours (manual import + verify) | ~0; operator discipline only | Pre-M3 development; no production promise |
 | B — daily versioned snapshots (recommended start) | 1 verified snapshot per database per day | 7–30 daily versions per database | 24h | ~1h per database to a separate target | Storage = db size × versions retained; one daily upload + verify per db; small compute on the 1 GB host | Single-owner service with daily-change tolerance; simplest restore via existing validated `import` |
-| C — frequent snapshots + continuous WAL-style ship | Hourly snapshots or Litestream-style replication | 7d frequent + 30d daily | Minutes–1h | Minutes–1h, tool-assisted | Highest: continuous compute + I/O on 1 GB host, more requests/versions, more monitoring; needs headroom measurement first | Only if the owner rejects 24h exposure after seeing B’s cost/complexity |
+| C — frequent snapshots + continuous WAL-style ship | Continuous WAL-style shipping; five-minute lag objective after committed changes | 7d frequent + 30 daily production / 7 daily development | 5m objective under successful verified operation; outage can extend it | 15m local rehearsal objective; not a production SLA | Highest: continuous compute + I/O on 1 GB host, more objects/monitoring, plus storage/transfer; needs headroom measurement first | Owner-selected working profile for local preparation; adoption remains gated |
 
 Notes:
 
@@ -87,10 +94,10 @@ Notes:
 - Profile B maps directly onto already-tested primitives: online-backup
   export, `integrity_check` + foreign-key + protected-table validation on
   import, atomic publication, restore-to-separate-target verification.
-- Profile C depends on unverified work: backup-tool selection/version,
-  per-database registration and reload behavior, 1 GB headroom, encryption,
-  and bucket-outage behavior. It must not be chosen implicitly by shortening
-  B’s interval without the M3 verification behind it.
+- Profile C still depends on unverified work: backup-tool selection/version,
+  per-database registration and reload behavior, five-minute lag under writes,
+  1 GB headroom, encryption, retention, and bucket-outage behavior. The
+  owner-selected working objective is explicit, but it is not adoption evidence.
 
 ## 4. Recommendation with trade-offs (provisional, not accepted)
 
@@ -120,8 +127,8 @@ and verification, not failover — expect ~1h per database, not minutes.
 - **Retained bytes**: sum over databases of (snapshot size × versions). Small
   SQLite files make B cheap; growth or many dev copies push toward shorter
   dev retention or explicit exclusion lists.
-- **Requests and transfer**: daily PUTs plus restore GETs; egress matters on
-  restore drills, not steady state.
+- **Requests and transfer**: continuous WAL/object traffic plus daily-history
+  uploads and restore GETs; egress matters on restore drills, not steady state.
 - **Verification compute**: checksum + `integrity_check` + trial import on
   the host or a scratch target; keep it off the serving path.
 - **Operational attention**: backup-health visibility (newest verified copy
@@ -133,8 +140,8 @@ and verification, not failover — expect ~1h per database, not minutes.
 None of the following is decided by this brief. Live M3 backup work beyond
 local preparation must wait for owner answers:
 
-1. Accept or replace profile B: RPO objective, RTO objective, and retention
-   per database class (production vs development).
+1. Accept, replace, or reject the working Profile C objectives: five-minute
+   lag/RPO objective, 15-minute RTO objective, and retention per database class.
 2. Monthly budget cap for backup storage/requests/egress, and which
    databases are excluded from scheduled backup.
 3. Bucket region/endpoint, credential scope, and encryption requirements
@@ -143,8 +150,9 @@ local preparation must wait for owner answers:
    a restore over an existing name, and how long rollback artifacts are kept.
 5. Backup-health contract: where last-successful-backup and staleness are
    exposed (API/CLI), and who is notified on failure.
-6. Whether to evaluate continuous replication (profile C) after B is
-   verified, and under what measured headroom on the 1 GB host.
+6. Whether the sandbox evidence accepts continuous Profile C under the
+   five-minute lag objective and what measured headroom is required on the 1 GB
+   host.
 
 ## Sources (public, accessed 2026-09-18)
 
