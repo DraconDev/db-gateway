@@ -160,6 +160,12 @@ impl LocalObjectStore {
 
     fn archive_registry(&self, source_root: &Path) -> AnyResult<Value> {
         let source = source_root.join("metadata.sqlite");
+        // The source Store has no open metadata connection at this point. Make
+        // the registry copy self-contained instead of relying on an adjacent
+        // WAL file to be present in the object mock.
+        let source_conn = Connection::open(&source)?;
+        source_conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+        drop(source_conn);
         let destination = self.root.join("metadata.sqlite.bak");
         copy_sync(&source, &destination)?;
         let digest = sha256(&fs::read(&destination)?);
@@ -167,10 +173,24 @@ impl LocalObjectStore {
             self.root.join("metadata.sqlite.bak.sha256"),
             format!("{digest}\n"),
         )?;
+        let registry = Connection::open_with_flags(&destination, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let integrity: String =
+            registry.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
+        require(
+            integrity == "ok",
+            "registry integrity_check did not return ok",
+        )?;
+        let database_rows: i64 =
+            registry.query_row("SELECT count(*) FROM databases", [], |row| row.get(0))?;
+        let credential_rows: i64 =
+            registry.query_row("SELECT count(*) FROM credentials", [], |row| row.get(0))?;
         Ok(json!({
             "file": "metadata.sqlite.bak",
             "sha256": digest,
             "verified": true,
+            "integrity": "ok",
+            "database_rows": database_rows,
+            "credential_rows": credential_rows,
         }))
     }
 
