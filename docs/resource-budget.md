@@ -16,7 +16,7 @@ Commands are reproducible; rerun them rather than trusting these numbers.
 | M2 | Release idle + 1 DB x 100 rows | `cargo build --release --locked`, manual `dg serve` + `VmRSS` sampling (2026-09-18) | idle RSS 4,260 KiB; loaded 4,276 KiB; data dir 45,056 bytes; release binary 12,571,768 bytes on disk |
 | M3 | Concurrency and per-request caps (code-derived bounds) | `src/store.rs:98` (4 global permits), `src/store.rs:269` (1 writer per DB), `src/execution.rs:40,52,65` (one connection per query, no pool), `docs/api.md` limits table | Worst-case concurrent query executions: 4 + maintenance purge; per-request memory bounded by 64 KiB body / 256 KiB or 1000-row results / 8 MiB export |
 | M4 | Supervised micro2 idle-after-drill sample | `docs/first-deploy-micro2.md` § Procedure evidence; `docs/first-deploy-micro2-evidence.log` | 8292 KiB gateway `VmRSS` after the smoke, restart, and throwaway export/import drill; one idle sample, not a host-budget acceptance |
-| M5 | Local Profile C filesystem rehearsal | `cargo run --locked --bin recovery_rehearsal` (recorded local run) | baseline separate-target restore 102 ms; fallback restore 111 ms; WAL held under reader 939,392 bytes; no Litestream or sidecar, so this is not a host-fit measurement |
+| M5 | Local Profile C filesystem rehearsal | `cargo run --locked --bin recovery_rehearsal`; durable output `docs/recovery-rehearsal-evidence.json` | baseline separate-target restore 76 ms; fallback restore 82 ms; WAL held under reader 939,392 bytes; no Litestream or sidecar, so this is not a host-fit measurement |
 
 M2 is a manual spot check, not a harness run: `scripts/resource-report.sh`
 builds the debug profile. A release-mode harness run is listed below as a
