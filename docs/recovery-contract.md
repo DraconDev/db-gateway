@@ -143,3 +143,24 @@ replication. Claiming a drill as backup coverage is a failure of reporting,
 even if every check above passed. Continuous-backup claims need the sandbox
 program in `docs/backup-compatibility.md` §6 plus owner-accepted objectives
 from `docs/recovery-decisions.md` §6.
+
+## 7. Local Profile C rehearsal
+
+`src/bin/recovery_rehearsal.rs` and `tests/recovery_rehearsal.rs` provide a
+filesystem-backed object mock around the existing export/import trust
+boundary. The rehearsal records the working Profile C objectives (continuous
+WAL-style shipping, five-minute lag, 7-day frequent points, 30/7 daily
+history, every-sync verification, daily separate-target restore, and a
+15-minute local RTO objective) and injects four failures:
+
+- crash during shipping, with `failed` then `stale` status visibility;
+- partial/corrupt object, with checksum/integrity rejection and no publication;
+- permission/outage, with visible failure while serving writes continue; and
+- disk/WAL pressure, with a held-WAL measurement and bounded sink failure.
+
+A successful manual export is then used as the explicit fallback and restored
+to a separate target with exact rows, integrity, foreign-key, and
+copy-independence checks. The recorded local output is
+`docs/recovery-rehearsal-evidence.json`. This is local fault/status/restore
+evidence only: it does not prove Litestream timing, S3 behavior, OVH
+compatibility, a 1 GiB sidecar budget, or a production RTO.
