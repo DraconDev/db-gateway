@@ -1,6 +1,6 @@
 # Readiness summary — local preparation and supervised micro2 evidence
 
-Updated: 2026-09-19. This is an evidence-backed summary of completed local
+Updated: 2026-09-20. This is an evidence-backed summary of completed local
 preparation plus the explicitly authorized supervised micro2 smoke/restore
 deploy. It is **not a claim of production readiness**. The authoritative
 host/service facts are in [`first-deploy-micro2.md`](first-deploy-micro2.md);
@@ -10,7 +10,7 @@ this summary does not authorize any further live change.
 
 | Gate | Command | Result |
 |---|---|---|
-| Rust tests | `timeout 280 cargo test --workspace --locked` | 52 passed, 0 failed (13 suites) |
+| Rust tests | `timeout 280 cargo test --workspace --locked` | 82 passed, 0 failed (38 suites) |
 | Clippy | `cargo clippy --workspace --all-targets --locked -- -D warnings` | clean |
 | Formatting | `cargo fmt --all -- --check` + `git diff --check` | clean |
 | TS client | `npm test` (in `client/`) | 5 passed, 0 failed |
@@ -18,6 +18,8 @@ this summary does not authorize any further live change.
 ## Delivered preparation artifacts
 
 Resilience (tests): `tests/recovery_drill.rs` (snapshot drill),
+`tests/recovery_rehearsal.rs` + `src/bin/recovery_rehearsal.rs` (local
+Profile C fault/status/fallback/restore rehearsal),
 `tests/crash_restart.rs` (kill/restart ack + keyed replay),
 `client/test/lost_ack.test.mjs` (no silent resends), deadline/contention/
 boundary/publish-failure regressions in `tests/m1_e2e.rs`,
@@ -35,7 +37,9 @@ Deployment/migration prep: `docs/deployment-readiness.md` (8 gates,
 reconciled to the supervised micro2 record; production readiness remains not
 accepted), `docs/migration-inventory.md` (11 risks + empty inventory),
 `docs/migration-cutover.md` (staged plan + rollback),
-`docs/recovery-decisions.md`, `docs/recovery-contract.md`,
+`docs/recovery-decisions.md` (working Profile C objectives, production
+acceptance still pending), `docs/recovery-contract.md`,
+`docs/observability-contract.md`, `docs/recovery-rehearsal-evidence.json`,
 `docs/backup-compatibility.md` (Litestream v0.5.17 pinned, endpoint
 unverified). The supervised micro2 install, restart check, smoke query, and
 throwaway export/import drill are recorded in `docs/first-deploy-micro2.md`.
@@ -48,9 +52,10 @@ interrupted-publish invariant, logging-canary audit, resource harness +
 budget ledger, release bundle, service template + validator, upgrade/rollback
 rehearsal, deployment checklist, migration inventory/fixture/cutover plan.
 
-Remaining owner decisions: RPO/RTO/retention acceptance, complete resource
-budget and memory-limit value, backup-sidecar plan, rollback/soak choices,
-future TLS/monitoring needs, and Turso plan/target/trial verification. The
+Remaining owner decisions: production acceptance of the Profile C
+RPO/RTO/retention objectives, complete resource budget and memory-limit value,
+backup-sidecar plan, rollback/soak choices, future TLS/monitoring needs, and
+Turso plan/target/trial verification. The
 micro2 architecture/disk survey and SSH-tunnel access choice are evidenced for
 the supervised deploy; they do not authorize production migration or future
 live changes.

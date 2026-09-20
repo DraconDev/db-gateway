@@ -95,7 +95,8 @@ impl LocalObjectStore {
     }
 
     fn ship(&mut self, source: &Path, marker: i64, fault: Fault) -> Result<(), String> {
-        let bytes = fs::read(source).map_err(|error| self.fail("source_read_failed") + &format!(": {error}"))?;
+        let bytes = fs::read(source)
+            .map_err(|error| self.fail("source_read_failed") + &format!(": {error}"))?;
         let expected = sha256(&bytes);
         match fault {
             Fault::PermissionOrOutage => return Err(self.fail("sink_unavailable")),
@@ -108,7 +109,8 @@ impl LocalObjectStore {
                 let partial = self.root.join(".primary.sqlite.upload.partial");
                 let half = bytes.len().max(2) / 2;
                 let mut file = File::create(partial).map_err(|error| error.to_string())?;
-                file.write_all(&bytes[..half]).map_err(|error| error.to_string())?;
+                file.write_all(&bytes[..half])
+                    .map_err(|error| error.to_string())?;
                 file.sync_all().map_err(|error| error.to_string())?;
                 return Err(self.fail("crash_during_shipping"));
             }
@@ -216,10 +218,9 @@ impl LocalObjectStore {
         integrity_ok(&restored_path)?;
         let restored_rows = rows_path(&restored_path)?;
         if &restored_rows != expected {
-            return Err(format!(
-                "restored rows differ: expected {expected}, got {restored_rows}"
-            )
-            .into());
+            return Err(
+                format!("restored rows differ: expected {expected}, got {restored_rows}").into(),
+            );
         }
         insert_event_named(&target, "restored", 2_000_000, "restored-only")?;
         let source_rows = rows_store(source)?;
@@ -281,7 +282,9 @@ fn rows_path(path: &Path) -> AnyResult<Value> {
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let mut statement = conn.prepare("SELECT id, body FROM events ORDER BY id")?;
     let rows = statement
-        .query_map([], |row| Ok(json!([row.get::<_, i64>(0)?, row.get::<_, String>(1)?])))?
+        .query_map([], |row| {
+            Ok(json!([row.get::<_, i64>(0)?, row.get::<_, String>(1)?]))
+        })?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(json!(rows))
 }
@@ -294,11 +297,10 @@ fn integrity_ok(path: &Path) -> AnyResult<()> {
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let integrity: String = conn.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
     require(integrity == "ok", "integrity_check did not return ok")?;
-    let foreign_keys: i64 = conn.query_row(
-        "SELECT count(*) FROM pragma_foreign_key_check",
-        [],
-        |row| row.get(0),
-    )?;
+    let foreign_keys: i64 =
+        conn.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+            row.get(0)
+        })?;
     require(foreign_keys == 0, "foreign_key_check returned violations")?;
     Ok(())
 }
@@ -331,7 +333,9 @@ fn create_wal_pressure(path: &Path) -> AnyResult<u64> {
     tx.commit()?;
     drop(writer);
     let wal = PathBuf::from(format!("{}-wal", path.display()));
-    let bytes = fs::metadata(&wal).map(|metadata| metadata.len()).unwrap_or(0);
+    let bytes = fs::metadata(&wal)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
     reader.execute_batch("ROLLBACK;")?;
     Ok(bytes)
 }
@@ -388,7 +392,10 @@ fn main() -> AnyResult<()> {
 
     insert_event(&source, 5, "corruption-window")?;
     let corrupt_result = snapshot_and_ship(&source, &mut sink, 5, Fault::CorruptObject)?;
-    require(corrupt_result.is_err(), "corrupt fault unexpectedly succeeded")?;
+    require(
+        corrupt_result.is_err(),
+        "corrupt fault unexpectedly succeeded",
+    )?;
     let corrupt_status = sink.status(5);
     require(
         corrupt_status["status"]["state"] == "failed",
@@ -399,7 +406,10 @@ fn main() -> AnyResult<()> {
 
     insert_event(&source, 6, "outage-window")?;
     let outage_result = snapshot_and_ship(&source, &mut sink, 6, Fault::PermissionOrOutage)?;
-    require(outage_result.is_err(), "outage fault unexpectedly succeeded")?;
+    require(
+        outage_result.is_err(),
+        "outage fault unexpectedly succeeded",
+    )?;
     insert_event(&source, 7, "writes-continue")?;
     let outage_status = sink.status(7);
     require(
@@ -417,7 +427,10 @@ fn main() -> AnyResult<()> {
     let disk_marker = rows_store(&source)?.as_array().map_or(0, Vec::len) as i64;
     sink.quota_bytes = Some(1);
     let disk_result = snapshot_and_ship(&source, &mut sink, disk_marker, Fault::DiskPressure)?;
-    require(disk_result.is_err(), "disk-pressure fault unexpectedly succeeded")?;
+    require(
+        disk_result.is_err(),
+        "disk-pressure fault unexpectedly succeeded",
+    )?;
     let disk_status = sink.status(disk_marker);
     require(
         disk_status["status"]["state"] == "failed",

@@ -31,10 +31,7 @@ fn local_rehearsal_reports_all_faults_and_restore_evidence() {
     for scenario in scenarios {
         assert_eq!(scenario["passed"], true, "scenario failed: {scenario}");
     }
-    assert_eq!(
-        scenarios[0]["failed_status"]["status"]["state"],
-        "failed"
-    );
+    assert_eq!(scenarios[0]["failed_status"]["status"]["state"], "failed");
     assert_eq!(
         scenarios[0]["stale_status_after_failure_clear"]["status"]["state"],
         "stale"
@@ -51,7 +48,10 @@ fn local_rehearsal_reports_all_faults_and_restore_evidence() {
             > 0
     );
     assert_eq!(report["fallback"]["passed"], true);
-    assert_eq!(report["fallback"]["fresh_status"]["status"]["state"], "fresh");
+    assert_eq!(
+        report["fallback"]["fresh_status"]["status"]["state"],
+        "fresh"
+    );
 
     let baseline_rto = report["baseline"]["restore"]["rto_ms"]
         .as_u64()

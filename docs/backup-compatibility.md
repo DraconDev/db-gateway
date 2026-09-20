@@ -8,9 +8,9 @@ OVH bucket is trusted with real data.
 ## Adoption boundary (updated 2026-09-19)
 
 This brief establishes a candidate path, not a deployment plan. The current
-candidate is Litestream **v0.5.17** feeding an explicitly configured OVH S3
-endpoint, with gateway exports and validated imports retained as the manual
-fallback. It is not selected until the sandbox proves WAL contention, required
+working candidate is Litestream **v0.5.17** feeding an explicitly configured
+OVH S3 endpoint, with gateway exports and validated imports retained as the
+manual fallback. It is not adopted until the sandbox proves WAL contention, required
 S3 operations, restore correctness, retention behavior, failure visibility,
 registry coverage, encryption, and 1 GiB headroom. The first supervised
 micro2 deploy did not install a backup sidecar and does not authorize one.
@@ -41,9 +41,10 @@ cargo run --locked --bin recovery_rehearsal
 cargo test --locked --test recovery_rehearsal
 ```
 
-The command's JSON is evidence for local status transitions, corrupt-artifact
-rejection without publication, writes continuing during sink outage, WAL
-pressure, exact-row separate-target restore, and measured local restore time.
+The command's JSON, recorded in `docs/recovery-rehearsal-evidence.json`, is
+evidence for local status transitions, corrupt-artifact rejection without
+publication, writes continuing during sink outage, WAL pressure, exact-row
+separate-target restore, and measured local restore time.
 It does not authorize OVH, Turso, provider credentials, production data, or
 micro2 access; the sandbox gates below remain required before any adoption.
 
