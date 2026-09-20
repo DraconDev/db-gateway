@@ -6,6 +6,20 @@ OVH/tool coverage. It compares practical profiles for this single-owner
 SQLite service so the owner can choose one. Public sources only; live bucket,
 tool-version, and host verification remain open M3 work.
 
+## Decision status (updated 2026-09-19)
+
+- **Selected profile:** none. Profile B remains a provisional recommendation,
+  not an authorization to schedule backups or claim an RPO/RTO.
+- **RPO/RTO/retention:** owner decision required after cost, resource,
+  encryption, and restore evidence are available. The profile numbers below
+  are objectives for comparison, not promises.
+- **Live boundary:** no OVH account, bucket, credential, backup sidecar, or
+  production data may be touched by this brief. Adoption requires the sandbox
+  gates in `docs/backup-compatibility.md` §6 and a separate owner approval.
+- **Monitoring dependency:** whichever profile is selected must expose the
+  newest verified copy, age, failure state, and restore-test result; a cron
+  entry without those signals is not backup coverage.
+
 ## 1. What is already durable locally (acknowledged)
 
 - Every application SQL request runs in one managed transaction on a fresh
