@@ -354,10 +354,7 @@ fn every_credential_gets_its_exact_code_on_every_route() {
             }
             _ => {
                 assert_eq!(status, 401, "{name} list: {body}");
-                assert_eq!(
-                    body["error"]["code"], "invalid_credential",
-                    "{name} list"
-                );
+                assert_eq!(body["error"]["code"], "invalid_credential", "{name} list");
             }
         }
     }

@@ -432,11 +432,25 @@ fn scoped_keys_enforce_boundaries() {
 
     // Scoped listing: each app key sees exactly its authorized databases.
     for key in [&rw, &ro] {
-        let (status, body) = request(&server.address, "GET", "/v1/databases", Some(key), None, None);
+        let (status, body) = request(
+            &server.address,
+            "GET",
+            "/v1/databases",
+            Some(key),
+            None,
+            None,
+        );
         assert_eq!(status, 200, "scoped list: {body}");
         assert_eq!(body["databases"], json!(["one"]));
     }
-    let (status, body) = request(&server.address, "GET", "/v1/databases", Some(&owner), None, None);
+    let (status, body) = request(
+        &server.address,
+        "GET",
+        "/v1/databases",
+        Some(&owner),
+        None,
+        None,
+    );
     assert_eq!(status, 200, "owner list: {body}");
     assert_eq!(body["databases"], json!(["one", "two"]));
 
