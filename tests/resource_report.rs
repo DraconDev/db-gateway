@@ -64,8 +64,12 @@ fn resource_report_fields_validate_and_cleanup_holds() {
         !std::path::Path::new(&workdir).exists(),
         "harness left its workdir behind: {workdir}"
     );
+    // Scope the leak check to this run's unique workdir: cargo runs test
+    // binaries in parallel, so a global `pgrep -f "dg serve"` flakes whenever
+    // any sibling suite has a server alive. Only this harness's server (or
+    // its orphan) can reference this mktemp dir.
     let lingering = Command::new("pgrep")
-        .args(["-f", "dg serve"])
+        .args(["-f", &workdir])
         .output()
         .map(|o| !o.stdout.is_empty())
         .unwrap_or(false);
