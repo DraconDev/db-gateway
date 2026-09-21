@@ -1,7 +1,7 @@
 use crate::{
     error::{Error, Result},
     execution::{Batch, Statement},
-    store::{KeyRequest, Principal, Store, unauthorized},
+    store::{KeyRequest, Principal, Store, unauthorized, validate_name},
 };
 use axum::{
     Json, Router,
@@ -266,6 +266,158 @@ async fn import(
     })
     .await
 }
+/// Chunked download: freeze a consistent snapshot, then fetch it in bounded
+/// pieces. Same authorization as single-shot export.
+async fn export_begin(
+    State(store): State<Arc<Store>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+    body: std::result::Result<Json<ExportRequest>, JsonRejection>,
+) -> Result<Json<Value>> {
+    json_body(body)?;
+    work(store, headers, move |s, p| {
+        s.authorize(&p, &name)?;
+        let info = s.export_begin(&p, &name)?;
+        Ok(Json(
+            json!({"snapshot":info.id,"size":info.size,"sha256":info.sha256}),
+        ))
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+struct ChunkQuery {
+    offset: Option<u64>,
+    length: Option<usize>,
+}
+
+fn query_params<T>(
+    params: std::result::Result<Query<T>, axum::extract::rejection::QueryRejection>,
+) -> Result<T> {
+    params.map(|Query(value)| value).map_err(|_| Error::invalid())
+}
+
+async fn snapshot_chunk(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    query: std::result::Result<Query<ChunkQuery>, axum::extract::rejection::QueryRejection>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    let query = query_params(query)?;
+    let offset = query.offset.unwrap_or(0);
+    let length = query.length.unwrap_or(crate::store::MAX_CHUNK);
+    work(store, headers, move |s, p| {
+        let (bytes, size, sha256) = s.snapshot_chunk(&p, &id, offset, length)?;
+        Ok(Json(json!({"snapshot":id,"size":size,"sha256":sha256,"offset":offset,"data_base64":BASE64_STANDARD.encode(bytes)})))
+    })
+    .await
+}
+
+async fn snapshot_release(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    work(store, headers, move |s, p| {
+        s.snapshot_release(&p, &id)?;
+        Ok(Json(json!({"released": true})))
+    })
+    .await
+}
+
+/// Chunked upload: open an upload, append chunks at the exact received
+/// offset, then commit under a target name. Owner-only like import.
+async fn import_begin(
+    State(store): State<Arc<Store>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+    body: std::result::Result<Json<ExportRequest>, JsonRejection>,
+) -> Result<Json<Value>> {
+    json_body(body)?;
+    work(store, headers, move |s, p| {
+        p.owner()?;
+        // The path segment is an informational label, as on import.
+        validate_name(&name)?;
+        let info = s.upload_begin()?;
+        Ok(Json(json!({"upload": info.id})))
+    })
+    .await
+}
+
+async fn upload_status(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    work(store, headers, move |s, p| {
+        p.owner()?;
+        let received = s.upload_status(&id)?;
+        Ok(Json(
+            json!({"upload":id,"received":received,"size_cap":crate::store::MAX_TRANSFER_SIZE}),
+        ))
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UploadChunk {
+    offset: u64,
+    data_base64: String,
+}
+
+async fn upload_chunk(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: std::result::Result<Json<UploadChunk>, JsonRejection>,
+) -> Result<Json<Value>> {
+    let body = json_body(body)?;
+    work(store, headers, move |s, p| {
+        p.owner()?;
+        let bytes = BASE64_STANDARD
+            .decode(body.data_base64.as_bytes())
+            .map_err(|_| Error::invalid())?;
+        let received = s.upload_append(&id, body.offset, &bytes)?;
+        Ok(Json(json!({"upload":id,"received":received})))
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CommitRequest {
+    name: String,
+}
+
+async fn upload_commit(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: std::result::Result<Json<CommitRequest>, JsonRejection>,
+) -> Result<Json<Value>> {
+    let body = json_body(body)?;
+    work(store, headers, move |s, p| {
+        p.owner()?;
+        s.upload_commit(&id, &body.name)?;
+        Ok(Json(json!({"imported": body.name})))
+    })
+    .await
+}
+
+async fn upload_abort(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    work(store, headers, move |s, p| {
+        p.owner()?;
+        s.upload_abort(&id)?;
+        Ok(Json(json!({"aborted": true})))
+    })
+    .await
+}
+
 async fn execute(
     store: Arc<Store>,
     headers: HeaderMap,
