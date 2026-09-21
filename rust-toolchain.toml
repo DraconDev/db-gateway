@@ -1,0 +1,4 @@
+[toolchain]
+# Pinned so local builds and CI use the same compiler. Bump deliberately:
+# update this file, run the full gate suite, and commit together.
+channel = "1.97.1"
