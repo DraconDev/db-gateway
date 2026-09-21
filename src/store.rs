@@ -805,7 +805,11 @@ impl Store {
         let transfer = match transfers.get_mut(id) {
             Some(t) if t.created.elapsed() < self.transfer_ttl => t,
             _ => {
-                transfers.remove(id);
+                let stale = transfers.remove(id);
+                drop(transfers);
+                if let Some(t) = stale {
+                    let _ = std::fs::remove_dir_all(&t.dir);
+                }
                 return Err(upload_missing());
             }
         };

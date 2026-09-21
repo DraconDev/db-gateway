@@ -5,7 +5,7 @@ use crate::{
 };
 use axum::{
     Json, Router,
-    extract::{DefaultBodyLimit, Path, State, rejection::JsonRejection},
+    extract::{DefaultBodyLimit, Path, Query, State, rejection::JsonRejection},
     http::HeaderMap,
     routing::{delete, get, post},
 };
@@ -20,6 +20,8 @@ const BASE64_STANDARD: base64::engine::GeneralPurpose = base64::engine::general_
 const RETENTION_SECS: i64 = 24 * 3600;
 /// Bounded inline export/import payload (over HTTP).
 const MAX_EXPORT: usize = 8 * 1024 * 1024;
+/// Chunked-transfer envelope: one 1 MiB chunk base64-encoded plus JSON.
+const MAX_CHUNK_BODY: usize = 2 * 1024 * 1024;
 
 pub fn router(store: Arc<Store>) -> Router {
     Router::new()
@@ -31,6 +33,15 @@ pub fn router(store: Arc<Store>) -> Router {
             "/v1/databases/{name}/import",
             post(import).layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
         )
+        .route("/v1/databases/{name}/export/begin", post(export_begin))
+        .route("/v1/databases/{name}/import/begin", post(import_begin))
+        .route("/v1/snapshots/{id}", get(snapshot_chunk).delete(snapshot_release))
+        .route("/v1/uploads/{id}", get(upload_status).delete(upload_abort))
+        .route(
+            "/v1/uploads/{id}/chunk",
+            post(upload_chunk).layer(DefaultBodyLimit::max(MAX_CHUNK_BODY)),
+        )
+        .route("/v1/uploads/{id}/commit", post(upload_commit))
         .route("/v1/keys", get(list_keys).post(issue))
         .route("/v1/keys/{name}", delete(revoke))
         .route("/v1/databases/{name}/query", post(query))
