@@ -1,0 +1,13 @@
+# cargo-deny configuration: supply-chain gate for `dg`.
+#
+# CI runs `cargo deny check advisories` (warns on yanked, fails on known
+# advisories). License/ban/source checks are intentionally not enabled yet:
+# enable them as a separate decision with an allowlist, not by drive-by.
+# To add a temporary exception, append an `[[advisories.ignore]]` entry with
+# the advisory id, affected range, and a `reason = "..."` — never ignore
+# without a dated reason.
+
+[advisories]
+version = 2
+yanked = "warn"
+db-urls = ["https://github.com/RustSec/advisory-db"]
