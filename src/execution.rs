@@ -730,4 +730,34 @@ mod tests {
         .unwrap();
         assert_eq!(result["rows"], json!([["aria"]]));
     }
+
+    #[test]
+    fn read_only_credentials_reject_idempotency_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.sqlite");
+        initialize(&path).unwrap();
+        let s = |sql: &str| Statement {
+            sql: sql.into(),
+            args: vec![],
+        };
+        // A keyed request on a read-only credential is a bad request, not a
+        // replay: reads need no dedupe and no key slot is stored for them.
+        assert_eq!(
+            execute(&path, &[s("SELECT 1")], false, true, "reader", Some("read-key-1"))
+                .unwrap_err()
+                .code,
+            "invalid_request"
+        );
+        // The identical keyed shape works for a writer, proving only the
+        // read-only combination is rejected.
+        execute(
+            &path,
+            &[s("SELECT 1")],
+            false,
+            false,
+            "writer",
+            Some("read-key-1"),
+        )
+        .unwrap();
+    }
 }
