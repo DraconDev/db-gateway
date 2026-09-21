@@ -41,21 +41,30 @@ chmod 600 "$WORKDIR/cli.key"
 
 "$DG" serve --listen 127.0.0.1:0 --data-dir "$WORKDIR/data" 2>"$WORKDIR/stderr.log" &
 SERVER_PID=$!
+# Poll for the listen address with a deadline: a single-shot read races
+# server boot and flakes under parallel load (the server wins the race on a
+# quiet box, loses it when dozens of suites spawn at once).
 ADDRESS="$(python3 - "$WORKDIR/stderr.log" <<'EOF'
-import json, sys
-with open(sys.argv[1]) as f:
-    for line in f:
-        line = line.strip()
-        if not line.startswith("{"):
-            continue
-        try:
-            entry = json.loads(line)
-        except ValueError:
-            continue
-        addr = entry.get("fields", {}).get("address")
-        if addr:
-            print(addr)
-            raise SystemExit(0)
+import json, sys, time
+deadline = time.time() + 30
+while time.time() < deadline:
+    try:
+        with open(sys.argv[1]) as f:
+            for line in f:
+                line = line.strip()
+                if not line.startswith("{"):
+                    continue
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                addr = entry.get("fields", {}).get("address")
+                if addr:
+                    print(addr)
+                    raise SystemExit(0)
+    except FileNotFoundError:
+        pass
+    time.sleep(0.2)
 raise SystemExit("listen address not observed")
 EOF
 )"
