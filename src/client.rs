@@ -42,6 +42,8 @@ const MAX_GENERIC_RESPONSE: usize = crate::execution::MAX_RESULT + 4096;
 // Export responses contain base64 for an 8 MiB SQLite snapshot plus JSON
 // overhead; lifecycle responses are deliberately larger than query results.
 const MAX_LIFECYCLE_RESPONSE: usize = 12 * 1024 * 1024;
+// Snapshot chunks carry one 1 MiB piece base64-encoded plus JSON overhead.
+const MAX_CHUNK_RESPONSE: usize = 2 * 1024 * 1024;
 
 pub async fn request(
     server: &str,
@@ -93,6 +95,8 @@ pub async fn request(
     // A bounded read protects CLI memory even when pointed at a bad endpoint.
     let response_limit = if path.ends_with("/export") {
         MAX_LIFECYCLE_RESPONSE
+    } else if path.starts_with("/v1/snapshots/") {
+        MAX_CHUNK_RESPONSE
     } else {
         MAX_GENERIC_RESPONSE
     };

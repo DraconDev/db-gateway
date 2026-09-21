@@ -98,7 +98,12 @@ async fn retention_maintenance(store: std::sync::Arc<store::Store>) {
     loop {
         ticks.tick().await;
         let store = store.clone();
-        match tokio::task::spawn_blocking(move || store.purge_expired()).await {
+        match tokio::task::spawn_blocking(move || {
+            store.purge_expired()?;
+            store.sweep_transfers().map(|_| ())
+        })
+        .await
+        {
             Ok(Ok(_)) => {}
             Ok(Err(error)) => {
                 tracing::error!(code = error.code, "retention purge failed; will retry")
