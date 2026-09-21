@@ -376,7 +376,9 @@ impl Store {
         validate_name(name)?;
         let mut conn = self.meta()?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        if tx.query_row("SELECT count(*) FROM databases", [], |r| r.get::<_, i64>(0))? >= MAX_DATABASES {
+        if tx.query_row("SELECT count(*) FROM databases", [], |r| r.get::<_, i64>(0))?
+            >= MAX_DATABASES
+        {
             return Err(Error::busy());
         }
         let generation = new_generation(&tx)?;
@@ -585,7 +587,9 @@ impl Store {
         validate_name(name)?;
         let mut conn = self.meta()?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        if tx.query_row("SELECT count(*) FROM databases", [], |r| r.get::<_, i64>(0))? >= MAX_DATABASES {
+        if tx.query_row("SELECT count(*) FROM databases", [], |r| r.get::<_, i64>(0))?
+            >= MAX_DATABASES
+        {
             return Err(Error::busy());
         }
         let exists: bool = tx.query_row(
