@@ -81,11 +81,11 @@ test('typed lifecycle: clone, single-shot vs chunked export, chunked import', as
     await gateway.createDatabase('media');
     const db = gateway.database('media');
     await db.execute('CREATE TABLE blobs (id INTEGER PRIMARY KEY, v BLOB NOT NULL)');
-    await db.execute('INSERT INTO blobs (v) VALUES (zeroblob(2000000))');
+    await db.execute('INSERT INTO blobs (v) VALUES (zeroblob(900000)), (zeroblob(900000)), (zeroblob(900000))');
 
     const clone = await db.cloneTo('media_copy');
     assert.deepEqual(clone, { source: 'media', destination: 'media_copy' });
-    assert.equal((await gateway.database('media_copy').execute('SELECT length(v) FROM blobs')).rows[0][0], 2000000);
+    assert.equal((await gateway.database('media_copy').execute('SELECT length(v) FROM blobs')).rows[0][0], 900000);
 
     // Both export paths must produce byte-identical snapshots.
     const single = await db.exportSnapshot();
@@ -97,8 +97,8 @@ test('typed lifecycle: clone, single-shot vs chunked export, chunked import', as
     assert.deepEqual(chunked.data, single.data);
 
     await gateway.importChunked('media_chunked', chunked.data);
-    assert.equal((await gateway.database('media_chunked').execute('SELECT length(v) FROM blobs')).rows[0][0], 2000000);
+    assert.equal((await gateway.database('media_chunked').execute('SELECT length(v) FROM blobs')).rows[0][0], 900000);
     await gateway.importSnapshot('media_single', single.data);
-    assert.equal((await gateway.database('media_single').execute('SELECT count(*) FROM blobs')).rows[0][0], 1);
+    assert.equal((await gateway.database('media_single').execute('SELECT count(*) FROM blobs')).rows[0][0], 3);
   });
 });
