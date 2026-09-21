@@ -327,7 +327,7 @@ impl Store {
     /// with a valid owner key, so a missing owner row is corruption, not a
     /// client error.
     pub fn rotate_owner(&self) -> Result<String> {
-        let conn = self.meta()?;
+        let mut conn = self.meta()?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let key = generate_key();
         let changed = tx.execute(

@@ -153,7 +153,11 @@ fn rotation_kills_old_key_keeps_data_and_scopes() {
     assert_eq!(status, 200);
     let rotated = body["key"].as_str().unwrap().to_string();
     assert!(is_hex64(&rotated) && rotated != owner);
-    assert_eq!(body.as_object().unwrap().len(), 1, "key response carries no metadata");
+    assert_eq!(
+        body.as_object().unwrap().len(),
+        1,
+        "key response carries no metadata"
+    );
 
     // Old owner key is dead everywhere immediately.
     for (method, path) in [
@@ -206,13 +210,13 @@ fn rotation_kills_old_key_keeps_data_and_scopes() {
 fn cli_rotate_owner_end_to_end() {
     let fleet = Fleet::boot();
     fleet.cli.ok("create", &["create", "shop"]);
-    fleet.cli.ok(
-        "seed",
-        &["query", "shop", "CREATE TABLE t (v TEXT)"],
-    );
     fleet
         .cli
-        .ok("insert", &["query", "shop", "INSERT INTO t VALUES ('keep')"]);
+        .ok("seed", &["query", "shop", "CREATE TABLE t (v TEXT)"]);
+    fleet.cli.ok(
+        "insert",
+        &["query", "shop", "INSERT INTO t VALUES ('keep')"],
+    );
 
     let rotated = fleet.cli.ok("rotate", &["key", "rotate-owner"]);
     let key = rotated["key"].as_str().unwrap().to_string();
