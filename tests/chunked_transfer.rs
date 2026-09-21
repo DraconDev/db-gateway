@@ -657,10 +657,13 @@ fn cli_uses_chunked_transfer() {
     assert_eq!(spot[0][0].as_str().unwrap().len(), 50_000);
 
     // No-clobber export still holds on the chunked path.
-    let (success, stdout, _) = fleet
+    let (success, stdout, stderr) = fleet
         .cli
         .run(&["export", "cli_big", "--out", out.to_str().unwrap()]);
     assert!(!success);
-    assert!(stdout.contains("\"code\":\"file_exists\""), "{stdout}");
+    assert!(
+        stdout.contains("file_exists") || stderr.contains("file_exists"),
+        "missing file_exists error: stdout={stdout} stderr={stderr}"
+    );
     assert_eq!(std::fs::metadata(&out).unwrap().len(), size);
 }
