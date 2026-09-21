@@ -34,6 +34,14 @@ Store key files with `0600` permissions; the CLI refuses group/world-readable ke
 | `POST /v1/databases/{name}/clone` | read-write key on source | `{"destination":"name2"}` | `{"source":"…","destination":"…"}` |
 | `POST /v1/databases/{name}/export` | scoped key | `{}` | `{"database":"…","sha256":"…","size":n,"data_base64":"…"}` |
 | `POST /v1/databases/{name}/import` | owner | `{"name":"new_name","data_base64":"…"}` | `{"imported":"…","from":"…"}` |
+| `POST /v1/databases/{name}/export/begin` | scoped key | `{}` | `{"snapshot":"…","size":n,"sha256":"…"}` |
+| `GET /v1/snapshots/{id}?offset=&length=` | creator/owner | — | `{"snapshot":"…","size":n,"sha256":"…","offset":n,"data_base64":"…"}` |
+| `DELETE /v1/snapshots/{id}` | creator/owner | — | `{"released":true}` |
+| `POST /v1/databases/{name}/import/begin` | owner | `{}` | `{"upload":"…"}` |
+| `GET /v1/uploads/{id}` | owner | — | `{"upload":"…","received":n,"size_cap":n}` |
+| `POST /v1/uploads/{id}/chunk` | owner | `{"offset":n,"data_base64":"…"}` | `{"upload":"…","received":n}` |
+| `POST /v1/uploads/{id}/commit` | owner | `{"name":"…"}` | `{"imported":"…"}` |
+| `DELETE /v1/uploads/{id}` | owner | — | `{"aborted":true}` |
 | `DELETE /v1/databases/{name}` | owner | — | `{"deleted":true,"purge_after_seconds":86400}` |
 
 Names: `[a-z0-9_]+`, not starting with `_`, max 64 chars. Queries never create databases — a missing database is `404 database_not_found`.
@@ -51,6 +59,8 @@ Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1
 | `database_forbidden` | 403 | Key not scoped to this database |
 | `sql_forbidden` | 403 | Read-only write attempt, or SQL touching protected `_dg_*` tables / disallowed features (attach, pragmas, `ALTER`, triggers/views, temp objects, virtual tables, load_extension, user transactions) |
 | `database_not_found` | 404 | No such database (never silently created) |
+| `snapshot_not_found` | 404 | Snapshot unknown, expired, or created by another principal |
+| `upload_not_found` | 404 | Upload unknown or expired |
 | `invalid_request` | 400 | Malformed JSON, unknown fields, bad name, unsupported arg, empty batch, more than 32 batch statements, SQL text over 64 KiB, more than 256 args, or malformed idempotency key |
 | `invalid_request` | 413 | JSON body over the 64 KiB general cap; import requests have a 12 MiB encoded transport envelope, while decoded import data is capped at 8 MiB |
 | `invalid_sql` | 400 | Syntax error, wrong parameter count, unknown table/column |
@@ -82,7 +92,7 @@ The server retains the SQLite file for **24 hours** and checks expired tombstone
 
 `dg delete NAME --confirm NAME` requires the exact name to be typed twice. Missing or mismatched confirmation fails locally with `confirmation_required` and sends no DELETE request; `--yes` is not supported. At the HTTP level, sending owner-authenticated `DELETE /v1/databases/{name}` is the explicit destructive request (no body). Lifecycle staging is private per request and automatically cleaned up on both success and error.
 
-The HTTP export/import payload limit is 8 MiB of decoded SQLite data. The CLI accepts only regular import files within that bound and rejects larger files before base64 encoding or sending them. `dg export --out PATH` writes through a same-directory temporary file and a no-clobber publication: an existing destination is preserved and returns `file_exists`; a successful export is never exposed as a partial file.
+Single-shot export/import carries the whole file in one JSON body and is capped at 8 MiB of decoded SQLite data. Larger databases use the **chunked path** (which the CLI uses transparently for all sizes): `export/begin` freezes a consistent snapshot, `GET /v1/snapshots/{id}` fetches it in pieces (default 1 MiB, `offset`/`length` query params), and `DELETE` releases it early. Uploads mirror this: `import/begin`, append-only `chunk` posts at the exact received offset (`GET` status shows it for resume), then `commit` under a target name or `DELETE` to abort. Chunked bounds: 1 MiB per chunk, 128 MiB total per transfer, 8 concurrent transfers, 15-minute retention swept every second. Snapshot ids are creator-bound (the creating principal or the owner); uploads are owner-only. Snapshots and uploads do not survive a server restart — begin again and resume. Commit reuses the validated atomic import above, so the same interruption boundary applies. `dg export --out PATH` verifies the whole-file SHA-256 before its same-directory no-clobber publication: an existing destination is preserved and returns `file_exists`; a successful export is never exposed as a partial file. `dg import` rejects non-regular files and files over the 128 MiB ceiling locally before sending anything.
 
 ## CLI
 
