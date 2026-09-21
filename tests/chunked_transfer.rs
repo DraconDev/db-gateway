@@ -624,8 +624,9 @@ fn cli_uses_chunked_transfer() {
     let client = reqwest::blocking::Client::new();
     let owner = std::fs::read_to_string(&fleet.cli.key_file).unwrap();
     let owner = owner.trim();
+    let address = fleet.cli.server.trim_start_matches("http://");
     // Multi-chunk database (~3 MiB) through HTTP seeding, then CLI only.
-    seed_big(&client, &fleet.cli.server, owner, "cli_big", 60, 50_000);
+    seed_big(&client, address, owner, "cli_big", 60, 50_000);
 
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("cli_big.sqlite");
