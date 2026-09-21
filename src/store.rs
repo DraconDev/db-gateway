@@ -981,9 +981,17 @@ fn sweep_orphan_transfer_dirs(root: &Path) {
 
 /// Streaming SHA-256 so hashing a large snapshot never loads it into memory.
 fn sha256_file(path: &Path) -> Result<String> {
+    use std::io::Read;
     let mut file = std::fs::File::open(path).map_err(|_| Error::internal())?;
     let mut hasher = Sha256::new();
-    std::io::copy(&mut file, &mut hasher).map_err(|_| Error::internal())?;
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = file.read(&mut buf).map_err(|_| Error::internal())?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
     Ok(hex::encode(hasher.finalize()))
 }
 
