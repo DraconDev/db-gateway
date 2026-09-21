@@ -329,7 +329,7 @@ fn chunk_errors_are_stable() {
 
     // Unknown and malformed ids are 404 without an oracle.
     for (method, path) in [
-        ("GET", "/v1/snapshots/0".repeat(1)),
+        ("GET", "/v1/snapshots/0".to_string()),
         ("GET", format!("/v1/snapshots/{}", "0".repeat(64))),
         ("DELETE", format!("/v1/snapshots/{}", "0".repeat(64))),
     ] {
@@ -650,13 +650,10 @@ fn cli_uses_chunked_transfer() {
         fleet.cli.q("count", "cli_copy", "SELECT count(*) FROM t"),
         json!([[60]])
     );
-    assert_eq!(
-        fleet.cli.q("spot", "cli_copy", "SELECT v FROM t WHERE id = 59")`
-            .as_str()
-            .unwrap()
-            .len(),
-        50_000
-    );
+    let spot = fleet
+        .cli
+        .q("spot", "cli_copy", "SELECT v FROM t WHERE id = 59");
+    assert_eq!(spot[0][0].as_str().unwrap().len(), 50_000);
 
     // No-clobber export still holds on the chunked path.
     let (success, stdout, _) = fleet
