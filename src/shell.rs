@@ -188,12 +188,12 @@ impl Session<'_> {
             ".tables" | ".schema" => {
                 let (sql, args) = if command == ".tables" {
                     (
-                        "SELECT name FROM sqlite_master WHERE type='table' AND substr(name,1,4)!='_dg_' ORDER BY name",
+                        "SELECT name FROM sqlite_master WHERE type='table' AND lower(substr(name,1,4))!='_dg_' ORDER BY name",
                         json!([]),
                     )
                 } else {
                     (
-                        "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL AND substr(name,1,4)!='_dg_' AND (?='' OR name=?) ORDER BY name",
+                        "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL AND lower(substr(name,1,4))!='_dg_' AND (?='' OR name=?) ORDER BY name",
                         json!([argument, argument]),
                     )
                 };

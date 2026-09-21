@@ -416,7 +416,7 @@ impl Store {
         let db = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
             .map_err(|_| Error::internal())?;
         let tables: Vec<String> = db
-            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND substr(name,1,4)!='_dg_' ORDER BY name")?
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND lower(substr(name,1,4))!='_dg_' ORDER BY name")?
             .query_map([], |r| r.get(0))?
             .collect::<std::result::Result<_, _>>()?;
         let mut detail = Vec::with_capacity(tables.len());
