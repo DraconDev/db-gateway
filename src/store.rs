@@ -683,6 +683,304 @@ impl Store {
         let temp = self.export_snapshot(source)?;
         self.import_from(dest, temp.path())
     }
+
+    /// Take a retained online-backup snapshot for chunked download. The
+    /// snapshot is a consistent committed point in time; chunks served later
+    /// read this frozen copy, so concurrent writes never tear a transfer.
+    pub fn export_begin(&self, principal: &Principal, name: &str) -> Result<SnapshotInfo> {
+        let dir = self.retained_transfer_dir()?;
+        let file = dir.join("snapshot.sqlite");
+        let outcome = (|| {
+            self.export_to(name, &file)?;
+            let size = std::fs::metadata(&file)
+                .map_err(|_| Error::internal())?
+                .len();
+            if size > MAX_TRANSFER_SIZE {
+                return Err(Error::new(
+                    413,
+                    "result_limit_exceeded",
+                    "database exceeds chunked transfer ceiling",
+                ));
+            }
+            let sha256 = sha256_file(&file)?;
+            let id = generate_key();
+            self.insert_transfer(
+                id.clone(),
+                Transfer {
+                    kind: TransferKind::Snapshot {
+                        size,
+                        sha256: sha256.clone(),
+                    },
+                    dir: dir.clone(),
+                    file,
+                    creator: principal.hash.clone(),
+                    created: Instant::now(),
+                },
+            )?;
+            Ok(SnapshotInfo { id, size, sha256 })
+        })();
+        if outcome.is_err() {
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+        outcome
+    }
+
+    /// Read one chunk of a snapshot. Unknown, expired, wrong-kind, and
+    /// foreign-principal ids all report 404 so ids are not an oracle.
+    pub fn snapshot_chunk(
+        &self,
+        principal: &Principal,
+        id: &str,
+        offset: u64,
+        length: usize,
+    ) -> Result<(Vec<u8>, u64, String)> {
+        let transfer = self.lookup_transfer(id)?.ok_or_else(snapshot_missing)?;
+        if transfer.creator != principal.hash && principal.role != "owner" {
+            return Err(snapshot_missing());
+        }
+        let (size, sha256) = match &transfer.kind {
+            TransferKind::Snapshot { size, sha256 } => (*size, sha256.clone()),
+            TransferKind::Upload { .. } => return Err(snapshot_missing()),
+        };
+        if offset > size {
+            return Err(Error::invalid());
+        }
+        let take = (length as u64)
+            .min(MAX_CHUNK as u64)
+            .min(size - offset) as usize;
+        let mut file = std::fs::File::open(&transfer.file).map_err(|_| Error::internal())?;
+        use std::io::{Read, Seek};
+        file.seek(std::io::SeekFrom::Start(offset))
+            .map_err(|_| Error::internal())?;
+        let mut bytes = vec![0u8; take];
+        file.read_exact(&mut bytes).map_err(|_| Error::internal())?;
+        Ok((bytes, size, sha256))
+    }
+
+    pub fn snapshot_release(&self, principal: &Principal, id: &str) -> Result<()> {
+        let transfer = self.lookup_transfer(id)?.ok_or_else(snapshot_missing)?;
+        if transfer.creator != principal.hash && principal.role != "owner" {
+            return Err(snapshot_missing());
+        }
+        if !matches!(transfer.kind, TransferKind::Snapshot { .. }) {
+            return Err(snapshot_missing());
+        }
+        self.remove_transfer(id);
+        Ok(())
+    }
+
+    /// Open a retained upload for chunked import. Owner-only at the API layer.
+    pub fn upload_begin(&self) -> Result<UploadInfo> {
+        let dir = self.retained_transfer_dir()?;
+        let file = dir.join("upload.bin");
+        std::fs::write(&file, []).map_err(|_| Error::internal())?;
+        let id = generate_key();
+        let outcome = self.insert_transfer(
+            id.clone(),
+            Transfer {
+                kind: TransferKind::Upload { received: 0 },
+                dir: dir.clone(),
+                file,
+                creator: String::new(),
+                created: Instant::now(),
+            },
+        );
+        if outcome.is_err() {
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+        outcome?;
+        Ok(UploadInfo { id })
+    }
+
+    /// Append one chunk at exactly the current received length. Gaps and
+    /// overwrites are rejected; resume by reading status and continuing.
+    pub fn upload_append(&self, id: &str, offset: u64, bytes: &[u8]) -> Result<u64> {
+        if !is_transfer_id(id) {
+            return Err(upload_missing());
+        }
+        if bytes.len() > MAX_CHUNK {
+            return Err(Error::invalid());
+        }
+        let mut transfers = self.transfers.lock().map_err(|_| Error::internal())?;
+        let transfer = match transfers.get_mut(id) {
+            Some(t) if t.created.elapsed() < self.transfer_ttl => t,
+            _ => {
+                transfers.remove(id);
+                return Err(upload_missing());
+            }
+        };
+        let TransferKind::Upload { received } = &mut transfer.kind else {
+            return Err(upload_missing());
+        };
+        if offset != *received {
+            return Err(Error::invalid());
+        }
+        if *received + bytes.len() as u64 > MAX_TRANSFER_SIZE {
+            return Err(Error::new(
+                413,
+                "result_limit_exceeded",
+                "upload exceeds chunked transfer ceiling",
+            ));
+        }
+        use std::io::Write;
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&transfer.file)
+            .and_then(|mut f| f.write_all(bytes))
+            .map_err(|_| Error::internal())?;
+        *received += bytes.len() as u64;
+        Ok(*received)
+    }
+
+    pub fn upload_status(&self, id: &str) -> Result<u64> {
+        match self.lookup_transfer(id)? {
+            Some(t) => match t.kind {
+                TransferKind::Upload { received } => Ok(received),
+                TransferKind::Snapshot { .. } => Err(upload_missing()),
+            },
+            None => Err(upload_missing()),
+        }
+    }
+
+    /// Validate and publish an upload under `name`, reusing the atomic
+    /// single-shot import path. A failed commit keeps the upload so the
+    /// client can fix the target name and retry; abort or TTL releases it.
+    pub fn upload_commit(&self, id: &str, name: &str) -> Result<()> {
+        let transfer = self.lookup_transfer(id)?.ok_or_else(upload_missing)?;
+        if !matches!(transfer.kind, TransferKind::Upload { .. }) {
+            return Err(upload_missing());
+        }
+        self.import_from(name, &transfer.file)?;
+        self.remove_transfer(id);
+        Ok(())
+    }
+
+    pub fn upload_abort(&self, id: &str) -> Result<()> {
+        match self.lookup_transfer(id)? {
+            Some(t) if matches!(t.kind, TransferKind::Upload { .. }) => {
+                self.remove_transfer(id);
+                Ok(())
+            }
+            _ => Err(upload_missing()),
+        }
+    }
+
+    /// Drop expired transfers and their retained directories. Driven by the
+    /// server maintenance loop; begin paths purge inline before counting.
+    pub fn sweep_transfers(&self) -> Result<usize> {
+        let mut transfers = self.transfers.lock().map_err(|_| Error::internal())?;
+        Ok(self.purge_expired_locked(&mut transfers))
+    }
+
+    fn retained_transfer_dir(&self) -> Result<PathBuf> {
+        tempfile::Builder::new()
+            .prefix(".transfer-")
+            .tempdir_in(&self.root)
+            .map_err(|_| Error::internal())
+            .map(|dir| dir.keep())
+    }
+
+    fn insert_transfer(&self, id: String, transfer: Transfer) -> Result<()> {
+        let mut transfers = self.transfers.lock().map_err(|_| Error::internal())?;
+        self.purge_expired_locked(&mut transfers);
+        if transfers.len() >= MAX_TRANSFERS {
+            return Err(Error::busy());
+        }
+        transfers.insert(id, transfer);
+        Ok(())
+    }
+
+    fn lookup_transfer(&self, id: &str) -> Result<Option<Transfer>> {
+        if !is_transfer_id(id) {
+            return Ok(None);
+        }
+        let mut transfers = self.transfers.lock().map_err(|_| Error::internal())?;
+        match transfers.get(id) {
+            Some(t) if t.created.elapsed() < self.transfer_ttl => Ok(Some(t.clone())),
+            Some(_) => {
+                let stale = transfers.remove(id);
+                drop(transfers);
+                if let Some(t) = stale {
+                    let _ = std::fs::remove_dir_all(&t.dir);
+                }
+                Ok(None)
+            }
+            None => Ok(None),
+        }
+    }
+
+    fn remove_transfer(&self, id: &str) {
+        let removed = self
+            .transfers
+            .lock()
+            .map(|mut map| map.remove(id))
+            .ok()
+            .flatten();
+        if let Some(t) = removed {
+            let _ = std::fs::remove_dir_all(&t.dir);
+        }
+    }
+
+    fn purge_expired_locked(
+        &self,
+        transfers: &mut HashMap<String, Transfer>,
+    ) -> usize {
+        let stale: Vec<String> = transfers
+            .iter()
+            .filter(|(_, t)| t.created.elapsed() >= self.transfer_ttl)
+            .map(|(id, _)| id.clone())
+            .collect();
+        let count = stale.len();
+        for id in stale {
+            if let Some(t) = transfers.remove(&id) {
+                let _ = std::fs::remove_dir_all(&t.dir);
+            }
+        }
+        count
+    }
+}
+
+fn snapshot_missing() -> Error {
+    Error::new(404, "snapshot_not_found", "snapshot unknown or expired")
+}
+
+fn upload_missing() -> Error {
+    Error::new(404, "upload_not_found", "upload unknown or expired")
+}
+
+fn is_transfer_id(id: &str) -> bool {
+    id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Best-effort removal of staging directories orphaned by a crash. A new
+/// process owns no live transfers, so anything matching the staging prefixes
+/// is residue. Failures are logged, never fatal to startup.
+fn sweep_orphan_transfer_dirs(root: &Path) {
+    let entries = match std::fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) => {
+            tracing::warn!(error = %error, "transfer orphan sweep skipped");
+            return;
+        }
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let is_staging = name.starts_with(".transfer-") || name.starts_with(".lifecycle-");
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        if is_staging && is_dir
+            && let Err(error) = std::fs::remove_dir_all(entry.path())
+        {
+            tracing::warn!(path = %entry.path().display(), error = %error, "orphaned staging dir not removed");
+        }
+    }
+}
+
+/// Streaming SHA-256 so hashing a large snapshot never loads it into memory.
+fn sha256_file(path: &Path) -> Result<String> {
+    let mut file = std::fs::File::open(path).map_err(|_| Error::internal())?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher).map_err(|_| Error::internal())?;
+    Ok(hex::encode(hasher.finalize()))
 }
 
 fn migrate_metadata(conn: &mut Connection, root: &Path) -> Result<()> {
