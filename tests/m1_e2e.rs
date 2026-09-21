@@ -405,10 +405,10 @@ fn scoped_keys_enforce_boundaries() {
     assert_eq!(status, 403);
     assert_eq!(error_code(&body), "database_forbidden");
 
-    // Management routes are denied to app keys: create, list, issue, revoke.
+    // Management routes are denied to app keys: create, issue, revoke.
+    // Listing is scoped instead of denied (asserted below).
     for (method, path, body) in [
         ("POST", "/v1/databases", Some(json!({"name": "sneaky"}))),
-        ("GET", "/v1/databases", None),
         (
             "POST",
             "/v1/keys",
@@ -429,6 +429,16 @@ fn scoped_keys_enforce_boundaries() {
             assert_eq!(error_code(&body), "forbidden");
         }
     }
+
+    // Scoped listing: each app key sees exactly its authorized databases.
+    for key in [&rw, &ro] {
+        let (status, body) = request(&server.address, "GET", "/v1/databases", Some(key), None, None);
+        assert_eq!(status, 200, "scoped list: {body}");
+        assert_eq!(body["databases"], json!(["one"]));
+    }
+    let (status, body) = request(&server.address, "GET", "/v1/databases", Some(&owner), None, None);
+    assert_eq!(status, 200, "owner list: {body}");
+    assert_eq!(body["databases"], json!(["one", "two"]));
 
     // Read-only key may read but not write.
     let (status, _) = request(

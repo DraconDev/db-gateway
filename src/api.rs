@@ -98,9 +98,10 @@ async fn work<T: Send + 'static>(
     .map_err(|_| Error::internal())?
 }
 async fn list(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<Json<Value>> {
-    // Listing is a management route: owner only, like create/issue/revoke.
+    // Scoped listing: the owner sees every live database; an app key sees
+    // exactly its authorized live databases (generation-bound, tombstones
+    // excluded). Unknown/revoked credentials are still 401.
     work(store, headers, |s, p| {
-        p.owner()?;
         Ok(Json(json!({"databases":s.list(&p)?})))
     })
     .await

@@ -336,19 +336,30 @@ fn every_credential_gets_its_exact_code_on_every_route() {
         "-",
     );
     for (name, cred) in creds {
-        let (want, code) = if *name == "owner" {
-            (200, "-")
-        } else if *name == "gone" || *name == "wrong" || *name == "short" || *name == "missing" {
-            (401, "invalid_credential")
-        } else {
-            (403, "forbidden")
-        };
-        check(
-            &format!("{name} list"),
-            req(a, "GET", "/v1/databases", cred.as_deref(), &json!({}), None),
-            want,
-            code,
-        );
+        // Listing is scoped, not owner-only: each credential sees exactly
+        // its authorized live databases (kdel still live at this point).
+        let (status, body) = req(a, "GET", "/v1/databases", cred.as_deref(), &json!({}), None);
+        match *name {
+            "owner" => {
+                assert_eq!(status, 200, "owner list: {body}");
+                assert_eq!(body["databases"], json!(["ka", "kb", "kdel"]), "owner list");
+            }
+            "rw_a" | "ro_a" => {
+                assert_eq!(status, 200, "{name} list: {body}");
+                assert_eq!(body["databases"], json!(["ka"]), "{name} list");
+            }
+            "rw_b" => {
+                assert_eq!(status, 200, "{name} list: {body}");
+                assert_eq!(body["databases"], json!(["kb"]), "{name} list");
+            }
+            _ => {
+                assert_eq!(status, 401, "{name} list: {body}");
+                assert_eq!(
+                    body["error"]["code"], "invalid_credential",
+                    "{name} list"
+                );
+            }
+        }
     }
     // Delete-db: scoped keys refused, owner works (on scratch kdel).
     check(
@@ -636,10 +647,10 @@ fn every_credential_gets_its_exact_code_on_every_route() {
                             assert_eq!(status, 200, "load {name} write: {body}");
                         }
                     }
-                    // Management: owner 200, scoped 403, rest 401.
+                    // Scoped listing under load: no lifecycle ops run here,
+                    // so every list is exact as well as correctly coded.
                     let (want, code) = match name.as_str() {
-                        "owner" => (200, "-"),
-                        "rw_a" | "ro_a" | "rw_b" => (403, "forbidden"),
+                        "owner" | "rw_a" | "ro_a" | "rw_b" => (200, "-"),
                         _ => (401, "invalid_credential"),
                     };
                     let (status, body) = req(
@@ -659,6 +670,10 @@ fn every_credential_gets_its_exact_code_on_every_route() {
                         assert_eq!(status, want, "load {name} list: {body}");
                         if want != 200 {
                             assert_eq!(body["error"]["code"], code, "load {name} list");
+                        } else if name == "rw_a" || name == "ro_a" {
+                            assert_eq!(body["databases"], json!(["ka"]), "load {name} list");
+                        } else if name == "rw_b" {
+                            assert_eq!(body["databases"], json!(["kb"]), "load {name} list");
                         }
                     }
                 }

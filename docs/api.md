@@ -25,7 +25,7 @@ Store key files with `0600` permissions; the CLI refuses group/world-readable ke
 | `GET /health/live` | none | — | `{"status":"ok"}` |
 | `POST /v1/databases` | owner | `{"name":"game_a"}` | `{"name":"game_a"}` |
 | `GET /v1/databases/{name}` | owner | — | `{"name":"…","tombstoned":false,"size_bytes":n,"created_at":epoch,"tables":[{"name":"…","rows":n},…]}` (tombstoned names report `{"name":"…","tombstoned":true,"purge_after":epoch,"size_bytes":n}` instead; unknown names are `404 database_not_found`) |
-| `GET /v1/databases` | owner | — | `{"databases":["game_a", …]}` |
+| `GET /v1/databases` | any key | — | `{"databases":["game_a", …]}` (owner: all live databases; app key: only its authorized live databases) |
 | `POST /v1/keys` | owner | `{"name":"bot_a","role":"database_read_write","databases":["game_a"]}` (or role `database_read_only`) | `{"key":"<64 hex>"}` |
 | `GET /v1/keys` | owner | — | `{"keys":[{"name":"…","role":"…","databases":[…]}]}` (hashes never shown; the owner row is listed) |
 | `DELETE /v1/keys/{name}` | owner | — | `{"revoked":true}` |
