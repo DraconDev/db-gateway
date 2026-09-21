@@ -125,3 +125,11 @@ web/games/wip/football-forever/docs/audit/
 # Added by cargo
 
 /target
+
+# --- db-gateway repo ignores (kept below the managed block) ---
+# Session exhaust, never project source.
+pi-session-*.html
+# Credential material: key files and env files must never be committed.
+*.key
+.env*
+*.pem
