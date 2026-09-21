@@ -160,12 +160,16 @@ fn rotation_kills_old_key_keeps_data_and_scopes() {
     );
 
     // Old owner key is dead everywhere immediately.
-    for (method, path) in [
-        ("GET", "/v1/databases"),
-        ("POST", "/v1/databases/shop/query"),
-        ("POST", "/v1/keys/owner/rotate"),
+    for (method, path, body) in [
+        ("GET", "/v1/databases", None),
+        (
+            "POST",
+            "/v1/databases/shop/query",
+            Some(json!({"sql": "SELECT 1"})),
+        ),
+        ("POST", "/v1/keys/owner/rotate", None),
     ] {
-        let (status, body) = req(&client, a, method, path, &owner, Some(&json!({})));
+        let (status, body) = req(&client, a, method, path, &owner, body.as_ref());
         assert_eq!(status, 401, "old key on {method} {path}");
         assert_eq!(body["error"]["code"], "invalid_credential");
     }
