@@ -743,9 +743,16 @@ mod tests {
         // A keyed request on a read-only credential is a bad request, not a
         // replay: reads need no dedupe and no key slot is stored for them.
         assert_eq!(
-            execute(&path, &[s("SELECT 1")], false, true, "reader", Some("read-key-1"))
-                .unwrap_err()
-                .code,
+            execute(
+                &path,
+                &[s("SELECT 1")],
+                false,
+                true,
+                "reader",
+                Some("read-key-1")
+            )
+            .unwrap_err()
+            .code,
             "invalid_request"
         );
         // The identical keyed shape works for a writer, proving only the
