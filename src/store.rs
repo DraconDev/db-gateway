@@ -14,6 +14,12 @@ use std::{
 };
 use tokio::sync::Semaphore;
 
+/// Maximum registered databases (live rows plus unpurged tombstones).
+/// Registry rows are cheap; per-database runtime state is created lazily,
+/// so this bound exists to keep a runaway client from filling the disk
+/// with database files, not because the registry strains near it.
+pub const MAX_DATABASES: i64 = 128;
+
 pub struct Store {
     root: PathBuf,
     pub global: Arc<Semaphore>,
