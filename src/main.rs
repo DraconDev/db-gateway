@@ -146,6 +146,9 @@ enum KeyCommand {
     Revoke {
         name: String,
     },
+    /// Replace the owner credential; prints the new key once (old key dies
+    /// immediately). Redirect to a 0600 file and verify before discarding the old.
+    RotateOwner,
 }
 async fn run(cli: Cli) -> Result<(), dg::ServerError> {
     use dg::{ServerError::Application, error::Error};
@@ -467,6 +470,9 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 dg::store::validate_name(&name).map_err(Application)?;
                 (Method::DELETE, format!("/v1/keys/{name}"), None, None)
             }
+            Command::Key {
+                command: KeyCommand::RotateOwner,
+            } => (Method::POST, "/v1/keys/owner/rotate".into(), None, None),
         };
     let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
         400,

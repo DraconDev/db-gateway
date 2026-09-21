@@ -16,7 +16,7 @@ Authentication is `Authorization: Bearer <credential>` on every route. Credentia
 | `database_read_only` | `dg key create` (owner) | SQL reads on its scoped databases |
 | `database_read_write` | `dg key create` (owner) | SQL reads + writes on its scoped databases |
 
-Store key files with `0600` permissions; the CLI refuses group/world-readable key files. **Automated development clients should use scoped dev credentials, never the owner key.** Each registered database also has a durable opaque generation identity. A scoped credential stores the database name together with the generation it was issued for; after tombstone purge and same-name recreation, the old credential receives `database_forbidden` while a newly issued credential can access the replacement. Legacy name-only scope metadata is migrated to the current generation without broadening access.
+Store key files with `0600` permissions; the CLI refuses group/world-readable key files. **Automated development clients should use scoped dev credentials, never the owner key.** Rotate a compromised or stale owner key with `dg key rotate-owner` (prints `{"key": …}` once — redirect to a `0600` file): the old key dies immediately while databases, generations, and app-key scopes are untouched. Verify the new key (`dg --key-file new.key key list`) before discarding the old file. Losing the current owner key locks out management until it is recovered from custody — app keys keep working, but nothing can issue, revoke, create, or delete. Each registered database also has a durable opaque generation identity. A scoped credential stores the database name together with the generation it was issued for; after tombstone purge and same-name recreation, the old credential receives `database_forbidden` while a newly issued credential can access the replacement. Legacy name-only scope metadata is migrated to the current generation without broadening access.
 
 ## Routes
 
@@ -29,6 +29,7 @@ Store key files with `0600` permissions; the CLI refuses group/world-readable ke
 | `POST /v1/keys` | owner | `{"name":"bot_a","role":"database_read_write","databases":["game_a"]}` (or role `database_read_only`) | `{"key":"<64 hex>"}` |
 | `GET /v1/keys` | owner | — | `{"keys":[{"name":"…","role":"…","databases":[…]}]}` (hashes never shown; the owner row is listed) |
 | `DELETE /v1/keys/{name}` | owner | — | `{"revoked":true}` |
+| `POST /v1/keys/owner/rotate` | owner | — | `{"key":"<64 hex>"}` |
 | `POST /v1/databases/{name}/query` | scoped key | `{"sql":"INSERT … VALUES (?)","args":[…]}` | `{"columns":[…],"rows":[[…]],"rows_affected":n}` |
 | `POST /v1/databases/{name}/batch` | scoped key | `{"atomic":true,"statements":[{"sql":…,"args":[…]},…]}` | `{"results":[ …query results… ]}` |
 | `POST /v1/databases/{name}/clone` | read-write key on source | `{"destination":"name2"}` | `{"source":"…","destination":"…"}` |
