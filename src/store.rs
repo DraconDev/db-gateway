@@ -15,10 +15,11 @@ use std::{
 use tokio::sync::Semaphore;
 
 /// Maximum registered databases (live rows plus unpurged tombstones).
-/// Registry rows are cheap; per-database runtime state is created lazily,
-/// so this bound exists to keep a runaway client from filling the disk
-/// with database files, not because the registry strains near it.
-pub const MAX_DATABASES: i64 = 128;
+/// Sized for the hundreds-of-databases requirement with headroom: registry
+/// rows are cheap and per-database runtime state is created lazily, so this
+/// bound exists to keep a runaway client from filling the disk with database
+/// files, not because the registry strains near it.
+pub const MAX_DATABASES: i64 = 1024;
 
 pub struct Store {
     root: PathBuf,
