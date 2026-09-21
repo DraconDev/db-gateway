@@ -155,7 +155,13 @@ fn count(client: &reqwest::blocking::Client, address: &str, owner: &str, db: &st
     rows["rows"][0][0].clone()
 }
 
-fn row(client: &reqwest::blocking::Client, address: &str, owner: &str, db: &str, id: usize) -> Value {
+fn row(
+    client: &reqwest::blocking::Client,
+    address: &str,
+    owner: &str,
+    db: &str,
+    id: usize,
+) -> Value {
     let (status, rows) = req(
         client,
         address,
@@ -219,7 +225,9 @@ fn chunked_round_trip_above_single_shot_cap() {
         );
         assert_eq!(status, 200, "chunk at {offset}");
         assert_eq!(chunk["offset"], offset);
-        let part = STANDARD.decode(chunk["data_base64"].as_str().unwrap()).unwrap();
+        let part = STANDARD
+            .decode(chunk["data_base64"].as_str().unwrap())
+            .unwrap();
         assert!(!part.is_empty() && part.len() <= CHUNK);
         offset += part.len() as u64;
         bytes.extend_from_slice(&part);
@@ -543,12 +551,26 @@ fn chunk_errors_are_stable() {
     );
     check(
         "foreign snapshot fetch",
-        req(&client, a, "GET", &format!("/v1/snapshots/{snap}"), app, None),
+        req(
+            &client,
+            a,
+            "GET",
+            &format!("/v1/snapshots/{snap}"),
+            app,
+            None,
+        ),
         404,
         "snapshot_not_found",
     );
     // The owner may still serve anyone's snapshot chunk.
-    let (status, _) = req(&client, a, "GET", &format!("/v1/snapshots/{snap}"), &owner, None);
+    let (status, _) = req(
+        &client,
+        a,
+        "GET",
+        &format!("/v1/snapshots/{snap}"),
+        &owner,
+        None,
+    );
     assert_eq!(status, 200);
 }
 
@@ -657,9 +679,10 @@ fn cli_uses_chunked_transfer() {
     assert_eq!(spot[0][0].as_str().unwrap().len(), 50_000);
 
     // No-clobber export still holds on the chunked path.
-    let (success, stdout, stderr) = fleet
-        .cli
-        .run(&["export", "cli_big", "--out", out.to_str().unwrap()]);
+    let (success, stdout, stderr) =
+        fleet
+            .cli
+            .run(&["export", "cli_big", "--out", out.to_str().unwrap()]);
     assert!(!success);
     assert!(
         stdout.contains("file_exists") || stderr.contains("file_exists"),
