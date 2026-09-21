@@ -35,7 +35,10 @@ pub fn router(store: Arc<Store>) -> Router {
         )
         .route("/v1/databases/{name}/export/begin", post(export_begin))
         .route("/v1/databases/{name}/import/begin", post(import_begin))
-        .route("/v1/snapshots/{id}", get(snapshot_chunk).delete(snapshot_release))
+        .route(
+            "/v1/snapshots/{id}",
+            get(snapshot_chunk).delete(snapshot_release),
+        )
         .route("/v1/uploads/{id}", get(upload_status).delete(upload_abort))
         .route(
             "/v1/uploads/{id}/chunk",
@@ -294,7 +297,9 @@ struct ChunkQuery {
 fn query_params<T>(
     params: std::result::Result<Query<T>, axum::extract::rejection::QueryRejection>,
 ) -> Result<T> {
-    params.map(|Query(value)| value).map_err(|_| Error::invalid())
+    params
+        .map(|Query(value)| value)
+        .map_err(|_| Error::invalid())
 }
 
 async fn snapshot_chunk(

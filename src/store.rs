@@ -745,9 +745,7 @@ impl Store {
         if offset > size {
             return Err(Error::invalid());
         }
-        let take = (length as u64)
-            .min(MAX_CHUNK as u64)
-            .min(size - offset) as usize;
+        let take = (length as u64).min(MAX_CHUNK as u64).min(size - offset) as usize;
         let mut file = std::fs::File::open(&transfer.file).map_err(|_| Error::internal())?;
         use std::io::{Read, Seek};
         file.seek(std::io::SeekFrom::Start(offset))
@@ -925,10 +923,7 @@ impl Store {
         }
     }
 
-    fn purge_expired_locked(
-        &self,
-        transfers: &mut HashMap<String, Transfer>,
-    ) -> usize {
+    fn purge_expired_locked(&self, transfers: &mut HashMap<String, Transfer>) -> usize {
         let stale: Vec<String> = transfers
             .iter()
             .filter(|(_, t)| t.created.elapsed() >= self.transfer_ttl)
@@ -971,7 +966,8 @@ fn sweep_orphan_transfer_dirs(root: &Path) {
         let name = entry.file_name().to_string_lossy().into_owned();
         let is_staging = name.starts_with(".transfer-") || name.starts_with(".lifecycle-");
         let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-        if is_staging && is_dir
+        if is_staging
+            && is_dir
             && let Err(error) = std::fs::remove_dir_all(entry.path())
         {
             tracing::warn!(path = %entry.path().display(), error = %error, "orphaned staging dir not removed");

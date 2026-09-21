@@ -20,10 +20,7 @@ fn export_stage_file(out: &Path) -> dg::error::Result<tempfile::NamedTempFile> {
     tempfile::NamedTempFile::new_in(parent).map_err(|_| dg::error::Error::internal())
 }
 
-fn publish_export_file(
-    temp: tempfile::NamedTempFile,
-    path: &Path,
-) -> dg::error::Result<()> {
+fn publish_export_file(temp: tempfile::NamedTempFile, path: &Path) -> dg::error::Result<()> {
     temp.as_file()
         .sync_all()
         .map_err(|_| dg::error::Error::internal())?;
@@ -156,211 +153,321 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
     // Credential resolution: explicit flag, env, then the default key file.
     // Missing everywhere is the same local error as before.
     let key_path = cli.key_file.clone().or_else(dg::client::default_key_file);
-    let (method, path, body, idempotency) = match cli.command {
-        Command::Serve { listen, data_dir } => return dg::serve(listen, data_dir).await,
-        Command::Init { data_dir } => {
-            let key = dg::store::Store::open(&data_dir)
-                .and_then(|store| store.bootstrap())
-                .map_err(Application)?;
-            println!("{}", json!({"owner_key":key}));
-            return Ok(());
-        }
-        Command::List => (Method::GET, "/v1/databases".into(), None, None),
-        Command::Info { name } => {
-            dg::store::validate_name(&name).map_err(Application)?;
-            (Method::GET, format!("/v1/databases/{name}"), None, None)
-        }
-        Command::Create { name } => {
-            dg::store::validate_name(&name).map_err(Application)?;
-            (
-                Method::POST,
-                "/v1/databases".into(),
-                Some(json!({"name":name})),
-                None,
-            )
-        }
-        Command::Clone {
-            source,
-            destination,
-        } => {
-            dg::store::validate_name(&source).map_err(Application)?;
-            dg::store::validate_name(&destination).map_err(Application)?;
-            (
-                Method::POST,
-                format!("/v1/databases/{source}/clone"),
-                Some(json!({"destination":destination})),
-                None,
-            )
-        }
-        Command::Export { name, out } => {
-            dg::store::validate_name(&name).map_err(Application)?;
-            let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
-                400,
-                "missing_credential",
-                "--key-file required",
-            )))?)
-            .map_err(Application)?;
-            let response = dg::client::request(
-                &cli.server,
-                &key,
-                Method::POST,
-                &format!("/v1/databases/{name}/export"),
-                Some(json!({})),
-                None,
-            )
-            .await
-            .map_err(Application)?;
-            if response.get("error").is_some() {
-                println!("{response}");
-                return Err(Application(Error::new(
-                    400,
-                    "api_error",
-                    "export failed; see JSON response",
-                )));
+    let (method, path, body, idempotency) =
+        match cli.command {
+            Command::Serve { listen, data_dir } => return dg::serve(listen, data_dir).await,
+            Command::Init { data_dir } => {
+                let key = dg::store::Store::open(&data_dir)
+                    .and_then(|store| store.bootstrap())
+                    .map_err(Application)?;
+                println!("{}", json!({"owner_key":key}));
+                return Ok(());
             }
-            let encoded = response["data_base64"]
-                .as_str()
-                .ok_or(Application(Error::internal()))?;
-            let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
-                .map_err(|_| Application(Error::internal()))?;
-            publish_export(&out, &bytes).map_err(Application)?;
-            println!(
-                "{}",
-                json!({"name":name,"out":out.display().to_string(),"size":response["size"],"sha256":response["sha256"]})
-            );
-            return Ok(());
-        }
-        Command::Import { name, from } => {
-            dg::store::validate_name(&name).map_err(Application)?;
-            let bytes = read_import_file(&from).map_err(Application)?;
-            let encoded =
-                base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
-            (
-                Method::POST,
-                format!("/v1/databases/{name}/import"),
-                Some(json!({"name":name,"data_base64":encoded})),
-                None,
-            )
-        }
-        Command::Delete { name, confirm } => {
-            dg::store::validate_name(&name).map_err(Application)?;
-            if confirm.as_deref() != Some(name.as_str()) {
-                return Err(Application(Error::new(
-                    400,
-                    "confirmation_required",
-                    "destructive operation: repeat the exact database name with --confirm NAME",
-                )));
+            Command::List => (Method::GET, "/v1/databases".into(), None, None),
+            Command::Info { name } => {
+                dg::store::validate_name(&name).map_err(Application)?;
+                (Method::GET, format!("/v1/databases/{name}"), None, None)
             }
-            (Method::DELETE, format!("/v1/databases/{name}"), None, None)
-        }
-        Command::Shell => {
-            let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
-                400,
-                "missing_credential",
-                "--key-file required",
-            )))?)
-            .map_err(Application)?;
-            return dg::shell::run(
-                &cli.server,
-                &key,
-                cli.json,
-                std::io::stdin().is_terminal() && std::io::stdout().is_terminal(),
-                std::io::stdin(),
-                std::io::stdout(),
-            )
-            .await
-            .map_err(Application);
-        }
-        Command::Query {
-            name,
-            sql,
-            args,
-            idempotency_key,
-        } => {
-            dg::store::validate_name(&name).map_err(Application)?;
-            let args: Vec<Value> =
-                serde_json::from_str(&args).map_err(|_| Application(Error::invalid()))?;
-            // Interactive terminals get the shell's aligned table; piped
-            // output and --json stay machine-readable JSON.
-            if !cli.json && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+            Command::Create { name } => {
+                dg::store::validate_name(&name).map_err(Application)?;
+                (
+                    Method::POST,
+                    "/v1/databases".into(),
+                    Some(json!({"name":name})),
+                    None,
+                )
+            }
+            Command::Clone {
+                source,
+                destination,
+            } => {
+                dg::store::validate_name(&source).map_err(Application)?;
+                dg::store::validate_name(&destination).map_err(Application)?;
+                (
+                    Method::POST,
+                    format!("/v1/databases/{source}/clone"),
+                    Some(json!({"destination":destination})),
+                    None,
+                )
+            }
+            Command::Export { name, out } => {
+                dg::store::validate_name(&name).map_err(Application)?;
                 let key = dg::client::read_key(key_path.as_deref().ok_or(Application(
                     Error::new(400, "missing_credential", "--key-file required"),
                 ))?)
                 .map_err(Application)?;
-                let result = dg::client::request(
+                // Chunked download: freeze a snapshot, stream it piece by piece,
+                // verify the whole-file hash, then publish atomically.
+                let begin = dg::client::request(
                     &cli.server,
                     &key,
                     Method::POST,
-                    &format!("/v1/databases/{name}/query"),
-                    Some(json!({"sql":sql,"args":args})),
-                    idempotency_key.as_deref(),
+                    &format!("/v1/databases/{name}/export/begin"),
+                    Some(json!({})),
+                    None,
                 )
                 .await
                 .map_err(Application)?;
-                dg::shell::render(&result, false, &mut std::io::stdout()).map_err(Application)?;
-                if result.get("error").is_some() {
+                if api_failed(&begin) {
+                    println!("{begin}");
+                    return Err(Application(api_error()));
+                }
+                let snapshot = begin["snapshot"]
+                    .as_str()
+                    .ok_or(Application(Error::internal()))?;
+                let size = begin["size"]
+                    .as_u64()
+                    .ok_or(Application(Error::internal()))?;
+                let sha256 = begin["sha256"]
+                    .as_str()
+                    .ok_or(Application(Error::internal()))?;
+                let mut staged = export_stage_file(&out).map_err(Application)?;
+                let mut hasher = Sha256::new();
+                let mut offset = 0u64;
+                while offset < size {
+                    let chunk = dg::client::request(
+                        &cli.server,
+                        &key,
+                        Method::GET,
+                        &format!(
+                            "/v1/snapshots/{snapshot}?offset={offset}&length={}",
+                            dg::store::MAX_CHUNK
+                        ),
+                        None,
+                        None,
+                    )
+                    .await
+                    .map_err(Application)?;
+                    if api_failed(&chunk) {
+                        println!("{chunk}");
+                        return Err(Application(api_error()));
+                    }
+                    let encoded = chunk["data_base64"]
+                        .as_str()
+                        .ok_or(Application(Error::internal()))?;
+                    let bytes =
+                        base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
+                            .map_err(|_| Application(Error::internal()))?;
+                    if bytes.is_empty() {
+                        break;
+                    }
+                    staged
+                        .write_all(&bytes)
+                        .map_err(|_| Application(Error::internal()))?;
+                    hasher.update(&bytes);
+                    offset += bytes.len() as u64;
+                }
+                if offset != size || hex::encode(hasher.finalize()) != sha256 {
+                    return Err(Application(Error::internal()));
+                }
+                publish_export_file(staged, &out).map_err(Application)?;
+                println!(
+                    "{}",
+                    json!({"name":name,"out":out.display().to_string(),"size":size,"sha256":sha256})
+                );
+                return Ok(());
+            }
+            Command::Import { name, from } => {
+                dg::store::validate_name(&name).map_err(Application)?;
+                let key = dg::client::read_key(key_path.as_deref().ok_or(Application(
+                    Error::new(400, "missing_credential", "--key-file required"),
+                ))?)
+                .map_err(Application)?;
+                // Chunked upload: stream the file piece by piece, then commit.
+                // Only a single chunk is ever buffered in memory.
+                let file = File::open(&from).map_err(|_| Application(Error::invalid()))?;
+                let metadata = file.metadata().map_err(|_| Application(Error::invalid()))?;
+                if !metadata.is_file() || metadata.len() > dg::store::MAX_TRANSFER_SIZE {
                     return Err(Application(Error::new(
-                        400,
-                        "api_error",
-                        "API request failed; see response above",
+                        413,
+                        "result_limit_exceeded",
+                        "import exceeds bounded local file size",
                     )));
+                }
+                let begin = dg::client::request(
+                    &cli.server,
+                    &key,
+                    Method::POST,
+                    &format!("/v1/databases/{name}/import/begin"),
+                    Some(json!({})),
+                    None,
+                )
+                .await
+                .map_err(Application)?;
+                if api_failed(&begin) {
+                    println!("{begin}");
+                    return Err(Application(api_error()));
+                }
+                let upload = begin["upload"]
+                    .as_str()
+                    .ok_or(Application(Error::internal()))?;
+                let mut reader = BufReader::new(file);
+                let mut buf = vec![0u8; dg::store::MAX_CHUNK];
+                let mut offset = 0u64;
+                loop {
+                    let n = reader
+                        .read(&mut buf)
+                        .map_err(|_| Application(Error::invalid()))?;
+                    if n == 0 {
+                        break;
+                    }
+                    let encoded = base64::Engine::encode(
+                        &base64::engine::general_purpose::STANDARD,
+                        &buf[..n],
+                    );
+                    let ack = dg::client::request(
+                        &cli.server,
+                        &key,
+                        Method::POST,
+                        &format!("/v1/uploads/{upload}/chunk"),
+                        Some(json!({"offset":offset,"data_base64":encoded})),
+                        None,
+                    )
+                    .await
+                    .map_err(Application)?;
+                    if api_failed(&ack) {
+                        println!("{ack}");
+                        return Err(Application(api_error()));
+                    }
+                    offset += n as u64;
+                    if ack["received"].as_u64() != Some(offset) {
+                        return Err(Application(Error::internal()));
+                    }
+                }
+                let done = dg::client::request(
+                    &cli.server,
+                    &key,
+                    Method::POST,
+                    &format!("/v1/uploads/{upload}/commit"),
+                    Some(json!({"name":name})),
+                    None,
+                )
+                .await
+                .map_err(Application)?;
+                println!("{done}");
+                if api_failed(&done) {
+                    return Err(Application(api_error()));
                 }
                 return Ok(());
             }
-            (
-                Method::POST,
-                format!("/v1/databases/{name}/query"),
-                Some(json!({"sql":sql,"args":args})),
-                idempotency_key,
-            )
-        }
-        Command::Batch {
-            name,
-            file,
-            idempotency_key,
-        } => {
-            dg::store::validate_name(&name).map_err(Application)?;
-            if std::fs::metadata(&file)
-                .map_err(|_| Application(Error::invalid()))?
-                .len()
-                > 65536
-            {
-                return Err(Application(Error::invalid()));
+            Command::Delete { name, confirm } => {
+                dg::store::validate_name(&name).map_err(Application)?;
+                if confirm.as_deref() != Some(name.as_str()) {
+                    return Err(Application(Error::new(
+                        400,
+                        "confirmation_required",
+                        "destructive operation: repeat the exact database name with --confirm NAME",
+                    )));
+                }
+                (Method::DELETE, format!("/v1/databases/{name}"), None, None)
             }
-            let body: dg::execution::Batch = serde_json::from_slice(
-                &std::fs::read(file).map_err(|_| Application(Error::invalid()))?,
-            )
-            .map_err(|_| Application(Error::invalid()))?;
-            (
-                Method::POST,
-                format!("/v1/databases/{name}/batch"),
-                Some(serde_json::to_value(body).map_err(|_| Application(Error::invalid()))?),
+            Command::Shell => {
+                let key = dg::client::read_key(key_path.as_deref().ok_or(Application(
+                    Error::new(400, "missing_credential", "--key-file required"),
+                ))?)
+                .map_err(Application)?;
+                return dg::shell::run(
+                    &cli.server,
+                    &key,
+                    cli.json,
+                    std::io::stdin().is_terminal() && std::io::stdout().is_terminal(),
+                    std::io::stdin(),
+                    std::io::stdout(),
+                )
+                .await
+                .map_err(Application);
+            }
+            Command::Query {
+                name,
+                sql,
+                args,
                 idempotency_key,
-            )
-        }
-        Command::Key {
-            command:
-                KeyCommand::Create {
-                    name,
-                    role,
-                    database,
-                },
-        } => (
-            Method::POST,
-            "/v1/keys".into(),
-            Some(json!({"name":name,"role":role,"databases":database})),
-            None,
-        ),
-        Command::Key {
-            command: KeyCommand::List,
-        } => (Method::GET, "/v1/keys".into(), None, None),
-        Command::Key {
-            command: KeyCommand::Revoke { name },
-        } => {
-            dg::store::validate_name(&name).map_err(Application)?;
-            (Method::DELETE, format!("/v1/keys/{name}"), None, None)
-        }
-    };
+            } => {
+                dg::store::validate_name(&name).map_err(Application)?;
+                let args: Vec<Value> =
+                    serde_json::from_str(&args).map_err(|_| Application(Error::invalid()))?;
+                // Interactive terminals get the shell's aligned table; piped
+                // output and --json stay machine-readable JSON.
+                if !cli.json && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+                    let key = dg::client::read_key(key_path.as_deref().ok_or(Application(
+                        Error::new(400, "missing_credential", "--key-file required"),
+                    ))?)
+                    .map_err(Application)?;
+                    let result = dg::client::request(
+                        &cli.server,
+                        &key,
+                        Method::POST,
+                        &format!("/v1/databases/{name}/query"),
+                        Some(json!({"sql":sql,"args":args})),
+                        idempotency_key.as_deref(),
+                    )
+                    .await
+                    .map_err(Application)?;
+                    dg::shell::render(&result, false, &mut std::io::stdout())
+                        .map_err(Application)?;
+                    if result.get("error").is_some() {
+                        return Err(Application(Error::new(
+                            400,
+                            "api_error",
+                            "API request failed; see response above",
+                        )));
+                    }
+                    return Ok(());
+                }
+                (
+                    Method::POST,
+                    format!("/v1/databases/{name}/query"),
+                    Some(json!({"sql":sql,"args":args})),
+                    idempotency_key,
+                )
+            }
+            Command::Batch {
+                name,
+                file,
+                idempotency_key,
+            } => {
+                dg::store::validate_name(&name).map_err(Application)?;
+                if std::fs::metadata(&file)
+                    .map_err(|_| Application(Error::invalid()))?
+                    .len()
+                    > 65536
+                {
+                    return Err(Application(Error::invalid()));
+                }
+                let body: dg::execution::Batch = serde_json::from_slice(
+                    &std::fs::read(file).map_err(|_| Application(Error::invalid()))?,
+                )
+                .map_err(|_| Application(Error::invalid()))?;
+                (
+                    Method::POST,
+                    format!("/v1/databases/{name}/batch"),
+                    Some(serde_json::to_value(body).map_err(|_| Application(Error::invalid()))?),
+                    idempotency_key,
+                )
+            }
+            Command::Key {
+                command:
+                    KeyCommand::Create {
+                        name,
+                        role,
+                        database,
+                    },
+            } => (
+                Method::POST,
+                "/v1/keys".into(),
+                Some(json!({"name":name,"role":role,"databases":database})),
+                None,
+            ),
+            Command::Key {
+                command: KeyCommand::List,
+            } => (Method::GET, "/v1/keys".into(), None, None),
+            Command::Key {
+                command: KeyCommand::Revoke { name },
+            } => {
+                dg::store::validate_name(&name).map_err(Application)?;
+                (Method::DELETE, format!("/v1/keys/{name}"), None, None)
+            }
+        };
     let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
         400,
         "missing_credential",
