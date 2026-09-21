@@ -70,7 +70,9 @@ fn import_rejects_oversized_local_files_before_encoding_or_network() {
     let fleet = Fleet::boot();
     let dir = tempfile::tempdir().unwrap();
     let oversized = dir.path().join("oversized.sqlite");
-    std::fs::write(&oversized, vec![0u8; 8 * 1024 * 1024 + 1]).unwrap();
+    // One byte past the chunked-transfer ceiling: rejected locally with no
+    // upload attempt and no publication.
+    std::fs::write(&oversized, vec![0u8; 128 * 1024 * 1024 + 1]).unwrap();
     let oversized_arg = oversized.to_str().unwrap();
     let (ok, stdout, stderr) = fleet
         .cli
