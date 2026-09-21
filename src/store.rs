@@ -10,7 +10,7 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, RwLock, RwLockReadGuard},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::Semaphore;
 
@@ -28,6 +28,43 @@ pub struct Store {
     // All server requests hold a read lease until their connections close.
     // Purge takes an exclusive lease before unlinking SQLite files.
     lifecycle: RwLock<()>,
+    transfers: Mutex<HashMap<String, Transfer>>,
+    transfer_ttl: Duration,
+}
+
+/// Chunked-transfer bounds (large-database export/import). Chunks keep every
+/// request and response small; the total ceiling is the documented maximum
+/// database size for lifecycle transfer.
+pub const MAX_TRANSFER_SIZE: u64 = 128 * 1024 * 1024;
+pub const MAX_CHUNK: usize = 1024 * 1024;
+pub const MAX_TRANSFERS: usize = 8;
+pub const TRANSFER_TTL: Duration = Duration::from_secs(15 * 60);
+
+#[derive(Clone)]
+enum TransferKind {
+    Snapshot { size: u64, sha256: String },
+    Upload { received: u64 },
+}
+
+#[derive(Clone)]
+struct Transfer {
+    kind: TransferKind,
+    dir: PathBuf,
+    file: PathBuf,
+    /// Creator's credential hash. Snapshot chunks/release require the creator
+    /// or the owner; uploads are owner-only at the API layer.
+    creator: String,
+    created: Instant,
+}
+
+pub struct SnapshotInfo {
+    pub id: String,
+    pub size: u64,
+    pub sha256: String,
+}
+
+pub struct UploadInfo {
+    pub id: String,
 }
 
 /// An operation exclusively owns this directory and all SQLite sidecars in it.
@@ -111,6 +148,10 @@ pub fn validate_name(name: &str) -> Result<()> {
 }
 impl Store {
     pub fn open(root: &Path) -> Result<Self> {
+        Self::open_with_ttl(root, TRANSFER_TTL)
+    }
+
+    pub fn open_with_ttl(root: &Path, transfer_ttl: Duration) -> Result<Self> {
         std::fs::create_dir_all(root).map_err(|_| Error::internal())?;
         #[cfg(unix)]
         {
@@ -118,11 +159,14 @@ impl Store {
             std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o700))
                 .map_err(|_| Error::internal())?;
         }
+        sweep_orphan_transfer_dirs(root);
         let store = Self {
             root: root.to_path_buf(),
             global: Arc::new(Semaphore::new(4)),
             queues: Mutex::new(HashMap::new()),
             lifecycle: RwLock::new(()),
+            transfers: Mutex::new(HashMap::new()),
+            transfer_ttl,
         };
         let mut metadata = store.meta()?;
         metadata.execute_batch("PRAGMA journal_mode=WAL;")?;
