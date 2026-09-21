@@ -42,7 +42,7 @@ async function withServer(run) {
 }
 
 test('typed management: create/list/info/keys/delete plus denials', async () => {
-  await withServer(async (gateway) => {
+  await withServer(async (gateway, address) => {
     assert.deepEqual(await gateway.createDatabase('shop'), { name: 'shop' });
     assert.deepEqual(await gateway.listDatabases(), ['shop']);
     const info = await gateway.databaseInfo('shop');
@@ -58,9 +58,7 @@ test('typed management: create/list/info/keys/delete plus denials', async () => 
       [['app', 'database_read_write', ['shop']], ['owner', 'owner', []], ['reader', 'database_read_only', ['shop']]],
     );
 
-    const readerGw = new Gateway(gateway['origin'] ?? '', '');
-    void readerGw;
-    const roGw = new Gateway(`http://${(await withAddr(gateway))}`, ro.key);
+    const roGw = new Gateway(`http://${address}`, ro.key);
     await assert.rejects(roGw.deleteDatabase('shop'), (e) => e instanceof GatewayError && e.code === 'forbidden');
     await assert.rejects(roGw.databaseInfo('shop'), (e) => e instanceof GatewayError && e.code === 'forbidden');
     assert.throws(() => gateway.database('Bad-Name'), /Invalid database name/);
@@ -77,11 +75,6 @@ test('typed management: create/list/info/keys/delete plus denials', async () => 
     assert.deepEqual(await gateway.listDatabases(), []);
   });
 });
-
-// Helper: reach the test server address without exposing Gateway internals.
-async function withAddr() {
-  throw new Error('unreachable');
-}
 
 test('typed lifecycle: clone, single-shot vs chunked export, chunked import', async () => {
   await withServer(async (gateway, address) => {
