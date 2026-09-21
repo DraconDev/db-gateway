@@ -1,4 +1,4 @@
-# DB Gateway API and CLI reference (M1)
+# DB Gateway API and CLI reference
 
 All routes are JSON over HTTP. Listening is loopback-only in M1; production requires HTTPS or a private network (deployment is a separate, approved milestone). All errors use one shape:
 

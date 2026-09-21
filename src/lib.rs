@@ -1,4 +1,5 @@
-//! Protocol-neutral foundation. Database execution and credentials are not implemented.
+//! Server foundation: loopback-only listener, authenticated API router,
+//! and retention maintenance for tombstoned databases.
 
 pub mod api;
 pub mod client;
@@ -36,7 +37,7 @@ impl fmt::Display for ServerError {
         match self {
             Self::NonLoopback => write!(
                 f,
-                "only loopback listening is supported before authentication is implemented"
+                "only loopback listening is supported; reach remote hosts over an SSH tunnel or private network"
             ),
             Self::Io(error) => write!(f, "{error}"),
             Self::Application(error) => write!(f, "{error}"),

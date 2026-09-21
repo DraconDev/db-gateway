@@ -86,7 +86,7 @@ enum Command {
         #[arg(long)]
         data_dir: PathBuf,
     },
-    /// Run the authenticated server (loopback only in M1).
+    /// Run the authenticated server (loopback only; remote access via SSH tunnel).
     Serve {
         #[arg(long, default_value = "127.0.0.1:7432")]
         listen: SocketAddr,

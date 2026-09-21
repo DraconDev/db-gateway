@@ -2,7 +2,7 @@
 
 **`dg`** is a single-owner SQLite service: one Rust gateway, many independent databases, an HTTP API and CLI, and off-host backups.
 
-**Status: M2 — authenticated round trip + safe lifecycle operations work locally.** Owner bootstrap, database-scoped keys, SQL query/batch over HTTP, idempotent writes, restart persistence, a TypeScript client, a JSON CLI, the interactive shell, and clone/export/import/tombstone-delete lifecycle operations exist and are tested. Database import is an owner-only management operation; scoped application keys can export or clone only within their authorized source scope. Not yet available: OVH backups, HTTPS, and deployment. **Do not deploy this as a production database service** — those are separately approved milestones.
+**Status: M2 — authenticated round trip + safe lifecycle operations work locally.** Owner bootstrap, database-scoped keys, SQL query/batch over HTTP, idempotent writes, restart persistence, a TypeScript client, a JSON CLI, the interactive shell, and clone/export/import/tombstone-delete lifecycle operations exist and are tested. Database import is an owner-only management operation; scoped application keys can export or clone only within their authorized source scope. Not yet available: OVH backups and HTTPS. A first supervised non-production deploy is recorded in [docs/first-deploy-micro2.md](docs/first-deploy-micro2.md); production deployment remains a separately approved milestone. **Do not deploy this as a production database service.**
 
 ## Quick start (local only)
 
@@ -38,7 +38,7 @@ cargo test --workspace --locked
 npm test          # builds the TS client and runs its integration suite against a real dg serve
 ```
 
-`Cargo.lock` is tracked to fix dependency resolution. CI runs the Rust checks on stable Rust.
+`Cargo.lock` is tracked to fix dependency resolution. CI runs the Rust checks, the TypeScript client suite, and deploy-template validation on stable Rust.
 
 ## Security posture (M1)
 
