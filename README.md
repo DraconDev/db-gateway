@@ -38,7 +38,7 @@ cargo test --workspace --locked
 npm test          # builds the TS client and runs its integration suite against a real dg serve
 ```
 
-`Cargo.lock` is tracked to fix dependency resolution. CI runs the Rust checks, the TypeScript client suite, and deploy-template validation on stable Rust.
+`Cargo.lock` is tracked to fix dependency resolution. CI runs the Rust checks, the TypeScript client suite, deploy-template validation, and a RustSec advisory scan (`cargo audit` equivalent) on stable Rust.
 
 ## Security posture (M1)
 
