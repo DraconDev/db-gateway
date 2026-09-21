@@ -320,6 +320,26 @@ impl Store {
         )?;
         Ok(())
     }
+
+    /// Replace the owner credential atomically and return the new raw key
+    /// (shown once). The old key stops authenticating immediately; database
+    /// rows, generations, and app-key scopes are untouched. Only reachable
+    /// with a valid owner key, so a missing owner row is corruption, not a
+    /// client error.
+    pub fn rotate_owner(&self) -> Result<String> {
+        let conn = self.meta()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let key = generate_key();
+        let changed = tx.execute(
+            "UPDATE credentials SET hash=? WHERE name='owner' AND role='owner'",
+            [hash(&key)],
+        )?;
+        if changed != 1 {
+            return Err(Error::internal());
+        }
+        tx.commit()?;
+        Ok(key)
+    }
     /// Authorize a principal against the database's current generation.
     /// Missing rows are left to `path()` so a scoped credential retains the
     /// existing 404 behavior for a purged database, while a replacement with

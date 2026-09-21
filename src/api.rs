@@ -46,6 +46,7 @@ pub fn router(store: Arc<Store>) -> Router {
         )
         .route("/v1/uploads/{id}/commit", post(upload_commit))
         .route("/v1/keys", get(list_keys).post(issue))
+        .route("/v1/keys/owner/rotate", post(rotate_owner))
         .route("/v1/keys/{name}", delete(revoke))
         .route("/v1/databases/{name}/query", post(query))
         .route("/v1/databases/{name}/batch", post(batch))
@@ -153,6 +154,14 @@ async fn revoke(
         p.owner()?;
         s.revoke(&name)?;
         Ok(Json(json!({"revoked":true})))
+    })
+    .await
+}
+
+async fn rotate_owner(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<Json<Value>> {
+    work(store, headers, |s, p| {
+        p.owner()?;
+        Ok(Json(json!({"key":s.rotate_owner()?})))
     })
     .await
 }
