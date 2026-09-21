@@ -1,51 +1,31 @@
 use clap::{Parser, Subcommand};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::{
     fs::File,
-    io::{IsTerminal, Read, Write},
+    io::{BufReader, IsTerminal, Read, Write},
     net::SocketAddr,
     path::{Path, PathBuf},
     process::ExitCode,
 };
 
-const MAX_IMPORT_BYTES: u64 = 8 * 1024 * 1024;
-
-fn read_import_file(path: &Path) -> dg::error::Result<Vec<u8>> {
-    let file = File::open(path).map_err(|_| dg::error::Error::invalid())?;
-    let metadata = file.metadata().map_err(|_| dg::error::Error::invalid())?;
-    if !metadata.is_file() {
-        return Err(dg::error::Error::invalid());
-    }
-    if metadata.len() > MAX_IMPORT_BYTES {
-        return Err(dg::error::Error::new(
-            413,
-            "result_limit_exceeded",
-            "import exceeds bounded local file size",
-        ));
-    }
-    let mut bytes = Vec::new();
-    file.take(MAX_IMPORT_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| dg::error::Error::invalid())?;
-    if bytes.len() as u64 > MAX_IMPORT_BYTES {
-        return Err(dg::error::Error::new(
-            413,
-            "result_limit_exceeded",
-            "import exceeds bounded local file size",
-        ));
-    }
-    Ok(bytes)
-}
-
-fn publish_export(path: &Path, bytes: &[u8]) -> dg::error::Result<()> {
-    let parent = path
+/// Stage an export download next to its destination so publication below is
+/// a same-directory atomic no-clobber link. Chunks stream in one at a time;
+/// only a single chunk is ever buffered in memory.
+fn export_stage_file(out: &Path) -> dg::error::Result<tempfile::NamedTempFile> {
+    let parent = out
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let mut temp =
-        tempfile::NamedTempFile::new_in(parent).map_err(|_| dg::error::Error::internal())?;
-    temp.write_all(bytes)
-        .and_then(|_| temp.as_file().sync_all())
+    tempfile::NamedTempFile::new_in(parent).map_err(|_| dg::error::Error::internal())
+}
+
+fn publish_export_file(
+    temp: tempfile::NamedTempFile,
+    path: &Path,
+) -> dg::error::Result<()> {
+    temp.as_file()
+        .sync_all()
         .map_err(|_| dg::error::Error::internal())?;
     // A same-directory hard link is an atomic no-clobber publication on the
     // supported Unix deployment. The temporary link is cleaned on return.
@@ -56,6 +36,14 @@ fn publish_export(path: &Path, bytes: &[u8]) -> dg::error::Result<()> {
             dg::error::Error::internal()
         }
     })
+}
+
+fn api_failed(response: &Value) -> bool {
+    response.get("error").is_some()
+}
+
+fn api_error() -> dg::error::Error {
+    dg::error::Error::new(400, "api_error", "API request failed; see JSON response")
 }
 
 #[derive(Parser)]
