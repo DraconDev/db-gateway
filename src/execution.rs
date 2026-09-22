@@ -456,7 +456,9 @@ mod tests {
         ]));
         // Anything else fails closed to the write lane.
         assert!(!is_read_only(&[s("SELEKT 1")]));
-        assert!(!is_read_only(&[s("SELECT * FROM no_such_table")]));
+        // Unknown tables still take the read lane — execution rejects them
+        // with invalid_sql; the lane never decides validity.
+        assert!(is_read_only(&[s("SELECT * FROM no_such_table")]));
         assert!(!is_read_only(&[s(
             "SELECT * FROM t WHERE note = 'do not delete me'"
         )]));
