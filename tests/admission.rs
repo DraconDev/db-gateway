@@ -115,10 +115,7 @@ fn burst_waits_instead_of_shedding() {
             })
         })
         .collect();
-    let mut statuses: Vec<u16> = handles
-        .into_iter()
-        .map(|h| h.join().unwrap())
-        .collect();
+    let mut statuses: Vec<u16> = handles.into_iter().map(|h| h.join().unwrap()).collect();
     statuses.sort_unstable();
     assert_eq!(
         statuses,
