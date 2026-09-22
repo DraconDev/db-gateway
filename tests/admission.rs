@@ -123,3 +123,128 @@ fn burst_waits_instead_of_shedding() {
         "every thread in the burst must be admitted within the bounded wait"
     );
 }
+
+/// Scale proposal Phase 2: eight concurrent reads share the read lane and
+/// the shared per-database guard instead of contending for one slot.
+#[test]
+fn eight_concurrent_reads_run_retry_free() {
+    let dir = tempfile::tempdir().unwrap();
+    let owner = init(dir.path());
+    let server = start(dir.path());
+    let response = reqwest::blocking::Client::new()
+        .post(format!("http://{}/v1/databases", server.address))
+        .bearer_auth(&owner)
+        .json(&json!({"name": "reads"}))
+        .timeout(Duration::from_secs(30))
+        .send()
+        .unwrap();
+    assert_eq!(response.status().as_u16(), 200);
+
+    const READERS: usize = 8;
+    let barrier = Arc::new(Barrier::new(READERS));
+    let handles: Vec<_> = (0..READERS)
+        .map(|_| {
+            let barrier = barrier.clone();
+            let address = server.address.clone();
+            let owner = owner.clone();
+            std::thread::spawn(move || {
+                let client = reqwest::blocking::Client::new();
+                barrier.wait();
+                let response = client
+                    .post(format!("http://{address}/v1/databases/reads/query"))
+                    .bearer_auth(&owner)
+                    .json(&json!({"sql": "SELECT 1", "args": []}))
+                    .timeout(Duration::from_secs(30))
+                    .send()
+                    .unwrap();
+                response.status().as_u16()
+            })
+        })
+        .collect();
+    let mut statuses: Vec<u16> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+    statuses.sort_unstable();
+    assert_eq!(
+        statuses,
+        vec![200; READERS],
+        "concurrent reads must share the read lane with zero 429s"
+    );
+}
+
+/// Scale proposal Phase 2: reads arriving during a slow write wait on the
+/// shared guard (bounded by ACQUIRE_TIMEOUT) instead of failing instantly.
+#[test]
+fn reads_proceed_during_slow_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let owner = init(dir.path());
+    let server = start(dir.path());
+    let client = reqwest::blocking::Client::new();
+    let post = |path: &str, body: &Value| {
+        client
+            .post(format!("http://{}{path}", server.address))
+            .bearer_auth(&owner)
+            .json(body)
+            .timeout(Duration::from_secs(30))
+            .send()
+            .unwrap()
+            .status()
+            .as_u16()
+    };
+    assert_eq!(post("/v1/databases", &json!({"name": "mixed"})), 200);
+    assert_eq!(
+        post(
+            "/v1/databases/mixed/query",
+            &json!({"sql": "CREATE TABLE t (x)", "args": []})
+        ),
+        200
+    );
+
+    // One slow write (~30k inserted rows) holds the exclusive guard while
+    // four reads arrive mid-write; every request must succeed.
+    let address = server.address.clone();
+    let owner_write = owner.clone();
+    let writer = std::thread::spawn(move || {
+        reqwest::blocking::Client::new()
+            .post(format!("http://{address}/v1/databases/mixed/query"))
+            .bearer_auth(&owner_write)
+            .json(&json!({
+                "sql": "INSERT INTO t WITH RECURSIVE cnt(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM cnt WHERE x<30000) SELECT x FROM cnt",
+                "args": [],
+            }))
+            .timeout(Duration::from_secs(30))
+            .send()
+            .unwrap()
+            .status()
+            .as_u16()
+    });
+    std::thread::sleep(Duration::from_millis(50));
+    const READERS: usize = 4;
+    let barrier = Arc::new(Barrier::new(READERS));
+    let readers: Vec<_> = (0..READERS)
+        .map(|_| {
+            let barrier = barrier.clone();
+            let address = server.address.clone();
+            let owner = owner.clone();
+            std::thread::spawn(move || {
+                let client = reqwest::blocking::Client::new();
+                barrier.wait();
+                client
+                    .post(format!("http://{address}/v1/databases/mixed/query"))
+                    .bearer_auth(&owner)
+                    .json(&json!({"sql": "SELECT count(*) FROM t", "args": []}))
+                    .timeout(Duration::from_secs(30))
+                    .send()
+                    .unwrap()
+                    .status()
+                    .as_u16()
+            })
+        })
+        .collect();
+    let mut statuses = vec![writer.join().unwrap()];
+    statuses.extend(readers.into_iter().map(|h| h.join().unwrap()));
+    statuses.sort_unstable();
+    assert_eq!(
+        statuses,
+        vec![200; READERS + 1],
+        "slow write plus overlapping reads must all succeed"
+    );
+}

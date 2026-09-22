@@ -394,6 +394,30 @@ pub fn execute(
 mod tests {
     use super::*;
     #[test]
+    fn lane_classifier_marks_only_reads() {
+        let s = |sql: &str| Statement {
+            sql: sql.into(),
+            args: vec![],
+        };
+        assert!(is_read_only(&[s("SELECT 1")]));
+        assert!(is_read_only(&[s("SELECT a FROM t WHERE b = ?")]));
+        assert!(is_read_only(&[
+            s("SELECT 1"),
+            s("WITH x AS (SELECT 1) SELECT * FROM x")
+        ]));
+        assert!(!is_read_only(&[s("INSERT INTO t VALUES (1)")]));
+        assert!(!is_read_only(&[s("UPDATE t SET a = 1)")]));
+        assert!(!is_read_only(&[s("DELETE FROM t")]));
+        assert!(!is_read_only(&[s("CREATE TABLE t (a)")]));
+        assert!(!is_read_only(&[
+            s("SELECT 1"),
+            s("INSERT INTO t VALUES (1)")
+        ]));
+        // Unpreparable statements fail closed to the write lane.
+        assert!(!is_read_only(&[s("SELEKT 1")]));
+        assert!(!is_read_only(&[s("SELECT * FROM no_such_table")]));
+    }
+    #[test]
     fn invalid_sql_and_arguments_are_rejected() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.sqlite");
