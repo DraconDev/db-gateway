@@ -354,7 +354,12 @@ pub fn execute(
     let mut conn = open(path)?;
     let deadline = Instant::now() + Duration::from_secs(2);
     conn.progress_handler(1000, Some(move || Instant::now() >= deadline))?;
-    let tx = conn.transaction_with_behavior(if read_only {
+    // Deferred for statement-classified reads regardless of principal role:
+    // an Immediate transaction takes a RESERVED lock even for a pure
+    // SELECT, so concurrent reads would shed each other with SQLITE_BUSY
+    // once the shared read guard lets them run together. Writers keep
+    // Immediate to fail fast at BEGIN rather than mid-write.
+    let tx = conn.transaction_with_behavior(if read_only || is_read_only(statements) {
         rusqlite::TransactionBehavior::Deferred
     } else {
         rusqlite::TransactionBehavior::Immediate
