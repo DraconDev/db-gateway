@@ -282,6 +282,22 @@ fn result_limit() -> Error {
     )
 }
 
+/// Admission-lane classifier: true when every statement is syntactically
+/// read-only per `sqlite3_stmt_readonly` (the same check that rejects writes
+/// on read-only credentials). Prepared against a throwaway in-memory
+/// connection — schema or syntax failures fail closed to false (write lane),
+/// which is always safe; real execution still validates everything.
+pub fn is_read_only(statements: &[Statement]) -> bool {
+    if let Ok(conn) = Connection::open_in_memory() {
+        statements.iter().all(|s| {
+            conn.prepare(&s.sql)
+                .map(|stmt| stmt.readonly())
+                .unwrap_or(false)
+        })
+    } else {
+        false
+    }
+}
 pub fn execute(
     path: &Path,
     statements: &[Statement],

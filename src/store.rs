@@ -12,7 +12,7 @@ use std::{
     sync::{Arc, Mutex, RwLock, RwLockReadGuard},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::sync::Semaphore;
 
 /// Maximum registered databases (live rows plus unpurged tombstones).
 /// Sized for the hundreds-of-databases requirement with headroom: registry
@@ -25,11 +25,28 @@ pub const MAX_DATABASES: i64 = 1024;
 /// to this long for a permit instead of failing instantly; overload still
 /// surfaces as the same `429 capacity_exceeded`, only after waiting.
 pub const ACQUIRE_TIMEOUT: Duration = Duration::from_millis(500);
+/// Admission lane sizes (scale proposal Phase 2): reads share a wide lane
+/// and a shared per-database read guard; writes take the narrow lane and an
+/// exclusive per-database write guard. Starting point from the F2b
+/// workloads; re-derive from measurement before changing (Phase 3).
+pub const READ_PERMITS: usize = 8;
+pub const WRITE_PERMITS: usize = 4;
+
+/// Held per-database admission guard. Readers share; writers exclude.
+/// Dropped at the end of the request to release the guard.
+pub enum QueueGuard {
+    Read(tokio::sync::OwnedRwLockReadGuard<()>),
+    Write(tokio::sync::OwnedRwLockWriteGuard<()>),
+}
 
 pub struct Store {
     root: PathBuf,
-    pub global: Arc<Semaphore>,
-    queues: Mutex<HashMap<String, Arc<Semaphore>>>,
+    pub read_lane: Arc<Semaphore>,
+    pub write_lane: Arc<Semaphore>,
+    // Per-database guards: std RwLock below is the lifecycle lease, while
+    // these tokio RwLocks are admission lanes — fully qualified to keep the
+    // two apart.
+    queues: Mutex<HashMap<String, Arc<tokio::sync::RwLock<()>>>>,
     // All server requests hold a read lease until their connections close.
     // Purge takes an exclusive lease before unlinking SQLite files.
     lifecycle: RwLock<()>,
@@ -167,7 +184,8 @@ impl Store {
         sweep_orphan_transfer_dirs(root);
         let store = Self {
             root: root.to_path_buf(),
-            global: Arc::new(Semaphore::new(4)),
+            read_lane: Arc::new(Semaphore::new(READ_PERMITS)),
+            write_lane: Arc::new(Semaphore::new(WRITE_PERMITS)),
             queues: Mutex::new(HashMap::new()),
             lifecycle: RwLock::new(()),
             transfers: Mutex::new(HashMap::new()),
@@ -498,26 +516,34 @@ impl Store {
         }
         Ok(path)
     }
-    pub fn queue(&self, name: &str) -> Result<Arc<Semaphore>> {
+    pub fn queue(&self, name: &str) -> Result<Arc<tokio::sync::RwLock<()>>> {
         // Call only after path() verifies a bounded registry entry.
         let mut queues = self.queues.lock().map_err(|_| Error::internal())?;
         Ok(queues
             .entry(name.to_string())
-            .or_insert_with(|| Arc::new(Semaphore::new(1)))
+            .or_insert_with(|| Arc::new(tokio::sync::RwLock::new(())))
             .clone())
     }
 
-    /// Per-database admission with bounded waiting. Runs on a blocking
-    /// thread (it cannot await, so it polls with short sleeps); call only
-    /// after path() verifies a bounded registry entry, same as queue().
-    /// Polling is not FIFO-fair like the async global permit, but waits are
-    /// capped at ACQUIRE_TIMEOUT so no waiter starves for long.
-    pub fn acquire_queue(&self, name: &str) -> Result<OwnedSemaphorePermit> {
+    /// Per-database admission with bounded waiting. Readers take the shared
+    /// guard (WAL allows concurrent readers against one writer); writers
+    /// take the exclusive guard. Runs on a blocking thread (it cannot await,
+    /// so it polls with short sleeps); call only after path() verifies a
+    /// bounded registry entry, same as queue(). Polling is not FIFO-fair
+    /// like the async global permits, and a continuous read flood could
+    /// delay a writer — waits stay capped at ACQUIRE_TIMEOUT, and a
+    /// writer-preferring bound gets added only if measurement shows
+    /// starvation (scale proposal Phase 2). Returns the guard to hold.
+    pub fn acquire_queue(&self, name: &str, write: bool) -> Result<QueueGuard> {
         let queue = self.queue(name)?;
         let start = Instant::now();
         loop {
-            if let Ok(permit) = queue.clone().try_acquire_owned() {
-                return Ok(permit);
+            if write {
+                if let Ok(guard) = queue.clone().try_write_owned() {
+                    return Ok(QueueGuard::Write(guard));
+                }
+            } else if let Ok(guard) = queue.clone().try_read_owned() {
+                return Ok(QueueGuard::Read(guard));
             }
             if start.elapsed() >= ACQUIRE_TIMEOUT {
                 return Err(Error::busy());
