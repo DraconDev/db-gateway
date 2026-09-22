@@ -1,7 +1,7 @@
 use crate::{
     error::{Error, Result},
     execution::{Batch, Statement},
-    store::{ACQUIRE_TIMEOUT, KeyRequest, Principal, Store, unauthorized, validate_name},
+    store::{KeyRequest, Principal, Store, unauthorized, validate_name},
 };
 use axum::{
     Json, Router,
@@ -82,13 +82,12 @@ async fn work<T: Send + 'static>(
     f: impl FnOnce(&Store, Principal) -> Result<T> + Send + 'static,
 ) -> Result<T> {
     let credential = credential(&headers)?;
-    // Bounded wait instead of instant shedding: bursty arrivals queue up to
-    // ACQUIRE_TIMEOUT (tokio's semaphore is FIFO-fair, so waits don't starve
-    // or reorder). Overload still surfaces as the same 429. Permit remains
+    // Reject rather than accumulate unbounded waiting tasks. Permit remains
     // owned by blocking work even when its HTTP caller disconnects.
-    let permit = tokio::time::timeout(ACQUIRE_TIMEOUT, store.global.clone().acquire_owned())
-        .await
-        .map_err(|_| Error::busy())?
+    let permit = store
+        .global
+        .clone()
+        .try_acquire_owned()
         .map_err(|_| Error::busy())?;
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
@@ -448,7 +447,10 @@ async fn execute(
     work(store, headers, move |s, p| {
         s.authorize(&p, &name)?;
         let path = s.path(&name)?;
-        let permit = s.acquire_queue(&name)?;
+        let permit = s
+            .queue(&name)?
+            .try_acquire_owned()
+            .map_err(|_| Error::busy())?;
         let result = crate::execution::execute(
             &path,
             &statements,
