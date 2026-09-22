@@ -81,12 +81,35 @@ async fn work<T: Send + 'static>(
     headers: HeaderMap,
     f: impl FnOnce(&Store, Principal) -> Result<T> + Send + 'static,
 ) -> Result<T> {
+    work_in(store, headers, false, f).await
+}
+/// Read-lane variant of work(): SELECT-class traffic shares the wide read
+/// lane instead of contending with writers for the narrow write lane.
+/// Management mutations and statement-classified writes stay on work().
+async fn work_read<T: Send + 'static>(
+    store: Arc<Store>,
+    headers: HeaderMap,
+    f: impl FnOnce(&Store, Principal) -> Result<T> + Send + 'static,
+) -> Result<T> {
+    work_in(store, headers, true, f).await
+}
+async fn work_in<T: Send + 'static>(
+    store: Arc<Store>,
+    headers: HeaderMap,
+    read: bool,
+    f: impl FnOnce(&Store, Principal) -> Result<T> + Send + 'static,
+) -> Result<T> {
     let credential = credential(&headers)?;
     // Bounded wait instead of instant shedding: bursty arrivals queue up to
-    // ACQUIRE_TIMEOUT (tokio's semaphore is FIFO-fair, so waits don't starve
-    // or reorder). Overload still surfaces as the same 429. Permit remains
-    // owned by blocking work even when its HTTP caller disconnects.
-    let permit = tokio::time::timeout(ACQUIRE_TIMEOUT, store.global.clone().acquire_owned())
+    // ACQUIRE_TIMEOUT (tokio's semaphores are FIFO-fair, so waits don't
+    // starve or reorder). Overload still surfaces as the same 429. Permit
+    // remains owned by blocking work even when its HTTP caller disconnects.
+    let lane = if read {
+        store.read_lane.clone()
+    } else {
+        store.write_lane.clone()
+    };
+    let permit = tokio::time::timeout(ACQUIRE_TIMEOUT, lane.acquire_owned())
         .await
         .map_err(|_| Error::busy())?
         .map_err(|_| Error::busy())?;
@@ -103,7 +126,7 @@ async fn list(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<Jso
     // Scoped listing: the owner sees every live database; an app key sees
     // exactly its authorized live databases (generation-bound, tombstones
     // excluded). Unknown/revoked credentials are still 401.
-    work(store, headers, |s, p| {
+    work_read(store, headers, |s, p| {
         Ok(Json(json!({"databases":s.list(&p)?})))
     })
     .await
@@ -173,7 +196,7 @@ async fn info(
     Path(name): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>> {
-    work(store, headers, move |s, p| {
+    work_read(store, headers, move |s, p| {
         p.owner()?;
         Ok(Json(s.info(&name)?))
     })
@@ -231,7 +254,7 @@ async fn export(
     body: std::result::Result<Json<ExportRequest>, JsonRejection>,
 ) -> Result<Json<Value>> {
     json_body(body)?;
-    work(store, headers, move |s, p| {
+    work_read(store, headers, move |s, p| {
         s.authorize(&p, &name)?;
         let temp = s.export_snapshot(&name)?;
         if std::fs::metadata(temp.path()).map_err(|_| Error::internal())?.len() > MAX_EXPORT as u64 {
@@ -289,7 +312,7 @@ async fn export_begin(
     body: std::result::Result<Json<ExportRequest>, JsonRejection>,
 ) -> Result<Json<Value>> {
     json_body(body)?;
-    work(store, headers, move |s, p| {
+    work_read(store, headers, move |s, p| {
         s.authorize(&p, &name)?;
         let info = s.export_begin(&p, &name)?;
         Ok(Json(
@@ -322,7 +345,7 @@ async fn snapshot_chunk(
     let query = query_params(query)?;
     let offset = query.offset.unwrap_or(0);
     let length = query.length.unwrap_or(crate::store::MAX_CHUNK);
-    work(store, headers, move |s, p| {
+    work_read(store, headers, move |s, p| {
         let (bytes, size, sha256) = s.snapshot_chunk(&p, &id, offset, length)?;
         Ok(Json(json!({"snapshot":id,"size":size,"sha256":sha256,"offset":offset,"data_base64":BASE64_STANDARD.encode(bytes)})))
     })
