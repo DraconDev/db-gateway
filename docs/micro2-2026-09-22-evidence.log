@@ -1,0 +1,83 @@
+# micro2 D1–D3 evidence (2026-09-22, live session)
+
+Access: ubuntu@145.241.238.20 via ~/.ssh/micro2.key. No production data on
+host (registry empty at start and end). No key material below (paths only).
+Driver: /tmp/drv-micro2.py (scratch, keep-alive HTTP, on-host only).
+
+## Host context
+- Ubuntu 24.04, Oracle kernel 6.17, x86_64, 2 vCPU, 954 MiB RAM, 45 GiB disk
+  (20 used / 25 free). Swap: none.
+- Service dg.service active; MemoryMax=infinity (unset, unchanged).
+- Journals still 4.0 GiB (R11 cap proposed 2026-09-21, NOT applied).
+
+## Upgrade
+- Built release bundle locally (scripts/release-bundle.sh, micro2 target),
+  scp to host, `sha256sum -c SHA256SUMS` all OK, installed to
+  /usr/local/bin/dg, restarted. Contains lanes work (built from working tree
+  2026-09-22; `dg --version` still prints 0.1.0 — no version bump).
+- Post-restart smoke: owner list via `sudo -u dg ... --key-file
+  /etc/dg/owner.key` → `{"databases":[]}`.
+
+## D1. 600 s mixed soak (4 threads, ~70% reads / 30% keyed writes, 8 DBs:
+## 6 fleet imports + 2 drill DBs)
+- 204,295 reqs (~340/s): 189,554 x200, 14,741 x429 (7.2%), ZERO x500.
+- p50 3.1 ms, p99 79.4 ms.
+- Service RSS (60 x 10 s samples): min 9.0, median 9.8, max 10.2 MB.
+- NOTE on the 429s: the driver used a unique Idempotency-Key per write and
+  hit the documented 256-keys-per-principal-per-DB replay cap, not lane
+  saturation. Exact proof: soak_ev held exactly 256 rows, burst_ev exactly
+  256 soak-era rows (see D2). Client guidance: high-frequency keyed writers
+  must reuse keys or expect 429 past 256 live keys.
+
+## D2. Burst (12 threads x keyed INSERTs, one DB, no retry, 300 s)
+- Accidental contract proof: 88,982 reqs, ALL 429, zero 500s, p50 14.5 ms.
+  Past the replay cap every keyed write sheds fast by design.
+- Rerun UNKEYED (pure admission contention, 300 s): 40,828 reqs (~136/s,
+  single-DB exclusive guard serializes): 40,826 x200, 2 x429, zero 500s,
+  p50 80.3 ms (queueing, as designed), p99 207.9 ms (inside 500 ms timeout).
+- Recovery: burst_ev exported (667,648 bytes, sha256
+  56a22be9…1744ea97 receipt match), local `integrity_check` ok, 41,082 rows
+  = 40,826 burst + 256 soak-keyed, 13 distinct tags. Zero lost acknowledged
+  writes. RSS during burst: 10.7–10.8 MB steady (31 samples).
+- Time-to-idle: immediate (no backlog — shedding is synchronous).
+
+## D3a. OS baseline (service stopped 30 s, test instance, no prod data)
+- With service: 438 used / 515 available. OS-only: 438 used / 515 available.
+  No measurable difference at MB granularity; service footprint = ~10 MB RSS
+  per direct sampling. Restart clean, service active.
+
+## D3b. Sidecar footprint
+- Skipped: no sidecar exists (per runbook, after C1-live).
+
+## D4-disk. Growth projection inputs
+- /var/lib/dg = 6.2 MB during drills (8 drill DBs + 09-21 residue, pre-purge).
+  Drill DBs: ~16–98 KiB each (fleet imports 16–24 KiB, 40k-row burst 98 KiB).
+  Disk headroom enormous (25 GiB free); no quota needed at this scale.
+  Transfer staging worst case stays ≤ 8 x 128 MiB TTL'd per design.
+
+## Method incident (no service fault)
+- First three soak attempts "stalled" ~60 s: the driver opened a fresh TCP
+  connection per request (~250/s) and exhausted loopback ephemeral ports
+  (4096 TIME-WAIT observed, SYN-SENT pile-up). Service was never wedged
+  (canary 200 throughout, idle host, clean journal). Fixed with keep-alive
+  connections; 600 s + 300 s runs then completed. Lesson: drill drivers must
+  reuse connections; a future `dg bench` subcommand should own this.
+
+## Foreign files (not mine, not touched)
+- /var/lib/dg holds 09-21 21:23–21:27 residue (eval_*.sqlite, backup_drill,
+  copy_e, deploy_*): unregistered orphans (registry listed empty at start).
+  Left in place — may belong to someone's eval session. Recommend owner
+  disposition, not silent deletion.
+
+## Teardown
+- All 8 drill DBs owner-deleted (tombstoned, purge in 24 h); registry lists
+  empty; /tmp drill files + bundle removed; service active.
+
+## NOT done (needs own approval/window)
+- MemoryMax unset. R10 formula from these numbers: sustained peak 10.8 MB x
+  1.5 = 16.2 → 64 MiB (round-up granularity), OS keeps ~890 MiB. Proposed,
+  not applied.
+- R11 journald cap (500 MiB/30 d) not applied. 4.0 GiB journals overdue.
+- Backup cron not scheduled. OVH/Litestream untouched (deferred).
+- D3b pending C1-live. Micro2 absolute numbers do not set constants (2 vCPU
+  vs 16-core build host); lane constants stand per local release bench.
