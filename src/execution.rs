@@ -322,7 +322,8 @@ fn has_write_keyword(sql: &str) -> bool {
             while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
                 i += 1;
             }
-            if WORDS.contains(&sql[start..i]) {
+            let word = &sql[start..i];
+            if WORDS.contains(&word) {
                 return true;
             }
         } else {
@@ -439,9 +440,9 @@ mod tests {
             s("WITH x AS (SELECT 1) SELECT * FROM x")
         ]));
         // CTE name containing a keyword as a substring stays on the read lane.
-        assert!(is_read_only(&[
-            s("WITH updated AS (SELECT 1) SELECT * FROM updated")
-        ]));
+        assert!(is_read_only(&[s(
+            "WITH updated AS (SELECT 1) SELECT * FROM updated"
+        )]));
         assert!(!is_read_only(&[s("INSERT INTO t VALUES (1)")]));
         assert!(!is_read_only(&[s("UPDATE t SET a = 1)")]));
         assert!(!is_read_only(&[s("DELETE FROM t")]));
@@ -451,9 +452,9 @@ mod tests {
             s("INSERT INTO t VALUES (1)")
         ]));
         // WITH..INSERT is a write despite the WITH head.
-        assert!(!is_read_only(&[
-            s("WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x")
-        ]));
+        assert!(!is_read_only(&[s(
+            "WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x"
+        )]));
         // Anything else fails closed to the write lane.
         assert!(!is_read_only(&[s("SELEKT 1")]));
         // Unknown tables still take the read lane — execution rejects them
