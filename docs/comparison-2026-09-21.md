@@ -97,10 +97,54 @@ a service: you build your HA control plane out of it.
   small SQLite DBs, one operator, one box," the gateway shape has no direct
   competitor — but it also has no proof until the D1–D3 scale measurements run.
 
-## 4. Implications / what to steal
+## 4. The ownership lens: subtracting the middleman
 
-1. **Steal D1's rate-limited restore discipline** (10 restores/10 min): cheap
-   guard against restore-abuse; fits our scoped-keys model.
+We own the box. Turso and D1 are resellers of SQLite with a metering layer on
+top — a chunk of everything they "have" is an artifact of being multi-tenant
+middlemen, not a capability. Subtracting those artifacts changes the comparison:
+
+**Their constraints that simply don't apply to us.**
+- Plan-gated features (PITR windows, replica counts, locations per DB): for us
+  these are disk space and config, not pricing tiers. Our PITR window, when we
+  build it, is however much disk we point at it.
+- Per-account DB caps (500 free-tier, 50k/account — both UNVERIFIED): ours is
+  file descriptors and disk, no artificial ceiling.
+- Usage pricing (per-row reads/writes, egress): our cost is one host plus
+  object storage. No metering code needed unless we resell.
+- Restore rate limits (D1's 10/10 min): that protects *shared* infrastructure
+  from one tenant starving others. Single-tenant on our own box, restores run
+  at disk speed. (Abuse guard still matters only if untrusted clients get
+  restore rights — a narrower problem; see note on implication 1 below.)
+- Token expiry as platform policy, connection-string churn on PITR (new DB +
+  new token): managed-platform friction. We rotate on our schedule and can
+  restore in place.
+- Global edge placement as a product: irrelevant to our footprint. Our latency
+  story is "next to your box," not "next to everyone."
+- Deprecation risk: Turso deprecated edge replicas for new users. Our API
+  changes when we say so. Data residency holds structurally — data lives where
+  our box lives, no DPA required.
+
+**What the middleman was quietly doing for them (now our bill).**
+- Fleet automation, 24/7 ops, abuse containment, capacity planning. Section 3's
+  gaps (replicas, PITR, HA) are all things a platform team builds once and
+  amortizes across tenants; we build each once and amortize across our own DBs.
+  The audit's pending items (backup cron, journald caps, MemoryMax) are exactly
+  this bill coming due — small, but ours.
+- Honest consequence: compare against their *software* (libSQL protocol, LTX
+  format, Raft discipline), never against their *service wrapper* (dashboards,
+  SLAs, edge maps). The wrapper is rent; the software is ideas, and ideas are
+  free to steal.
+
+**Revised bottom line.** After subtracting the middleman, the gap list in §3
+shrinks to pure engineering: hot-read scaling, WAL-granularity RPO, zero-loss
+failover. Everything else — caps, tiers, meters, regions, token policies — was
+never a capability gap, just someone else's business model.
+
+## 5. Implications / what to steal
+
+1. **Steal D1's rate-limited restore discipline** (10 restores/10 min) — but
+   only scoped to untrusted clients per §4: our own restores run at disk speed;
+   the limit is abuse containment, not infrastructure protection.
 2. **Steal Litestream as the backup transport option**: gateway-native snapshots
    stay default, but offering WAL-shipping to the same OVH bucket later would
    cut RPO from "cron interval" toward "seconds" without changing the API.
