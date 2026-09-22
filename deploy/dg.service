@@ -30,9 +30,10 @@ ReadWritePaths={{DG_DATA_DIR}}
 # `dg init` (output redirected to a 0600 file), and client keys travel in
 # 0600 --key-file files owned by {{DG_USER}}. No Environment= secrets.
 
-# Optional containment once docs/resource-budget.md items 1-5 are measured
-# on the target host. Uncomment with a measured value, never a guess.
-# MemoryMax=512M
+# Containment from measured values (R10): micro2 2026-09-22 sustained peak
+# RSS 10.8 MB x 1.5 = 16.2, rounded up to 64 MiB granularity; host keeps
+# ~890 MiB. See docs/micro2-2026-09-22-evidence.log. Never set from memory.
+MemoryMax=64M
 
 [Install]
 WantedBy=multi-user.target
