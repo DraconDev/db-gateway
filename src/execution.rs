@@ -282,21 +282,54 @@ fn result_limit() -> Error {
     )
 }
 
-/// Admission-lane classifier: true when every statement is syntactically
-/// read-only per `sqlite3_stmt_readonly` (the same check that rejects writes
-/// on read-only credentials). Prepared against a throwaway in-memory
-/// connection — schema or syntax failures fail closed to false (write lane),
-/// which is always safe; real execution still validates everything.
+/// Admission-lane pre-filter (NOT a security boundary): true when every
+/// statement opens with SELECT/VALUES/EXPLAIN, or WITH without a
+/// data-modifying keyword. Write enforcement still happens per-statement at
+/// execution via the SQLite authorizer plus `stmt.readonly()`
+/// (run_statement) — this only decides which waiting room a request sits
+/// in. It fails closed: comments, odd heads, string literals containing
+/// keywords, and anything ambiguous take the write lane — slower for that
+/// request, never unsafe. (Prepare-based classification was tried: it fails
+/// on every query naming an application table, since a scratch connection
+/// has no schema, which would put all real reads on the write lane.)
 pub fn is_read_only(statements: &[Statement]) -> bool {
-    if let Ok(conn) = Connection::open_in_memory() {
-        statements.iter().all(|s| {
-            conn.prepare(&s.sql)
-                .map(|stmt| stmt.readonly())
-                .unwrap_or(false)
-        })
-    } else {
-        false
+    statements
+        .iter()
+        .all(|s| is_read_only_one(s.sql.trim_start()))
+}
+fn is_read_only_one(sql: &str) -> bool {
+    let upper = sql.to_ascii_uppercase();
+    let head = upper.as_str();
+    (head.starts_with("SELECT")
+        || head.starts_with("VALUES")
+        || head.starts_with("EXPLAIN")
+        || head.starts_with("WITH"))
+        && !has_write_keyword(head)
+}
+/// Whole-word scan for data-modifying keywords, so a WITH..SELECT whose
+/// CTE is named `updated` stays on the read lane while WITH..INSERT does
+/// not. False positives (a literal saying 'deleted') only cost the write
+/// lane, never correctness.
+fn has_write_keyword(sql: &str) -> bool {
+    const WORDS: [&str; 9] = [
+        "INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "DROP", "ALTER", "VACUUM", "REINDEX",
+    ];
+    let bytes = sql.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i].is_ascii_alphabetic() {
+            let start = i;
+            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                i += 1;
+            }
+            if WORDS.contains(&sql[start..i]) {
+                return true;
+            }
+        } else {
+            i += 1;
+        }
     }
+    false
 }
 pub fn execute(
     path: &Path,
@@ -405,6 +438,10 @@ mod tests {
             s("SELECT 1"),
             s("WITH x AS (SELECT 1) SELECT * FROM x")
         ]));
+        // CTE name containing a keyword as a substring stays on the read lane.
+        assert!(is_read_only(&[
+            s("WITH updated AS (SELECT 1) SELECT * FROM updated")
+        ]));
         assert!(!is_read_only(&[s("INSERT INTO t VALUES (1)")]));
         assert!(!is_read_only(&[s("UPDATE t SET a = 1)")]));
         assert!(!is_read_only(&[s("DELETE FROM t")]));
@@ -413,9 +450,16 @@ mod tests {
             s("SELECT 1"),
             s("INSERT INTO t VALUES (1)")
         ]));
-        // Unpreparable statements fail closed to the write lane.
+        // WITH..INSERT is a write despite the WITH head.
+        assert!(!is_read_only(&[
+            s("WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x")
+        ]));
+        // Anything else fails closed to the write lane.
         assert!(!is_read_only(&[s("SELEKT 1")]));
         assert!(!is_read_only(&[s("SELECT * FROM no_such_table")]));
+        assert!(!is_read_only(&[s(
+            "SELECT * FROM t WHERE note = 'do not delete me'"
+        )]));
     }
     #[test]
     fn invalid_sql_and_arguments_are_rejected() {
