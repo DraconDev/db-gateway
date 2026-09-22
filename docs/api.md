@@ -72,8 +72,10 @@ Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1
 | `key_exists` | 409 | Credential name reused |
 | `file_exists` | 409 | Export destination or clone target already exists on disk |
 | `confirmation_required` | 400 | `dg delete` invoked without a matching `--confirm NAME` |
-| `capacity_exceeded` | 429 | Global task, per-database queue, credential, or replay capacity full |
+| `capacity_exceeded` | 429 | Global task, per-database queue, credential, or replay capacity full — after a bounded wait, not instantly (see below) |
 | `query_deadline_exceeded` | 408 | Execution passed the 2s deadline; transaction rolled back |
+
+Admission waits instead of shedding: the global permit and the per-database slot each allow up to `ACQUIRE_TIMEOUT` (500 ms) of queuing before reporting 429. Overload still surfaces as the same `capacity_exceeded` code, only after waiting — so naive clients see far fewer 429s under bursts, but a sustained overload still sheds. Retry 429s with backoff as before.
 
 ## Write semantics, Idempotency-Key, retries
 
