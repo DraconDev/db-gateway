@@ -74,10 +74,29 @@ Driver: /tmp/drv-micro2.py (scratch, keep-alive HTTP, on-host only).
   empty; /tmp drill files + bundle removed; service active.
 
 ## NOT done (needs own approval/window)
-- MemoryMax unset. R10 formula from these numbers: sustained peak 10.8 MB x
-  1.5 = 16.2 → 64 MiB (round-up granularity), OS keeps ~890 MiB. Proposed,
-  not applied.
-- R11 journald cap (500 MiB/30 d) not applied. 4.0 GiB journals overdue.
-- Backup cron not scheduled. OVH/Litestream untouched (deferred).
 - D3b pending C1-live. Micro2 absolute numbers do not set constants (2 vCPU
   vs 16-core build host); lane constants stand per local release bench.
+- OVH/Litestream untouched (deferred).
+
+## Applied 2026-09-22 ~22:30 UTC (owner "lets do it")
+- R11 journald cap: /etc/systemd/journald.conf.d/dg.conf
+  (SystemMaxUse=500M, MaxRetentionSec=30day), journald restarted.
+  Journals 4.0 GiB → 134.4 MB immediately.
+- MemoryMax=64M: repo deploy/dg.service updated (R10 formula cited);
+  host applied as /etc/systemd/system/dg.service.d/memory.conf drop-in
+  (additive — installed unit untouched), daemon-reload, service restarted
+  clean, `MemoryMax=67108864` confirmed, registry empty.
+- Hourly backups: /usr/local/bin/micro2-backup.sh installed (0755);
+  /var/lib/dg-backups dg:dg 0700. No `crontab` binary on host → systemd
+  timer instead (native, no new packages): dg-backup.service (oneshot, as
+  dg, DG_BIN set, output to journal) + dg-backup.timer
+  (OnCalendar=*-*-* *:17:00, Persistent). KEEP=24 interim pending R1
+  retention numbers (hourly x 24 ≈ 1 day at current sizes — trivial disk).
+- Proven end to end: probe DB → manual script run → set verified (SHA +
+  integrity + exact rows); probe2 → `systemctl start dg-backup.service`
+  (exit 0) → set 20260922T223914Z verified; probes deleted, registry empty.
+- Pre-existing 20260921T212726Z set left in place (prior session's).
+- Empty-registry behavior stands: with no live DBs the hourly run refuses
+  (exit 1, journal-visible) until real data exists — honest, not silent.
+- Final state: dg.service active, dg-backup.timer active (next 23:17 UTC),
+  MemoryMax 64M, journals 134M, host /tmp clean.
