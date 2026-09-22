@@ -12,7 +12,7 @@ use std::{
     sync::{Arc, Mutex, RwLock, RwLockReadGuard},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use tokio::sync::Semaphore;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 /// Maximum registered databases (live rows plus unpurged tombstones).
 /// Sized for the hundreds-of-databases requirement with headroom: registry
@@ -20,6 +20,11 @@ use tokio::sync::Semaphore;
 /// bound exists to keep a runaway client from filling the disk with database
 /// files, not because the registry strains near it.
 pub const MAX_DATABASES: i64 = 1024;
+
+/// Bounded admission wait (scale proposal Phase 1). Bursty arrivals queue up
+/// to this long for a permit instead of failing instantly; overload still
+/// surfaces as the same `429 capacity_exceeded`, only after waiting.
+pub const ACQUIRE_TIMEOUT: Duration = Duration::from_millis(500);
 
 pub struct Store {
     root: PathBuf,
@@ -500,6 +505,25 @@ impl Store {
             .entry(name.to_string())
             .or_insert_with(|| Arc::new(Semaphore::new(1)))
             .clone())
+    }
+
+    /// Per-database admission with bounded waiting. Runs on a blocking
+    /// thread (it cannot await, so it polls with short sleeps); call only
+    /// after path() verifies a bounded registry entry, same as queue().
+    /// Polling is not FIFO-fair like the async global permit, but waits are
+    /// capped at ACQUIRE_TIMEOUT so no waiter starves for long.
+    pub fn acquire_queue(&self, name: &str) -> Result<OwnedSemaphorePermit> {
+        let queue = self.queue(name)?;
+        let start = Instant::now();
+        loop {
+            if let Ok(permit) = queue.try_acquire_owned() {
+                return Ok(permit);
+            }
+            if start.elapsed() >= ACQUIRE_TIMEOUT {
+                return Err(Error::busy());
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
     }
 
     /// SQLite online backup of `name` to `dest`, consistent during writes.
