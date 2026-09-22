@@ -468,10 +468,16 @@ async fn execute(
         .get("idempotency-key")
         .map(|h| h.to_str().map(str::to_string).map_err(|_| Error::invalid()))
         .transpose()?;
-    work(store, headers, move |s, p| {
+    // Lane classification before admission: all-read-only statements share
+    // the read lane and the shared per-database guard; anything else takes
+    // the write lane and the exclusive guard. Misclassification degrades in
+    // exactly one safe direction — a read on the write lane just waits
+    // longer — because is_read_only fails closed and execution re-validates.
+    let read = crate::execution::is_read_only(&statements);
+    work_in(store, headers, read, move |s, p| {
         s.authorize(&p, &name)?;
         let path = s.path(&name)?;
-        let permit = s.acquire_queue(&name)?;
+        let _guard = s.acquire_queue(&name, !read)?;
         let result = crate::execution::execute(
             &path,
             &statements,
@@ -480,7 +486,6 @@ async fn execute(
             &p.hash,
             key.as_deref(),
         );
-        drop(permit);
         result.map(Json)
     })
     .await
