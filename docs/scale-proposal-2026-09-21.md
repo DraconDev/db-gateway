@@ -1,8 +1,29 @@
 # Scaling proposal v1 (2026-09-21, NOT implemented)
 
-Status: **proposal**. Evidence: `docs/benchmark-2026-09-21.md` (F2b). This
+Status: **proposal, Phases 1–2 implemented 2026-09-22** (plan Phase 3).
+Evidence: `docs/benchmark-2026-09-21.md` (F2b). This
 document authorizes no code change — each phase below becomes a task with its
 own tests and before/after benchmark when approved. Superseded-by: (none yet).
+
+## Implementation status (2026-09-22)
+
+- Phase 1 landed: `ACQUIRE_TIMEOUT` (500 ms) bounded wait on the global
+  permit (`src/api.rs` `work_in`) and the per-database slot
+  (`Store::acquire_queue`, poll loop — the blocking thread cannot await).
+  Regression: `tests/admission.rs` `burst_waits_instead_of_shedding`
+  (fails pre-fix, passes post-fix).
+- Phase 2 landed: `READ_PERMITS`/`WRITE_PERMITS` (8/4) lanes, per-database
+  `RwLock` guards (`QueueGuard`), syntactic `is_read_only` lane classifier
+  (`src/execution.rs`, admission-only — enforcement stays in the authorizer).
+  `m2_lifecycle.rs` contention test re-targeted to write-vs-write (reads
+  intentionally no longer shed). Regressions: `eight_concurrent_reads`,
+  `reads_proceed_during_slow_write`, `lane_classifier_marks_only_reads`.
+- Extra finding Phase 2 exposed: owner-keyed SELECTs ran in `Immediate`
+  transactions (RESERVED lock for pure reads), shedding concurrent readers
+  with SQLITE_BUSY once the shared guard let them through. Statement-
+  classified reads now use `Deferred`; writers keep `Immediate`.
+- Still open: Phase 3 measured sizing + benchmark table; Phase 4 multi-host
+  gate; writer-preferring bound only if starvation is measured.
 
 ## Problem statement
 
