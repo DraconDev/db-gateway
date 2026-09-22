@@ -43,3 +43,29 @@ capacity_exceeded`, every retried read returned exact rows.
 F3 (scaling proposal) must start at admission: bounded wait queues, separate
 read/write lanes, and concurrent readers per database — in that order. See
 `docs/scale-proposal-2026-09-21.md`.
+
+## Re-measurement (2026-09-22, post-lanes release build)
+
+Method: `/tmp/bench2.py` (scratch probe, not committed) repeats the same
+three phases against `target/release/dg` with Phases 1–2 implemented
+(500 ms bounded wait, 8/4 read/write lanes, shared read guard, deferred
+read transactions). Same build host (16 CPUs, 31 GiB — ratios transfer to
+micro2, absolutes do not). Single run, not a sample.
+
+| Phase | Offered | Admitted | Shed (429) | Wall | Rate | p50 | p99 | Peak RSS |
+|---|---|---|---|---|---|---|---|---|
+| A. Build 50 DBs × 100 rows (sequential batches) | 5,000 rows | 5,000 | 0 | 6.3 s | 796 rows/s | — | — | 10 MB |
+| B. Burst: 12 threads × 100 writes, 1 DB, no retry | 1,200 | 1,200 (100%) | 0 | 5.9 s | — | 48 ms | 141 ms | 10 MB |
+| B2. Sustained: 4 threads × 100 writes, 1 DB, no retry | 400 | 400 (100%) | 0 | 2.1 s | 190 writes/s | 16 ms | 68 ms | — |
+| C. Reads: 8 threads × 50 point SELECTs, retry on 429 | 400 | 400 | 0 retries | 0.1 s | ~4,000 reads/s | 2 ms | 5 ms | 10 MB |
+
+Zero non-200 responses in any phase. Phase 1 acceptance met (admission
+3% → 100%, p99 141 ms ≈ 2× the B2 p99); Phase 2 acceptance met (phase C
+retry-free; single-DB write rate 545 → 796 rows/s — note the old figure was
+a debug build, so the gain mixes release profile with lanes).
+
+Constants decision (proposal Phase 3): keep `ACQUIRE_TIMEOUT` 500 ms,
+`READ_PERMITS`/`WRITE_PERMITS` 8/4, 250 ms busy timeout, 2 s deadline. B
+absorbs a 12-thread burst with p99 well inside the timeout and zero shed;
+C shows no read contention at all. No measurement here argues for a change;
+re-derive only after micro2 (1 GiB, fewer CPUs) numbers exist.
