@@ -323,12 +323,18 @@ fn imported_external_sqlite_file_supports_m1_keyed_writes() {
 /// the contention signal, so no sleep-based overlap is assumed. Returns after
 /// the first rejection or panics past a bounded wait.
 fn assert_observes_429(server: &Server, name: &str) {
+    assert_observes_429_with(server, name, "SELECT 1");
+}
+/// Same, with a caller-chosen probe statement. A write probe contends for
+/// the write lane; a read probe contends for the read lane and the
+/// per-database guard.
+fn assert_observes_429_with(server: &Server, name: &str, sql: &str) {
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         let (status, body) = server.call(
             "POST",
             &format!("/v1/databases/{name}/query"),
-            json!({"sql": "SELECT 1"}),
+            json!({"sql": sql}),
         );
         if status == 429 {
             assert_eq!(body["error"]["code"], "capacity_exceeded", "{body}");
@@ -384,7 +390,7 @@ fn assert_holder_hit_deadline(result: (u16, Value)) {
 #[test]
 fn contended_capacity_rejects_with_429_and_server_recovers() {
     let server = Server::start();
-    for name in ["hot", "g0", "g1", "g2", "g3"] {
+    for name in ["hot", "g0", "g1", "g2", "g3", "probe"] {
         server.ok("POST", "/v1/databases", json!({"name": name}));
         server.query(name, "CREATE TABLE t (v INTEGER)");
     }
@@ -396,15 +402,18 @@ fn contended_capacity_rejects_with_429_and_server_recovers() {
         assert_observes_429(server, "hot");
         assert_holder_hit_deadline(holder.join().unwrap());
     });
-    // Phase 2: four slow queries on distinct databases hold all four global
-    // permits; another request must see 429 capacity_exceeded.
+    // Phase 2: four slow queries on distinct databases hold all four
+    // write-lane permits; another *write* must see 429 capacity_exceeded.
+    // Reads intentionally do NOT shed here — they share the wide read lane
+    // (scale proposal Phase 2) — so the probe is an INSERT into the scratch
+    // database, which carries no assertions.
     std::thread::scope(|scope| {
         let server = &server;
         let holders: Vec<_> = ["g0", "g1", "g2", "g3"]
             .into_iter()
             .map(|name| scope.spawn(move || slow_insert_until_admitted(server, name)))
             .collect();
-        assert_observes_429(server, "hot");
+        assert_observes_429_with(server, "probe", "INSERT INTO t VALUES (1)");
         for holder in holders {
             assert_holder_hit_deadline(holder.join().unwrap());
         }
