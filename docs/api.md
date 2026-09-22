@@ -75,7 +75,7 @@ Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1
 | `capacity_exceeded` | 429 | Global task, per-database queue, credential, or replay capacity full — after a bounded wait, not instantly (see below) |
 | `query_deadline_exceeded` | 408 | Execution passed the 2s deadline; transaction rolled back |
 
-Admission waits instead of shedding: the global permit and the per-database slot each allow up to `ACQUIRE_TIMEOUT` (500 ms) of queuing before reporting 429. Overload still surfaces as the same `capacity_exceeded` code, only after waiting — so naive clients see far fewer 429s under bursts, but a sustained overload still sheds. Retry 429s with backoff as before.
+Admission waits instead of shedding, on separate read/write lanes. Reads (SELECT-class statements, list/info/export) share 8 read permits and a shared per-database read guard; writes and management mutations take 4 write permits and an exclusive per-database guard. Each wait is bounded by `ACQUIRE_TIMEOUT` (500 ms) before reporting 429. Overload still surfaces as the same `capacity_exceeded` code, only after waiting — so naive clients see far fewer 429s under bursts, but a sustained overload still sheds. Retry 429s with backoff as before. Statement-classified reads also run in a deferred (shared-lock) transaction regardless of credential role, so concurrent reads never shed each other at the SQLite layer; writers keep immediate transactions to fail fast at BEGIN.
 
 ## Write semantics, Idempotency-Key, retries
 
