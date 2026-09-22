@@ -516,7 +516,7 @@ impl Store {
         let queue = self.queue(name)?;
         let start = Instant::now();
         loop {
-            if let Ok(permit) = queue.try_acquire_owned() {
+            if let Ok(permit) = queue.clone().try_acquire_owned() {
                 return Ok(permit);
             }
             if start.elapsed() >= ACQUIRE_TIMEOUT {
