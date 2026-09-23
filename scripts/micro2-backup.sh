@@ -33,10 +33,21 @@ done
 
 DG_BIN="${DG_BIN:-dg}"
 DG="$DG_BIN --server $SERVER --key-file $KEY_FILE"
+[[ "$KEEP" =~ ^[1-9][0-9]*$ ]] || {
+  echo "--keep must be a positive integer" >&2
+  exit 2
+}
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
-STAGE="$BACKUP_ROOT/.staging-$TS"
-mkdir -p "$BACKUP_ROOT" "$STAGE"
+mkdir -p "$BACKUP_ROOT"
 chmod 700 "$BACKUP_ROOT"
+STAGE="$(mktemp -d "$BACKUP_ROOT/.staging.XXXXXX")"
+PUBLISHED=0
+cleanup() {
+  if [ "$PUBLISHED" -eq 0 ]; then
+    rm -rf "$STAGE"
+  fi
+}
+trap cleanup EXIT
 
 VERSION="$($DG --version | awk '{print $2}')"
 DBS="$($DG list | python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin)["databases"]))')"
@@ -80,7 +91,14 @@ EOF
 
 DEST="$BACKUP_ROOT/$TS"
 chmod -R go-rwx "$STAGE"
-mv "$STAGE" "$DEST"
+# A version timestamp has one-second resolution. Never let a concurrent run
+# nest a new stage inside an already-published set or overwrite that set.
+if [ -e "$DEST" ]; then
+  echo "backup set already exists: $DEST" >&2
+  exit 1
+fi
+mv -T "$STAGE" "$DEST"
+PUBLISHED=1
 chmod 700 "$DEST"
 
 # Prune to KEEP latest versioned sets (staging dirs never match the glob).

@@ -21,9 +21,11 @@ Exit nonzero on any failed assertion.
 
 import argparse
 import json
+import queue
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.request
 
@@ -100,11 +102,33 @@ def main():
         stderr=subprocess.PIPE,
         text=True,
     )
+    stderr_lines = queue.Queue()
+    stderr_thread = threading.Thread(
+        target=lambda: iter(lambda: server.stderr.readline(), ""),
+        daemon=True,
+    )
+
+    def drain_stderr():
+        for line in iter(server.stderr.readline, ""):
+            stderr_lines.put(line)
+
+    stderr_thread = threading.Thread(target=drain_stderr, daemon=True)
+    stderr_thread.start()
     try:
         base = None
-        t0 = time.time()
-        while time.time() - t0 < READINESS_TIMEOUT:
-            line = server.stderr.readline()
+        deadline = time.monotonic() + READINESS_TIMEOUT
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise AssertionError("server never logged its listen address")
+            if server.poll() is not None:
+                raise AssertionError(
+                    f"server exited during readiness rc={server.returncode}"
+                )
+            try:
+                line = stderr_lines.get(timeout=min(remaining, 0.25))
+            except queue.Empty:
+                continue
             try:
                 addr = json.loads(line)["fields"].get("address")
             except Exception:

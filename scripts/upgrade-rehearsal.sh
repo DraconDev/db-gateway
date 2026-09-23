@@ -27,7 +27,7 @@ serve() {
 }
 
 req() { # method path body [idem-key]
-    local args=(-s -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json')
+    local args=(--silent --show-error --fail-with-body -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json')
     [ "${4:-}" != "" ] && args+=(-H "Idempotency-Key: $4")
     curl "${args[@]}" -X "$1" -d "$3" "http://$ADDR$2"
 }
@@ -68,7 +68,22 @@ assert b[-1]==[a[-1][0], "release-gen"], "release-generation write lost"
 print(f"rollback exact: {len(b)} rows match, release-gen write intact")
 EOF
 req POST /v1/databases/up/query '{"sql":"INSERT INTO d(v) VALUES ('"'"'rollback-gen'"'"')"}' back-1 > /dev/null
-req POST /v1/databases/up/query '{"sql":"SELECT v FROM d WHERE v LIKE '"'"'%-gen'"'"' ORDER BY id"}'
-echo
+req POST /v1/databases/up/query '{"sql":"SELECT v FROM d WHERE v LIKE '"'"'%-gen'"'"' ORDER BY id"}' > "$DIR/generations.json"
+python3 - "$DIR/generations.json" <<'EOF'
+import json, sys
+rows = json.load(open(sys.argv[1]))["rows"]
+assert rows and rows[-1][0] == "rollback-gen", rows
+print("rollback-generation write intact after request")
+EOF
+stop
+# Prove the rollback generation survives the promised next restart as well.
+serve "$DEBUG_BIN" rollback-restart
+req POST /v1/databases/up/query '{"sql":"SELECT v FROM d WHERE v LIKE '"'"'%-gen'"'"' ORDER BY id"}' > "$DIR/generations-restart.json"
+python3 - "$DIR/generations-restart.json" <<'EOF'
+import json, sys
+rows = json.load(open(sys.argv[1]))["rows"]
+assert rows and rows[-1][0] == "rollback-gen", rows
+print("rollback-generation write intact after restart")
+EOF
 stop
 echo "UPGRADE REHEARSAL PASS"
