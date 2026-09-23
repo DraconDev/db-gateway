@@ -218,6 +218,7 @@ async fn remove(
     work(store, headers, move |s, p| {
         p.owner()?;
         s.delete(&name, RETENTION_SECS)?;
+        s.note_write(&name);
         Ok(Json(
             json!({"deleted":true,"purge_after_seconds":RETENTION_SECS}),
         ))
@@ -244,6 +245,7 @@ async fn clone_route(
             return Err(Error::new(403, "forbidden", "read-only credential"));
         }
         s.clone_database(&name, &body.destination)?;
+        s.note_write(&body.destination);
         Ok(Json(json!({"source":name,"destination":body.destination})))
     })
     .await
@@ -304,6 +306,7 @@ async fn import(
         let temp = s.import_staging(&name)?;
         std::fs::write(temp.path(), &bytes).map_err(|_| Error::internal())?;
         s.import_from(&body.name, temp.path())?;
+        s.note_write(&body.name);
         Ok(Json(json!({"imported":body.name,"from":name})))
     })
     .await
@@ -444,6 +447,7 @@ async fn upload_commit(
     work(store, headers, move |s, p| {
         p.owner()?;
         s.upload_commit(&id, &body.name)?;
+        s.note_write(&body.name);
         Ok(Json(json!({"imported": body.name})))
     })
     .await
