@@ -310,11 +310,13 @@ fn backups_freshness_transitions() {
     // valid set or turn the whole scan unknown.
     fs::create_dir_all(backup_root.join(".staging-x")).unwrap();
     fs::write(backup_root.join("notes.txt"), "nope").unwrap();
-    fs::create_dir_all(backup_root.join("20200101T000000Z")).unwrap();
-    fs::write(backup_root.join("20200101T000000Z/MANIFEST.json"), "{").unwrap();
+    let malformed = backup_root.join("20200101T000000Z");
+    fs::create_dir_all(&malformed).unwrap();
+    fs::write(malformed.join("MANIFEST.json"), "{").unwrap();
     let (status, body) = get(&server.address, "/v1/backups", Some(&owner));
     assert_eq!(status, 200);
     assert_eq!(body["sets"].as_array().unwrap().len(), 1);
+    fs::remove_dir_all(malformed).unwrap();
 
     // The durable stale marker survives restart; losing process memory must
     // never make the older containing set look fresh again.
