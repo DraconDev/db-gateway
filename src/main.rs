@@ -304,7 +304,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                     return Err(Application(Error::internal()));
                 }
                 publish_export_file(staged, &out).map_err(Application)?;
-                Ok::<_, Application<Error>>(())
+                Ok::<(), _>(())
             }
             .await;
             release_snapshot().await;
