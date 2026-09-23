@@ -2,7 +2,8 @@
 
 Status: **§1 signal classes stand; §2 backup freshness is implemented** as
 `GET /v1/backups` + `dg backup status` (set-membership freshness against
-gateway-native versioned sets; restore drill still separate), and request
+gateway-native versioned sets; write markers are durable across restart;
+restore drill still separate), and request
 pressure as `GET /v1/status` + `dg status`. Disk/RSS/alert integrations
 remain future work. This contract defines the signals
 needed to operate DB Gateway and a future backup sidecar. The owner-selected
@@ -46,10 +47,12 @@ comparison pass on a separate target. Record, per database:
 For the current local working policy, alert when committed changes are not
 represented by a verified copy within **300 seconds**. This is an objective,
 not an accepted RPO breach threshold: the sidecar, sink, resource headroom,
-and restore evidence remain unverified. During idle periods, report the last
-committed-change marker and last verified marker rather than declaring a
-healthy database stale solely because wall time advanced. Before production
-acceptance, the safe status remains `unknown`, not `fresh`.
+and restore evidence remain unverified. Durable write markers survive gateway
+restart. During idle periods, report the last committed-change marker and
+last verified marker rather than declaring a healthy database stale solely
+because wall time advanced. A containing backup set with no durable write
+marker is `unknown`, never `fresh`; before production acceptance the safe
+status remains `unknown`, not `fresh`.
 
 ## 3. Alert boundaries
 
