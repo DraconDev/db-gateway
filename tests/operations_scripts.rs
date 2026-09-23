@@ -58,7 +58,7 @@ fn script_uses_fail_with_body_and_asserts_generation() {
 #[test]
 fn soak_readiness_wait_is_bounded() {
     // The fake init succeeds, then the fake serve remains alive without ever
-    // logging. An outer timeout proves the old blocking readline cannot hang.
+    // logging. The bounded environment override proves readiness cannot hang.
     let dir = tempdir();
     let fake = dir.path().join("dg");
     fs::write(
