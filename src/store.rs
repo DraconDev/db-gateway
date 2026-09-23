@@ -133,7 +133,13 @@ pub const TRANSFER_TTL: Duration = Duration::from_secs(15 * 60);
 #[derive(Clone)]
 enum TransferKind {
     Snapshot { size: u64, sha256: String },
-    Upload { received: u64 },
+    Upload { received: u64, state: UploadState },
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum UploadState {
+    Open,
+    Committing,
 }
 
 #[derive(Clone)]
@@ -717,6 +723,18 @@ impl Store {
     /// Pages are copied in bounded steps so concurrent commits interleave;
     /// the snapshot reflects one committed point in time.
     pub fn export_to(&self, name: &str, dest: &Path) -> Result<()> {
+        self.export_to_limited(name, dest, None)
+    }
+
+    /// SQLite online backup with an optional hard output ceiling. The check
+    /// runs during backup steps so an over-limit snapshot is not fully
+    /// materialized before the caller receives its 413.
+    pub fn export_to_limited(
+        &self,
+        name: &str,
+        dest: &Path,
+        max_bytes: Option<u64>,
+    ) -> Result<()> {
         let src_path = self.path(name)?;
         if dest.exists() {
             return Err(Error::new(
@@ -745,6 +763,20 @@ impl Store {
                 break;
             }
             result = backup.step(64).map_err(crate::error::Error::from)?;
+            if max_bytes.is_some_and(|limit| {
+                std::fs::metadata(dest)
+                    .map(|metadata| metadata.len() > limit)
+                    .unwrap_or(false)
+            }) {
+                drop(backup);
+                drop(dst);
+                remove_database_files(dest);
+                return Err(Error::new(
+                    413,
+                    "result_limit_exceeded",
+                    "export exceeds bounded response size",
+                ));
+            }
         }
         drop(backup);
         match result {
@@ -782,8 +814,16 @@ impl Store {
 
     /// Snapshot in a private directory, automatically removed by its owner.
     pub fn export_snapshot(&self, name: &str) -> Result<Staging> {
+        self.export_snapshot_limited(name, None)
+    }
+
+    pub fn export_snapshot_limited(
+        &self,
+        name: &str,
+        max_bytes: Option<u64>,
+    ) -> Result<Staging> {
         let temp = self.staging()?;
-        self.export_to(name, temp.path())?;
+        self.export_to_limited(name, temp.path(), max_bytes)?;
         Ok(temp)
     }
 
@@ -860,6 +900,16 @@ impl Store {
     /// atomic registry step; a failed import leaves no partial database.
     pub fn import_from(&self, name: &str, source: &Path) -> Result<()> {
         validate_name(name)?;
+        // Copy, validate, and initialize without holding the metadata write
+        // lock. The registry transaction below is only the short publication
+        // step, so a large independent import cannot stall authentication and
+        // all other registry operations.
+        let staged = self.staging()?;
+        std::fs::copy(source, staged.path()).map_err(|_| Error::invalid())?;
+        crate::execution::validate_import(staged.path())?;
+        crate::execution::initialize(staged.path())?;
+
+        let path = self.root.join(format!("{name}.sqlite"));
         let mut conn = self.meta()?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         if tx.query_row("SELECT count(*) FROM databases", [], |r| r.get::<_, i64>(0))?
@@ -878,14 +928,6 @@ impl Store {
             return Err(Error::new(409, "database_exists", "database exists"));
         }
         let generation = new_generation(&tx)?;
-        let path = self.root.join(format!("{name}.sqlite"));
-        // Validate in private staging, then publish without overwriting orphans.
-        let staged = self.staging()?;
-        std::fs::copy(source, staged.path()).map_err(|_| Error::invalid())?;
-        crate::execution::validate_import(staged.path())?;
-        // The gateway requires its own replay schema on every managed file;
-        // external SQLite databases gain it before publication (idempotent).
-        crate::execution::initialize(staged.path())?;
         std::fs::hard_link(staged.path(), &path).map_err(|_| {
             Error::new(
                 409,
@@ -922,7 +964,7 @@ impl Store {
         let dir = self.retained_transfer_dir()?;
         let file = dir.join("snapshot.sqlite");
         let outcome = (|| {
-            self.export_to(name, &file)?;
+            self.export_to_limited(name, &file, Some(MAX_TRANSFER_SIZE))?;
             let size = std::fs::metadata(&file)
                 .map_err(|_| Error::internal())?
                 .len();
@@ -1007,7 +1049,10 @@ impl Store {
         let outcome = self.insert_transfer(
             id.clone(),
             Transfer {
-                kind: TransferKind::Upload { received: 0 },
+                kind: TransferKind::Upload {
+                    received: 0,
+                    state: UploadState::Open,
+                },
                 dir: dir.clone(),
                 file,
                 creator: String::new(),
@@ -1042,9 +1087,12 @@ impl Store {
                 return Err(upload_missing());
             }
         };
-        let TransferKind::Upload { received } = &mut transfer.kind else {
+        let TransferKind::Upload { received, state } = &mut transfer.kind else {
             return Err(upload_missing());
         };
+        if *state != UploadState::Open {
+            return Err(Error::busy());
+        }
         if offset != *received {
             return Err(Error::invalid());
         }
@@ -1056,11 +1104,21 @@ impl Store {
             ));
         }
         use std::io::Write;
-        std::fs::OpenOptions::new()
+        let prior = *received;
+        let write = std::fs::OpenOptions::new()
             .append(true)
             .open(&transfer.file)
-            .and_then(|mut f| f.write_all(bytes))
-            .map_err(|_| Error::internal())?;
+            .and_then(|mut f| f.write_all(bytes).map_err(|error| {
+                // write_all may persist a prefix before returning an I/O
+                // error. Restore the acknowledged offset so retrying appends
+                // the complete chunk exactly once.
+                let _ = f.set_len(prior);
+                error
+            }));
+        if let Err(error) = write {
+            tracing::warn!(error = %error, "upload append failed");
+            return Err(Error::internal());
+        }
         *received += bytes.len() as u64;
         Ok(*received)
     }
@@ -1068,7 +1126,7 @@ impl Store {
     pub fn upload_status(&self, id: &str) -> Result<u64> {
         match self.lookup_transfer(id)? {
             Some(t) => match t.kind {
-                TransferKind::Upload { received } => Ok(received),
+                TransferKind::Upload { received, .. } => Ok(received),
                 TransferKind::Snapshot { .. } => Err(upload_missing()),
             },
             None => Err(upload_missing()),
@@ -1079,23 +1137,58 @@ impl Store {
     /// single-shot import path. A failed commit keeps the upload so the
     /// client can fix the target name and retry; abort or TTL releases it.
     pub fn upload_commit(&self, id: &str, name: &str) -> Result<()> {
-        let transfer = self.lookup_transfer(id)?.ok_or_else(upload_missing)?;
-        if !matches!(transfer.kind, TransferKind::Upload { .. }) {
-            return Err(upload_missing());
+        let file = {
+            let mut transfers = self.transfers.lock().map_err(|_| Error::internal())?;
+            self.purge_expired_locked(&mut transfers);
+            let transfer = transfers.get_mut(id).ok_or_else(upload_missing)?;
+            let TransferKind::Upload { state, .. } = &mut transfer.kind else {
+                return Err(upload_missing());
+            };
+            if !transfer.created.elapsed() < self.transfer_ttl {
+                return Err(upload_missing());
+            }
+            if *state != UploadState::Open {
+                return Err(Error::busy());
+            }
+            *state = UploadState::Committing;
+            transfer.file.clone()
+        };
+
+        let result = self.import_from(name, &file);
+        if result.is_ok() {
+            self.remove_transfer(id);
+            return Ok(());
         }
-        self.import_from(name, &transfer.file)?;
-        self.remove_transfer(id);
-        Ok(())
+
+        // A rejected target name or validation failure leaves the complete
+        // upload available for a corrected retry, but never concurrent with
+        // another append/abort while publication was in progress.
+        let mut transfers = self.transfers.lock().map_err(|_| Error::internal())?;
+        if let Some(transfer) = transfers.get_mut(id)
+            && let TransferKind::Upload { state, .. } = &mut transfer.kind
+        {
+            *state = UploadState::Open;
+        }
+        result
     }
 
     pub fn upload_abort(&self, id: &str) -> Result<()> {
-        match self.lookup_transfer(id)? {
-            Some(t) if matches!(t.kind, TransferKind::Upload { .. }) => {
-                self.remove_transfer(id);
-                Ok(())
+        let removed = {
+            let mut transfers = self.transfers.lock().map_err(|_| Error::internal())?;
+            self.purge_expired_locked(&mut transfers);
+            let transfer = transfers.get_mut(id).ok_or_else(upload_missing)?;
+            let TransferKind::Upload { state, .. } = &mut transfer.kind else {
+                return Err(upload_missing());
+            };
+            if *state != UploadState::Open {
+                return Err(Error::busy());
             }
-            _ => Err(upload_missing()),
+            transfers.remove(id)
+        };
+        if let Some(transfer) = removed {
+            let _ = std::fs::remove_dir_all(transfer.dir);
         }
+        Ok(())
     }
 
     /// Drop expired transfers and their retained directories. Driven by the
