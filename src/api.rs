@@ -113,14 +113,19 @@ async fn work_in<T: Send + 'static>(
         .await
         .map_err(|_| Error::busy())?
         .map_err(|_| Error::busy())?;
-    tokio::task::spawn_blocking(move || {
+    store.metrics.record_request();
+    let result = tokio::task::spawn_blocking(move || {
         let _permit = permit;
         let _lease = store.request_lease()?;
         let principal = store.authenticate(&credential)?;
         f(&store, principal)
     })
     .await
-    .map_err(|_| Error::internal())?
+    .map_err(|_| Error::internal())?;
+    if let Err(e) = &result {
+        store.metrics.record_error(e.code);
+    }
+    result
 }
 async fn list(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<Json<Value>> {
     // Scoped listing: the owner sees every live database; an app key sees
@@ -486,6 +491,9 @@ async fn execute(
             &p.hash,
             key.as_deref(),
         );
+        if !read && result.is_ok() {
+            s.note_write(&name);
+        }
         result.map(Json)
     })
     .await
