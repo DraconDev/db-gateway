@@ -9,11 +9,31 @@ placeholders for future/repeated deployments.
 
 ## Prerequisites (owner runs on the target)
 
-1. Build the release bundle with `scripts/release-bundle.sh` (the default
-   `DG_RELEASE_TARGET=micro2` verifies x86_64 Linux and the
-   `/lib64/ld-linux-x86-64.so.2` interpreter), copy it to the target, and
-   verify `SHA256SUMS` there. Use `DG_RELEASE_TARGET=host` only for an
-   explicitly local, non-micro2 bundle.
+1. Build the release bundle with `scripts/release-bundle.sh`. The default
+   `DG_RELEASE_TARGET=micro2` requires `podman` or `docker` and builds inside
+   the immutable `docker.io/library/ubuntu@sha256:496754492fb28b4d3049432f2ca787449331e23fb14f0dd3fffea86bf5a93eb4`
+   image (Ubuntu 24.04 amd64, glibc 2.39), matching the recorded micro2 target.
+   The container installs the toolchain from `rust-toolchain.toml`, runs the
+   locked release build, executes `dg --version` and a disposable `dg init`,
+   verifies the x86-64 ELF interpreter, and stages that container-built binary.
+   Copy the resulting bundle to the target and verify `SHA256SUMS` there. Use
+   `DG_RELEASE_TARGET=host` only for an explicitly local, non-micro2 bundle;
+   that path is never labelled micro2 ABI-verified.
+
+   Container selection is automatic: set `DG_CONTAINER_ENGINE=podman` or
+   `DG_CONTAINER_ENGINE=docker` to choose explicitly. The micro2 path fails
+   closed when neither engine is available, rather than falling back to a
+   native build.
+
+   **Builder update policy:** treat the image digest and expected glibc family
+   as release inputs. Update them only for an intentional micro2 OS/glibc
+   change: first record the target's architecture and `ldd --version` output,
+   then select the matching Ubuntu image digest, run
+   `DG_RELEASE_TARGET=micro2 scripts/release-bundle.sh` plus
+   `cargo test --locked --test release_bundle`, review `BUILD-INFO.txt`, and
+   commit the image/expected-glibc change together. Never substitute a
+   floating tag, newer glibc, or a locally built image without updating and
+   testing the pinned contract.
 2. Create the dedicated unprivileged user (see placeholder table).
 3. Place the `dg` binary at its final path, owned by root, executable.
 4. Create the data directory, owned by the service user, mode `0700`.
