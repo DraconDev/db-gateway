@@ -105,6 +105,16 @@ pub struct Store {
     // these tokio RwLocks are admission lanes — fully qualified to keep the
     // two apart.
     queues: Mutex<HashMap<String, Arc<tokio::sync::RwLock<()>>>>,
+    pub metrics: Metrics,
+    /// Last successful API write per database (create/seed time counts as a
+    /// write via create/import paths). Best-effort freshness input for
+    /// `/v1/backups`; never fails a request. Direct file drops bypass it.
+    writes: Mutex<HashMap<String, SystemTime>>,
+    /// Versioned backup sets published by the external backup job
+    /// (scripts/micro2-backup.sh layout). Convention: `<data-dir>/../dg-backups`
+    /// unless overridden; absent/unreadable means backup status is unknown,
+    /// never healthy.
+    backup_root: Option<PathBuf>,
     // All server requests hold a read lease until their connections close.
     // Purge takes an exclusive lease before unlinking SQLite files.
     lifecycle: RwLock<()>,
@@ -240,11 +250,15 @@ impl Store {
                 .map_err(|_| Error::internal())?;
         }
         sweep_orphan_transfer_dirs(root);
-        let store = Self {
-            root: root.to_path_buf(),
-            read_lane: Arc::new(Semaphore::new(READ_PERMITS)),
-            write_lane: Arc::new(Semaphore::new(WRITE_PERMITS)),
-            queues: Mutex::new(HashMap::new()),
+/// Backup-set convention: versioned sets live next to the data dir unless
+/// `--backup-root` overrides. Returns None for degenerate data-dir paths.
+fn default_backup_root(data_dir: &Path) -> Option<PathBuf> {
+    let parent = data_dir.parent()?;
+    if parent.as_os_str().is_empty() {
+        return None;
+    }
+    Some(parent.join("dg-backups"))
+}
             lifecycle: RwLock::new(()),
             transfers: Mutex::new(HashMap::new()),
             transfer_ttl,
