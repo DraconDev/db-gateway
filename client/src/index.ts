@@ -46,6 +46,17 @@ function base64ToBytes(b64: string): Uint8Array {
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;
 }
+function decodeExportBase64(encoded: unknown): Uint8Array {
+  if (typeof encoded !== 'string') throw new GatewayError('outcome_unknown', 'Malformed export response');
+  try {
+    return base64ToBytes(encoded);
+  } catch {
+    throw new GatewayError('outcome_unknown', 'Malformed export response');
+  }
+}
+function assertValues(args: SqlValue[]): void {
+  if (!Array.isArray(args) || !args.every(isValue)) throw new Error('Invalid SQL argument');
+}
 async function sha256Hex(data: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', data as BufferSource);
   return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
@@ -183,11 +194,15 @@ export class Gateway {
 export class Database {
   constructor(private readonly gateway: Gateway, private readonly name: string) {}
   async execute(sql: string, args: SqlValue[] = [], options: RequestOptions = {}): Promise<QueryResult> {
+    assertValues(args);
     const result = await this.gateway.request(`/v1/databases/${this.name}/query`, 'POST', {sql,args},options);
     if (!isResult(result)) throw new GatewayError('outcome_unknown','Malformed query response');
     return result;
   }
   async batch(statements: Statement[], options: RequestOptions = {}): Promise<BatchResult> {
+    if (!Array.isArray(statements) || !statements.every(s => object(s) && Array.isArray(s.args) && s.args.every(isValue))) {
+      throw new Error('Invalid SQL argument');
+    }
     const result = await this.gateway.request(`/v1/databases/${this.name}/batch`,'POST',{statements,atomic:true},options);
     if (!object(result) || !Array.isArray(result.results) || !result.results.every(isResult)) throw new GatewayError('outcome_unknown','Malformed batch response');
     return {results: result.results};
@@ -212,7 +227,7 @@ export class Database {
         typeof result.size !== 'number' || typeof result.data_base64 !== 'string') {
       throw new GatewayError('outcome_unknown','Malformed export response');
     }
-    const data = base64ToBytes(result.data_base64);
+    const data = decodeExportBase64(result.data_base64);
     if (data.length !== result.size || await sha256Hex(data) !== result.sha256) {
       throw new GatewayError('outcome_unknown','Export integrity mismatch');
     }
@@ -233,7 +248,7 @@ export class Database {
       if (!object(chunk) || typeof chunk.data_base64 !== 'string' || chunk.offset !== offset) {
         throw new GatewayError('outcome_unknown','Malformed chunk response');
       }
-      const bytes = base64ToBytes(chunk.data_base64);
+      const bytes = decodeExportBase64(chunk.data_base64);
       if (bytes.length === 0) break;
       parts.push(bytes);
       offset += bytes.length;
