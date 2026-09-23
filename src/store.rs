@@ -1150,12 +1150,11 @@ impl Store {
             .append(true)
             .open(&transfer.file)
             .and_then(|mut f| {
-                f.write_all(bytes).map_err(|error| {
+                f.write_all(bytes).inspect_err(|_error| {
                     // write_all may persist a prefix before returning an I/O
                     // error. Restore the acknowledged offset so retrying appends
                     // the complete chunk exactly once.
                     let _ = f.set_len(prior);
-                    error
                 })
             });
         if let Err(error) = write {
