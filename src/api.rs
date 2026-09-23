@@ -111,10 +111,15 @@ async fn work_in<T: Send + 'static>(
     } else {
         store.write_lane.clone()
     };
-    let permit = tokio::time::timeout(ACQUIRE_TIMEOUT, lane.acquire_owned())
-        .await
-        .map_err(|_| Error::busy())?
-        .map_err(|_| Error::busy())?;
+    // Lane sheds count too: an early `?` here would bypass the error
+    // recording below and hide overload from `/v1/status`.
+    let permit = match tokio::time::timeout(ACQUIRE_TIMEOUT, lane.acquire_owned()).await {
+        Ok(Ok(permit)) => permit,
+        _ => {
+            metrics.metrics.record_error("capacity_exceeded");
+            return Err(Error::busy());
+        }
+    };
     store.metrics.record_request();
     let metrics = store.clone();
     let result = tokio::task::spawn_blocking(move || {
@@ -196,9 +201,9 @@ async fn backups(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<
             }
         }
         for name in &names {
-            let newest = sets.as_ref().and_then(|sets| {
-                sets.iter().find(|set| set.databases.contains(name))
-            });
+            let newest = sets
+                .as_ref()
+                .and_then(|sets| sets.iter().find(|set| set.databases.contains(name)));
             let (state, newest_set, age_secs) = match newest {
                 None => ("unknown", Value::Null, Value::Null),
                 Some(set) => {

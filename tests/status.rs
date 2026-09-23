@@ -80,12 +80,7 @@ fn get(address: &str, path: &str, cred: Option<&str>) -> (u16, Value) {
     (status, body)
 }
 
-fn post(
-    address: &str,
-    path: &str,
-    cred: &str,
-    body: &Value,
-) -> (u16, Value) {
+fn post(address: &str, path: &str, cred: &str, body: &Value) -> (u16, Value) {
     let response = reqwest::blocking::Client::new()
         .post(format!("http://{address}{path}"))
         .bearer_auth(cred)
@@ -171,7 +166,12 @@ fn forced_429_is_counted() {
     let owner = init(dir.path());
     let server = start(dir.path(), &[]);
     for db in ["w0", "w1", "w2", "w3"] {
-        let (status, _) = post(&server.address, "/v1/databases", &owner, &json!({"name": db}));
+        let (status, _) = post(
+            &server.address,
+            "/v1/databases",
+            &owner,
+            &json!({"name": db}),
+        );
         assert_eq!(status, 200);
         let (status, _) = post(
             &server.address,
@@ -259,7 +259,12 @@ fn backups_freshness_transitions() {
         dir.path(),
         &["--backup-root", backup_root.to_str().unwrap()],
     );
-    let (status, _) = post(&server.address, "/v1/databases", &owner, &json!({"name": "bdb"}));
+    let (status, _) = post(
+        &server.address,
+        "/v1/databases",
+        &owner,
+        &json!({"name": "bdb"}),
+    );
     assert_eq!(status, 200);
     let (status, _) = post(
         &server.address,
@@ -277,7 +282,10 @@ fn backups_freshness_transitions() {
     let (status, body) = get(&server.address, "/v1/backups", Some(&owner));
     assert_eq!(status, 200);
     assert_eq!(body["per_database"]["bdb"]["state"], json!("fresh"));
-    assert_eq!(body["per_database"]["bdb"]["newest_set"], json!("20260922T223715Z"));
+    assert_eq!(
+        body["per_database"]["bdb"]["newest_set"],
+        json!("20260922T223715Z")
+    );
     assert_eq!(body["sets"][0]["has_registry"], json!(true));
     // A write newer than the newest set is stale. Backdate a second set so
     // the comparison is deterministic regardless of mtime granularity.
@@ -323,7 +331,12 @@ fn backups_unreadable_root_is_unknown() {
     let owner = init(dir.path());
     let missing = dir.path().join("no-such-root");
     let server = start(dir.path(), &["--backup-root", missing.to_str().unwrap()]);
-    let (status, _) = post(&server.address, "/v1/databases", &owner, &json!({"name": "udb"}));
+    let (status, _) = post(
+        &server.address,
+        "/v1/databases",
+        &owner,
+        &json!({"name": "udb"}),
+    );
     assert_eq!(status, 200);
     let (status, body) = get(&server.address, "/v1/backups", Some(&owner));
     assert_eq!(status, 200);

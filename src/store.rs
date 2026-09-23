@@ -308,7 +308,8 @@ impl Store {
             }
             let mtime = entry.metadata().and_then(|m| m.modified()).ok()?;
             let manifest: serde_json::Value =
-                serde_json::from_slice(&std::fs::read(entry.path().join("MANIFEST.json")).ok()?).ok()?;
+                serde_json::from_slice(&std::fs::read(entry.path().join("MANIFEST.json")).ok()?)
+                    .ok()?;
             let databases = manifest["databases"]
                 .as_array()
                 .map(|a| {
@@ -318,7 +319,12 @@ impl Store {
                 })
                 .unwrap_or_default();
             let has_registry = manifest["registry"]["sha256"].as_str().is_some();
-            sets.push(BackupSet { timestamp: name, mtime, databases, has_registry });
+            sets.push(BackupSet {
+                timestamp: name,
+                mtime,
+                databases,
+                has_registry,
+            });
         }
         sets.sort_by(|a, b| b.mtime.cmp(&a.mtime));
         Some(sets)
