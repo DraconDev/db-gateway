@@ -246,6 +246,17 @@ fn default_backup_root(data_dir: &Path) -> Option<PathBuf> {
     Some(parent.join("dg-backups"))
 }
 
+/// Versioned-set directory names look like `20260922T223715Z` (the backup
+/// script's `%Y%m%dT%H%M%SZ`). Staging dirs and anything else never match.
+fn is_set_dir(name: &str) -> bool {
+    let b = name.as_bytes();
+    b.len() == 16
+        && b[..8].iter().all(|c| c.is_ascii_digit())
+        && b[8] == b'T'
+        && b[9..15].iter().all(|c| c.is_ascii_digit())
+        && b[15] == b'Z'
+}
+
 /// One published versioned set (scripts/micro2-backup.sh layout): directory
 /// name, filesystem mtime, member database names, registry presence.
 pub struct BackupSet {
