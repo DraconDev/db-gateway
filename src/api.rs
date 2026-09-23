@@ -48,6 +48,8 @@ pub fn router(store: Arc<Store>) -> Router {
         .route("/v1/keys", get(list_keys).post(issue))
         .route("/v1/keys/owner/rotate", post(rotate_owner))
         .route("/v1/keys/{name}", delete(revoke))
+        .route("/v1/status", get(status))
+        .route("/v1/backups", get(backups))
         .route("/v1/databases/{name}/query", post(query))
         .route("/v1/databases/{name}/batch", post(batch))
         .layer(DefaultBodyLimit::max(65536))
@@ -126,6 +128,109 @@ async fn work_in<T: Send + 'static>(
         store.metrics.record_error(e.code);
     }
     result
+}
+/// Staleness reference for `/v1/backups` (observability contract §2): committed
+/// changes unrepresented by a verified copy for longer than this deserve an
+/// operator look. An objective, not an accepted RPO.
+pub const STALE_AFTER_SECS: u64 = 300;
+
+/// Owner-only service status: version, uptime, admission config, and
+/// request-pressure counters. The machine-readable counterpart to the
+/// human `dg status`; AI operators poll this, not log files.
+async fn status(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<Json<Value>> {
+    work(store, headers, |s, p| {
+        p.owner()?;
+        let m = s.metrics.snapshot();
+        Ok(Json(json!({
+            "version": env!("CARGO_PKG_VERSION"),
+            "uptime_secs": m.uptime_secs,
+            "admission": {
+                "acquire_timeout_ms": crate::store::ACQUIRE_TIMEOUT.as_millis() as u64,
+                "read_permits": crate::store::READ_PERMITS,
+                "write_permits": crate::store::WRITE_PERMITS,
+            },
+            "requests": {
+                "total": m.total,
+                "capacity_exceeded": m.capacity_exceeded,
+                "query_deadline_exceeded": m.deadline_exceeded,
+                "internal_error": m.internal_error,
+            },
+        })))
+    })
+    .await
+}
+
+/// Owner-only backup freshness (observability contract §2, C2): versioned
+/// sets newest-first plus per-database state derived from the last API
+/// write vs the newest set containing the database. `unknown` — no root
+/// configured, root unreadable, or no set contains the database — is a
+/// reported state, never implied healthy. Freshness here is set membership
+/// by timestamp, not a restore drill; restore readiness stays a separate
+/// rehearsal (recovery_rehearsal).
+async fn backups(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<Json<Value>> {
+    work(store, headers, |s, p| {
+        p.owner()?;
+        let live: Vec<String> = s.list(&p)?;
+        let now = std::time::SystemTime::now();
+        let sets = s.backup_sets();
+        let mut set_json = Vec::new();
+        if let Some(ref sets) = sets {
+            for set in sets {
+                set_json.push(json!({
+                    "timestamp": set.timestamp,
+                    "databases": set.databases,
+                    "has_registry": set.has_registry,
+                }));
+            }
+        }
+        let mut per_database = serde_json::Map::new();
+        let mut names: Vec<String> = live;
+        if let Some(ref sets) = sets {
+            for set in sets {
+                for db in &set.databases {
+                    if !names.contains(db) {
+                        names.push(db.clone());
+                    }
+                }
+            }
+        }
+        for name in &names {
+            let newest = sets.as_ref().and_then(|sets| {
+                sets.iter().find(|set| set.databases.contains(name))
+            });
+            let (state, newest_set, age_secs) = match newest {
+                None => ("unknown", Value::Null, Value::Null),
+                Some(set) => {
+                    let age = now
+                        .duration_since(set.mtime)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    let stale = match s.last_write(name) {
+                        Some(wrote) => wrote > set.mtime,
+                        // No API write recorded: nothing unrepresented, so a
+                        // containing set counts as fresh.
+                        None => false,
+                    };
+                    (
+                        if stale { "stale" } else { "fresh" },
+                        Value::String(set.timestamp.clone()),
+                        Value::from(age),
+                    )
+                }
+            };
+            per_database.insert(
+                name.clone(),
+                json!({"state": state, "newest_set": newest_set, "age_secs": age_secs}),
+            );
+        }
+        Ok(Json(json!({
+            "backup_root": s.backup_root().map(|p| p.to_string_lossy().into_owned()),
+            "stale_after_secs": STALE_AFTER_SECS,
+            "sets": set_json,
+            "per_database": per_database,
+        })))
+    })
+    .await
 }
 async fn list(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<Json<Value>> {
     // Scoped listing: the owner sees every live database; an app key sees
