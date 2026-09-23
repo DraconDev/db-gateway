@@ -126,7 +126,7 @@ async fn work_in<T: Send + 'static>(
     .await
     .map_err(|_| Error::internal())?;
     if let Err(e) = &result {
-        store.metrics.record_error(e.code);
+        metrics.metrics.record_error(e.code);
     }
     result
 }
