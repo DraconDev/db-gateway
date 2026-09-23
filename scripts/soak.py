@@ -21,6 +21,7 @@ Exit nonzero on any failed assertion.
 
 import argparse
 import json
+import os
 import queue
 import subprocess
 import sys
@@ -89,6 +90,11 @@ def main():
     ap.add_argument("--seconds", type=int, default=1800)
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
+    readiness_timeout = float(
+        os.environ.get("SOAK_READINESS_TIMEOUT", str(READINESS_TIMEOUT))
+    )
+    if readiness_timeout <= 0:
+        ap.error("--readiness timeout must be positive")
 
     tmp = tempfile.mkdtemp(prefix="soak-")
     init = subprocess.run(
@@ -112,7 +118,7 @@ def main():
     stderr_thread.start()
     try:
         base = None
-        deadline = time.monotonic() + READINESS_TIMEOUT
+        deadline = time.monotonic() + readiness_timeout
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:

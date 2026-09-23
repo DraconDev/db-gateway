@@ -48,6 +48,14 @@ fn backup_staging_is_unique_and_cleaned_on_failure() {
 }
 
 #[test]
+fn script_uses_fail_with_body_and_asserts_generation() {
+    let script = fs::read_to_string("scripts/upgrade-rehearsal.sh").unwrap();
+    assert!(script.contains("--fail-with-body"));
+    assert!(script.contains("rows[-1][0] == \"rollback-gen\""));
+    assert_eq!(script.matches("rollback-generation write intact").count(), 2);
+}
+
+#[test]
 fn soak_readiness_wait_is_bounded() {
     // The fake init succeeds, then the fake serve remains alive without ever
     // logging. An outer timeout proves the old blocking readline cannot hang.
@@ -63,11 +71,9 @@ fn soak_readiness_wait_is_bounded() {
         .args(["-c", "import runpy,sys; sys.argv=['soak.py','--dg-bin',sys.argv[1],'--seconds','0','--out',sys.argv[2]]; runpy.run_path('scripts/soak.py',run_name='__main__')"])
         .arg(&fake)
         .arg(dir.path().join("soak.log"))
+        .env("SOAK_READINESS_TIMEOUT", "0.2")
         .output()
         .expect("run soak script");
-    // The full 60-second readiness contract remains the production default;
-    // this process-level test is intentionally bounded externally. It verifies
-    // startup cleanup and that the script still fails rather than succeeding.
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("server never logged"));
 }
