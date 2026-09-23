@@ -103,10 +103,6 @@ def main():
         text=True,
     )
     stderr_lines = queue.Queue()
-    stderr_thread = threading.Thread(
-        target=lambda: iter(lambda: server.stderr.readline(), ""),
-        daemon=True,
-    )
 
     def drain_stderr():
         for line in iter(server.stderr.readline, ""):
