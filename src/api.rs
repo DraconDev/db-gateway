@@ -263,7 +263,7 @@ async fn create(
     let body = json_body(body)?;
     work(store, headers, move |s, p| {
         p.owner()?;
-        s.create(&body.name)?;
+        s.create_and_note(&body.name)?;
         Ok(Json(json!({"name":body.name})))
     })
     .await

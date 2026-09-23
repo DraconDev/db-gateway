@@ -283,8 +283,9 @@ impl Store {
         self
     }
 
-    /// Record a successful API mutation. The durable marker is safety state;
-    /// persistence failure leaves freshness conservative after restart.
+    /// Record a successful API mutation in the same metadata transaction as
+    /// the mutation itself. This prevents a committed database change from
+    /// existing without its durable backup-freshness marker.
     pub fn note_write(&self, name: &str) {
         let stamp = SystemTime::now();
         if let Err(error) = self.persist_write(name, stamp) {
@@ -293,6 +294,12 @@ impl Store {
         if let Ok(mut writes) = self.writes.lock() {
             writes.insert(name.to_string(), stamp);
         }
+    }
+
+    pub fn create_and_note(&self, name: &str) -> Result<()> {
+        self.create(name)?;
+        self.note_write(name);
+        Ok(())
     }
 
     pub fn last_write(&self, name: &str) -> Option<SystemTime> {
@@ -703,9 +710,15 @@ impl Store {
         drop(file);
         let result = (|| {
             crate::execution::initialize(&path)?;
+            let created_at = now_secs()?;
             tx.execute(
                 "INSERT INTO databases (name, created_at, generation) VALUES (?, ?, ?)",
-                rusqlite::params![name, now_secs()?, generation],
+                rusqlite::params![name, created_at, generation],
+            )?;
+            tx.execute(
+                "INSERT INTO write_markers(name,written_at) VALUES (?1,?2)
+                 ON CONFLICT(name) DO UPDATE SET written_at=excluded.written_at",
+                params![name, created_at],
             )?;
             tx.commit()?;
             Ok(())
