@@ -9,7 +9,10 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, RwLock, RwLockReadGuard},
+    sync::{
+        Arc, Mutex, RwLock, RwLockReadGuard,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::Semaphore;
@@ -37,6 +40,61 @@ pub const WRITE_PERMITS: usize = 4;
 pub enum QueueGuard {
     Read(tokio::sync::OwnedRwLockReadGuard<()>),
     Write(tokio::sync::OwnedRwLockWriteGuard<()>),
+}
+
+/// Request-pressure counters (observability contract §1). Status-level only:
+/// total plus the three shed/degrade signals. Updated at the API layer in
+/// `work_in`, which every route funnels through; per-code detail beyond
+/// these signals stays in the structured logs, not in memory.
+pub struct Metrics {
+    started: Instant,
+    total: AtomicU64,
+    capacity_exceeded: AtomicU64,
+    deadline_exceeded: AtomicU64,
+    internal_error: AtomicU64,
+}
+
+/// Point-in-time copy for `/v1/status`. Plain data, no locks held.
+pub struct MetricsSnapshot {
+    pub uptime_secs: u64,
+    pub total: u64,
+    pub capacity_exceeded: u64,
+    pub deadline_exceeded: u64,
+    pub internal_error: u64,
+}
+
+impl Metrics {
+    fn new() -> Self {
+        Self {
+            started: Instant::now(),
+            total: AtomicU64::new(0),
+            capacity_exceeded: AtomicU64::new(0),
+            deadline_exceeded: AtomicU64::new(0),
+            internal_error: AtomicU64::new(0),
+        }
+    }
+    pub fn record_request(&self) {
+        self.total.fetch_add(1, Ordering::Relaxed);
+    }
+    pub fn record_error(&self, code: &str) {
+        let counter = match code {
+            "capacity_exceeded" => &self.capacity_exceeded,
+            "query_deadline_exceeded" => &self.deadline_exceeded,
+            "internal_error" => &self.internal_error,
+            _ => return,
+        };
+        counter.fetch_add(1, Ordering::Relaxed);
+    }
+    pub fn snapshot(&self) -> MetricsSnapshot {
+        let load = Ordering::Relaxed;
+        MetricsSnapshot {
+            uptime_secs: self.started.elapsed().as_secs(),
+            total: self.total.load(load),
+            capacity_exceeded: self.capacity_exceeded.load(load),
+            deadline_exceeded: self.deadline_exceeded.load(load),
+            internal_error: self.internal_error.load(load),
+        }
+    }
 }
 
 pub struct Store {
