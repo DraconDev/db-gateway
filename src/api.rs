@@ -374,10 +374,7 @@ async fn export(
     json_body(body)?;
     work_read(store, headers, move |s, p| {
         s.authorize(&p, &name)?;
-        let temp = s.export_snapshot(&name)?;
-        if std::fs::metadata(temp.path()).map_err(|_| Error::internal())?.len() > MAX_EXPORT as u64 {
-            return Err(Error::new(413, "result_limit_exceeded", "export exceeds bounded response size"));
-        }
+        let temp = s.export_snapshot_limited(&name, Some(MAX_EXPORT as u64))?;
         let bytes = std::fs::read(temp.path()).map_err(|_| Error::internal())?;
         Ok(Json(json!({"database":name,"sha256":hex::encode(Sha256::digest(&bytes)),"size":bytes.len(),"data_base64":BASE64_STANDARD.encode(bytes)})))
     })

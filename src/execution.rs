@@ -228,7 +228,12 @@ fn authorize(ctx: AuthContext<'_>, read_only: bool) -> Authorization {
         Authorization::Deny
     }
 }
-fn run_statement(conn: &Connection, statement: &Statement, read_only: bool) -> Result<Value> {
+fn run_statement(
+    conn: &Connection,
+    statement: &Statement,
+    read_only: bool,
+    remaining_result_bytes: usize,
+) -> Result<Value> {
     if statement.sql.is_empty() || statement.sql.len() > 65536 || statement.args.len() > 256 {
         return Err(Error::invalid());
     }
@@ -261,7 +266,7 @@ fn run_statement(conn: &Connection, statement: &Statement, read_only: bool) -> R
                 bytes += serde_json::to_vec(&values)
                     .map_err(|_| Error::internal())?
                     .len();
-                if bytes > MAX_RESULT {
+                if bytes > remaining_result_bytes {
                     return Err(result_limit());
                 }
                 rows.push(values);
@@ -407,8 +412,23 @@ pub fn execute(
         }
     }
     let mut results = Vec::new();
+    // Charge every statement against one shared response budget. The small
+    // reserve covers JSON punctuation and column metadata; the exact encoded
+    // response is checked once before commit.
+    let mut remaining_result_bytes = MAX_RESULT.saturating_sub(4096);
     for statement in statements {
-        results.push(run_statement(&tx, statement, read_only)?);
+        let result = run_statement(
+            &tx,
+            statement,
+            read_only,
+            remaining_result_bytes,
+        )?;
+        remaining_result_bytes = remaining_result_bytes.saturating_sub(
+            serde_json::to_vec(&result)
+                .map_err(|_| Error::internal())?
+                .len(),
+        );
+        results.push(result);
     }
     let result = if batch {
         json!({"results":results})
