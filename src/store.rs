@@ -106,9 +106,8 @@ pub struct Store {
     // two apart.
     queues: Mutex<HashMap<String, Arc<tokio::sync::RwLock<()>>>>,
     pub metrics: Metrics,
-    /// Last successful API write per database (create/seed time counts as a
-    /// write via create/import paths). Best-effort freshness input for
-    /// `/v1/backups`; never fails a request. Direct file drops bypass it.
+    /// Last successful API write per database, loaded from metadata on
+    /// startup so freshness cannot flip to false fresh across a restart.
     writes: Mutex<HashMap<String, SystemTime>>,
     /// Versioned backup sets published by the external backup job
     /// (scripts/micro2-backup.sh layout). Convention: `<data-dir>/../dg-backups`
@@ -284,16 +283,60 @@ impl Store {
         self
     }
 
-    /// Record a successful API mutation. Infallible by design: a poisoned or
-    /// contended stats lock must never fail the request it observes.
+    /// Record a successful API mutation. The durable marker is safety state;
+    /// persistence failure leaves freshness conservative after restart.
     pub fn note_write(&self, name: &str) {
+        let stamp = SystemTime::now();
+        if let Err(error) = self.persist_write(name, stamp) {
+            tracing::warn!(database = name, error = %error, "backup write marker not persisted");
+        }
         if let Ok(mut writes) = self.writes.lock() {
-            writes.insert(name.to_string(), SystemTime::now());
+            writes.insert(name.to_string(), stamp);
         }
     }
 
     pub fn last_write(&self, name: &str) -> Option<SystemTime> {
-        self.writes.lock().ok()?.get(name).copied()
+        self.writes
+            .lock()
+            .ok()
+            .and_then(|writes| writes.get(name).copied())
+    }
+
+    fn persist_write(&self, name: &str, stamp: SystemTime) -> Result<()> {
+        let seconds = stamp
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| Error::internal())?
+            .as_secs() as i64;
+        self.meta()?
+            .execute(
+                "INSERT INTO write_markers(name,written_at) VALUES (?1,?2)
+                 ON CONFLICT(name) DO UPDATE SET written_at=excluded.written_at",
+                params![name, seconds],
+            )
+            .map_err(|_| Error::internal())?;
+        Ok(())
+    }
+
+    fn load_write_markers(&self) -> HashMap<String, SystemTime> {
+        let Ok(conn) = self.meta() else {
+            return HashMap::new();
+        };
+        let Ok(mut stmt) = conn.prepare("SELECT name,written_at FROM write_markers") else {
+            return HashMap::new();
+        };
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        });
+        rows.into_iter()
+            .flatten()
+            .filter_map(std::result::Result::ok)
+            .filter_map(|(name, seconds)| {
+                let seconds = u64::try_from(seconds).ok()?;
+                UNIX_EPOCH
+                    .checked_add(Duration::from_secs(seconds))
+                    .map(|stamp| (name, stamp))
+            })
+            .collect()
     }
 
     pub fn backup_root(&self) -> Option<PathBuf> {
@@ -312,10 +355,15 @@ impl Store {
             if !is_set_dir(&name) || !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
                 continue;
             }
-            let mtime = entry.metadata().and_then(|m| m.modified()).ok()?;
-            let manifest: serde_json::Value =
-                serde_json::from_slice(&std::fs::read(entry.path().join("MANIFEST.json")).ok()?)
-                    .ok()?;
+            let Ok(mtime) = entry.metadata().and_then(|m| m.modified()) else {
+                continue;
+            };
+            let Ok(manifest) = std::fs::read(entry.path().join("MANIFEST.json"))
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+            else {
+                continue;
+            };
             let databases = manifest["databases"]
                 .as_array()
                 .map(|a| {
@@ -361,6 +409,8 @@ impl Store {
         let mut metadata = store.meta()?;
         metadata.execute_batch("PRAGMA journal_mode=WAL;")?;
         migrate_metadata(&mut metadata, &store.root)?;
+        let writes = store.load_write_markers();
+        *store.writes.lock().map_err(|_| Error::internal())? = writes;
         Ok(store)
     }
     fn meta(&self) -> Result<Connection> {
@@ -1319,7 +1369,8 @@ fn migrate_metadata(conn: &mut Connection, root: &Path) -> Result<()> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     tx.execute_batch(
         "CREATE TABLE IF NOT EXISTS credentials(name TEXT PRIMARY KEY, hash TEXT UNIQUE NOT NULL, role TEXT NOT NULL, databases TEXT NOT NULL);
-         CREATE TABLE IF NOT EXISTS databases(name TEXT PRIMARY KEY, generation TEXT NOT NULL);",
+         CREATE TABLE IF NOT EXISTS databases(name TEXT PRIMARY KEY, generation TEXT NOT NULL);
+         CREATE TABLE IF NOT EXISTS write_markers(name TEXT PRIMARY KEY, written_at INTEGER NOT NULL);",
     )?;
     for (column, declaration) in [
         ("deleted_at", "INTEGER"),
