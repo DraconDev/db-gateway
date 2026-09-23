@@ -38,7 +38,10 @@ fn backup_staging_is_unique_and_cleaned_on_failure() {
         .env("DG_BIN", &fake)
         .output()
         .expect("run backup script");
-    assert!(!output.status.success(), "empty backup unexpectedly succeeded");
+    assert!(
+        !output.status.success(),
+        "empty backup unexpectedly succeeded"
+    );
     let leftovers = fs::read_dir(&root)
         .unwrap()
         .filter_map(Result::ok)
@@ -52,7 +55,10 @@ fn script_uses_fail_with_body_and_asserts_generation() {
     let script = fs::read_to_string("scripts/upgrade-rehearsal.sh").unwrap();
     assert!(script.contains("--fail-with-body"));
     assert!(script.contains("rows[-1][0] == \"rollback-gen\""));
-    assert_eq!(script.matches("rollback-generation write intact").count(), 2);
+    assert_eq!(
+        script.matches("rollback-generation write intact").count(),
+        2
+    );
 }
 
 #[test]
