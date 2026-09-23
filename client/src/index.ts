@@ -200,7 +200,7 @@ export class Database {
     return result;
   }
   async batch(statements: Statement[], options: RequestOptions = {}): Promise<BatchResult> {
-    if (!Array.isArray(statements) || !statements.every(s => object(s) && Array.isArray(s.args) && s.args.every(isValue))) {
+    if (!Array.isArray(statements) || !statements.every(s => object(s) && (s.args === undefined || (Array.isArray(s.args) && s.args.every(isValue))))) {
       throw new Error('Invalid SQL argument');
     }
     const result = await this.gateway.request(`/v1/databases/${this.name}/batch`,'POST',{statements,atomic:true},options);
