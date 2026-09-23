@@ -44,6 +44,8 @@ Store key files with `0600` permissions; the CLI refuses group/world-readable ke
 | `POST /v1/uploads/{id}/commit` | owner | `{"name":"…"}` | `{"imported":"…"}` |
 | `DELETE /v1/uploads/{id}` | owner | — | `{"aborted":true}` |
 | `DELETE /v1/databases/{name}` | owner | — | `{"deleted":true,"purge_after_seconds":86400}` |
+| `GET /v1/status` | owner | — | `{"version":"…","uptime_secs":n,"admission":{"acquire_timeout_ms":500,"read_permits":8,"write_permits":4},"requests":{"total":n,"capacity_exceeded":n,"query_deadline_exceeded":n,"internal_error":n}}` |
+| `GET /v1/backups` | owner | — | `{"backup_root":"…"/null,"stale_after_secs":300,"sets":[{"timestamp":"…","databases":[…],"has_registry":bool}],"per_database":{"game_a":{"state":"fresh"/"stale"/"unknown","newest_set":"…"/null,"age_secs":n/null}}}` |
 
 Names: `[a-z0-9_]+`, not starting with `_`, max 64 chars. Queries never create databases — a missing database is `404 database_not_found`.
 
@@ -129,6 +131,15 @@ dg --key-file owner.key export game_a --out ./game_a_snapshot.sqlite   # writes 
 dg --key-file owner.key import restored --from ./game_a_snapshot.sqlite
 dg --key-file owner.key delete game_a_copy --confirm game_a_copy   # tombstone; file purge after 24h retention
 ```
+
+Operator visibility (owner-only; the AI-operator surface — poll these, not log files):
+
+```sh
+dg --key-file owner.key status          # version, uptime, admission config, request-pressure counters
+dg --key-file owner.key backup status   # versioned sets plus per-database fresh/stale/unknown
+```
+
+`GET /health/live` is unauthenticated liveness only (`{"status":"ok"}`) — it says nothing about database, disk, or backup readiness. `/v1/status` counters are status-level (total plus 429/408/500 signals); per-code detail lives in the structured logs. `/v1/backups` reads versioned sets from the backup root (`<data-dir>/../dg-backups` convention, `--backup-root` override; missing root means `unknown`, never healthy). Per-database state compares the last successful API mutation against the newest set containing the database: `fresh` (set covers all writes, or no writes recorded), `stale` (writes newer than the newest set), `unknown` (no root, unreadable root, or no set contains it). `stale_after_secs` (300) is the look-at-it reference from the observability contract, not an accepted RPO. Freshness is set membership by timestamp, not a restore drill — restore readiness stays a separate rehearsal. `dg serve --help` lists the `--backup-root` flag.
 
 Non-shell exit codes: `0` success; nonzero on any error. HTTP API errors produce JSON on stdout (the CLI also adds `status`); local validation, configuration and transport errors are logged to stderr instead. Deletion is non-interactive but requires typed-name confirmation — scripts and agents must supply the exact target name again.
 
