@@ -106,13 +106,15 @@ async fn work_in<T: Send + 'static>(
     // ACQUIRE_TIMEOUT (tokio's semaphores are FIFO-fair, so waits don't
     // starve or reorder). Overload still surfaces as the same 429. Permit
     // remains owned by blocking work even when its HTTP caller disconnects.
+    // The metrics clone exists so every exit below — including lane sheds —
+    // is counted; nothing may `?`-return past the recording.
+    let metrics = store.clone();
+    metrics.metrics.record_request();
     let lane = if read {
         store.read_lane.clone()
     } else {
         store.write_lane.clone()
     };
-    // Lane sheds count too: an early `?` here would bypass the error
-    // recording below and hide overload from `/v1/status`.
     let permit = match tokio::time::timeout(ACQUIRE_TIMEOUT, lane.acquire_owned()).await {
         Ok(Ok(permit)) => permit,
         _ => {
@@ -120,8 +122,6 @@ async fn work_in<T: Send + 'static>(
             return Err(Error::busy());
         }
     };
-    store.metrics.record_request();
-    let metrics = store.clone();
     let result = tokio::task::spawn_blocking(move || {
         let _permit = permit;
         let _lease = store.request_lease()?;
