@@ -1599,7 +1599,7 @@ mod tests {
 
         let reopened = Store::open(dir.path()).unwrap();
         let after = reopened.last_write("db").unwrap();
-        assert!(after >= before);
+        assert_eq!(after, before, "marker persists at whole-second precision");
 
         let root = dir.path().join("sets");
         std::fs::create_dir_all(root.join("20200101T000000Z")).unwrap();
@@ -1622,18 +1622,23 @@ mod tests {
         let store = Store::open(dir.path()).unwrap();
         store.create("db").unwrap();
         let path = store.path("db").unwrap();
-        crate::execution::execute(
-            &path,
-            &[crate::execution::Statement {
-                sql: "CREATE TABLE t(v TEXT); INSERT INTO t SELECT hex(randomblob(20000))".into(),
-                args: vec![],
-            }],
-            false,
-            false,
-            "owner",
-            None,
-        )
-        .unwrap();
+        for sql in [
+            "CREATE TABLE t(v TEXT)",
+            "INSERT INTO t SELECT hex(randomblob(20000))",
+        ] {
+            crate::execution::execute(
+                &path,
+                &[crate::execution::Statement {
+                    sql: sql.into(),
+                    args: vec![],
+                }],
+                false,
+                false,
+                "owner",
+                None,
+            )
+            .unwrap();
+        }
         let error = match store.export_snapshot_limited("db", Some(32 * 1024)) {
             Ok(_) => panic!("oversized export unexpectedly succeeded"),
             Err(error) => error,
