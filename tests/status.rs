@@ -241,7 +241,7 @@ fn craft_set(root: &std::path::Path, name: &str, dbs: &[&str], mtime: Option<Sys
     fs::write(dir.join("MANIFEST.json"), manifest.to_string()).unwrap();
     if let Some(mtime) = mtime {
         fs::File::options()
-            .write(true)
+            .read(true)
             .open(&dir)
             .unwrap()
             .set_modified(mtime)
