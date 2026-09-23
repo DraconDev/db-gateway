@@ -1,6 +1,10 @@
-# Observability contract (M3 design, not implementation)
+# Observability contract (M3 design; §2 freshness implemented 2026-09-23)
 
-Status: **design-only, local preparation**. This contract defines the signals
+Status: **§1 signal classes stand; §2 backup freshness is implemented** as
+`GET /v1/backups` + `dg backup status` (set-membership freshness against
+gateway-native versioned sets; restore drill still separate), and request
+pressure as `GET /v1/status` + `dg status`. Disk/RSS/alert integrations
+remain future work. This contract defines the signals
 needed to operate DB Gateway and a future backup sidecar. The owner-selected
 working objective is continuous WAL-style shipping with a five-minute lag after
 committed changes, but it is not a production guarantee. This document adds no
