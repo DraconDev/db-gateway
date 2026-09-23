@@ -78,7 +78,8 @@ enum Command {
         #[arg(long, default_value = "state/dg")]
         data_dir: PathBuf,
         /// Versioned backup-set root for `/v1/backups` visibility. Defaults
-        /// to `<data-dir>/../dg-backups`; empty string disables.
+        /// to `<data-dir>/../dg-backups`; unknown when the directory is
+        /// missing.
         #[arg(long)]
         backup_root: Option<PathBuf>,
     },

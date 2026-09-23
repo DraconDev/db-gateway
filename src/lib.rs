@@ -79,10 +79,14 @@ pub async fn serve(
     backup_root: Option<std::path::PathBuf>,
 ) -> Result<(), ServerError> {
     validate_listen(listen)?;
-    // Empty string disables backup visibility (convention default applies).
-    let backup_root = backup_root.filter(|p| !p.as_os_str().is_empty());
     let store = tokio::task::spawn_blocking(move || {
-        store::Store::open(&data_dir).map(|s| s.with_backup_root(backup_root))
+        store::Store::open(&data_dir).map(|s| match backup_root {
+            // Flag present: explicit root (aside the convention default).
+            Some(root) => s.with_backup_root(Some(root)),
+            // Flag absent: `<data-dir>/../dg-backups` convention, unknown
+            // when the directory is missing.
+            None => s,
+        })
     })
     .await
     .map_err(|_| ServerError::Application(error::Error::internal()))?
