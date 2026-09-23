@@ -945,12 +945,21 @@ impl Store {
         // lock. The registry transaction below is only the short publication
         // step, so a large independent import cannot stall authentication and
         // all other registry operations.
+        let path = self.root.join(format!("{name}.sqlite"));
+        // Reject an already-full registry before copying an untrusted source.
+        // The authoritative check is repeated in the publication transaction.
+        {
+            let conn = self.meta()?;
+            let count: i64 = conn.query_row("SELECT count(*) FROM databases", [], |r| r.get(0))?;
+            if count >= MAX_DATABASES {
+                return Err(Error::busy());
+            }
+        }
         let staged = self.staging()?;
         std::fs::copy(source, staged.path()).map_err(|_| Error::invalid())?;
         crate::execution::validate_import(staged.path())?;
         crate::execution::initialize(staged.path())?;
 
-        let path = self.root.join(format!("{name}.sqlite"));
         let mut conn = self.meta()?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         if tx.query_row("SELECT count(*) FROM databases", [], |r| r.get::<_, i64>(0))?
