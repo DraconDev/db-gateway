@@ -283,9 +283,9 @@ impl Store {
         self
     }
 
-    /// Record a successful API mutation in the same metadata transaction as
-    /// the mutation itself. This prevents a committed database change from
-    /// existing without its durable backup-freshness marker.
+    /// Record a successful API mutation. Lifecycle and SQL writes persist a
+    /// durable marker after commit; restart safety never treats an absent
+    /// marker as proof that a containing backup is fresh.
     pub fn note_write(&self, name: &str) {
         let stamp = SystemTime::now();
         if let Err(error) = self.persist_write(name, stamp) {
