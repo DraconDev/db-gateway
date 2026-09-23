@@ -250,15 +250,15 @@ impl Store {
                 .map_err(|_| Error::internal())?;
         }
         sweep_orphan_transfer_dirs(root);
-/// Backup-set convention: versioned sets live next to the data dir unless
-/// `--backup-root` overrides. Returns None for degenerate data-dir paths.
-fn default_backup_root(data_dir: &Path) -> Option<PathBuf> {
-    let parent = data_dir.parent()?;
-    if parent.as_os_str().is_empty() {
-        return None;
-    }
-    Some(parent.join("dg-backups"))
-}
+        let backup_root = default_backup_root(root);
+        let store = Self {
+            root: root.to_path_buf(),
+            read_lane: Arc::new(Semaphore::new(READ_PERMITS)),
+            write_lane: Arc::new(Semaphore::new(WRITE_PERMITS)),
+            queues: Mutex::new(HashMap::new()),
+            metrics: Metrics::new(),
+            writes: Mutex::new(HashMap::new()),
+            backup_root,
             lifecycle: RwLock::new(()),
             transfers: Mutex::new(HashMap::new()),
             transfer_ttl,
