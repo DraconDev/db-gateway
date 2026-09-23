@@ -236,9 +236,81 @@ pub fn validate_name(name: &str) -> Result<()> {
     }
     Ok(())
 }
+/// Backup-set convention: versioned sets live next to the data dir unless
+/// `--backup-root` overrides. Returns None for degenerate data-dir paths.
+fn default_backup_root(data_dir: &Path) -> Option<PathBuf> {
+    let parent = data_dir.parent()?;
+    if parent.as_os_str().is_empty() {
+        return None;
+    }
+    Some(parent.join("dg-backups"))
+}
+
+/// One published versioned set (scripts/micro2-backup.sh layout): directory
+/// name, filesystem mtime, member database names, registry presence.
+pub struct BackupSet {
+    pub timestamp: String,
+    pub mtime: SystemTime,
+    pub databases: Vec<String>,
+    pub has_registry: bool,
+}
+
 impl Store {
     pub fn open(root: &Path) -> Result<Self> {
         Self::open_with_ttl(root, TRANSFER_TTL)
+    }
+
+    /// Override the backup-set root (serve `--backup-root`). `None` disables
+    /// backup visibility: `/v1/backups` reports unknown, never healthy.
+    pub fn with_backup_root(mut self, root: Option<PathBuf>) -> Self {
+        self.backup_root = root;
+        self
+    }
+
+    /// Record a successful API mutation. Infallible by design: a poisoned or
+    /// contended stats lock must never fail the request it observes.
+    pub fn note_write(&self, name: &str) {
+        if let Ok(mut writes) = self.writes.lock() {
+            writes.insert(name.to_string(), SystemTime::now());
+        }
+    }
+
+    pub fn last_write(&self, name: &str) -> Option<SystemTime> {
+        self.writes.lock().ok()?.get(name).copied()
+    }
+
+    pub fn backup_root(&self) -> Option<PathBuf> {
+        self.backup_root.clone()
+    }
+
+    /// Versioned sets newest-first. None when no root is configured or the
+    /// root is unreadable; unreadable individual sets are skipped, never
+    /// presented as healthy.
+    pub fn backup_sets(&self) -> Option<Vec<BackupSet>> {
+        let root = self.backup_root.as_ref()?;
+        let entries = std::fs::read_dir(root).ok()?;
+        let mut sets = Vec::new();
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !is_set_dir(&name) || !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let mtime = entry.metadata().and_then(|m| m.modified()).ok()?;
+            let manifest: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(entry.path().join("MANIFEST.json")).ok()?).ok()?;
+            let databases = manifest["databases"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|e| e["name"].as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let has_registry = manifest["registry"]["sha256"].as_str().is_some();
+            sets.push(BackupSet { timestamp: name, mtime, databases, has_registry });
+        }
+        sets.sort_by(|a, b| b.mtime.cmp(&a.mtime));
+        Some(sets)
     }
 
     pub fn open_with_ttl(root: &Path, transfer_ttl: Duration) -> Result<Self> {
