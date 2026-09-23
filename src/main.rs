@@ -243,53 +243,73 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 }
                 let snapshot = begin["snapshot"]
                     .as_str()
-                    .ok_or(Application(Error::internal()))?;
+                    .ok_or(Application(Error::internal()))?
+                    .to_string();
                 let size = begin["size"]
                     .as_u64()
                     .ok_or(Application(Error::internal()))?;
                 let sha256 = begin["sha256"]
                     .as_str()
                     .ok_or(Application(Error::internal()))?;
-                let mut staged = export_stage_file(&out).map_err(Application)?;
-                let mut hasher = Sha256::new();
-                let mut offset = 0u64;
-                while offset < size {
-                    let chunk = dg::client::request(
+                let release_snapshot = || async {
+                    let _ = dg::client::request(
                         &cli.server,
                         &key,
-                        Method::GET,
-                        &format!(
-                            "/v1/snapshots/{snapshot}?offset={offset}&length={}",
-                            dg::store::MAX_CHUNK
-                        ),
+                        Method::DELETE,
+                        &format!("/v1/snapshots/{snapshot}"),
                         None,
                         None,
                     )
-                    .await
-                    .map_err(Application)?;
-                    if api_failed(&chunk) {
-                        println!("{chunk}");
-                        return Err(Application(api_error()));
-                    }
-                    let encoded = chunk["data_base64"]
-                        .as_str()
-                        .ok_or(Application(Error::internal()))?;
-                    let bytes =
-                        base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
-                            .map_err(|_| Application(Error::internal()))?;
-                    if bytes.is_empty() {
-                        break;
-                    }
-                    staged
-                        .write_all(&bytes)
+                    .await;
+                };
+                let result = async {
+                    let mut staged = export_stage_file(&out).map_err(Application)?;
+                    let mut hasher = Sha256::new();
+                    let mut offset = 0u64;
+                    while offset < size {
+                        let chunk = dg::client::request(
+                            &cli.server,
+                            &key,
+                            Method::GET,
+                            &format!(
+                                "/v1/snapshots/{snapshot}?offset={offset}&length={}",
+                                dg::store::MAX_CHUNK
+                            ),
+                            None,
+                            None,
+                        )
+                        .await
+                        .map_err(Application)?;
+                        if api_failed(&chunk) {
+                            println!("{chunk}");
+                            return Err(Application(api_error()));
+                        }
+                        let encoded = chunk["data_base64"]
+                            .as_str()
+                            .ok_or(Application(Error::internal()))?;
+                        let bytes = base64::Engine::decode(
+                            &base64::engine::general_purpose::STANDARD,
+                            encoded,
+                        )
                         .map_err(|_| Application(Error::internal()))?;
-                    hasher.update(&bytes);
-                    offset += bytes.len() as u64;
+                        if bytes.is_empty() {
+                            break;
+                        }
+                        staged
+                            .write_all(&bytes)
+                            .map_err(|_| Application(Error::internal()))?;
+                        hasher.update(&bytes);
+                        offset += bytes.len() as u64;
+                    }
+                    if offset != size || hex::encode(hasher.finalize()) != sha256 {
+                        return Err(Application(Error::internal()));
+                    }
+                    publish_export_file(staged, &out).map_err(Application)?;
+                    Ok::<_, Application<Error>>(())
                 }
-                if offset != size || hex::encode(hasher.finalize()) != sha256 {
-                    return Err(Application(Error::internal()));
-                }
-                publish_export_file(staged, &out).map_err(Application)?;
+                .await;
+                release_snapshot().await;
+                result?;
                 println!(
                     "{}",
                     json!({"name":name,"out":out.display().to_string(),"size":size,"sha256":sha256})

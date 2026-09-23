@@ -211,14 +211,17 @@ async fn backups(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<
                         .duration_since(set.mtime)
                         .map(|d| d.as_secs())
                         .unwrap_or(0);
-                    let stale = match s.last_write(name) {
-                        Some(wrote) => wrote > set.mtime,
-                        // No API write recorded: nothing unrepresented, so a
-                        // containing set counts as fresh.
-                        None => false,
+                    let state = match s.last_write(name) {
+                        Some(wrote) if wrote > set.mtime => "stale",
+                        Some(_) => "fresh",
+                        // No durable API-write marker means the process cannot
+                        // prove that the set represents all mutations (notably
+                        // after restart or an older registry). Stay unknown,
+                        // never falsely fresh.
+                        None => "unknown",
                     };
                     (
-                        if stale { "stale" } else { "fresh" },
+                        state,
                         Value::String(set.timestamp.clone()),
                         Value::from(age),
                     )
