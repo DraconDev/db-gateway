@@ -116,6 +116,7 @@ async fn work_in<T: Send + 'static>(
         .map_err(|_| Error::busy())?
         .map_err(|_| Error::busy())?;
     store.metrics.record_request();
+    let metrics = store.clone();
     let result = tokio::task::spawn_blocking(move || {
         let _permit = permit;
         let _lease = store.request_lease()?;
