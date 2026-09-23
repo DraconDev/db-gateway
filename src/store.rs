@@ -1554,6 +1554,92 @@ mod tests {
     use super::*;
 
     #[test]
+    fn upload_commit_blocks_concurrent_append_and_abort() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let upload = store.upload_begin().unwrap();
+        let transfer_dir = store
+            .transfers
+            .lock()
+            .unwrap()
+            .get(&upload.id)
+            .unwrap()
+            .dir
+            .clone();
+        // A valid standalone SQLite upload lets commit enter the long copy and
+        // validation phase while another operation observes its state.
+        {
+            let db = rusqlite::Connection::open(transfer_dir.join("upload.bin")).unwrap();
+            db.execute_batch("CREATE TABLE t(v TEXT); INSERT INTO t VALUES ('ok')")
+                .unwrap();
+        }
+        {
+            let mut transfers = store.transfers.lock().unwrap();
+            let transfer = transfers.get_mut(&upload.id).unwrap();
+            let TransferKind::Upload { state, .. } = &mut transfer.kind else {
+                panic!("upload kind")
+            };
+            *state = UploadState::Committing;
+        }
+        assert_eq!(store.upload_append(&upload.id, 0, b"x").unwrap_err().code, "capacity_exceeded");
+        assert_eq!(store.upload_abort(&upload.id).unwrap_err().code, "capacity_exceeded");
+        assert!(transfer_dir.exists(), "commit state must not delete acknowledged bytes");
+    }
+
+    #[test]
+    fn write_markers_survive_restart_and_older_malformed_set_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store.create("db").unwrap();
+        store.note_write("db");
+        let before = store.last_write("db").unwrap();
+        drop(store);
+
+        let reopened = Store::open(dir.path()).unwrap();
+        let after = reopened.last_write("db").unwrap();
+        assert!(after >= before);
+
+        let root = dir.path().join("sets");
+        std::fs::create_dir_all(root.join("20200101T000000Z")).unwrap();
+        std::fs::create_dir_all(root.join("20200101T000001Z")).unwrap();
+        std::fs::write(root.join("20200101T000000Z/MANIFEST.json"), "{").unwrap();
+        std::fs::write(
+            root.join("20200101T000001Z/MANIFEST.json"),
+            r#"{"databases":[{"name":"db"}],"registry":{"sha256":"x"}}"#,
+        )
+        .unwrap();
+        let with_root = reopened.with_backup_root(Some(root));
+        let sets = with_root.backup_sets().unwrap();
+        assert_eq!(sets.len(), 1);
+        assert_eq!(sets[0].timestamp, "20200101T000001Z");
+    }
+
+    #[test]
+    fn export_limit_stops_before_full_snapshot_materialization() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store.create("db").unwrap();
+        let path = store.path("db").unwrap();
+        crate::execution::execute(
+            &path,
+            &[crate::execution::Statement {
+                sql: "CREATE TABLE t(v TEXT); INSERT INTO t SELECT hex(randomblob(20000))"
+                    .into(),
+                args: vec![],
+            }],
+            false,
+            false,
+            "owner",
+            None,
+        )
+        .unwrap();
+        let error = store
+            .export_snapshot_limited("db", Some(32 * 1024))
+            .unwrap_err();
+        assert_eq!(error.code, "result_limit_exceeded");
+    }
+
+    #[test]
     fn failed_publication_leaves_no_partial_database_and_recovers() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(dir.path()).unwrap();

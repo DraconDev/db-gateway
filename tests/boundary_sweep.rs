@@ -206,6 +206,21 @@ fn every_wall_accepts_at_the_line_and_rejects_past_it() {
         413,
         "result_limit_exceeded",
     );
+    // Two individually bounded statements share one response budget. Without
+    // cumulative accounting both execute and the batch is rejected only after
+    // retaining roughly twice MAX_RESULT.
+    check(
+        "aggregate batch bytes",
+        b(
+            "b04",
+            &json!({"statements": [
+                {"sql": "SELECT hex(randomblob(120000))"},
+                {"sql": "SELECT hex(randomblob(120000))"}
+            ], "atomic": true}),
+        ),
+        413,
+        "result_limit_exceeded",
+    );
 
     // Export wall (8MiB): ~600KiB file exports, ~8.4MiB file rejected.
     for (db, rows) in [("b05", 100usize), ("b06", 1400usize)] {

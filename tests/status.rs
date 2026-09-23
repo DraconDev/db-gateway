@@ -306,12 +306,26 @@ fn backups_freshness_transitions() {
     let (status, body) = get(&server.address, "/v1/backups", Some(&owner));
     assert_eq!(status, 200);
     assert_eq!(body["per_database"]["bdb"]["state"], json!("stale"));
-    // Staging dirs and junk never parse as sets.
+    // Staging dirs, junk, and one malformed versioned member never hide a
+    // valid set or turn the whole scan unknown.
     fs::create_dir_all(backup_root.join(".staging-x")).unwrap();
     fs::write(backup_root.join("notes.txt"), "nope").unwrap();
+    fs::create_dir_all(backup_root.join("20200101T000000Z")).unwrap();
+    fs::write(backup_root.join("20200101T000000Z/MANIFEST.json"), "{").unwrap();
     let (status, body) = get(&server.address, "/v1/backups", Some(&owner));
     assert_eq!(status, 200);
     assert_eq!(body["sets"].as_array().unwrap().len(), 1);
+
+    // The durable stale marker survives restart; losing process memory must
+    // never make the older containing set look fresh again.
+    drop(server);
+    let server = start(
+        dir.path(),
+        &["--backup-root", backup_root.to_str().unwrap()],
+    );
+    let (status, body) = get(&server.address, "/v1/backups", Some(&owner));
+    assert_eq!(status, 200);
+    assert_eq!(body["per_database"]["bdb"]["state"], json!("stale"));
     // App keys are refused the operational surface.
     let (status, key) = post(
         &server.address,
