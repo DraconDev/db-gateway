@@ -703,7 +703,12 @@ fn cli_uses_chunked_transfer() {
     let repeat = dir.path().join("repeat-0.sqlite");
     let imported_again = fleet.cli.ok(
         "import after retained cap",
-        &["import", "cli_copy_again", "--from", repeat.to_str().unwrap()],
+        &[
+            "import",
+            "cli_copy_again",
+            "--from",
+            repeat.to_str().unwrap(),
+        ],
     );
     assert_eq!(imported_again["imported"], "cli_copy_again");
 }

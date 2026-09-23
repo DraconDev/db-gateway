@@ -417,12 +417,7 @@ pub fn execute(
     // response is checked once before commit.
     let mut remaining_result_bytes = MAX_RESULT.saturating_sub(4096);
     for statement in statements {
-        let result = run_statement(
-            &tx,
-            statement,
-            read_only,
-            remaining_result_bytes,
-        )?;
+        let result = run_statement(&tx, statement, read_only, remaining_result_bytes)?;
         remaining_result_bytes = remaining_result_bytes.saturating_sub(
             serde_json::to_vec(&result)
                 .map_err(|_| Error::internal())?

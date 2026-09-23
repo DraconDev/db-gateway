@@ -358,10 +358,10 @@ impl Store {
             let Ok(mtime) = entry.metadata().and_then(|m| m.modified()) else {
                 continue;
             };
-            let Ok(manifest) = std::fs::read(entry.path().join("MANIFEST.json"))
-                .ok()
-                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-            else {
+            let Ok(bytes) = std::fs::read(entry.path().join("MANIFEST.json")) else {
+                continue;
+            };
+            let Ok(manifest) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
                 continue;
             };
             let databases = manifest["databases"]
@@ -779,12 +779,7 @@ impl Store {
     /// SQLite online backup with an optional hard output ceiling. The check
     /// runs during backup steps so an over-limit snapshot is not fully
     /// materialized before the caller receives its 413.
-    pub fn export_to_limited(
-        &self,
-        name: &str,
-        dest: &Path,
-        max_bytes: Option<u64>,
-    ) -> Result<()> {
+    pub fn export_to_limited(&self, name: &str, dest: &Path, max_bytes: Option<u64>) -> Result<()> {
         let src_path = self.path(name)?;
         if dest.exists() {
             return Err(Error::new(
@@ -867,11 +862,7 @@ impl Store {
         self.export_snapshot_limited(name, None)
     }
 
-    pub fn export_snapshot_limited(
-        &self,
-        name: &str,
-        max_bytes: Option<u64>,
-    ) -> Result<Staging> {
+    pub fn export_snapshot_limited(&self, name: &str, max_bytes: Option<u64>) -> Result<Staging> {
         let temp = self.staging()?;
         self.export_to_limited(name, temp.path(), max_bytes)?;
         Ok(temp)
@@ -1158,13 +1149,15 @@ impl Store {
         let write = std::fs::OpenOptions::new()
             .append(true)
             .open(&transfer.file)
-            .and_then(|mut f| f.write_all(bytes).map_err(|error| {
-                // write_all may persist a prefix before returning an I/O
-                // error. Restore the acknowledged offset so retrying appends
-                // the complete chunk exactly once.
-                let _ = f.set_len(prior);
-                error
-            }));
+            .and_then(|mut f| {
+                f.write_all(bytes).map_err(|error| {
+                    // write_all may persist a prefix before returning an I/O
+                    // error. Restore the acknowledged offset so retrying appends
+                    // the complete chunk exactly once.
+                    let _ = f.set_len(prior);
+                    error
+                })
+            });
         if let Err(error) = write {
             tracing::warn!(error = %error, "upload append failed");
             return Err(Error::internal());
@@ -1194,7 +1187,7 @@ impl Store {
             let TransferKind::Upload { state, .. } = &mut transfer.kind else {
                 return Err(upload_missing());
             };
-            if !transfer.created.elapsed() < self.transfer_ttl {
+            if transfer.created.elapsed() >= self.transfer_ttl {
                 return Err(upload_missing());
             }
             if *state != UploadState::Open {
@@ -1581,9 +1574,18 @@ mod tests {
             };
             *state = UploadState::Committing;
         }
-        assert_eq!(store.upload_append(&upload.id, 0, b"x").unwrap_err().code, "capacity_exceeded");
-        assert_eq!(store.upload_abort(&upload.id).unwrap_err().code, "capacity_exceeded");
-        assert!(transfer_dir.exists(), "commit state must not delete acknowledged bytes");
+        assert_eq!(
+            store.upload_append(&upload.id, 0, b"x").unwrap_err().code,
+            "capacity_exceeded"
+        );
+        assert_eq!(
+            store.upload_abort(&upload.id).unwrap_err().code,
+            "capacity_exceeded"
+        );
+        assert!(
+            transfer_dir.exists(),
+            "commit state must not delete acknowledged bytes"
+        );
     }
 
     #[test]
@@ -1623,8 +1625,7 @@ mod tests {
         crate::execution::execute(
             &path,
             &[crate::execution::Statement {
-                sql: "CREATE TABLE t(v TEXT); INSERT INTO t SELECT hex(randomblob(20000))"
-                    .into(),
+                sql: "CREATE TABLE t(v TEXT); INSERT INTO t SELECT hex(randomblob(20000))".into(),
                 args: vec![],
             }],
             false,
@@ -1633,9 +1634,10 @@ mod tests {
             None,
         )
         .unwrap();
-        let error = store
-            .export_snapshot_limited("db", Some(32 * 1024))
-            .unwrap_err();
+        let error = match store.export_snapshot_limited("db", Some(32 * 1024)) {
+            Ok(_) => panic!("oversized export unexpectedly succeeded"),
+            Err(error) => error,
+        };
         assert_eq!(error.code, "result_limit_exceeded");
     }
 
