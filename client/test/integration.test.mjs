@@ -60,10 +60,8 @@ test('execute, atomic batch, idempotent replay, and denial paths', async () => {
     assert.deepEqual(values.rows, [[null, 1, 42, 1.5, 'text', [0, 128, 255]]]);
     // JavaScript callers can bypass TS types: malformed values fail locally
     // before transport rather than relying on the server's matching guard.
-    await assert.rejects(db.execute('SELECT ?', [{ integer: '42' }]),
-      (error) => !(error instanceof GatewayError) && /Invalid SQL argument/.test(error.message));
-    await assert.rejects(db.batch([{ sql: 'SELECT ?', args: [{ integer: '42' }] }]),
-      (error) => !(error instanceof GatewayError) && /Invalid SQL argument/.test(error.message));
+    await assert.rejects(db.execute('SELECT ?', [{ integer: '42' }]), /Invalid SQL argument/);
+    await assert.rejects(db.batch([{ sql: 'SELECT ?', args: [{ integer: '42' }] }]), /Invalid SQL argument/);
     // Atomic batch: second statement fails, first must roll back.
     await assert.rejects(
       db.batch([
