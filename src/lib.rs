@@ -73,12 +73,20 @@ pub fn router() -> Router {
     )
 }
 
-pub async fn serve(listen: SocketAddr, data_dir: std::path::PathBuf) -> Result<(), ServerError> {
+pub async fn serve(
+    listen: SocketAddr,
+    data_dir: std::path::PathBuf,
+    backup_root: Option<std::path::PathBuf>,
+) -> Result<(), ServerError> {
     validate_listen(listen)?;
-    let store = tokio::task::spawn_blocking(move || store::Store::open(&data_dir))
-        .await
-        .map_err(|_| ServerError::Application(error::Error::internal()))?
-        .map_err(ServerError::Application)?;
+    // Empty string disables backup visibility (convention default applies).
+    let backup_root = backup_root.filter(|p| !p.as_os_str().is_empty());
+    let store = tokio::task::spawn_blocking(move || {
+        store::Store::open(&data_dir).map(|s| s.with_backup_root(backup_root))
+    })
+    .await
+    .map_err(|_| ServerError::Application(error::Error::internal()))?
+    .map_err(ServerError::Application)?;
     let store = std::sync::Arc::new(store);
     let app = router().merge(api::router(store.clone()));
     let listener = TcpListener::bind(listen).await?;

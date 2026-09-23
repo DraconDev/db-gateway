@@ -77,7 +77,14 @@ enum Command {
         listen: SocketAddr,
         #[arg(long, default_value = "state/dg")]
         data_dir: PathBuf,
+        /// Versioned backup-set root for `/v1/backups` visibility. Defaults
+        /// to `<data-dir>/../dg-backups`; empty string disables.
+        #[arg(long)]
+        backup_root: Option<PathBuf>,
     },
+    /// Owner-only service status: version, uptime, admission config, and
+    /// request-pressure counters.
+    Status,
     List,
     Create {
         name: String,
@@ -131,6 +138,10 @@ enum Command {
         #[command(subcommand)]
         command: KeyCommand,
     },
+    Backup {
+        #[command(subcommand)]
+        command: BackupCommand,
+    },
 }
 #[derive(Subcommand)]
 enum KeyCommand {
@@ -150,6 +161,12 @@ enum KeyCommand {
     /// immediately). Redirect to a 0600 file and verify before discarding the old.
     RotateOwner,
 }
+#[derive(Subcommand)]
+enum BackupCommand {
+    /// Owner-only backup freshness: versioned sets plus per-database
+    /// fresh/stale/unknown state.
+    Status,
+}
 async fn run(cli: Cli) -> Result<(), dg::ServerError> {
     use dg::{ServerError::Application, error::Error};
     use reqwest::Method;
@@ -158,7 +175,15 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
     let key_path = cli.key_file.clone().or_else(dg::client::default_key_file);
     let (method, path, body, idempotency) =
         match cli.command {
-            Command::Serve { listen, data_dir } => return dg::serve(listen, data_dir).await,
+            Command::Serve {
+                listen,
+                data_dir,
+                backup_root,
+            } => return dg::serve(listen, data_dir, backup_root).await,
+            Command::Status => (Method::GET, "/v1/status".into(), None, None),
+            Command::Backup {
+                command: BackupCommand::Status,
+            } => (Method::GET, "/v1/backups".into(), None, None),
             Command::Init { data_dir } => {
                 let key = dg::store::Store::open(&data_dir)
                     .and_then(|store| store.bootstrap())
