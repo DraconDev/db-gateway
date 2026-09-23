@@ -326,7 +326,7 @@ impl Store {
                 has_registry,
             });
         }
-        sets.sort_by(|a, b| b.mtime.cmp(&a.mtime));
+        sets.sort_by_key(|set| std::cmp::Reverse(set.mtime));
         Some(sets)
     }
 
