@@ -41,6 +41,18 @@ fn flags_serve_like_a_real_config_service() {
         json!([["off"]])
     );
 
+    // A text primary key remains addressable: SQLite's legacy nullable
+    // PRIMARY KEY behavior must not admit unaddressable NULL configuration keys.
+    fleet.cli.err(
+        "reject null flag key",
+        &[
+            "query",
+            DB,
+            "INSERT INTO flags(key, value, updated_at) VALUES(NULL, 'bad', 'now')",
+        ],
+        "invalid_sql",
+    );
+
     // Full dump in key order.
     assert_eq!(
         fleet

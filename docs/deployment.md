@@ -19,8 +19,9 @@ placeholders for future/repeated deployments.
 4. Create the data directory, owned by the service user, mode `0700`.
 5. Run `dg init --data-dir <dir>` once as the service user. It prints
    JSON (`{"owner_key":"…"}`): extract the raw 64-hex value into the
-   `0600` file (e.g. `dg init … | python3 -c 'import json,sys;
-   print(json.load(sys.stdin)["owner_key"]) ' > owner.key`). The CLI
+   `0600` file (e.g. `umask 077; dg init … | python3 -c 'import json,sys;
+   print(json.load(sys.stdin)["owner_key"])' > owner.key; chmod 600 owner.key`).
+   Verify the mode with `stat -c '%a %U:%G' owner.key` before use. The CLI
    rejects anything but exactly 64 hex characters client-side.
 6. Copy the template to `/etc/systemd/system/dg.service` with placeholders
    substituted, `systemctl daemon-reload`, then enable/start explicitly.

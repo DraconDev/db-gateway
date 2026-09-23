@@ -50,10 +50,13 @@ Expectations:
   of `<name>.sqlite`, followed by a newline. The manifest repeats the same
   hex; mismatch between the sidecar, the manifest, and recomputed bytes is a
   failure (§5).
-- The registry backup is a file copy of `metadata.sqlite` taken while the
-  server is stopped or idle. Database contents without the registry lose
-  credential hashes and scope rows: restored database files alone do not
-  restore who may access them.
+- The registry backup is a consistent SQLite online-backup copy of
+  `metadata.sqlite` (the procedure used by `scripts/micro2-backup.sh`), or a
+  raw file copy taken only after the service is stopped and all SQLite WAL
+  sidecars have been checkpointed/removed. Never copy only the main registry
+  file while a live or idle service may have committed WAL state. Database
+  contents without the registry lose credential hashes and scope rows:
+  restored database files alone do not restore who may access them.
 - `_dg_replay` rows travel inside each `<name>.sqlite`. They preserve recent
   keyed-write history for that database; they do not substitute for registry
   credential rows.
@@ -72,8 +75,10 @@ drill that attempts it fails.
    against both the sidecar and the manifest. Stop on any mismatch.
 2. Provision the empty target directory and its owner credential locally.
 3. Restore the registry entry first (`metadata.sqlite.bak` → target
-   `metadata.sqlite`) while the target server is stopped, or re-issue keys
-   and record that the drill did so. A drill must state which path it took.
+   `metadata.sqlite`) while the target server is stopped, after verifying the
+   backup is a standalone SQLite file, or re-issue keys and record that the
+   drill did so. Never restore a main-file-only copy taken from a live WAL
+   database. A drill must state which path it took.
 4. Import each `<name>.sqlite` under its manifest name through the validated
    import path (never by copying files into a running data directory).
 5. Run integrity checks (§4), then application-data checks (§4).

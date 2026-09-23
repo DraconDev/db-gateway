@@ -11,7 +11,7 @@ the safe local equivalents in disposable directories.
 ```sh
 DATA_DIR=/var/lib/dg   # target value; rehearsal used a mktemp dir
 SERVER=http://127.0.0.1:7432
-KEY_FILE=/run/dg/owner.key   # 0600, owned by the service user
+KEY_FILE=/etc/dg/owner.key   # 0600, owned by the service user
 
 dg --server "$SERVER" --key-file "$KEY_FILE" export <db> --out "<db>.pre-upgrade.sqlite"
 sha256sum "<db>.pre-upgrade.sqlite" > "<db>.pre-upgrade.sha256"
