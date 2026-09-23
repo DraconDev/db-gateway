@@ -678,7 +678,8 @@ fn cli_uses_chunked_transfer() {
         .q("spot", "cli_copy", "SELECT v FROM t WHERE id = 59");
     assert_eq!(spot[0][0].as_str().unwrap().len(), 50_000);
 
-    // No-clobber export still holds on the chunked path.
+    // No-clobber export still holds on the chunked path. This failure must
+    // release its server snapshot just like the successful path.
     let (success, stdout, stderr) =
         fleet
             .cli
@@ -689,4 +690,20 @@ fn cli_uses_chunked_transfer() {
         "missing file_exists error: stdout={stdout} stderr={stderr}"
     );
     assert_eq!(std::fs::metadata(&out).unwrap().len(), size);
+
+    // Fill the former retained-transfer cap. If CLI success/failure leaked
+    // snapshots, the final upload begin would receive 429 before the fix.
+    for index in 0..8 {
+        let repeated = dir.path().join(format!("repeat-{index}.sqlite"));
+        fleet.cli.ok(
+            "repeat export",
+            &["export", "cli_big", "--out", repeated.to_str().unwrap()],
+        );
+    }
+    let repeat = dir.path().join("repeat-0.sqlite");
+    let imported_again = fleet.cli.ok(
+        "import after retained cap",
+        &["import", "cli_copy_again", "--from", repeat.to_str().unwrap()],
+    );
+    assert_eq!(imported_again["imported"], "cli_copy_again");
 }
