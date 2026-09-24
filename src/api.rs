@@ -213,9 +213,7 @@ async fn backups(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<
             // unknown rather than masking a known boundary with a false
             // fresh result.
             let newest = sets.as_ref().and_then(|sets| {
-                let mut candidates = sets
-                    .iter()
-                    .filter(|set| set.databases.contains(name));
+                let mut candidates = sets.iter().filter(|set| set.databases.contains(name));
                 let newest = candidates.next()?;
                 let mut selected = newest;
                 for candidate in candidates {

@@ -406,9 +406,7 @@ impl Store {
             let registry_file = manifest["registry"]["file"].as_str();
             let has_registry = manifest["registry"]["sha256"].as_str().is_some()
                 && registry_file.is_some_and(|file| {
-                    !file.contains('/')
-                        && !file.contains('\\')
-                        && entry.path().join(file).is_file()
+                    !file.contains('/') && !file.contains('\\') && entry.path().join(file).is_file()
                 });
             sets.push(BackupSet {
                 timestamp: name,
@@ -856,9 +854,7 @@ impl Store {
         // online-backup protocol, so committed writers may proceed between
         // steps; the limit is enforced against the observed output as well as
         // the source page count.
-        let page_size = src.query_row("PRAGMA page_size", [], |row| {
-            row.get::<_, i64>(0)
-        })?;
+        let page_size = src.query_row("PRAGMA page_size", [], |row| row.get::<_, i64>(0))?;
         let page_size = u64::try_from(page_size).map_err(|_| Error::internal())?;
         if !(512..=65536).contains(&page_size) {
             return Err(Error::internal());
@@ -878,7 +874,10 @@ impl Store {
             let mut steps = 0u64;
             let mut busy_retries = 0u32;
             let mut failure = None;
-            while matches!(result, StepResult::More | StepResult::Busy | StepResult::Locked) {
+            while matches!(
+                result,
+                StepResult::More | StepResult::Busy | StepResult::Locked
+            ) {
                 if steps >= max_steps {
                     failure = Some(Error::new(
                         429,
@@ -910,8 +909,7 @@ impl Store {
                 }
                 busy_retries = 0;
                 let progress = backup.progress();
-                let expected = (progress.pagecount.max(0) as u64)
-                    .saturating_mul(page_size);
+                let expected = (progress.pagecount.max(0) as u64).saturating_mul(page_size);
                 let observed = std::fs::metadata(dest)
                     .map(|metadata| metadata.len())
                     .unwrap_or(0);
@@ -1078,8 +1076,9 @@ impl Store {
         // image and silently omit newer rows. The read-only backup API folds
         // the main database and its live sidecars into one consistent image;
         // it also makes the staged copy standalone before publication.
-        let source_conn = Connection::open_with_flags(source, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .map_err(|_| Error::invalid())?;
+        let source_conn =
+            Connection::open_with_flags(source, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .map_err(|_| Error::invalid())?;
         let mut staged_conn = Connection::open(staged.path()).map_err(|_| Error::internal())?;
         let backup = Backup::new(&source_conn, &mut staged_conn).map_err(|_| Error::invalid())?;
         match backup.step(-1).map_err(|_| Error::invalid())? {
@@ -1749,7 +1748,11 @@ mod tests {
             r#"{"databases":[{"name":"db"}],"registry":{"file":"metadata.sqlite.bak","sha256":"x"}}"#,
         )
         .unwrap();
-        std::fs::write(root.join("20200101T000001Z/metadata.sqlite.bak"), b"registry").unwrap();
+        std::fs::write(
+            root.join("20200101T000001Z/metadata.sqlite.bak"),
+            b"registry",
+        )
+        .unwrap();
         let with_root = reopened.with_backup_root(Some(root));
         let sets = with_root.backup_sets().unwrap();
         assert_eq!(sets.len(), 1);
@@ -1811,10 +1814,7 @@ mod tests {
             let conn = Connection::open(writer_path).unwrap();
             let mut id = 1;
             while !writer_stop.load(std::sync::atomic::Ordering::Relaxed) {
-                let _ = conn.execute(
-                    "INSERT INTO t(value) VALUES (?1)",
-                    [id as i64],
-                );
+                let _ = conn.execute("INSERT INTO t(value) VALUES (?1)", [id as i64]);
                 id += 1;
             }
         });
@@ -1867,7 +1867,12 @@ mod tests {
                  INSERT INTO t VALUES (42);",
             )
             .unwrap();
-        assert!(std::fs::metadata(dir.path().join("live.sqlite-wal")).unwrap().len() > 0);
+        assert!(
+            std::fs::metadata(dir.path().join("live.sqlite-wal"))
+                .unwrap()
+                .len()
+                > 0
+        );
 
         let store_root = dir.path().join("store");
         let store = Store::open(&store_root).unwrap();

@@ -1,14 +1,7 @@
 //! Focused contract tests for operator scripts changed by the project audit.
 
 use sha2::{Digest, Sha256};
-use std::{
-    fs,
-    os::unix::fs::PermissionsExt,
-    path::Path,
-    process::Command,
-    thread,
-    time::Duration,
-};
+use std::{fs, os::unix::fs::PermissionsExt, path::Path, process::Command, thread, time::Duration};
 
 fn tempdir() -> tempfile::TempDir {
     tempfile::tempdir().expect("temp dir")
@@ -98,7 +91,9 @@ exit 2
     .unwrap();
     fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
     let metadata = rusqlite::Connection::open(data.join("metadata.sqlite")).unwrap();
-    metadata.execute_batch("create table databases(name text); insert into databases values ('db');").unwrap();
+    metadata
+        .execute_batch("create table databases(name text); insert into databases values ('db');")
+        .unwrap();
     drop(metadata);
     let output = Command::new("bash")
         .args(["scripts/micro2-backup.sh", "--data-dir"])
@@ -110,17 +105,31 @@ exit 2
         .env("DG_BIN", &fake)
         .output()
         .expect("run backup script");
-    assert!(output.status.success(), "backup failed: {}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "backup failed: {}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     let set = fs::read_dir(&root)
         .unwrap()
         .filter_map(Result::ok)
-        .find(|entry| entry.file_type().unwrap().is_dir() && entry.file_name().to_string_lossy().starts_with('2'))
+        .find(|entry| {
+            entry.file_type().unwrap().is_dir()
+                && entry.file_name().to_string_lossy().starts_with('2')
+        })
         .expect("published set");
     let set = set.path();
-    for name in ["manifest.json", "metadata.sqlite.bak", "db.sqlite", "db.sha256"] {
+    for name in [
+        "manifest.json",
+        "metadata.sqlite.bak",
+        "db.sqlite",
+        "db.sha256",
+    ] {
         assert!(set.join(name).is_file(), "missing {name}");
     }
-    let manifest: serde_json::Value = serde_json::from_slice(&fs::read(set.join("manifest.json")).unwrap()).unwrap();
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(set.join("manifest.json")).unwrap()).unwrap();
     assert_eq!(manifest["databases"][0]["name"], "db");
     assert_eq!(manifest["databases"][0]["file"], "db.sqlite");
     assert_eq!(manifest["registry"]["file"], "metadata.sqlite.bak");
