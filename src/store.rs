@@ -1780,6 +1780,40 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_writes_do_not_turn_a_valid_export_into_a_false_busy_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store.create("live").unwrap();
+        let path = store.path("live").unwrap();
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE t(id INTEGER PRIMARY KEY, value BLOB);
+                 INSERT INTO t(value) VALUES (zeroblob(2000000));",
+            )
+            .unwrap();
+        }
+        let writer_path = path.clone();
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let writer_stop = stop.clone();
+        let writer = std::thread::spawn(move || {
+            let conn = Connection::open(writer_path).unwrap();
+            let mut id = 1;
+            while !writer_stop.load(std::sync::atomic::Ordering::Relaxed) {
+                let _ = conn.execute(
+                    "INSERT INTO t(value) VALUES (?1)",
+                    [id as i64],
+                );
+                id += 1;
+            }
+        });
+        let snapshot = store.export_snapshot("live").unwrap();
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        writer.join().unwrap();
+        assert!(snapshot.path().metadata().unwrap().len() < MAX_TRANSFER_SIZE);
+    }
+
+    #[test]
     fn export_limit_stops_before_full_snapshot_materialization() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(dir.path()).unwrap();

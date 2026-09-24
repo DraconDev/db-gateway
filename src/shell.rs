@@ -210,9 +210,8 @@ impl Session<'_> {
                 ));
             }
             _ => {
-                let key = self.pending_key.take();
                 let response = self
-                    .request("query", json!({"sql":line,"args":[]}), key.as_deref())
+                    .request_attempt("query", json!({"sql":line,"args":[]}))
                     .await?;
                 render(&response, self.json_mode, out)?;
             }
@@ -248,20 +247,30 @@ impl Session<'_> {
                 return Err(Error::invalid());
             }
         };
-        // A complete JSON value is one shell attempt even when typed decoding
-        // rejects it. Consume the pending key before decoding so a local
-        // validation error cannot attach an unrelated later request to the
-        // same idempotency namespace. Transport errors after this point are
-        // deliberately not restored: the key is needed for an explicit replay.
-        let key = self.pending_key.take();
+        // Decode locally before consuming the key. A typed validation error
+        // is still a completed shell attempt and consumes the key; a request
+        // transport failure is different because the caller must be able to
+        // resend the identical body with the same key after outcome_unknown.
         let batch: crate::execution::Batch = match serde_json::from_value(value) {
             Ok(batch) => batch,
-            Err(_) => return Err(Error::invalid()),
+            Err(_) => {
+                self.pending_key = None;
+                return Err(Error::invalid());
+            }
         };
         let body = serde_json::to_value(batch).map_err(|_| Error::internal())?;
-        let response = self.request("batch", body, key.as_deref()).await?;
+        let response = self.request_attempt("batch", body).await?;
         render(&response, self.json_mode, out)?;
         Ok(false)
+    }
+
+    async fn request_attempt(&mut self, route: &str, body: Value) -> Result<Value> {
+        let key = self.pending_key.take();
+        let result = self.request(route, body, key.as_deref()).await;
+        if matches!(&result, Err(error) if error.code == "outcome_unknown") {
+            self.pending_key = key;
+        }
+        result
     }
 
     async fn request(&self, route: &str, body: Value, idempotency: Option<&str>) -> Result<Value> {

@@ -1,7 +1,7 @@
 //! Focused contract tests for operator scripts changed by the project audit.
 
 use sha2::{Digest, Sha256};
-use std::{fs, os::unix::fs::PermissionsExt, process::Command};
+use std::{fs, os::unix::fs::PermissionsExt, process::Command, thread, time::Duration};
 
 fn tempdir() -> tempfile::TempDir {
     tempfile::tempdir().expect("temp dir")
@@ -120,6 +120,47 @@ exit 2
     let sidecar = fs::read_to_string(set.join("db.sha256")).unwrap();
     let digest = sha2::Sha256::digest(fs::read(set.join("db.sqlite")).unwrap());
     assert_eq!(sidecar.trim(), hex::encode(digest));
+}
+
+#[test]
+fn failed_restore_drill_terminates_its_server() {
+    let dir = tempdir();
+    let pid_file = dir.path().join("server.pid");
+    let fake = dir.path().join("failing dg");
+    fs::write(
+        &fake,
+        r#"#!/usr/bin/env bash
+set -eu
+if [ "$1" = init ]; then
+  echo '{"owner_key":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'
+  exit 0
+fi
+if [ "$1" = serve ]; then
+  echo $$ > "$PIDFILE"
+  printf '%s\n' '{"fields":{"address":"127.0.0.1:1"}}' >&2
+  exec sleep 30
+fi
+exit 2
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+    let output = Command::new("python3")
+        .args(["scripts/wipe_restore.py"])
+        .arg(&fake)
+        .env("PIDFILE", &pid_file)
+        .output()
+        .expect("run failing restore drill");
+    assert!(!output.status.success());
+    let pid = fs::read_to_string(&pid_file).unwrap();
+    let pid = pid.trim();
+    for _ in 0..40 {
+        if !Path::new(&format!("/proc/{pid}")).exists() {
+            return;
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+    panic!("restore drill left server process {pid} running");
 }
 
 #[test]
