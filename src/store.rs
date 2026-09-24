@@ -969,7 +969,21 @@ impl Store {
             }
         }
         let staged = self.staging()?;
-        std::fs::copy(source, staged.path()).map_err(|_| Error::invalid())?;
+        // The import source may be a live SQLite database with a populated WAL
+        // sidecar. Copying only the main file would validate an older committed
+        // image and silently omit newer rows. The read-only backup API folds
+        // the main database and its live sidecars into one consistent image;
+        // it also makes the staged copy standalone before publication.
+        let source_conn = Connection::open_with_flags(source, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|_| Error::invalid())?;
+        let mut staged_conn = Connection::open(staged.path()).map_err(|_| Error::internal())?;
+        let backup = Backup::new(&source_conn, &mut staged_conn).map_err(|_| Error::invalid())?;
+        match backup.step(-1).map_err(|_| Error::invalid())? {
+            StepResult::Done => {}
+            _ => return Err(Error::invalid()),
+        }
+        drop(backup);
+        drop(staged_conn);
         crate::execution::validate_import(staged.path())?;
         crate::execution::initialize(staged.path())?;
 
@@ -1665,6 +1679,33 @@ mod tests {
             Err(error) => error,
         };
         assert_eq!(error.code, "result_limit_exceeded");
+    }
+
+    #[test]
+    fn live_wal_import_preserves_committed_sidecar_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let source_path = dir.path().join("live.sqlite");
+        let source = Connection::open(&source_path).unwrap();
+        source
+            .execute_batch(
+                "PRAGMA journal_mode=WAL;
+                 PRAGMA wal_autocheckpoint=0;
+                 CREATE TABLE t(value INTEGER);
+                 INSERT INTO t VALUES (42);",
+            )
+            .unwrap();
+        assert!(std::fs::metadata(dir.path().join("live.sqlite-wal")).unwrap().len() > 0);
+
+        let store_root = dir.path().join("store");
+        let store = Store::open(&store_root).unwrap();
+        store.bootstrap().unwrap();
+        store.import_from("restored", &source_path).unwrap();
+        let restored = store.path("restored").unwrap();
+        let value: i64 = Connection::open(restored)
+            .unwrap()
+            .query_row("SELECT value FROM t", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(value, 42);
     }
 
     #[test]
