@@ -186,6 +186,9 @@ async fn backups(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<
                     "timestamp": set.timestamp,
                     "databases": set.databases,
                     "has_registry": set.has_registry,
+                    "coverage_start": set.coverage_start.and_then(|stamp| {
+                        stamp.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs())
+                    }),
                 }));
             }
         }
@@ -211,14 +214,15 @@ async fn backups(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<
                         .duration_since(set.mtime)
                         .map(|d| d.as_secs())
                         .unwrap_or(0);
-                    let state = match s.last_write(name) {
-                        Some(wrote) if wrote > set.mtime => "stale",
-                        Some(_) => "fresh",
-                        // No durable API-write marker means the process cannot
-                        // prove that the set represents all mutations (notably
-                        // after restart or an older registry). Stay unknown,
-                        // never falsely fresh.
-                        None => "unknown",
+                    let state = match (s.last_write(name), set.coverage_start) {
+                        // The boundary is captured before any export. A write
+                        // at/after it cannot be proven included, even when the
+                        // set directory is published later.
+                        (Some(wrote), Some(started)) if wrote >= started => "stale",
+                        (Some(_), Some(_)) => "fresh",
+                        // Missing durable boundary or write marker is unknown,
+                        // never falsely fresh after restart or an older script.
+                        _ => "unknown",
                     };
                     (
                         state,

@@ -263,10 +263,15 @@ fn is_set_dir(name: &str) -> bool {
 }
 
 /// One published versioned set (scripts/micro2-backup.sh layout): directory
-/// name, filesystem mtime, member database names, registry presence.
+/// name, filesystem mtime, member database names, registry presence, and the
+/// conservative start boundary captured before any database export. A set may
+/// be published after a concurrent write, so publication mtime is not proof
+/// that the write was included; only a write strictly before this boundary is
+/// eligible to be reported fresh.
 pub struct BackupSet {
     pub timestamp: String,
     pub mtime: SystemTime,
+    pub coverage_start: Option<SystemTime>,
     pub databases: Vec<String>,
     pub has_registry: bool,
 }
@@ -371,6 +376,9 @@ impl Store {
             let Ok(manifest) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
                 continue;
             };
+            let coverage_start = manifest["started_at"]
+                .as_u64()
+                .and_then(|seconds| UNIX_EPOCH.checked_add(Duration::from_secs(seconds)));
             let databases = manifest["databases"]
                 .as_array()
                 .map(|a| {
@@ -383,6 +391,7 @@ impl Store {
             sets.push(BackupSet {
                 timestamp: name,
                 mtime,
+                coverage_start,
                 databases,
                 has_registry,
             });
