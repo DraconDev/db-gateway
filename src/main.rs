@@ -527,12 +527,12 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 // check is on that same descriptor, so a path replacement
                 // cannot turn this into a read of a different file.
                 #[cfg(unix)]
-                let mut batch_file = OpenOptions::new()
+                let batch_file = OpenOptions::new()
                     .read(true)
                     .custom_flags(libc::O_NONBLOCK)
                     .open(&file);
                 #[cfg(not(unix))]
-                let mut batch_file = OpenOptions::new().read(true).open(&file);
+                let batch_file = OpenOptions::new().read(true).open(&file);
                 let mut batch_file = batch_file.map_err(|_| Application(Error::invalid()))?;
                 if !batch_file
                     .metadata()
