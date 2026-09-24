@@ -16,6 +16,7 @@ export class GatewayError extends Error {
 }
 const NAME_RE = /^[a-z0-9][a-z0-9_]{0,63}$/;
 const HEX64_RE = /^[a-f0-9]{64}$/;
+const MAX_TRANSFER_BYTES = 128 * 1024 * 1024;
 const DEFAULT_MAX_RESPONSE = 266240;
 const CHUNK_BYTES = 1024 * 1024;
 const object = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -30,6 +31,7 @@ function isResult(v: unknown): v is QueryResult {
 }
 const isStringArray = (v: unknown): v is string[] => Array.isArray(v) && v.every(s => typeof s === 'string');
 const isHex64 = (v: unknown): v is string => typeof v === 'string' && HEX64_RE.test(v);
+const isTransferSize = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 && v <= MAX_TRANSFER_BYTES;
 function assertName(name: string, what = 'database'): void {
   if (!NAME_RE.test(name)) throw new Error(`Invalid ${what} name`);
 }
@@ -223,42 +225,55 @@ export class Database {
   async exportSnapshot(): Promise<SnapshotData & { database: string }> {
     const result = await this.gateway.request(
       `/v1/databases/${this.name}/export`, 'POST', {}, { maxResponseBytes: 12 * 1024 * 1024 });
-    if (!object(result) || result.database !== this.name || typeof result.sha256 !== 'string' ||
-        typeof result.size !== 'number' || typeof result.data_base64 !== 'string') {
+    if (!object(result) || result.database !== this.name || !isHex64(result.sha256) ||
+        !isTransferSize(result.size) || typeof result.data_base64 !== 'string') {
       throw new GatewayError('outcome_unknown','Malformed export response');
     }
     const data = decodeExportBase64(result.data_base64);
-    if (data.length !== result.size || await sha256Hex(data) !== result.sha256) {
+    if (data.length !== result.size || data.length > MAX_TRANSFER_BYTES || await sha256Hex(data) !== result.sha256) {
       throw new GatewayError('outcome_unknown','Export integrity mismatch');
     }
     return { database: this.name, size: result.size, sha256: result.sha256, data };
   }
   async exportChunked(): Promise<SnapshotData> {
     const begin = await this.gateway.request(`/v1/databases/${this.name}/export/begin`, 'POST', {});
-    if (!object(begin) || !isHex64(begin.snapshot) || typeof begin.size !== 'number' || typeof begin.sha256 !== 'string') {
+    if (!object(begin) || !isHex64(begin.snapshot) || !isTransferSize(begin.size) || !isHex64(begin.sha256)) {
       throw new GatewayError('outcome_unknown','Malformed export begin response');
     }
     const { snapshot, size, sha256 } = begin as { snapshot: string; size: number; sha256: string };
-    const parts: Uint8Array[] = [];
-    let offset = 0;
-    while (offset < size) {
-      const chunk = await this.gateway.request(
-        `/v1/snapshots/${snapshot}?offset=${offset}&length=${CHUNK_BYTES}`, 'GET', undefined,
-        { maxResponseBytes: 2 * 1024 * 1024 });
-      if (!object(chunk) || typeof chunk.data_base64 !== 'string' || chunk.offset !== offset) {
-        throw new GatewayError('outcome_unknown','Malformed chunk response');
+    try {
+      const parts: Uint8Array[] = [];
+      let offset = 0;
+      while (offset < size) {
+        const chunk = await this.gateway.request(
+          `/v1/snapshots/${snapshot}?offset=${offset}&length=${CHUNK_BYTES}`, 'GET', undefined,
+          { maxResponseBytes: 2 * 1024 * 1024 });
+        if (!object(chunk) || chunk.snapshot !== snapshot || !isTransferSize(chunk.size) || chunk.size !== size ||
+            chunk.sha256 !== sha256 || typeof chunk.data_base64 !== 'string' || chunk.offset !== offset) {
+          throw new GatewayError('outcome_unknown','Malformed chunk response');
+        }
+        const bytes = decodeExportBase64(chunk.data_base64);
+        if (bytes.length === 0 || bytes.length > CHUNK_BYTES || offset + bytes.length > size) {
+          throw new GatewayError('outcome_unknown','Malformed chunk response');
+        }
+        parts.push(bytes);
+        offset += bytes.length;
       }
-      const bytes = decodeExportBase64(chunk.data_base64);
-      if (bytes.length === 0) break;
-      parts.push(bytes);
-      offset += bytes.length;
+      const data = new Uint8Array(offset);
+      let at = 0;
+      for (const part of parts) { data.set(part, at); at += part.length; }
+      if (offset !== size || await sha256Hex(data) !== sha256) {
+        throw new GatewayError('outcome_unknown','Export integrity mismatch');
+      }
+      return { size, sha256, data };
+    } finally {
+      // A completed transfer still occupies one of the server's eight slots;
+      // release it on every path so normal client use cannot self-throttle.
+      try {
+        await this.gateway.request(`/v1/snapshots/${snapshot}`, 'DELETE');
+      } catch {
+        // Preserve the export result/error; the server TTL remains the fallback.
+      }
     }
-    const data = new Uint8Array(offset);
-    let at = 0;
-    for (const part of parts) { data.set(part, at); at += part.length; }
-    if (offset !== size || await sha256Hex(data) !== sha256) {
-      throw new GatewayError('outcome_unknown','Export integrity mismatch');
-    }
-    return { size, sha256, data };
   }
 }

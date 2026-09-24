@@ -95,6 +95,9 @@ test('typed lifecycle: clone, single-shot vs chunked export, chunked import', as
     assert.equal(chunked.size, single.size);
     assert.equal(chunked.sha256, single.sha256);
     assert.deepEqual(chunked.data, single.data);
+    // The client must release retained snapshots; eight successful exports
+    // must not exhaust the server's transfer slots.
+    for (let i = 0; i < 8; i++) await db.exportChunked();
 
     await gateway.importChunked('media_chunked', chunked.data);
     assert.equal((await gateway.database('media_chunked').execute('SELECT length(v) FROM blobs')).rows[0][0], 900000);

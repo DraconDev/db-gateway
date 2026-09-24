@@ -248,9 +248,19 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 .to_string();
             let size = begin["size"]
                 .as_u64()
-                .ok_or(Application(Error::internal()))?;
+                .filter(|size| *size <= dg::store::MAX_TRANSFER_SIZE)
+                .ok_or_else(|| {
+                    Application(Error::new(
+                        413,
+                        "result_limit_exceeded",
+                        "export exceeds bounded response size",
+                    ))
+                })?;
             let sha256 = begin["sha256"]
                 .as_str()
+                .filter(|hash| {
+                    hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+                })
                 .ok_or(Application(Error::internal()))?;
             let release_snapshot = || async {
                 let _ = dg::client::request(
@@ -285,14 +295,24 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                         println!("{chunk}");
                         return Err(Application(api_error()));
                     }
+                    if chunk["snapshot"].as_str() != Some(snapshot.as_str())
+                        || chunk["size"].as_u64() != Some(size)
+                        || chunk["sha256"].as_str() != Some(sha256)
+                        || chunk["offset"].as_u64() != Some(offset)
+                    {
+                        return Err(Application(Error::internal()));
+                    }
                     let encoded = chunk["data_base64"]
                         .as_str()
                         .ok_or(Application(Error::internal()))?;
                     let bytes =
                         base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
                             .map_err(|_| Application(Error::internal()))?;
-                    if bytes.is_empty() {
-                        break;
+                    if bytes.is_empty()
+                        || bytes.len() > dg::store::MAX_CHUNK
+                        || bytes.len() as u64 > size.saturating_sub(offset)
+                    {
+                        return Err(Application(Error::internal()));
                     }
                     staged
                         .write_all(&bytes)
