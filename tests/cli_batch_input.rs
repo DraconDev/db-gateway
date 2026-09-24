@@ -14,9 +14,13 @@ use std::{
 };
 
 fn run_batch(path: &Path) -> (bool, String, String) {
+    let home = tempfile::tempdir().expect("empty HOME");
     let mut child = Command::new(env!("CARGO_BIN_EXE_dg"))
         .args(["batch", "input_db"])
         .arg(path)
+        .env("HOME", home.path())
+        .env_remove("DG_KEY_FILE")
+        .env_remove("DG_SERVER")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -72,22 +76,28 @@ fn batch_rejects_writerless_fifo_promptly() {
 #[test]
 fn batch_enforces_the_64_kib_boundary() {
     let dir = tempfile::tempdir().expect("temp dir");
+    let valid_batch = br#"{"atomic":true,"statements":[]}"#;
 
     let at_limit = dir.path().join("at-limit.json");
-    fs::write(&at_limit, vec![b'x'; 65_536]).expect("write at-limit input");
-    let (success, _, stderr) = run_batch(&at_limit);
-    assert!(!success, "malformed at-limit input unexpectedly succeeded");
+    let mut at_limit_bytes = valid_batch.to_vec();
+    at_limit_bytes.resize(65_536, b' ');
+    fs::write(&at_limit, at_limit_bytes).expect("write at-limit input");
+    let (success, stdout, stderr) = run_batch(&at_limit);
+    assert!(!success, "at-limit input unexpectedly succeeded");
     assert!(
-        stderr.contains("invalid_request"),
-        "at-limit input was rejected for the wrong reason: {stderr}"
+        stderr.contains("missing_credential"),
+        "exactly 64 KiB was not parsed and passed to credential handling: {stderr}"
     );
     assert!(
         !stderr.contains("input_limit_exceeded"),
         "exactly 64 KiB must not trip the size limit: {stderr}"
     );
+    assert!(stdout.is_empty(), "at-limit input wrote stdout: {stdout}");
 
     let over_limit = dir.path().join("over-limit.json");
-    fs::write(&over_limit, vec![b'x'; 65_537]).expect("write over-limit input");
+    let mut over_limit_bytes = valid_batch.to_vec();
+    over_limit_bytes.resize(65_537, b' ');
+    fs::write(&over_limit, over_limit_bytes).expect("write over-limit input");
     let (success, _, stderr) = run_batch(&over_limit);
     assert!(!success, "oversized input unexpectedly succeeded");
     assert!(
