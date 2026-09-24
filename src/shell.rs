@@ -248,6 +248,10 @@ impl Session<'_> {
                 return Err(Error::invalid());
             }
         };
+        // A complete batch is one shell attempt even when typed decoding
+        // rejects it. Consume the pending key before decoding so a local
+        // validation error cannot attach an unrelated later request to the
+        // same idempotency namespace.
         let key = self.pending_key.take();
         let batch: crate::execution::Batch =
             serde_json::from_value(value).map_err(|_| Error::invalid())?;
