@@ -1,5 +1,6 @@
 //! Focused contract tests for operator scripts changed by the project audit.
 
+use sha2::{Digest, Sha256};
 use std::{fs, os::unix::fs::PermissionsExt, process::Command};
 
 fn tempdir() -> tempfile::TempDir {
@@ -48,6 +49,77 @@ fn backup_staging_is_unique_and_cleaned_on_failure() {
         .filter(|entry| entry.file_name().to_string_lossy().starts_with(".staging."))
         .count();
     assert_eq!(leftovers, 0, "failed backup leaked staging directory");
+}
+
+#[test]
+fn backup_uses_array_invocation_and_emits_contract_artifacts() {
+    let dir = tempdir();
+    let root = dir.path().join("backup root with spaces");
+    let data = dir.path().join("data with spaces");
+    let key = dir.path().join("owner key with spaces");
+    fs::create_dir_all(&data).unwrap();
+    fs::write(&key, "a".repeat(64)).unwrap();
+    let fake = dir.path().join("dg binary with spaces");
+    fs::write(
+        &fake,
+        r#"#!/usr/bin/env bash
+set -eu
+args=("$@")
+for ((i=0; i<${#args[@]}; i++)); do
+  case "${args[$i]}" in
+    --version) echo 'dg 0.1.0'; exit 0;;
+    list) echo '{"databases":["db"]}'; exit 0;;
+    export)
+      out=""
+      for ((j=i+1; j<${#args[@]}; j++)); do
+        if [ "${args[$j]}" = "--out" ]; then out="${args[$((j+1))]}"; fi
+      done
+      python3 - "$out" <<'PY'
+import sqlite3, sys
+con = sqlite3.connect(sys.argv[1])
+con.execute('create table payload(value integer)')
+con.execute('insert into payload values (7)')
+con.commit()
+con.close()
+PY
+      exit 0;;
+  esac
+done
+exit 2
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+    let metadata = rusqlite::Connection::open(data.join("metadata.sqlite")).unwrap();
+    metadata.execute_batch("create table databases(name text); insert into databases values ('db');").unwrap();
+    drop(metadata);
+    let output = Command::new("bash")
+        .args(["scripts/micro2-backup.sh", "--data-dir"])
+        .arg(&data)
+        .args(["--backup-root"])
+        .arg(&root)
+        .args(["--key-file"])
+        .arg(&key)
+        .env("DG_BIN", &fake)
+        .output()
+        .expect("run backup script");
+    assert!(output.status.success(), "backup failed: {}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    let set = fs::read_dir(&root)
+        .unwrap()
+        .filter_map(Result::ok)
+        .find(|entry| entry.file_type().unwrap().is_dir() && entry.file_name().to_string_lossy().starts_with('2'))
+        .expect("published set");
+    let set = set.path();
+    for name in ["manifest.json", "metadata.sqlite.bak", "db.sqlite", "db.sha256"] {
+        assert!(set.join(name).is_file(), "missing {name}");
+    }
+    let manifest: serde_json::Value = serde_json::from_slice(&fs::read(set.join("manifest.json")).unwrap()).unwrap();
+    assert_eq!(manifest["databases"][0]["name"], "db");
+    assert_eq!(manifest["databases"][0]["file"], "db.sqlite");
+    assert_eq!(manifest["registry"]["file"], "metadata.sqlite.bak");
+    let sidecar = fs::read_to_string(set.join("db.sha256")).unwrap();
+    let digest = sha2::Sha256::digest(fs::read(set.join("db.sqlite")).unwrap());
+    assert_eq!(sidecar.trim(), hex::encode(digest));
 }
 
 #[test]
