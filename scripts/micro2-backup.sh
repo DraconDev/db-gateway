@@ -145,21 +145,26 @@ finally:
 PY
 meta_size="$(stat -c%s -- "$STAGE/$META_FILE")"
 meta_sha="$(sha256sum -- "$STAGE/$META_FILE" | cut -d' ' -f1)"
+REGISTRY_CAPTURED_AT="$(date -u +%s)"
+CAPTURE_COMPLETED_AT="$(date -u +%s)"
 
-python3 - "$STAGE/manifest.json" "$TS" "$STARTED_AT" "$VERSION" "$META_FILE" "$meta_size" "$meta_sha" "$ENTRIES" <<'PY'
+python3 - "$STAGE/manifest.json" "$TS" "$STARTED_AT" "$CAPTURE_COMPLETED_AT" "$REGISTRY_CAPTURED_AT" "$VERSION" "$META_FILE" "$meta_size" "$meta_sha" "$ENTRIES" <<'PY'
 import datetime
 import json
 import sys
 
-path, timestamp, started_at, version, registry_file, registry_size, registry_sha, entries_path = sys.argv[1:]
+path, timestamp, started_at, completed_at, registry_captured_at, version, registry_file, registry_size, registry_sha, entries_path = sys.argv[1:]
 with open(entries_path, encoding="utf-8") as stream:
     databases = [json.loads(line) for line in stream if line.strip()]
 manifest = {
-    "created": datetime.datetime.fromtimestamp(
-        int(timestamp[:4]), datetime.timezone.utc
+    "created": datetime.datetime.strptime(timestamp, "%Y%m%dT%H%M%SZ").replace(
+        tzinfo=datetime.timezone.utc
     ).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "timestamp": timestamp,
     "started_at": int(started_at),
+    "completed_at": int(completed_at),
+    "registry_captured_at": int(registry_captured_at),
+    "verification": "validated_before_publication",
     "tool": "dg export",
     "dg_version": version,
     "databases": databases,
