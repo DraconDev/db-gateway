@@ -204,9 +204,38 @@ async fn backups(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<
             }
         }
         for name in &names {
-            let newest = sets
-                .as_ref()
-                .and_then(|sets| sets.iter().find(|set| set.databases.contains(name)));
+            // Publication mtime is presentation metadata, not proof of
+            // coverage. Prefer the containing set with the latest durable
+            // coverage boundary; an unverified/newer publication remains
+            // unknown rather than masking a known boundary with a false
+            // fresh result.
+            let newest = sets.as_ref().and_then(|sets| {
+                let mut candidates = sets
+                    .iter()
+                    .filter(|set| set.databases.contains(name));
+                let newest = candidates.next()?;
+                let mut selected = newest;
+                for candidate in candidates {
+                    let replace = match (selected.coverage_start, candidate.coverage_start) {
+                        (Some(current), Some(next)) => next > current,
+                        (Some(_), None) => false,
+                        (None, Some(_)) => true,
+                        (None, None) => candidate.mtime > selected.mtime,
+                    };
+                    if replace {
+                        selected = candidate;
+                    }
+                }
+                if selected.coverage_start.is_none()
+                    && sets
+                        .iter()
+                        .filter(|set| set.databases.contains(name))
+                        .any(|set| set.mtime > selected.mtime)
+                {
+                    return None;
+                }
+                Some(selected)
+            });
             let (state, newest_set, age_secs) = match newest {
                 None => ("unknown", Value::Null, Value::Null),
                 Some(set) => {

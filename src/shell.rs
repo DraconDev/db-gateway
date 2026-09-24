@@ -253,15 +253,12 @@ impl Session<'_> {
         // validation error cannot attach an unrelated later request to the
         // same idempotency namespace.
         let key = self.pending_key.take();
-        let batch: crate::execution::Batch =
-            serde_json::from_value(value).map_err(|_| Error::invalid())?;
-        let response = self
-            .request(
-                "batch",
-                serde_json::to_value(batch).map_err(|_| Error::internal())?,
-                key.as_deref(),
-            )
-            .await?;
+        let batch: crate::execution::Batch = match serde_json::from_value(value) {
+            Ok(batch) => batch,
+            Err(_) => return Err(Error::invalid()),
+        };
+        let body = serde_json::to_value(batch).map_err(|_| Error::internal())?;
+        let response = self.request("batch", body, key.as_deref()).await?;
         render(&response, self.json_mode, out)?;
         Ok(false)
     }
