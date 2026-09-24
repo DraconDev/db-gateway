@@ -76,7 +76,12 @@ pub async fn request(
             "use HTTPS or a literal loopback HTTP origin",
         ));
     }
+    // A validated loopback origin is local transport, never an HTTP proxy
+    // destination. Do this for every origin: a proxy is unnecessary for
+    // HTTPS too, and disabling it here prevents ambient proxy variables from
+    // receiving bearer credentials or redirecting authenticated requests.
     let client = reqwest::Client::builder()
+        .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(10))
         .build()

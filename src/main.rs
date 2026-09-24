@@ -350,52 +350,73 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             }
             let upload = begin["upload"]
                 .as_str()
-                .ok_or(Application(Error::internal()))?;
+                .ok_or(Application(Error::internal()))?
+                .to_string();
             let mut reader = BufReader::new(file);
             let mut buf = vec![0u8; dg::store::MAX_CHUNK];
             let mut offset = 0u64;
-            loop {
-                let n = reader
-                    .read(&mut buf)
-                    .map_err(|_| Application(Error::invalid()))?;
-                if n == 0 {
-                    break;
+            let upload_result = async {
+                loop {
+                    let n = reader
+                        .read(&mut buf)
+                        .map_err(|_| Application(Error::invalid()))?;
+                    if n == 0 {
+                        break;
+                    }
+                    let encoded = base64::Engine::encode(
+                        &base64::engine::general_purpose::STANDARD,
+                        &buf[..n],
+                    );
+                    let ack = dg::client::request(
+                        &cli.server,
+                        &key,
+                        Method::POST,
+                        &format!("/v1/uploads/{upload}/chunk"),
+                        Some(json!({"offset":offset,"data_base64":encoded})),
+                        None,
+                    )
+                    .await
+                    .map_err(Application)?;
+                    if api_failed(&ack) {
+                        println!("{ack}");
+                        return Err(Application(api_error()));
+                    }
+                    offset += n as u64;
+                    if ack["received"].as_u64() != Some(offset) {
+                        return Err(Application(Error::internal()));
+                    }
                 }
-                let encoded =
-                    base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &buf[..n]);
-                let ack = dg::client::request(
+                let done = dg::client::request(
                     &cli.server,
                     &key,
                     Method::POST,
-                    &format!("/v1/uploads/{upload}/chunk"),
-                    Some(json!({"offset":offset,"data_base64":encoded})),
+                    &format!("/v1/uploads/{upload}/commit"),
+                    Some(json!({"name":name})),
                     None,
                 )
                 .await
                 .map_err(Application)?;
-                if api_failed(&ack) {
-                    println!("{ack}");
+                println!("{done}");
+                if api_failed(&done) {
                     return Err(Application(api_error()));
                 }
-                offset += n as u64;
-                if ack["received"].as_u64() != Some(offset) {
-                    return Err(Application(Error::internal()));
-                }
+                Ok::<(), dg::ServerError>(())
             }
-            let done = dg::client::request(
-                &cli.server,
-                &key,
-                Method::POST,
-                &format!("/v1/uploads/{upload}/commit"),
-                Some(json!({"name":name})),
-                None,
-            )
-            .await
-            .map_err(Application)?;
-            println!("{done}");
-            if api_failed(&done) {
-                return Err(Application(api_error()));
+            .await;
+            if upload_result.is_err() {
+                // Abort is best effort: preserve the original import error and
+                // never make a cleanup transport failure hide its outcome.
+                let _ = dg::client::request(
+                    &cli.server,
+                    &key,
+                    Method::DELETE,
+                    &format!("/v1/uploads/{upload}"),
+                    None,
+                    None,
+                )
+                .await;
             }
+            upload_result?;
             return Ok(());
         }
         Command::Delete { name, confirm } => {
