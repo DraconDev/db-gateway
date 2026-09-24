@@ -26,9 +26,10 @@ sidecar. Any implementation or live rollout requires separate owner approval.
 | Restore readiness | checksum, SQLite integrity, foreign-key check, protected-table check, and exact application-data comparison | a separate-target restore passes all checks | any mismatch blocks trust in the backup and raises an incident |
 
 `/health/live` is intentionally only liveness. It must not be relabeled as
-backup or database readiness. Until a readiness/backup API is implemented,
-operators use the service logs, the documented CLI checks, and the backup
-report as separate evidence.
+backup or database readiness. `/v1/backups` and `dg backup status` now expose
+version-set freshness, but they are not a verified restore or disk/RSS alert
+system. Operators must still use the service logs, documented CLI checks, and
+recovery evidence as separate signals.
 
 ## 2. Backup freshness contract
 

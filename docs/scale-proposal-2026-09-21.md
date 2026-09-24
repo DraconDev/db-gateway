@@ -1,9 +1,12 @@
-# Scaling proposal v1 (2026-09-21, NOT implemented)
+# Scaling proposal v1 (2026-09-21, Phases 1–2 implemented)
 
-Status: **proposal, Phases 1–2 implemented 2026-09-22** (plan Phase 3).
-Evidence: `docs/benchmark-2026-09-21.md` (F2b). This
-document authorizes no code change — each phase below becomes a task with its
-own tests and before/after benchmark when approved. Superseded-by: (none yet).
+**Document role:** Implemented scale reference
+**Canonical roadmap:** [`personal-turso-megaplan.md`](personal-turso-megaplan.md)
+
+Status: **Phases 1–2 implemented 2026-09-22; measured sizing and the multi-host
+decision remain open.** Evidence: `docs/benchmark-2026-09-21.md` (F2b). This
+document authorizes no code change — each remaining phase becomes a task with
+its own tests and before/after benchmark when approved.
 
 ## Implementation status (2026-09-22)
 

@@ -1,5 +1,8 @@
 # Architecture and decision register
 
+**Document role:** Current product and decision register
+**Canonical roadmap:** [`personal-turso-megaplan.md`](personal-turso-megaplan.md)
+
 ## Agreed product boundary
 
 DB Gateway (`dg`) serves one owner and database-scoped applications. The server owns validation, authorization, SQL execution, and lifecycle safety; the CLI calls that server rather than implementing separate database behavior.
@@ -58,6 +61,7 @@ This foundation chooses neither a SQL engine binding nor a client wire protocol.
 - A timeout or lost response can leave a committed write's outcome unknown; document this before shipping writes.
 - Clone/export/restore use consistent SQLite-aware operations and coordinated lifecycle handling.
 - Recovery claims require verified restores and visible backup failures, not merely a configured bucket.
+- The first production bucket profile is per-database consistent verified snapshots, not a cross-database atomic snapshot; registry/file membership is reconciled during restore.
 
 See `TASKS.md` for executable milestones and acceptance conditions. No task completion authorizes deployment, production data changes, or subscription changes.
 

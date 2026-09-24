@@ -23,6 +23,7 @@ jobs:
       - run: npm ci --prefix client
       - run: npm test --prefix client
       - run: ./scripts/validate-deploy.sh
+      - run: python3 scripts/check_plan_consistency.py docs/personal-turso-megaplan.md
   audit:
     runs-on: ubuntu-latest
     steps:

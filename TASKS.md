@@ -1,5 +1,12 @@
 # DB Gateway — implementation task list
 
+**Document role:** Current implementation checklist
+**Canonical roadmap:** [`docs/personal-turso-megaplan.md`](docs/personal-turso-megaplan.md)
+**Status rule:** This file records implementation/evidence status; the canonical
+roadmap records forward sequencing, architecture direction, gates, and non-goals.
+Neither document authorizes live OVH, micro2, Turso, deployment, subscription,
+or production-data actions.
+
 Project: **DB Gateway** · CLI: **`dg`**
 
 ## Agreed scope
@@ -14,7 +21,10 @@ This file is a plan, not authorization to deploy, migrate production data, delet
 
 ## Execution order and current status
 
-This is the canonical project checklist. Mark items complete only with implementation or documentation evidence and the relevant passing checks. The phases below are a roadmap, not ten tasks to implement in one pass.
+This is the current implementation checklist, subordinate to the canonical
+Personal Turso roadmap. Mark items complete only with implementation or
+documentation evidence and the relevant passing checks. The phases below are a
+status ledger, not a second competing roadmap.
 
 ### M0 — local foundation (implemented; historical evidence)
 

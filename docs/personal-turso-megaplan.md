@@ -1,10 +1,15 @@
 # Personal Turso Megaplan
 
-**Status:** Proposed master plan — direction selected, implementation not yet authorized  
-**Date:** 2026-09-23  
+**Status:** Canonical roadmap — direction selected; implementation and live actions are not authorized
+**Document role:** Canonical roadmap
+**Date:** 2026-09-24
 **Scope:** Turn DB Gateway into a personal, CLI-first hosted database service with local SQLite durability, off-host bucket recovery, and a clear path from one server to a more resilient topology.
 
-This document extends and supersedes the direction in `docs/plan-2026-09-22.md` once adopted. It is a plan, not authorization to touch OVH, production data, subscriptions, or a live host. Every live phase still needs its own approval window.
+This is the canonical forward-planning artifact for the project. It supersedes
+`docs/plan-2026-09-22.md` for sequencing and architecture direction; that older
+plan remains historical evidence. This roadmap is not authorization to touch
+OVH, production data, subscriptions, Turso, or a live host. Every live phase
+still needs its own approval window.
 
 ## 1. Product promise
 
@@ -38,7 +43,31 @@ verified artifact in OVH Object Storage          <-- asynchronous recovery tier
 
 An acknowledged write is locally durable according to SQLite settings. It is not claimed to be in the bucket until a backup reports success and verification. The service must expose that lag rather than pretending that object storage is synchronous.
 
-## 2. Selected product direction
+## 2. Document status and source-of-truth register
+
+This table prevents the older planning, evidence, and procedure documents from
+competing silently with the canonical roadmap.
+
+| Document | Role on 2026-09-24 | Relationship to this roadmap |
+|---|---|---|
+| `docs/personal-turso-megaplan.md` | **Canonical roadmap** | Authoritative sequencing, architecture direction, gates, and non-goals |
+| `TASKS.md` | **Current implementation checklist** | Executable task status and evidence; subordinate to this roadmap for sequencing |
+| `README.md` | Public project status | Links to the roadmap, API, architecture, and current task list |
+| `docs/architecture.md` | Current product/decision register | Normative product boundary and settled API/write decisions |
+| `docs/api.md` | Current API/CLI contract | Normative interface behavior; not live authorization |
+| `docs/recovery-contract.md` | Current local recovery contract | Normative artifact layout and restore checks; not a bucket policy |
+| `docs/recovery-decisions.md` | Research/decision brief | Profile C/continuous WAL is superseded as the first-tier roadmap direction; retained for policy history and later evaluation |
+| `docs/observability-contract.md` | Current observability contract | Freshness/request-pressure evidence; disk/RSS/alert integrations remain future work |
+| `docs/scale-proposal-2026-09-21.md` | Implemented scale reference | Phases 1–2 landed; measured sizing and multi-host gate remain open |
+| `docs/migration-cutover.md` | **Normative migration gates** | GATE 1/2/3, rollback floor, write reconciliation, and decommission approval govern Phase 7 |
+| `docs/plan-2026-09-22.md` | **Historical / superseded** | Prior sequencing proposal; retained for provenance, not future execution |
+| `docs/audit-2026-09-21.md`, `docs/readiness-summary.md`, and dated `*-evidence*` records | Historical evidence | Evidence snapshots; they do not authorize future live work |
+
+The checker `scripts/check_plan_consistency.py` enforces this register, the
+phase sequence, required rollback boundaries, and the no-live-action boundary.
+It checks structure and links, not the truth of future measurements.
+
+## 3. Selected product direction
 
 | Area | Selected direction | Consequence |
 |---|---|---|
@@ -52,7 +81,7 @@ An acknowledged write is locally durable according to SQLite settings. It is not
 
 The system should remain useful if every optional future feature is removed. That is the test of a good personal service: the core path is small, explicit, and operable without a control plane dashboard.
 
-## 3. Target architecture
+## 4. Target architecture
 
 ```text
                          developer laptop / agent
@@ -79,23 +108,36 @@ The system should remain useful if every optional future feature is removed. Tha
 
 ### Runtime services
 
-There are two intentionally different service shapes:
+There are two intentionally different service shapes. The first production
+backup profile is **per-database consistent**, not a cross-database atomic
+snapshot: each SQLite export is internally consistent, while a manifest records
+a start/end interval and the registry capture time. A later barrier/quiesce
+protocol may narrow that interval, but the current plan does not claim a single
+common recovery point.
 
-1. **`dg.service` — long-lived gateway daemon**
+1. **Snapshot set consistency boundary** — each exported database is a
+   consistent SQLite point-in-time copy. The set is not cross-database atomic:
+   concurrent independent writes can be included at different times. The
+   manifest records the interval and restore must reconcile registry membership
+   against the file set. Any future barrier/quiesce design requires a separate
+   race and restore gate.
+
+2. **`dg.service` — long-lived gateway daemon**
    - Runs the native `dg` binary.
    - Owns the live SQLite files.
    - Uses systemd restart, logging, resource, and sandbox controls.
    - Is not run inside a container in the first production topology.
 
-2. **`dg-backup.service` — bounded one-shot job, triggered by `dg-backup.timer`**
-   - Creates a consistent snapshot set.
+3. **`dg-backup.service` — bounded one-shot job, triggered by `dg-backup.timer`**
+   - Creates a **per-database consistent** snapshot set (not a cross-database
+     atomic backup).
    - Uploads only after local validation.
    - Records success/failure and verification metadata.
    - Exits; it is not a continuously running database daemon.
 
 A continuous replication daemon is a future optional component, not part of the first verified-snapshot design.
 
-## 4. Consistency model
+## 5. Consistency model
 
 Consistency means one source of truth for each concern, not using one tool for everything.
 
@@ -121,7 +163,7 @@ Nix is valuable for repeatable development and CI environments, but a Nix-built 
 
 These are complementary boundaries, not competing sources of truth.
 
-## 5. Security and ownership model
+## 6. Security and ownership model
 
 The service is single-owner, but it is still internet-adjacent infrastructure.
 
@@ -159,11 +201,16 @@ The plan explicitly does not promise:
 
 Those are future products, not accidental consequences of this plan.
 
-## 6. Backup and recovery model
+## 7. Backup and recovery model
 
 ### First production profile: verified snapshots
 
-The first bucket implementation will create a complete, self-describing snapshot set:
+The first bucket implementation will create a complete, self-describing
+**per-database consistent** snapshot set. It is not a cross-database atomic
+backup. The manifest must record `started_at`, `completed_at`, and
+`registry_captured_at`; concurrent independent database writes may fall within
+that interval. A future snapshot barrier may make the set closer to a common
+point, but it is not part of this first profile.
 
 ```text
 snapshot-20260923T193000Z/
@@ -192,7 +239,9 @@ The backup job must:
 7. Re-read/verify the uploaded object metadata and hashes.
 8. Atomically mark the set as complete/verified.
 9. Prune only after the new set is verified and retention rules allow it.
-10. Record failure, age, and last successful verification visibly.
+10. Record failure, age, interval, and last successful verification visibly.
+11. Reconcile registry membership against the exported file set on restore;
+    a membership mismatch is a failed restore, not a silently accepted backup.
 
 ### Recovery model
 
@@ -222,7 +271,7 @@ The first implementation should expose a configurable schedule, but not promise 
 
 The exact cadence and retention are an owner policy decision at the Phase 0 gate. The implementation must show the real lag and cost rather than silently choosing a reassuring number.
 
-## 7. CLI product plan
+## 8. CLI product plan
 
 The CLI is the primary product surface. It should make the hosted service feel local and scriptable.
 
@@ -265,9 +314,23 @@ The last three commands are future work; they should not be added as fake placeh
 - Configurable server/key resolution through flags, environment, and a future named-context file.
 - Optional named contexts for `micro2`, `staging`, and `local` without putting secrets in shell history.
 
-## 8. Work plan and gates
+## 9. Work plan and gates
 
-Every phase has a deliverable, evidence artifact, and rollback boundary. A phase is not complete because code compiles; it is complete when its acceptance evidence is recorded.
+Every phase has a deliverable, evidence artifact, and explicit rollback or
+stop boundary. A phase is not complete because code compiles; it is complete
+only when its acceptance evidence is recorded.
+
+The execution order is:
+
+```text
+policy → reproducible release → daemon packaging → local snapshots
+       → bucket adapter → recovery/observability → measured scale
+       → migration → optional resilience/product layers
+```
+
+Measured scale/resource sizing deliberately precedes the migration phase.
+Migration is not a reason to defer the known admission and 1 GiB capacity
+obligations.
 
 ### Phase 0 — Product and policy contract
 
@@ -282,13 +345,19 @@ Deliverables:
 - document owner-key custody and second-custodian policy;
 - document the accepted RPO/RTO objectives and their non-guarantee wording;
 - update `docs/recovery-decisions.md` and `docs/deployment-readiness.md`;
-- mark the current `docs/plan-2026-09-22.md` as superseded by this plan.
+- retain `docs/plan-2026-09-22.md` as historical evidence marked superseded by this plan.
 
 Done when:
 
 - every live-changing value has an owner decision;
 - no local implementation relies on an unaccepted provider or retention assumption;
 - rollback and restore authority are unambiguous.
+
+Rollback / stop rule:
+
+- no runtime mutation occurs in this phase; if policy values remain unresolved,
+  stop before any live or provider-dependent work and leave the previous
+  primary and recovery artifacts untouched.
 
 ### Phase 1 — Reproducible source, package, and release
 
@@ -303,6 +372,9 @@ Deliverables:
 - `release-bundle.sh` using the builder for `micro2` with no native fallback;
 - bundle `BUILD-INFO.txt` recording image digest, OS, architecture, glibc, engine, and ABI result;
 - a deliberate builder-update policy and review checklist;
+- `scripts/check_plan_consistency.py` and focused tests for canonical links,
+  phase ordering, required gates/rollback boundaries, and the no-live-action
+  boundary;
 - SBOM or dependency inventory if the existing release process can support it without blocking the path.
 
 Done when:
@@ -311,7 +383,8 @@ Done when:
 - a release bundle is built inside the pinned image;
 - the bundled binary runs `dg --version` and a disposable `dg init` inside that image;
 - host mode is clearly marked non-micro2/unverified;
-- release tests pass and the exact builder is reproducible from the recorded digest.
+- release tests pass and the exact builder is reproducible from the recorded digest;
+- the plan-consistency checker passes in CI and rejects a malformed fixture.
 
 Rollback:
 
@@ -351,7 +424,8 @@ Rollback:
 
 Deliverables:
 
-- snapshot staging directory with exclusive ownership;
+- snapshot staging directory with exclusive ownership and an explicit
+  started/completed/registry-capture interval;
 - registry online backup;
 - manifest and per-file checksums;
 - atomic publication of a local snapshot set;
@@ -365,7 +439,8 @@ Done when:
 - a write can be followed by a complete local snapshot set;
 - an invalid or incomplete set is never presented as healthy;
 - repeated backups do not collide or leak staging directories;
-- restore from the local set passes exact-row checks.
+- restore from the local set passes exact-row checks and rejects registry/file
+  membership mismatches.
 
 Rollback:
 
@@ -421,7 +496,39 @@ Done when:
 - the CLI clearly distinguishes `fresh`, `stale`, `failed`, and `unknown`;
 - a restore drill produces a committed evidence log.
 
-### Phase 6 — Turso migration
+Rollback / stop rule:
+
+- do not promote a target or mutate the current primary until the restore drill
+  passes; on failure, discard the staging target and keep the current primary
+  serving. The previous verified snapshot remains the recovery floor.
+
+### Phase 6 — Scale and resource hardening
+
+**Goal:** Prove the single-primary service supports the intended hundreds-of-databases workload before migration.
+
+Deliverables:
+
+- measured resource budget for gateway, backup job, SQLite page cache, and OS;
+- benchmark matrix for 1, 10, 100, and target database counts;
+- admission/lane tuning based on measurements;
+- per-database and global capacity evidence;
+- backup lag and upload cost as databases grow;
+- explicit decision gate for standby/multi-host work.
+
+Done when:
+
+- the stated client/concurrency target is met with bounded errors;
+- resource use leaves documented headroom on the host;
+- backup duration and cost are understood at target scale;
+- a measured need, not enthusiasm, triggers multi-host design.
+
+Rollback / stop rule:
+
+- do not begin migration or add replicas if measured capacity, backup lag, or
+  resource headroom is insufficient; retain the single primary and fix the
+  measured constraint first.
+
+### Phase 7 — Turso migration
 
 **Goal:** Move real applications without making Turso or the gateway the unquestioned source of truth.
 
@@ -440,30 +547,27 @@ Done when:
 
 - the receiving gateway has verified backup coverage before cutover;
 - exact application data and behavior checks pass;
-- rollback has been rehearsed, not merely documented;
-- Turso remains authoritative until the explicit cutover gate is passed.
+- GATE 1 freezes writers and records the freeze timestamp;
+- GATE 2 performs the irreversible application switch and records gateway-side
+  writes for reconciliation;
+- GATE 3 is not crossed until every application confirms the soak;
+- rollback has been rehearsed, including reconciliation of gateway-side writes
+  when returning to Turso;
+- Turso remains authoritative until the explicit cutover gate is passed;
+- decommissioning and any subscription change require separate approval.
 
-### Phase 7 — Scale and resource hardening
+Rollback / stop rule:
 
-**Goal:** Prove the single-primary service supports the intended hundreds-of-databases workload before adding topology.
-
-Deliverables:
-
-- measured resource budget for gateway, backup job, SQLite page cache, and OS;
-- benchmark matrix for 1, 10, 100, and target database counts;
-- admission/lane tuning based on measurements;
-- per-database and global capacity evidence;
-- backup lag and upload cost as databases grow;
-- explicit decision gate for standby/multi-host work.
-
-Done when:
-
-- the stated client/concurrency target is met with bounded errors;
-- resource use leaves documented headroom on the host;
-- backup duration and cost are understood at target scale;
-- a measured need, not enthusiasm, triggers multi-host design.
+- `docs/migration-cutover.md` remains normative; a failure before GATE 2 keeps
+  Turso serving, a failure between GATE 2 and GATE 3 switches applications back
+  and reconciles gateway-side writes, and no decommission/subscription action
+  occurs without a separate approval.
 
 ### Phase 8 — Optional resilience and product layers
+
+**Goal:** Add optional resilience or product capabilities only after the core
+single-primary path has measured capacity, verified recovery, and a rehearsed
+migration/rollback path.
 
 Only after the core path is proven:
 
@@ -479,7 +583,19 @@ Only after the core path is proven:
 
 Each optional layer gets its own proposal, threat model, cost model, rollback, and acceptance evidence.
 
-## 9. Cross-phase invariants
+Done when:
+
+- the optional layer has a separate approved contract and measurable benefit;
+- its rollback does not weaken the canonical recovery or security invariants;
+- no optional layer is treated as a prerequisite for the core service.
+
+Rollback / stop rule:
+
+- do not enable an optional layer while the canonical single-primary path has
+  unresolved recovery, capacity, or migration gates; remove or disable the
+  layer without changing the live data contract.
+
+## 10. Cross-phase invariants
 
 These must remain true in every phase:
 
@@ -496,20 +612,21 @@ These must remain true in every phase:
 11. A failed or refused phase leaves the previous primary usable.
 12. “Hundreds of databases” means measured capacity, not a marketing claim.
 
-## 10. First execution slice after plan approval
+## 11. First execution slice after plan approval
 
 The safest first implementation slice is local and reversible:
 
 1. Add the Nix flake and align its Rust toolchain check with `rust-toolchain.toml`.
 2. Add the dedicated builder-image definition and pin its digest.
 3. Update the release bundle to use the prebuilt image without `apt-get`/`rustup` network work.
-4. Add CI checks that build the image, create a bundle, and inspect `BUILD-INFO.txt`.
-5. Update deployment documentation and run the existing release-bundle test.
-6. Do not touch the live host, OVH, Turso, or any production data in this slice.
+4. Add the plan-consistency checker, malformed fixtures, and CI invocation.
+5. Add CI checks that build the image, create a bundle, and inspect `BUILD-INFO.txt`.
+6. Update deployment documentation and run the existing release-bundle test.
+7. Do not touch the live host, OVH, Turso, or any production data in this slice.
 
 That slice makes the later daemon, backup, and migration phases more trustworthy without making any irreversible infrastructure decision.
 
-## 11. Open policy values
+## 12. Open policy values
 
 The following values are deliberately not invented here:
 
@@ -522,7 +639,7 @@ The following values are deliberately not invented here:
 
 They belong in Phase 0 owner decisions. The implementation should expose real measurements and make the cost of each choice visible.
 
-## 12. Definition of the finished personal service
+## 13. Definition of the finished personal service
 
 The first meaningful “personal Turso” milestone is reached when:
 

@@ -1,5 +1,8 @@
 # Migration / cutover and rollback plan (Turso → gateway)
 
+**Document role:** Normative migration gates
+**Canonical roadmap:** [`personal-turso-megaplan.md`](personal-turso-megaplan.md)
+
 Plan only — no migration is performed, no Turso system was contacted, and no
 application cutover exists yet. The gateway is the migration **target**;
 Turso is the source that stays authoritative until stage 5 and is

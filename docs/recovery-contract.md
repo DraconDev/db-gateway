@@ -1,5 +1,8 @@
 # Recovery artifact and restore-verification contract
 
+**Document role:** Current local recovery contract
+**Canonical roadmap:** [`personal-turso-megaplan.md`](personal-turso-megaplan.md)
+
 Status: **local contract for snapshot drills, not a backup policy**. This
 document specifies what a recovery artifact contains, how a restore is
 verified on an empty target, and what counts as pass or fail. It selects no
@@ -44,8 +47,11 @@ recovery-YYYYMMDDTHHMMSSZ/
 
 Expectations:
 
-- Each `<name>.sqlite` is a standalone file produced by the online-backup
-  export path, in DELETE journal mode as documented in `docs/api.md`.
+- The artifact set is **per-database consistent**, not a cross-database
+  atomic snapshot. Each `<name>.sqlite` is a standalone file produced by the
+  online-backup export path, in DELETE journal mode as documented in
+  `docs/api.md`. The manifest records the backup interval and registry capture
+  time; restore rejects registry/file membership mismatches.
 - Each `<name>.sha256` contains the lowercase hex SHA-256 of the exact bytes
   of `<name>.sqlite`, followed by a newline. The manifest repeats the same
   hex; mismatch between the sidecar, the manifest, and recomputed bytes is a

@@ -1,5 +1,11 @@
 # Recovery decisions (M3 input, not acceptance)
 
+**Document role:** Historical/current research brief; the canonical roadmap is
+[`personal-turso-megaplan.md`](personal-turso-megaplan.md). For the first
+production tier, the roadmap selects **per-database consistent verified
+snapshots**; the Profile C continuous-WAL proposal below remains a research
+option for a later measured tier, not the current first-tier direction.
+
 Status: **decision brief and working local policy, not an accepted production
 policy**. The owner has selected Profile C objectives for local preparation,
 but nothing in this document is an owner-accepted RPO/RTO/retention guarantee,
