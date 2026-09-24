@@ -189,6 +189,9 @@ async fn backups(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<
                     "coverage_start": set.coverage_start.and_then(|stamp| {
                         stamp.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs())
                     }),
+                    "coverage_end": set.coverage_end.and_then(|stamp| {
+                        stamp.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs())
+                    }),
                 }));
             }
         }
