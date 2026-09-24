@@ -18,7 +18,9 @@ const HELP: &str = "dot-commands:
   .help                show help
   .quit                quit (EOF also exits)
 One SQL statement per line. No hidden retries or cross-line transactions.
-A pending key is consumed on the next SQL/batch attempt, including errors.";
+A pending key is consumed on the next completed SQL/batch attempt, including
+API and local errors; an `outcome_unknown` transport failure retains it for an
+identical replay.";
 
 struct Session<'a> {
     server: &'a str,

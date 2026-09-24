@@ -299,6 +299,140 @@ fn lost_response_is_reported_without_retrying_unkeyed_writes() {
 }
 
 #[test]
+fn keyed_transport_failure_retains_key_for_identical_replay() {
+    use std::io::Read;
+    use std::time::{Duration, Instant};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let (stop, stopped) = std::sync::mpsc::channel();
+    let mock = std::thread::spawn(move || {
+        let mut requests = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while Instant::now() < deadline && stopped.try_recv().is_err() {
+            let (stream, _) = match listener.accept() {
+                Ok(connection) => connection,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(5));
+                    continue;
+                }
+                Err(error) => panic!("accept: {error}"),
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut headers = String::new();
+            let mut length = 0;
+            loop {
+                let mut line = String::new();
+                assert!(reader.read_line(&mut line).unwrap() > 0);
+                if line == "\r\n" {
+                    break;
+                }
+                if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = value.trim().parse::<usize>().unwrap();
+                }
+                headers.push_str(&line);
+            }
+            let mut body = vec![0; length];
+            reader.read_exact(&mut body).unwrap();
+            let key = headers
+                .to_ascii_lowercase()
+                .lines()
+                .find_map(|line| line.strip_prefix("idempotency-key:"))
+                .map(str::trim)
+                .unwrap_or("");
+            let request = serde_json::from_slice::<Value>(&body).unwrap();
+            requests.push((key.to_owned(), request));
+            let response = if requests.len() == 1 {
+                b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\nConnection: close\r\n\r\nx".as_slice()
+            } else {
+                b"HTTP/1.1 200 OK\r\nContent-Length: 16\r\nConnection: close\r\n\r\n{\"rows_affected\":1}".as_slice()
+            };
+            reader.get_mut().write_all(response).unwrap();
+        }
+        requests
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let path = key_file(dir.path(), &"a".repeat(64));
+    let mut child = Command::new(env!("CARGO_BIN_EXE_dg"))
+        .args([
+            "--server",
+            &format!("http://{address}"),
+            "--key-file",
+            path.to_str().unwrap(),
+            "--json",
+            "shell",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"use mockdb\n:key retry-key\nINSERT INTO t VALUES (1)\nINSERT INTO t VALUES (1)\n.quit\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    stop.send(()).unwrap();
+    let requests = mock.join().unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let values: Vec<Value> = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(values[1]["error"]["code"], "outcome_unknown");
+    assert_eq!(values[2]["rows_affected"], 1);
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].0, "retry-key");
+    assert_eq!(requests[1].0, "retry-key");
+    assert_eq!(requests[0].1, requests[1].1);
+}
+
+#[test]
+fn typed_batch_failure_consumes_key_and_database_switch_clears_it() {
+    let server = start_server();
+    let owner = owner_bootstrap(&server);
+    let client = reqwest::blocking::Client::new();
+    assert_eq!(
+        client
+            .post(format!("http://{}/v1/databases", server.address))
+            .bearer_auth(&owner)
+            .json(&json!({"name": "typedb"}))
+            .send()
+            .unwrap()
+            .status(),
+        200
+    );
+    let script = [
+        "use typedb",
+        ":key malformed-batch",
+        r#":batch {"atomic":true,"statements":"not-an-array"}"#,
+        "SELECT 1 AS after_malformed",
+        "use anotherdb",
+        ":key after-switch",
+        "use typedb",
+        "SELECT 2 AS after_switch",
+        ".quit",
+    ];
+    let (stdout, stderr, ok) = shell_session_mode(&server, &owner, &script, true);
+    assert!(ok && stderr.is_empty(), "{stderr}");
+    let values: Vec<Value> = stdout
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap_or_else(|_| panic!("non-JSON line: {line}")))
+        .collect();
+    assert_eq!(values[2]["error"]["code"], "invalid_request");
+    assert_eq!(values[3]["rows"], json!([[1]]));
+    assert_eq!(values[6]["message"], "using typedb");
+    assert_eq!(values[7]["rows"], json!([[2]]));
+}
+
+#[test]
 fn json_mode_multiline_batch_errors_and_eof() {
     let server = start_server();
     let owner = owner_bootstrap(&server);
