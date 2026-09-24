@@ -242,9 +242,10 @@ fn craft_set(root: &std::path::Path, name: &str, dbs: &[&str], mtime: Option<Sys
         "started_at": started_at,
         "dg_version": "0.1.0",
         "databases": dbs.iter().map(|db| json!({"name": db, "size": 1, "sha256": "x"})).collect::<Vec<_>>(),
-        "registry": {"size": 1, "sha256": "y"},
+        "registry": {"file": "metadata.sqlite.bak", "size": 1, "sha256": "y"},
     });
-    fs::write(dir.join("MANIFEST.json"), manifest.to_string()).unwrap();
+    fs::write(dir.join("manifest.json"), manifest.to_string()).unwrap();
+    fs::write(dir.join("metadata.sqlite.bak"), b"registry").unwrap();
     if let Some(mtime) = mtime {
         fs::File::options()
             .read(true)
@@ -323,7 +324,7 @@ fn backups_freshness_transitions() {
     fs::write(backup_root.join("notes.txt"), "nope").unwrap();
     let malformed = backup_root.join("20191231T235959Z");
     fs::create_dir_all(&malformed).unwrap();
-    fs::write(malformed.join("MANIFEST.json"), "{").unwrap();
+    fs::write(malformed.join("manifest.json"), "{").unwrap();
     let (status, body) = get(&server.address, "/v1/backups", Some(&owner));
     assert_eq!(status, 200);
     assert_eq!(body["sets"].as_array().unwrap().len(), 1);

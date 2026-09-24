@@ -371,7 +371,18 @@ impl Store {
             let Ok(mtime) = entry.metadata().and_then(|m| m.modified()) else {
                 continue;
             };
-            let Ok(bytes) = std::fs::read(entry.path().join("MANIFEST.json")) else {
+            // The canonical producer writes lowercase `manifest.json`; the
+            // uppercase name is accepted only as a compatibility reader for
+            // older local sets. A missing or malformed member skips just this
+            // set, never the whole scan.
+            let manifest_path = ["manifest.json", "MANIFEST.json"]
+                .into_iter()
+                .map(|name| entry.path().join(name))
+                .find(|path| path.is_file());
+            let Some(manifest_path) = manifest_path else {
+                continue;
+            };
+            let Ok(bytes) = std::fs::read(manifest_path) else {
                 continue;
             };
             let Ok(manifest) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
@@ -388,7 +399,13 @@ impl Store {
                         .collect()
                 })
                 .unwrap_or_default();
-            let has_registry = manifest["registry"]["sha256"].as_str().is_some();
+            let registry_file = manifest["registry"]["file"].as_str();
+            let has_registry = manifest["registry"]["sha256"].as_str().is_some()
+                && registry_file.is_some_and(|file| {
+                    !file.contains('/')
+                        && !file.contains('\\')
+                        && entry.path().join(file).is_file()
+                });
             sets.push(BackupSet {
                 timestamp: name,
                 mtime,
@@ -1717,10 +1734,11 @@ mod tests {
         std::fs::create_dir_all(root.join("20200101T000001Z")).unwrap();
         std::fs::write(root.join("20200101T000000Z/MANIFEST.json"), "{").unwrap();
         std::fs::write(
-            root.join("20200101T000001Z/MANIFEST.json"),
-            r#"{"databases":[{"name":"db"}],"registry":{"sha256":"x"}}"#,
+            root.join("20200101T000001Z/manifest.json"),
+            r#"{"databases":[{"name":"db"}],"registry":{"file":"metadata.sqlite.bak","sha256":"x"}}"#,
         )
         .unwrap();
+        std::fs::write(root.join("20200101T000001Z/metadata.sqlite.bak"), b"registry").unwrap();
         let with_root = reopened.with_backup_root(Some(root));
         let sets = with_root.backup_sets().unwrap();
         assert_eq!(sets.len(), 1);
