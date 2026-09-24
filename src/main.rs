@@ -517,17 +517,30 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             idempotency_key,
         } => {
             dg::store::validate_name(&name).map_err(Application)?;
-            if std::fs::metadata(&file)
+            // Open once and bound the actual stream. A separate metadata call
+            // can race a replacement or admit a FIFO whose length is zero.
+            let mut batch_file = File::open(&file).map_err(|_| Application(Error::invalid()))?;
+            if !batch_file
+                .metadata()
                 .map_err(|_| Application(Error::invalid()))?
-                .len()
-                > 65536
+                .is_file()
             {
                 return Err(Application(Error::invalid()));
             }
-            let body: dg::execution::Batch = serde_json::from_slice(
-                &std::fs::read(file).map_err(|_| Application(Error::invalid()))?,
-            )
-            .map_err(|_| Application(Error::invalid()))?;
+            let mut batch_bytes = Vec::new();
+            Read::by_ref(&mut batch_file)
+                .take(65537)
+                .read_to_end(&mut batch_bytes)
+                .map_err(|_| Application(Error::invalid()))?;
+            if batch_bytes.len() > 65536 {
+                return Err(Application(Error::new(
+                    413,
+                    "input_limit_exceeded",
+                    "batch input exceeds 64 KiB",
+                )));
+            }
+            let body: dg::execution::Batch = serde_json::from_slice(&batch_bytes)
+                .map_err(|_| Application(Error::invalid()))?;
             (
                 Method::POST,
                 format!("/v1/databases/{name}/batch"),
