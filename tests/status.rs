@@ -232,8 +232,14 @@ fn forced_429_is_counted() {
 fn craft_set(root: &std::path::Path, name: &str, dbs: &[&str], mtime: Option<SystemTime>) {
     let dir = root.join(name);
     fs::create_dir_all(&dir).unwrap();
+    let started_at = mtime
+        .unwrap_or_else(SystemTime::now)
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
     let manifest = json!({
         "timestamp": name,
+        "started_at": started_at,
         "dg_version": "0.1.0",
         "databases": dbs.iter().map(|db| json!({"name": db, "size": 1, "sha256": "x"})).collect::<Vec<_>>(),
         "registry": {"size": 1, "sha256": "y"},
@@ -277,8 +283,13 @@ fn backups_freshness_transitions() {
     let (status, body) = get(&server.address, "/v1/backups", Some(&owner));
     assert_eq!(status, 200);
     assert_eq!(body["per_database"]["bdb"]["state"], json!("unknown"));
-    // A set published after the write is fresh.
-    craft_set(&backup_root, "20260922T223715Z", &["bdb"], None);
+    // A set whose coverage began after the write is fresh.
+    craft_set(
+        &backup_root,
+        "20260922T223715Z",
+        &["bdb"],
+        Some(SystemTime::now() + Duration::from_secs(2)),
+    );
     let (status, body) = get(&server.address, "/v1/backups", Some(&owner));
     assert_eq!(status, 200);
     assert_eq!(body["per_database"]["bdb"]["state"], json!("fresh"));
