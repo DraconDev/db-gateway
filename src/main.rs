@@ -1,8 +1,10 @@
 use clap::{Parser, Subcommand};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::{
-    fs::File,
+    fs::{File, OpenOptions},
     io::{BufReader, IsTerminal, Read, Write},
     net::SocketAddr,
     path::{Path, PathBuf},
@@ -520,10 +522,18 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 idempotency_key,
             } => {
                 dg::store::validate_name(&name).map_err(Application)?;
-                // Open once and bound the actual stream. A separate metadata call
-                // can race a replacement or admit a FIFO whose length is zero.
-                let mut batch_file =
-                    File::open(&file).map_err(|_| Application(Error::invalid()))?;
+                // Open once with O_NONBLOCK so a writer-less FIFO cannot make
+                // the CLI hang before the descriptor is checked. The metadata
+                // check is on that same descriptor, so a path replacement
+                // cannot turn this into a read of a different file.
+                #[cfg(unix)]
+                let mut batch_file = OpenOptions::new()
+                    .read(true)
+                    .custom_flags(libc::O_NONBLOCK)
+                    .open(&file);
+                #[cfg(not(unix))]
+                let mut batch_file = OpenOptions::new().read(true).open(&file);
+                let mut batch_file = batch_file.map_err(|_| Application(Error::invalid()))?;
                 if !batch_file
                     .metadata()
                     .map_err(|_| Application(Error::invalid()))?
