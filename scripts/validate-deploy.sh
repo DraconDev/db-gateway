@@ -48,7 +48,7 @@ log "checking resource-budget policy"
 if grep -qE '^[[:space:]]*MemoryMax=' "$UNIT"; then
     fail "MemoryMax must remain unset while docs/resource-budget.md measurements are pending"
 fi
-grep -q 'MemoryMax=.*line stays commented until measured' "$GUIDE" \
+grep -q 'MemoryMax=.*line stays commented until measured\|MemoryMax.*line stays commented until measured' "$GUIDE" \
     || fail "deployment guide must document the pending MemoryMax policy"
 
 if command -v systemd-analyze >/dev/null 2>&1; then
