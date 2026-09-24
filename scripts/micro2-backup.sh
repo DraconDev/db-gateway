@@ -38,6 +38,10 @@ DG="$DG_BIN --server $SERVER --key-file $KEY_FILE"
   exit 2
 }
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
+# Capture the conservative freshness boundary before listing or exporting any
+# database. The API compares durable write markers against this value, not the
+# later publication mtime.
+STARTED_AT="$(date -u +%s)"
 mkdir -p "$BACKUP_ROOT"
 chmod 700 "$BACKUP_ROOT"
 STAGE="$(mktemp -d "$BACKUP_ROOT/.staging.XXXXXX")"
@@ -77,11 +81,11 @@ EOF
 meta_size="$(stat -c%s "$STAGE/metadata.sqlite")"
 meta_sha="$(sha256sum "$STAGE/metadata.sqlite" | cut -d' ' -f1)"
 
-python3 - "$STAGE/MANIFEST.json" "$TS" "$VERSION" "$meta_size" "$meta_sha" "$MANIFEST_ENTRIES" <<'EOF'
+python3 - "$STAGE/MANIFEST.json" "$TS" "$VERSION" "$STARTED_AT" "$meta_size" "$meta_sha" "$MANIFEST_ENTRIES" <<'EOF'
 import json, sys
-_, path, ts, version, meta_size, meta_sha, entries = sys.argv
+_, path, ts, version, started_at, meta_size, meta_sha, entries = sys.argv
 dbs = json.loads("[" + entries.rstrip(",") + "]")
-manifest = {"timestamp": ts, "dg_version": version,
+manifest = {"timestamp": ts, "started_at": int(started_at), "dg_version": version,
             "databases": dbs,
             "registry": {"size": int(meta_size), "sha256": meta_sha}}
 with open(path, "w") as f:
