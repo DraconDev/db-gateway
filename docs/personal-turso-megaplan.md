@@ -57,7 +57,7 @@ competing silently with the canonical roadmap.
 | `docs/api.md` | Current API/CLI contract | Normative interface behavior; not live authorization |
 | `docs/recovery-contract.md` | Current local recovery contract | Normative artifact layout and restore checks; not a bucket policy |
 | `docs/recovery-decisions.md` | Research/decision brief | Profile C/continuous WAL is superseded as the first-tier roadmap direction; retained for policy history and later evaluation |
-| `docs/observability-contract.md` | Current observability contract | Freshness/request-pressure evidence; disk/RSS/alert integrations remain future work |
+| `docs/observability-contract.md` | Current observability contract | Freshness/request-pressure evidence; disk/RSS/alert integrations remain future work; continuous WAL is historical/optional |
 | `docs/scale-proposal-2026-09-21.md` | Implemented scale reference | Phases 1–2 landed; measured sizing and multi-host gate remain open |
 | `docs/migration-cutover.md` | **Normative migration gates** | GATE 1/2/3, rollback floor, write reconciliation, and decommission approval govern Phase 7 |
 | `docs/plan-2026-09-22.md` | **Historical / superseded** | Prior sequencing proposal; retained for provenance, not future execution |

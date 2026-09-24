@@ -6,12 +6,14 @@ gateway-native versioned sets; write markers are durable across restart;
 restore drill still separate), and request
 pressure as `GET /v1/status` + `dg status`. Disk/RSS/alert integrations
 remain future work. This contract defines the signals
-needed to operate DB Gateway and a future backup sidecar. The owner-selected
-working objective is continuous WAL-style shipping with a five-minute lag after
-committed changes, but it is not a production guarantee. This document adds no
-endpoint, metric exporter, alert integration, or live host configuration. The
-first supervised micro2 deployment remains loopback-only and has no backup
-sidecar. Any implementation or live rollout requires separate owner approval.
+needed to operate DB Gateway and a future backup sidecar. The canonical first
+backup tier is **per-database consistent verified snapshots**; continuous
+WAL-style shipping is a later optional tier and is not the current direction.
+The old five-minute WAL objective is retained only as historical research, not
+a current policy or production guarantee. This document adds no endpoint,
+metric exporter, alert integration, or live host configuration. The first
+supervised micro2 deployment remains loopback-only and has no backup sidecar.
+Any implementation or live rollout requires separate owner approval.
 
 ## 1. Signal classes
 
@@ -22,7 +24,7 @@ sidecar. Any implementation or live rollout requires separate owner approval.
 | Request pressure | counts/rates for `capacity_exceeded`, `busy`, and `query_deadline_exceeded` | bounded load within the documented limits | sustained growth indicates overload or a resource regression; do not silently retry |
 | Disk pressure | free bytes/inodes for the data directory, WAL, staging, and recovery workspace | enough headroom for active files plus the retention policy | low disk or failed staging blocks safe writes/imports and needs operator action |
 | Resource pressure | gateway RSS, SQLite/page-cache behavior, CPU, and future sidecar RSS/I/O | measurements remain inside the accepted host budget | threshold and alarm action remain owner decisions until the resource budget is complete |
-| Backup freshness | newest verified copy per database, lag after committed changes, last success, last failure, and restore-test result | the newest verified copy is within the five-minute working objective after committed changes | `stale`, `failed`, or `unknown` must be visible; a scheduled job alone is not healthy |
+| Backup freshness | newest verified copy per database, lag after committed changes, last success, last failure, and restore-test result | the newest verified copy is within the selected snapshot-cadence objective after committed changes | `stale`, `failed`, or `unknown` must be visible; a scheduled job alone is not healthy |
 | Restore readiness | checksum, SQLite integrity, foreign-key check, protected-table check, and exact application-data comparison | a separate-target restore passes all checks | any mismatch blocks trust in the backup and raises an incident |
 
 `/health/live` is intentionally only liveness. It must not be relabeled as
@@ -45,10 +47,11 @@ comparison pass on a separate target. Record, per database:
   included;
 - the restore-test date and exact target/result.
 
-For the current local working policy, alert when committed changes are not
-represented by a verified copy within **300 seconds**. This is an objective,
-not an accepted RPO breach threshold: the sidecar, sink, resource headroom,
-and restore evidence remain unverified. Durable write markers survive gateway
+For the current first-tier snapshot design, alert when committed changes are
+not represented by a verified copy within the owner-approved snapshot cadence.
+The old 300-second/WAL objective is historical and not a current RPO promise.
+Cadence, sink, resource headroom, and restore evidence remain policy or
+verification inputs rather than guarantees. Durable write markers survive gateway
 restart. During idle periods, report the last committed-change marker and
 last verified marker rather than declaring a healthy database stale solely
 because wall time advanced. A containing backup set with no durable write
