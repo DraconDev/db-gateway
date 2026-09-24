@@ -13,6 +13,7 @@ use std::{
         Arc, Mutex, RwLock, RwLockReadGuard,
         atomic::{AtomicU64, Ordering},
     },
+    thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::Semaphore;
@@ -795,13 +796,21 @@ impl Store {
     /// Pages are copied in bounded steps so concurrent commits interleave;
     /// the snapshot reflects one committed point in time.
     pub fn export_to(&self, name: &str, dest: &Path) -> Result<()> {
-        self.export_to_limited(name, dest, None)
+        // All lifecycle snapshots share the documented transfer ceiling. The
+        // old unbounded call still gets the same protection as clone/export.
+        self.export_to_limited(name, dest, Some(MAX_TRANSFER_SIZE))
     }
 
     /// SQLite online backup with an optional hard output ceiling. The check
     /// runs during backup steps so an over-limit snapshot is not fully
-    /// materialized before the caller receives its 413.
+    /// materialized before the caller receives its 413. A `None` ceiling is
+    /// treated as the lifecycle ceiling rather than as an unbounded escape.
     pub fn export_to_limited(&self, name: &str, dest: &Path, max_bytes: Option<u64>) -> Result<()> {
+        const PAGES_PER_STEP: i32 = 64;
+        const RETRY_STEPS: u64 = 64;
+        const MAX_BUSY_RETRIES: u32 = 16;
+        const RETRY_DELAY: Duration = Duration::from_millis(10);
+
         let src_path = self.path(name)?;
         if dest.exists() {
             return Err(Error::new(
@@ -810,57 +819,115 @@ impl Store {
                 "destination file already exists",
             ));
         }
+        let limit = max_bytes.unwrap_or(MAX_TRANSFER_SIZE);
         // Deliberately no per-database write-slot acquisition: the SQLite
         // online backup API on a WAL source produces a consistent committed
         // snapshot while writes continue (the copy restarts if the source
-        // changes between steps). Bounding the step count keeps a
-        // pathological concurrent-writer restart loop finite.
+        // changes between steps). Bound retries and derive the step budget from
+        // the byte ceiling and the source's actual page size instead of
+        // assuming the default 4096-byte SQLite page.
         let src =
             Connection::open_with_flags(&src_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         src.busy_timeout(Duration::from_millis(250))?;
+        let page_size = src.query_row("PRAGMA page_size", [], |row| {
+            row.get::<_, i64>(0)
+        })?;
+        let page_size = u64::try_from(page_size).map_err(|_| Error::internal())?;
+        if !(512..=65536).contains(&page_size) {
+            return Err(Error::internal());
+        }
+        let bytes_per_step = page_size.saturating_mul(PAGES_PER_STEP as u64).max(1);
+        let max_steps = limit
+            .saturating_add(bytes_per_step - 1)
+            .checked_div(bytes_per_step)
+            .unwrap_or(0)
+            .saturating_add(RETRY_STEPS);
         let mut dst = Connection::open(dest)?;
         dst.busy_timeout(Duration::from_millis(250))?;
-        let backup = Backup::new(&src, &mut dst)?;
-        let mut result = StepResult::More;
-        let mut steps = 0;
-        while result == StepResult::More {
-            steps += 1;
-            if steps > 512 {
-                result = StepResult::Busy;
-                break;
+
+        let outcome = (|| -> Result<()> {
+            let backup = Backup::new(&src, &mut dst)?;
+            let mut result = StepResult::More;
+            let mut steps = 0u64;
+            let mut busy_retries = 0u32;
+            let mut failure = None;
+            while matches!(result, StepResult::More | StepResult::Busy | StepResult::Locked) {
+                if steps >= max_steps {
+                    failure = Some(Error::new(
+                        429,
+                        "capacity_exceeded",
+                        "backup could not complete within bounded transfer work",
+                    ));
+                    break;
+                }
+                steps += 1;
+                result = match backup.step(PAGES_PER_STEP) {
+                    Ok(result) => result,
+                    Err(error) => {
+                        failure = Some(error.into());
+                        break;
+                    }
+                };
+                if matches!(result, StepResult::Busy | StepResult::Locked) {
+                    if busy_retries >= MAX_BUSY_RETRIES {
+                        failure = Some(Error::new(
+                            429,
+                            "capacity_exceeded",
+                            "backup could not acquire a consistent source snapshot",
+                        ));
+                        break;
+                    }
+                    busy_retries += 1;
+                    thread::sleep(RETRY_DELAY);
+                    continue;
+                }
+                busy_retries = 0;
+                let progress = backup.progress();
+                let expected = (progress.pagecount.max(0) as u64).saturating_mul(page_size);
+                let observed = std::fs::metadata(dest)
+                    .map(|metadata| metadata.len())
+                    .unwrap_or(0);
+                if expected > limit || observed > limit {
+                    failure = Some(Error::new(
+                        413,
+                        "result_limit_exceeded",
+                        "export exceeds bounded response size",
+                    ));
+                    break;
+                }
             }
-            result = backup.step(64).map_err(crate::error::Error::from)?;
-            if max_bytes.is_some_and(|limit| {
-                std::fs::metadata(dest)
-                    .map(|metadata| metadata.len() > limit)
-                    .unwrap_or(false)
-            }) {
-                drop(backup);
-                drop(dst);
-                remove_database_files(dest);
-                return Err(Error::new(
-                    413,
-                    "result_limit_exceeded",
-                    "export exceeds bounded response size",
-                ));
+            drop(backup);
+            if let Some(error) = failure {
+                return Err(error);
             }
-        }
-        drop(backup);
-        match result {
-            StepResult::Done => {
-                dst.pragma_update(None, "journal_mode", "DELETE")?;
-                Ok(())
-            }
-            _ => {
-                drop(dst);
-                remove_database_files(dest);
-                Err(Error::new(
+            match result {
+                StepResult::Done => {
+                    // The final step can be the first one to cross the limit.
+                    if std::fs::metadata(dest)
+                        .map(|metadata| metadata.len() > limit)
+                        .unwrap_or(false)
+                    {
+                        return Err(Error::new(
+                            413,
+                            "result_limit_exceeded",
+                            "export exceeds bounded response size",
+                        ));
+                    }
+                    dst.pragma_update(None, "journal_mode", "DELETE")?;
+                    Ok(())
+                }
+                _ => Err(Error::new(
                     429,
                     "capacity_exceeded",
                     "backup could not complete; source busy",
-                ))
+                )),
             }
+        })();
+        if outcome.is_err() {
+            drop(dst);
+            remove_database_files(dest);
         }
+        outcome
     }
 
     pub fn request_lease(&self) -> Result<RwLockReadGuard<'_, ()>> {
