@@ -237,11 +237,15 @@ export class Database {
   }
   async exportChunked(): Promise<SnapshotData> {
     const begin = await this.gateway.request(`/v1/databases/${this.name}/export/begin`, 'POST', {});
-    if (!object(begin) || !isHex64(begin.snapshot) || !isTransferSize(begin.size) || !isHex64(begin.sha256)) {
+    if (!object(begin) || !isHex64(begin.snapshot)) {
       throw new GatewayError('outcome_unknown','Malformed export begin response');
     }
-    const { snapshot, size, sha256 } = begin as { snapshot: string; size: number; sha256: string };
+    const { snapshot } = begin;
     try {
+      if (!isTransferSize(begin.size) || !isHex64(begin.sha256)) {
+        throw new GatewayError('outcome_unknown','Malformed export begin response');
+      }
+      const { size, sha256 } = begin;
       const parts: Uint8Array[] = [];
       let offset = 0;
       while (offset < size) {

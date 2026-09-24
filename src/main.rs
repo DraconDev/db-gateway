@@ -245,22 +245,6 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                     .as_str()
                     .ok_or(Application(Error::internal()))?
                     .to_string();
-                let size = begin["size"]
-                    .as_u64()
-                    .filter(|size| *size <= dg::store::MAX_TRANSFER_SIZE)
-                    .ok_or_else(|| {
-                        Application(Error::new(
-                            413,
-                            "result_limit_exceeded",
-                            "export exceeds bounded response size",
-                        ))
-                    })?;
-                let sha256 = begin["sha256"]
-                    .as_str()
-                    .filter(|hash| {
-                        hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
-                    })
-                    .ok_or(Application(Error::internal()))?;
                 let release_snapshot = || async {
                     let _ = dg::client::request(
                         &cli.server,
@@ -273,6 +257,27 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                     .await;
                 };
                 let result = async {
+                    // The server has already retained the snapshot named by
+                    // begin. Keep every subsequent validation and transfer
+                    // operation inside the cleanup guard so malformed metadata
+                    // cannot consume a lifecycle slot until the TTL.
+                    let size = begin["size"]
+                        .as_u64()
+                        .filter(|size| *size <= dg::store::MAX_TRANSFER_SIZE)
+                        .ok_or_else(|| {
+                            Application(Error::new(
+                                413,
+                                "result_limit_exceeded",
+                                "export exceeds bounded response size",
+                            ))
+                        })?;
+                    let sha256 = begin["sha256"]
+                        .as_str()
+                        .filter(|hash| {
+                            hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+                        })
+                        .ok_or(Application(Error::internal()))?
+                        .to_string();
                     let mut staged = export_stage_file(&out).map_err(Application)?;
                     let mut hasher = Sha256::new();
                     let mut offset = 0u64;
@@ -296,7 +301,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                         }
                         if chunk["snapshot"].as_str() != Some(snapshot.as_str())
                             || chunk["size"].as_u64() != Some(size)
-                            || chunk["sha256"].as_str() != Some(sha256)
+                            || chunk["sha256"].as_str() != Some(sha256.as_str())
                             || chunk["offset"].as_u64() != Some(offset)
                         {
                             return Err(Application(Error::internal()));
@@ -325,11 +330,11 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                         return Err(Application(Error::internal()));
                     }
                     publish_export_file(staged, &out).map_err(Application)?;
-                    Ok::<(), _>(())
+                    Ok((size, sha256))
                 }
                 .await;
                 release_snapshot().await;
-                result?;
+                let (size, sha256) = result?;
                 println!(
                     "{}",
                     json!({"name":name,"out":out.display().to_string(),"size":size,"sha256":sha256})

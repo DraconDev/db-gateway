@@ -43,6 +43,27 @@ test('malformed single-shot export base64 is a GatewayError', async () => {
   });
 });
 
+test('malformed chunked export metadata releases the retained snapshot', async () => {
+  const snapshot = 'a'.repeat(64);
+  const requests = [];
+  await withServer((request, response) => {
+    requests.push(`${request.method} ${request.url}`);
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({ snapshot, size: 1, sha256: 'not-a-hash' }));
+  }, async gateway => {
+    await assert.rejects(gateway.database('app').exportChunked(), error => {
+      assert.ok(error instanceof GatewayError);
+      assert.equal(error.code, 'outcome_unknown');
+      assert.equal(error.message, 'Malformed export begin response');
+      return true;
+    });
+  });
+  assert.deepEqual(requests, [
+    'POST /v1/databases/app/export/begin',
+    `DELETE /v1/snapshots/${snapshot}`,
+  ]);
+});
+
 test('malformed chunked export base64 is a GatewayError', async () => {
   await withServer((request, response) => {
     response.setHeader('content-type', 'application/json');
