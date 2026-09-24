@@ -1,7 +1,14 @@
 //! Focused contract tests for operator scripts changed by the project audit.
 
 use sha2::{Digest, Sha256};
-use std::{fs, os::unix::fs::PermissionsExt, process::Command, thread, time::Duration};
+use std::{
+    fs,
+    os::unix::fs::PermissionsExt,
+    path::Path,
+    process::Command,
+    thread,
+    time::Duration,
+};
 
 fn tempdir() -> tempfile::TempDir {
     tempfile::tempdir().expect("temp dir")
