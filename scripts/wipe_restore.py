@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import urllib.error
 import urllib.request
 
 BIN = sys.argv[1]
@@ -49,9 +50,26 @@ def start_server(data_dir):
             continue
         if addr:
             break
-    assert addr, "server never logged its listen address"
+    if not addr:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        raise RuntimeError("server never logged its listen address")
     print(f"serving on {addr} (pid {proc.pid})", flush=True)
     return proc, addr
+
+
+def stop_server(proc):
+    if proc.poll() is None:
+        proc.terminate()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
 
 
 class Api:
@@ -132,27 +150,29 @@ def main():
     print("initialized original data dir", flush=True)
 
     proc, addr = start_server(data)
-    api = Api(addr, key)
-    seed(api)
+    try:
+        api = Api(addr, key)
+        seed(api)
 
-    # Snapshot every row + export files (outside the data dir).
-    dumps = {}
-    for db, tables in TABLES.items():
-        for table, cols in tables:
-            rows = dump(api, db, table, cols)
-            dumps[f"{db}.{table}"] = rows
-            print(f"pre-wipe {db}.{table}: {len(rows)} rows", flush=True)
-    for db in DBS:
-        s, b = api.req("POST", f"/v1/databases/{db}/export", {})
-        assert s == 200, b
-        raw = base64.b64decode(b["data_base64"])
-        with open(os.path.join(backup, f"{db}.sqlite"), "wb") as f:
-            f.write(raw)
-        print(f"export {db}: {b['size']} bytes sha256={b['sha256'][:16]}…", flush=True)
+        # Snapshot every row + export files (outside the data dir).
+        dumps = {}
+        for db, tables in TABLES.items():
+            for table, cols in tables:
+                rows = dump(api, db, table, cols)
+                dumps[f"{db}.{table}"] = rows
+                print(f"pre-wipe {db}.{table}: {len(rows)} rows", flush=True)
+        for db in DBS:
+            s, b = api.req("POST", f"/v1/databases/{db}/export", {})
+            assert s == 200, b
+            raw = base64.b64decode(b["data_base64"])
+            with open(os.path.join(backup, f"{db}.sqlite"), "wb") as f:
+                f.write(raw)
+            print(f"export {db}: {b['size']} bytes sha256={b['sha256'][:16]}…", flush=True)
+    finally:
+        # This runs on assertion, transport, and ordinary success failures.
+        stop_server(proc)
 
     # Total loss.
-    proc.terminate()
-    proc.wait()
     shutil.rmtree(data)
     assert not os.path.exists(data), "wipe failed"
     print("data dir wiped", flush=True)
@@ -165,27 +185,29 @@ def main():
     assert key2 != key, "re-init reused the owner key"
     print("re-initialized with a fresh owner key", flush=True)
     proc, addr = start_server(data)
-    api = Api(addr, key2)
+    try:
+        api = Api(addr, key2)
 
-    for db in DBS:
-        with open(os.path.join(backup, f"{db}.sqlite"), "rb") as f:
-            payload = base64.b64encode(f.read()).decode()
-        s, b = api.req("POST", f"/v1/databases/{db}/import",
-                       {"name": db, "data_base64": payload})
-        assert s == 200, (db, b)
-        print(f"imported {db}", flush=True)
+        for db in DBS:
+            with open(os.path.join(backup, f"{db}.sqlite"), "rb") as f:
+                payload = base64.b64encode(f.read()).decode()
+            s, b = api.req("POST", f"/v1/databases/{db}/import",
+                           {"name": db, "data_base64": payload})
+            assert s == 200, (db, b)
+            print(f"imported {db}", flush=True)
 
-    s, b = api.req("GET", "/v1/databases", {})
-    assert s == 200 and sorted(b["databases"]) == DBS, b
-    for db, tables in TABLES.items():
-        for table, cols in tables:
-            rows = dump(api, db, table, cols)
-            assert rows == dumps[f"{db}.{table}"], \
-                f"{db}.{table}: {len(rows)} vs {len(dumps[f'{db}.{table}'])} rows"
-            print(f"post-restore {db}.{table}: {len(rows)} rows byte-exact", flush=True)
+        s, b = api.req("GET", "/v1/databases", {})
+        assert s == 200 and sorted(b["databases"]) == DBS, b
+        for db, tables in TABLES.items():
+            for table, cols in tables:
+                rows = dump(api, db, table, cols)
+                assert rows == dumps[f"{db}.{table}"], \
+                    f"{db}.{table}: {len(rows)} vs {len(dumps[f'{db}.{table}'])} rows"
+                print(f"post-restore {db}.{table}: {len(rows)} rows byte-exact", flush=True)
+    finally:
+        # Never leave a failed or successful restore server behind.
+        stop_server(proc)
 
-    proc.terminate()
-    proc.wait()
     print("WIPE-AND-RESTORE PASS", flush=True)
 
 
