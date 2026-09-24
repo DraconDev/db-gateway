@@ -1755,7 +1755,7 @@ mod tests {
         {
             let conn = Connection::open(&path).unwrap();
             conn.execute_batch(
-                "PRAGMA wal_checkpoint(TRUNCATE);
+                "PRAGMA journal_mode=DELETE;
                  PRAGMA page_size=512;
                  VACUUM;
                  CREATE TABLE payload(value BLOB);
