@@ -273,6 +273,7 @@ pub struct BackupSet {
     pub timestamp: String,
     pub mtime: SystemTime,
     pub coverage_start: Option<SystemTime>,
+    pub coverage_end: Option<SystemTime>,
     pub databases: Vec<String>,
     pub has_registry: bool,
 }
@@ -391,6 +392,9 @@ impl Store {
             let coverage_start = manifest["started_at"]
                 .as_u64()
                 .and_then(|seconds| UNIX_EPOCH.checked_add(Duration::from_secs(seconds)));
+            let coverage_end = manifest["completed_at"]
+                .as_u64()
+                .and_then(|seconds| UNIX_EPOCH.checked_add(Duration::from_secs(seconds)));
             let databases = manifest["databases"]
                 .as_array()
                 .map(|a| {
@@ -410,6 +414,7 @@ impl Store {
                 timestamp: name,
                 mtime,
                 coverage_start,
+                coverage_end,
                 databases,
                 has_registry,
             });
