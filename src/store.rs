@@ -1728,6 +1728,40 @@ mod tests {
     }
 
     #[test]
+    fn small_page_export_and_clone_honor_lifecycle_byte_ceiling() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store.bootstrap().unwrap();
+        store.create("small").unwrap();
+        let path = store.path("small").unwrap();
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "PRAGMA wal_checkpoint(TRUNCATE);
+                 PRAGMA page_size=512;
+                 VACUUM;
+                 CREATE TABLE payload(value BLOB);
+                 INSERT INTO payload VALUES (zeroblob(20000000));",
+            )
+            .unwrap();
+        }
+        let page_size: i64 = Connection::open(&path)
+            .unwrap()
+            .query_row("PRAGMA page_size", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(page_size, 512);
+        let source_size = std::fs::metadata(&path).unwrap().len();
+        assert!(source_size > 512 * 64 * 512);
+        assert!(source_size < MAX_TRANSFER_SIZE);
+
+        let snapshot = store.export_snapshot("small").unwrap();
+        assert!(snapshot.path().metadata().unwrap().len() < MAX_TRANSFER_SIZE);
+        drop(snapshot);
+        store.clone_database("small", "small_copy").unwrap();
+        assert!(store.path("small_copy").is_ok());
+    }
+
+    #[test]
     fn export_limit_stops_before_full_snapshot_materialization() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(dir.path()).unwrap();
