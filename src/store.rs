@@ -846,6 +846,11 @@ impl Store {
         let src =
             Connection::open_with_flags(&src_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         src.busy_timeout(Duration::from_millis(250))?;
+        // A read transaction gives the online-backup source a stable page
+        // count for this invocation. Individual steps still use SQLite's
+        // online-backup protocol, so committed writers may proceed between
+        // steps; the limit is enforced against the observed output as well as
+        // the source page count.
         let page_size = src.query_row("PRAGMA page_size", [], |row| {
             row.get::<_, i64>(0)
         })?;
@@ -900,7 +905,8 @@ impl Store {
                 }
                 busy_retries = 0;
                 let progress = backup.progress();
-                let expected = (progress.pagecount.max(0) as u64).saturating_mul(page_size);
+                let expected = (progress.pagecount.max(0) as u64)
+                    .saturating_mul(page_size);
                 let observed = std::fs::metadata(dest)
                     .map(|metadata| metadata.len())
                     .unwrap_or(0);
