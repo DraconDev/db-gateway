@@ -337,20 +337,26 @@ fn keyed_transport_failure_retains_key_for_identical_replay() {
             }
             let mut body = vec![0; length];
             reader.read_exact(&mut body).unwrap();
-            let key = headers
-                .to_ascii_lowercase()
+            let normalized_headers = headers.to_ascii_lowercase();
+            let key = normalized_headers
                 .lines()
                 .find_map(|line| line.strip_prefix("idempotency-key:"))
                 .map(str::trim)
                 .unwrap_or("");
             let request = serde_json::from_slice::<Value>(&body).unwrap();
             requests.push((key.to_owned(), request));
-            let response = if requests.len() == 1 {
-                b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\nConnection: close\r\n\r\nx".as_slice()
+            let body = if requests.len() == 1 {
+                b"x".to_vec()
             } else {
-                b"HTTP/1.1 200 OK\r\nContent-Length: 16\r\nConnection: close\r\n\r\n{\"rows_affected\":1}".as_slice()
+                br#"{"rows_affected":1}"#.to_vec()
             };
-            reader.get_mut().write_all(response).unwrap();
+            write!(
+                reader.get_mut(),
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            )
+            .unwrap();
+            reader.get_mut().write_all(&body).unwrap();
         }
         requests
     });
@@ -386,8 +392,8 @@ fn keyed_transport_failure_retains_key_for_identical_replay() {
         .lines()
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
-    assert_eq!(values[1]["error"]["code"], "outcome_unknown");
-    assert_eq!(values[2]["rows_affected"], 1);
+    assert_eq!(values[2]["error"]["code"], "outcome_unknown");
+    assert_eq!(values[3]["rows_affected"], 1);
     assert_eq!(requests.len(), 2);
     assert_eq!(requests[0].0, "retry-key");
     assert_eq!(requests[1].0, "retry-key");
