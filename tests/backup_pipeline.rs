@@ -150,6 +150,26 @@ fn only_set(backup_root: &Path) -> PathBuf {
     sets.into_iter().next().unwrap()
 }
 
+/// Freshness compares nanosecond write markers against a backup boundary
+/// with one-second manifest resolution, so a write in the same second as
+/// the run is conservatively stale. Cross into a fresh second after the
+/// last write before asserting a fresh outcome.
+fn wait_next_second() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let start = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    while SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        == start
+    {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 fn attempts(backup_root: &Path) -> Vec<Value> {
     let text = std::fs::read_to_string(backup_root.join("attempts.jsonl")).unwrap();
     text.lines()
@@ -176,6 +196,7 @@ fn script_run_reports_fresh_status() {
         &server,
         &["query", "appdb", "INSERT INTO t(v) VALUES ('x')"],
     );
+    wait_next_second();
 
     let output = run_script(&server, &backup_root, "3", &[]);
     assert!(
@@ -658,6 +679,22 @@ fn restore_drill_from_versioned_set() {
         target_data.join("metadata.sqlite"),
     )
     .unwrap();
+    // Drop init-time WAL sidecars so the restored main file opens clean.
+    for suffix in ["-wal", "-shm"] {
+        let _ = std::fs::remove_file(target_data.join(format!("metadata.sqlite{suffix}")));
+    }
+    // Place the verified database files while stopped. Import is impossible
+    // here by design: the restored registry already holds live rows (import
+    // refuses live names), and importing would mint new generations and
+    // invalidate the restored scoped keys.
+    {
+        let name = "shop";
+        std::fs::copy(
+            set.join(format!("{name}.sqlite")),
+            target_data.join(format!("{name}.sqlite")),
+        )
+        .unwrap();
+    }
     // The restored registry answers to the source owner key, not the
     // discarded target init key.
     let (child, address) = start(&target_data, &dir.path().join("target-backups"));
@@ -677,30 +714,6 @@ fn restore_drill_from_versioned_set() {
             .any(|db| db == "shop"),
         "{names}"
     );
-
-    // Import each set member through the validated path.
-    {
-        let name = "shop";
-        let from = set.join(format!("{name}.sqlite"));
-        let imported = dg()
-            .args([
-                "--server",
-                &format!("http://{}", target.address),
-                "--key-file",
-                server.key_file.to_str().unwrap(),
-                "import",
-                name,
-                "--from",
-                from.to_str().unwrap(),
-            ])
-            .output()
-            .unwrap();
-        assert!(
-            imported.status.success(),
-            "import: {}",
-            String::from_utf8_lossy(&imported.stderr)
-        );
-    }
 
     // Exact restored data, and the source is unchanged.
     assert_eq!(

@@ -65,13 +65,21 @@ pub fn validate_import(path: &Path) -> Result<()> {
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let integrity: String = conn.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
     if integrity != "ok" {
-        return Err(Error::invalid());
+        return Err(Error::new(
+            400,
+            "invalid_request",
+            "imported database failed integrity_check",
+        ));
     }
     let bad: i64 = conn
         .prepare("SELECT count(*) FROM pragma_foreign_key_check")?
         .query_row([], |r| r.get(0))?;
     if bad > 0 {
-        return Err(Error::invalid());
+        return Err(Error::new(
+            400,
+            "invalid_request",
+            "imported database failed foreign_key_check",
+        ));
     }
     let protected: Vec<String> = conn
         .prepare(
