@@ -89,7 +89,7 @@ export class TunnelController {
     try {
       const child = startTunnel(this.options, this.spawnLike);
       this.child = child;
-      child.once('spawn', () => { if (this.child === child) this.state = 'running'; });
+      child.once('spawn', () => { if (this.child === child && this.state === 'starting') this.state = 'running'; });
       child.once('error', (error) => {
         if (this.child === child) { this.state = 'failed'; this.error = error.message; }
       });

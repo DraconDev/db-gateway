@@ -119,49 +119,111 @@ $('clone-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   try { $('lifecycle-result').textContent = JSON.stringify(await post(`/api/databases/${encodeURIComponent($('clone-source').value)}/clone`, { destination: $('clone-destination').value }), null, 2); await refresh(); } catch (error) { showError('lifecycle-result', error); }
 });
-$('export-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
+const MAX_TRANSFER_BYTES = 128 * 1024 * 1024;
+const TRANSFER_CHUNK_BYTES = 1024 * 1024;
+let exportTransfer = null;
+let importTransfer = null;
+
+function renderTransfer(target, value, actions = []) {
+  const output = $(target);
+  output.textContent = JSON.stringify(value, null, 2);
+  for (const [label, handler] of actions) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.addEventListener('click', handler, { once: true });
+    output.appendChild(button);
+  }
+}
+
+async function runExport() {
+  const databaseName = $('export-db').value;
+  if (!databaseName) { showError('export-result', { code: 'invalid_request', message: 'Choose a database first.' }); return; }
+  if (exportTransfer && exportTransfer.database !== databaseName) {
+    await request(`/api/snapshots/${encodeURIComponent(exportTransfer.session.snapshot)}`, { method: 'DELETE' }).catch(() => undefined);
+    exportTransfer = null;
+  }
   try {
-    const database = encodeURIComponent($('export-db').value);
-    const begin = await post(`/api/databases/${database}/export-begin`, {});
-    const chunks = [];
-    let offset = 0;
-    try {
-      while (offset < begin.size) {
-        const length = Math.min(1024 * 1024, begin.size - offset);
-        const chunk = await get(`/api/snapshots/${encodeURIComponent(begin.snapshot)}/chunk?offset=${offset}&length=${length}`);
-        if (chunk.size !== begin.size || chunk.sha256 !== begin.sha256 || chunk.offset !== offset) throw new Error('Snapshot metadata changed during transfer');
-        chunks.push(Uint8Array.from(atob(chunk.data_base64), (char) => char.charCodeAt(0)));
-        offset += chunk.data_base64 ? Math.floor(atob(chunk.data_base64).length * 3 / 4) : 0;
-      }
-      const bytes = new Uint8Array(offset); let cursor = 0;
-      for (const chunk of chunks) { bytes.set(chunk, cursor); cursor += chunk.length; }
-      const digest = await crypto.subtle.digest('SHA-256', bytes);
-      const sha256 = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-      if (sha256 !== begin.sha256) throw new Error('Export integrity mismatch');
-      $('export-result').textContent = JSON.stringify({ database: $('export-db').value, size: begin.size, sha256: begin.sha256, transfer: 'chunked' }, null, 2);
-      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.sqlite3' }));
-      const link = document.createElement('a'); link.href = url; link.download = `${$('export-db').value}.sqlite`; link.textContent = 'Download verified SQLite export'; $('export-result').appendChild(link);
-    } finally {
-      await request(`/api/snapshots/${encodeURIComponent(begin.snapshot)}`, { method: 'DELETE' }).catch(() => undefined);
+    if (!exportTransfer) {
+      const session = await post(`/api/databases/${encodeURIComponent(databaseName)}/export-begin`, {});
+      exportTransfer = { database: databaseName, session, offset: 0, chunks: [] };
     }
-  } catch (error) { showError('export-result', error); }
-});
-$('import-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
+    const { session } = exportTransfer;
+    while (exportTransfer.offset < session.size) {
+      const offset = exportTransfer.offset;
+      const length = Math.min(TRANSFER_CHUNK_BYTES, session.size - offset);
+      const chunk = await get(`/api/snapshots/${encodeURIComponent(session.snapshot)}/chunk?offset=${offset}&length=${length}`);
+      if (chunk.size !== session.size || chunk.sha256 !== session.sha256 || chunk.offset !== offset) throw new Error('Snapshot metadata changed during transfer');
+      const part = Uint8Array.from(atob(chunk.data_base64), (char) => char.charCodeAt(0));
+      if (!part.length || part.length > length || offset + part.length > session.size) throw new Error('Malformed snapshot chunk');
+      exportTransfer.chunks.push(part);
+      exportTransfer.offset += part.length;
+      renderTransfer('export-result', { database: databaseName, session: session.snapshot, transferred: exportTransfer.offset, total: session.size, sha256: session.sha256, transfer: 'chunked', state: 'in_progress' });
+    }
+    const bytes = new Uint8Array(exportTransfer.offset); let cursor = 0;
+    for (const chunk of exportTransfer.chunks) { bytes.set(chunk, cursor); cursor += chunk.length; }
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    const sha256 = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    if (sha256 !== session.sha256) throw new Error('Export integrity mismatch');
+    await request(`/api/snapshots/${encodeURIComponent(session.snapshot)}`, { method: 'DELETE' }).catch(() => undefined);
+    exportTransfer = null;
+    renderTransfer('export-result', { database: databaseName, size: session.size, sha256: session.sha256, transfer: 'chunked', state: 'complete' });
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.sqlite3' }));
+    const link = document.createElement('a'); link.href = url; link.download = `${databaseName}.sqlite`; link.textContent = 'Download verified SQLite export'; $('export-result').appendChild(link);
+  } catch (error) {
+    if (!exportTransfer) { showError('export-result', error); return; }
+    const paused = exportTransfer;
+    renderTransfer('export-result', { database: paused.database, session: paused.session.snapshot, transferred: paused.offset, total: paused.session.size, transfer: 'chunked', state: 'paused', error: { code: error.code || 'console_error', message: error.message }, resume: 'Resume uses the retained snapshot and verified offset.' }, [
+      ['Resume export', () => runExport()],
+      ['Abort export', async () => { try { await request(`/api/snapshots/${encodeURIComponent(paused.session.snapshot)}`, { method: 'DELETE' }); exportTransfer = null; renderTransfer('export-result', { session: paused.session.snapshot, state: 'aborted' }); } catch (abortError) { showError('export-result', abortError); } }],
+    ]);
+  }
+}
+
+async function runImport() {
   const file = $('import-file').files[0];
-  if (!file) { showError('import-result', { message: 'Choose a SQLite file first.' }); return; }
+  const name = $('import-name').value;
+  if (!file) { showError('import-result', { code: 'invalid_request', message: 'Choose a SQLite file first.' }); return; }
+  if (!name) { showError('import-result', { code: 'invalid_request', message: 'Choose an import name.' }); return; }
+  if (file.size > MAX_TRANSFER_BYTES) { showError('import-result', { code: 'result_limit_exceeded', message: 'Import exceeds 128 MiB.' }); return; }
+  if (importTransfer && (importTransfer.file !== file || importTransfer.name !== name)) {
+    await request(`/api/uploads/${encodeURIComponent(importTransfer.session.upload)}`, { method: 'DELETE' }).catch(() => undefined);
+    importTransfer = null;
+  }
   try {
-    const data = new Uint8Array(await file.arrayBuffer());
-    let upload = await post('/api/databases/console/import-begin', {});
-    for (let offset = 0; offset < data.length;) {
-      const end = Math.min(offset + 1024 * 1024, data.length);
-      const encoded = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1] || ''); reader.onerror = () => reject(new Error('Could not read the selected file.')); reader.readAsDataURL(new Blob([data.subarray(offset, end)], { type: 'application/octet-stream' })); });
-      await post(`/api/uploads/${encodeURIComponent(upload.upload)}/chunk`, { offset, data_base64: encoded });
-      offset = end;
+    if (!importTransfer) {
+      const data = new Uint8Array(await file.arrayBuffer());
+      const session = await post('/api/databases/console/import-begin', {});
+      importTransfer = { file, name, data, session, offset: 0 };
     }
-    $('import-result').textContent = JSON.stringify(await post(`/api/uploads/${encodeURIComponent(upload.upload)}/commit`, { name: $('import-name').value }), null, 2);
+    const { data, session } = importTransfer;
+    const status = await get(`/api/uploads/${encodeURIComponent(session.upload)}`);
+    if (status.received > data.length) throw new Error('Server received more bytes than the selected file');
+    importTransfer.offset = status.received;
+    renderTransfer('import-result', { upload: session.upload, transferred: importTransfer.offset, total: data.length, state: 'in_progress' });
+    while (importTransfer.offset < data.length) {
+      const offset = importTransfer.offset;
+      const end = Math.min(offset + TRANSFER_CHUNK_BYTES, data.length);
+      const encoded = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1] || ''); reader.onerror = () => reject(new Error('Could not read the selected file.')); reader.readAsDataURL(new Blob([data.subarray(offset, end)], { type: 'application/octet-stream' })); });
+      const acknowledged = await post(`/api/uploads/${encodeURIComponent(session.upload)}/chunk`, { offset, data_base64: encoded });
+      if (acknowledged.received !== end) throw new Error('Upload acknowledgement mismatch');
+      importTransfer.offset = end;
+      renderTransfer('import-result', { upload: session.upload, transferred: importTransfer.offset, total: data.length, state: 'in_progress' });
+    }
+    const done = await post(`/api/uploads/${encodeURIComponent(session.upload)}/commit`, { name });
+    importTransfer = null;
+    renderTransfer('import-result', { ...done, state: 'complete' });
     await refresh();
-  } catch (error) { showError('import-result', error); }
-});
+  } catch (error) {
+    if (!importTransfer) { showError('import-result', error); return; }
+    const paused = importTransfer;
+    renderTransfer('import-result', { upload: paused.session.upload, transferred: paused.offset, total: paused.data.length, state: 'paused', error: { code: error.code || 'console_error', message: error.message }, resume: 'Resume reads the server offset before sending the next chunk.' }, [
+      ['Resume import', () => runImport()],
+      ['Abort upload', async () => { try { await request(`/api/uploads/${encodeURIComponent(paused.session.upload)}`, { method: 'DELETE' }); importTransfer = null; renderTransfer('import-result', { upload: paused.session.upload, state: 'aborted' }); } catch (abortError) { showError('import-result', abortError); } }],
+    ]);
+  }
+}
+
+$('export-form').addEventListener('submit', (event) => { event.preventDefault(); void runExport(); });
+$('import-form').addEventListener('submit', (event) => { event.preventDefault(); void runImport(); });
 refresh();

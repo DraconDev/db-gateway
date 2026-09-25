@@ -9,8 +9,8 @@ import { TunnelController, type TunnelOptions } from './tunnel.js';
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(ROOT, '..', 'public');
 const MAX_BODY = 12 * 1024 * 1024;
+const MAX_CHUNK_BODY = 2 * 1024 * 1024;
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
-function bytesToBase64ForServer(bytes: Uint8Array): string { return Buffer.from(bytes).toString('base64'); }
 
 function env(name: string, fallback = ''): string { return process.env[name] ?? fallback; }
 function isLoopback(host: string): boolean { return LOOPBACK.has(host); }
@@ -23,12 +23,12 @@ function text(res: ServerResponse, status: number, body: string, type = 'text/pl
   res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
   res.end(body);
 }
-async function body(req: IncomingMessage): Promise<unknown> {
+async function body(req: IncomingMessage, limit = MAX_BODY): Promise<unknown> {
   let size = 0; const chunks: Buffer[] = [];
   for await (const chunk of req) {
     const b = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += b.length;
-    if (size > MAX_BODY) throw new ApiError('request_too_large', 'Request body is too large.', 413);
+    if (size > limit) throw new ApiError('request_too_large', 'Request body is too large.', 413);
     chunks.push(b);
   }
   if (!chunks.length) return {};
@@ -201,7 +201,7 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
         json(res, 200, await api.importBegin(parts[2])); return;
       }
       if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'uploads' && parts[2] && parts[3] === 'chunk') {
-        const input = await body(req) as { offset?: unknown; data_base64?: unknown };
+        const input = await body(req, MAX_CHUNK_BODY) as { offset?: unknown; data_base64?: unknown };
         if (typeof input.offset !== 'number' || typeof input.data_base64 !== 'string') throw new ApiError('invalid_request', 'offset and data_base64 are required.', 400);
         json(res, 200, await api.importChunk(parts[2], input.offset, input.data_base64)); return;
       }
@@ -231,7 +231,15 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
     }
   });
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(config.port, config.host, resolve); });
-  return { server, close: () => new Promise<void>((resolve) => { void tunnel.stop().finally(() => server.close(() => resolve())); }) };
+  return {
+    server,
+    close: () => new Promise<void>((resolve) => {
+      void tunnel.stop().finally(() => {
+        server.close(() => resolve());
+        server.closeAllConnections?.();
+      });
+    }),
+  };
 }
 
 export function sessionId(): string { return randomBytes(18).toString('base64url'); }

@@ -37,6 +37,12 @@ ssh -N -T -o ExitOnForwardFailure=yes \
 
 The console exposes `/api/tunnel/status`, `/api/tunnel/start`, and `/api/tunnel/stop` for explicit lifecycle control. It binds only to loopback, does not deploy a web service, open a public port, or manage remote credentials.
 
+## Verified transfers
+
+Lifecycle exports and imports use the gateway's retained 1 MiB chunk sessions. The browser reports decoded byte progress, verifies the export SHA-256 before offering a download, and retains the session on a transport failure so **Resume** can continue from the server offset. Imports enforce the 128 MiB transfer ceiling before reading the selected file, read upload status before resuming, and expose an explicit **Abort upload** action; a successful commit or an operator abort releases the retained session. Transfer session identifiers and partial data remain in the page/companion process only and are never persisted in browser storage.
+
+The companion validates nested gateway responses at the typed API boundary. Invalid local names, SQL arguments, batch statements, and chunk sizes are returned as structured `invalid_request` errors rather than being converted to an internal server error.
+
 ## Truthful visibility
 
 The dashboard shows the gateway's liveness, version/uptime, admission limits, request counters, database inventory, and backup freshness (`fresh`, `stale`, or `unknown`). RSS, disk, CPU, remote-host, OVH/Litestream, alert, and restore-verification signals are intentionally shown as unavailable/not configured until a real collector exists; the console does not infer them from liveness.
