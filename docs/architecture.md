@@ -24,7 +24,7 @@ Owner CLI / application clients
 
 The initial host has approximately 1 GB RAM. A single host is not high availability. Local commit durability does not imply that the latest write has reached the backup bucket.
 
-Non-goals: billing, organizations, SSO, general enterprise roles, web UI, automatic failover, transparent SQLite/Postgres interchangeability, and guaranteed zero-loss host recovery. Later independent-database placement and ephemeral storage are not M0/M1 requirements.
+Non-goals: billing, organizations, SSO, general enterprise roles, a hosted/public web UI, automatic failover, transparent SQLite/Postgres interchangeability, and guaranteed zero-loss host recovery. A workstation-local console is allowed as a loopback companion to the CLI. Later independent-database placement and ephemeral storage are not M0/M1 requirements.
 
 ## M0 implementation decisions
 

@@ -15,7 +15,7 @@ A personal, single-owner SQLite database service with a Rust gateway and CLI. Ap
 
 Deployment target: Oracle **micro2**, an approximately empty **1 GB RAM** server. Live SQLite files reside on persistent local disk; persistent database backups go to the owner's **OVH bucket**. Bucket compatibility and backup behaviour must be verified, not assumed.
 
-One owner/admin credential plus database-scoped read-only and read/write application credentials. No multi-organization system, billing, SSO, or web dashboard in the initial release. Personal scope does not imply relaxed durability or correctness.
+One owner/admin credential plus database-scoped read-only and read/write application credentials. No multi-organization system, billing, SSO, or hosted/public web dashboard in the initial release. A workstation-local console may complement the CLI through loopback and SSH forwarding; it is not a prerequisite for the core service. Personal scope does not imply relaxed durability or correctness.
 
 This file is a plan, not authorization to deploy, migrate production data, delete databases, or change subscriptions. Commands below describe proposed behaviour.
 

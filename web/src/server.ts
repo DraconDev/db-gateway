@@ -10,6 +10,7 @@ const ROOT = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(ROOT, '..', 'public');
 const MAX_BODY = 12 * 1024 * 1024;
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
+function bytesToBase64ForServer(bytes: Uint8Array): string { return Buffer.from(bytes).toString('base64'); }
 
 function env(name: string, fallback = ''): string { return process.env[name] ?? fallback; }
 function isLoopback(host: string): boolean { return LOOPBACK.has(host); }
@@ -88,7 +89,7 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
   const api = new GatewayApi(config.gatewayUrl, credential);
   const session = sessionId();
   const tunnel = new TunnelController(config.tunnel);
-  if (config.tunnel) tunnel.start();
+  if (config.tunnel) await tunnel.start();
   const server = createServer(async (req, res) => {
     const parts = pathParts(req.url ?? '/');
     res.setHeader('x-content-type-options', 'nosniff');
@@ -113,10 +114,10 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
         json(res, 200, tunnel.status()); return;
       }
       if (parts[0] === 'api' && parts[1] === 'tunnel' && parts[2] === 'start' && req.method === 'POST') {
-        json(res, 200, tunnel.start()); return;
+        json(res, 200, await tunnel.start()); return;
       }
       if (parts[0] === 'api' && parts[1] === 'tunnel' && parts[2] === 'stop' && req.method === 'POST') {
-        json(res, 200, tunnel.stop()); return;
+        json(res, 200, await tunnel.stop()); return;
       }
       if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'overview') {
         const [health, status, backups, names, keys] = await Promise.all([api.health(), api.status(), api.backups(), api.list(), api.keys()]);
@@ -174,10 +175,50 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
       if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'databases' && parts[2] && parts[3] === 'export') {
         json(res, 200, await api.exportDatabase(parts[2])); return;
       }
+      if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'databases' && parts[2] && parts[3] === 'export-chunked') {
+        const result = await api.exportChunked(parts[2]);
+        json(res, 200, { database: parts[2], size: result.size, sha256: result.sha256, data_base64: bytesToBase64ForServer(result.data) }); return;
+      }
+      if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'snapshots' && parts[2]) {
+        const query = new URL(req.url ?? '/', 'http://console.local').searchParams;
+        const offset = Number(query.get('offset') ?? 0);
+        const length = Number(query.get('length') ?? 1024 * 1024);
+        if (!Number.isInteger(offset) || !Number.isInteger(length) || offset < 0 || length < 1 || length > 1024 * 1024) throw new ApiError('invalid_request', 'Invalid snapshot range.', 400);
+        const chunk = await api.exportChunk(parts[2], offset, length);
+        json(res, 200, chunk); return;
+      }
       if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'databases' && parts[2] && parts[3] === 'import') {
         const input = await body(req) as { name?: unknown; data_base64?: unknown; from?: unknown };
         if (typeof input.name !== 'string' || typeof input.data_base64 !== 'string') throw new ApiError('invalid_request', 'name and data_base64 are required.', 400);
         json(res, 200, await api.importDatabase(input.name, input.data_base64, typeof input.from === 'string' ? input.from : 'console')); return;
+      }
+      if (req.method === 'DELETE' && parts[0] === 'api' && parts[1] === 'snapshots' && parts[2]) {
+        await api.releaseSnapshot(parts[2]); json(res, 200, { released: true }); return;
+      }
+      if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'uploads' && parts[2]) {
+        json(res, 200, await api.uploadStatus(parts[2])); return;
+      }
+      if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'databases' && parts[2] && parts[3] === 'import-begin') {
+        json(res, 200, await api.importBegin(parts[2])); return;
+      }
+      if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'uploads' && parts[2] && parts[3] === 'chunk') {
+        const input = await body(req) as { offset?: unknown; data_base64?: unknown };
+        if (typeof input.offset !== 'number' || typeof input.data_base64 !== 'string') throw new ApiError('invalid_request', 'offset and data_base64 are required.', 400);
+        json(res, 200, await api.importChunk(parts[2], input.offset, input.data_base64)); return;
+      }
+      if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'uploads' && parts[2] && parts[3] === 'commit') {
+        const input = await body(req) as { name?: unknown };
+        if (typeof input.name !== 'string') throw new ApiError('invalid_request', 'name is required.', 400);
+        json(res, 200, await api.importCommit(parts[2], input.name)); return;
+      }
+      if (req.method === 'DELETE' && parts[0] === 'api' && parts[1] === 'uploads' && parts[2]) {
+        await api.abortUpload(parts[2]); json(res, 200, { aborted: true }); return;
+      }
+      if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'databases' && parts[2] && parts[3] === 'import-chunked') {
+        const input = await body(req) as { name?: unknown; data_base64?: unknown; from?: unknown };
+        if (typeof input.name !== 'string' || typeof input.data_base64 !== 'string') throw new ApiError('invalid_request', 'name and data_base64 are required.', 400);
+        const raw = Uint8Array.from(Buffer.from(input.data_base64, 'base64'));
+        json(res, 200, await api.importChunked(input.name, raw, typeof input.from === 'string' ? input.from : 'console')); return;
       }
       if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'health') { json(res, 200, await api.health()); return; }
       if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'status') { json(res, 200, await api.status()); return; }
@@ -197,7 +238,7 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
     }
   });
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(config.port, config.host, resolve); });
-  return { server, close: () => new Promise<void>((resolve) => { tunnel.stop(); server.close(() => resolve()); }) };
+  return { server, close: () => new Promise<void>((resolve) => { void tunnel.stop().finally(() => server.close(() => resolve())); }) };
 }
 
 export function sessionId(): string { return randomBytes(18).toString('base64url'); }

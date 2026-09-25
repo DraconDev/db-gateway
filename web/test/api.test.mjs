@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile, chmod, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { EventEmitter } from 'node:events';
 import { ApiError, GatewayApi } from '../dist/api.js';
 import { configFromEnv, readCredential } from '../dist/server.js';
 import { startTunnel, stopTunnel, tunnelCommand, TunnelController } from '../dist/tunnel.js';
@@ -33,14 +34,15 @@ test('gateway adapter preserves error codes and loopback restriction', async () 
   await assert.rejects(api.status(), (e) => e instanceof ApiError && e.code === 'transport_unavailable');
 });
 
-test('tunnel command is loopback-only and lifecycle is injectable', () => {
+test('tunnel command is loopback-only and lifecycle is injectable', async () => {
   const spec = tunnelCommand({ target: 'owner@host', localPort: 17432, remotePort: 7432, identityFile: '/tmp/id' });
   assert.deepEqual(spec.args.slice(0, 5), ['-N', '-T', '-o', 'ExitOnForwardFailure=yes', '-L']);
   assert.match(spec.args[5], /^127\.0\.0\.1:17432:127\.0\.0\.1:7432$/);
-  let killed = false;
-  const child = { killed: false, kill(signal) { killed = signal === 'SIGTERM'; this.killed = true; } };
-  stopTunnel(child);
-  assert.equal(killed, true);
+  const child = new EventEmitter();
+  child.pid = 123; child.exitCode = null; child.signalCode = null;
+  child.kill = (signal) => { child.signalCode = signal; child.emit('exit', null, signal); return true; };
+  await stopTunnel(child);
+  assert.equal(child.signalCode, 'SIGTERM');
   assert.equal(typeof startTunnel, 'function');
 });
 
@@ -51,12 +53,19 @@ test('server security check rejects public source patterns', async () => {
   assert.match(source, /x-frame-options/);
 });
 
-test('tunnel controller reports lifecycle without exposing secrets', () => {
-  const fake = { pid: 123, killed: false, once(event, fn) { if (event === 'spawn') fn(); }, kill() { this.killed = true; } };
+test('tunnel controller reports lifecycle without exposing secrets', async () => {
+  const listeners = new Map();
+  const fake = {
+    pid: 123, exitCode: null, signalCode: null,
+    once(event, fn) { const list = listeners.get(event) ?? []; list.push(fn); listeners.set(event, list); },
+    kill(signal) { this.signalCode = signal === 'SIGKILL' ? 'SIGKILL' : 'SIGTERM'; for (const fn of listeners.get('exit') ?? []) fn(null, signal); },
+  };
   const controller = new TunnelController({ target: 'owner@host', localPort: 17432 }, () => fake);
   assert.deepEqual(controller.status(), { state: 'stopped' });
-  assert.deepEqual(controller.start(), { state: 'running', pid: 123 });
-  assert.deepEqual(controller.stop(), { state: 'stopped' });
+  assert.deepEqual(await controller.start(), { state: 'starting', pid: 123 });
+  for (const fn of listeners.get('spawn') ?? []) fn();
+  assert.deepEqual(controller.status(), { state: 'running', pid: 123 });
+  assert.deepEqual(await controller.stop(), { state: 'stopped' });
   assert.equal(JSON.stringify(controller.status()).includes('owner@host'), false);
 });
 

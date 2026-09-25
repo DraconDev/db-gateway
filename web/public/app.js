@@ -69,6 +69,7 @@ async function refresh() {
     $('clone-source').innerHTML = options;
     $('export-db').innerHTML = options;
     $('backups').textContent = JSON.stringify(overview.backups || { state: 'unknown' }, null, 2);
+    $('tunnel-status').textContent = `Tunnel: ${tunnel.state ?? 'not_configured'}${tunnel.error ? ` — ${tunnel.error}` : ''}`;
 
     const keys = Array.isArray(overview.keys) ? overview.keys : [];
     $('key-list').innerHTML = keys.length ? keys.map((key) => `<article><b>${esc(key.name)}</b><strong>${esc(key.role)}</strong><small>${esc((key.databases || []).join(', '))}</small>${key.name === 'owner' ? '' : `<button data-revoke="${esc(key.name)}">Revoke</button>`}</article>`).join('') : '<p>No scoped keys reported.</p>';
@@ -83,6 +84,8 @@ async function refresh() {
 }
 
 $('refresh').addEventListener('click', refresh);
+$('tunnel-start').addEventListener('click', async () => { try { await post('/api/tunnel/start', {}); await refresh(); } catch (error) { $('tunnel-status').textContent = `Tunnel: ${error.message}`; } });
+$('tunnel-stop').addEventListener('click', async () => { try { await post('/api/tunnel/stop', {}); await refresh(); } catch (error) { $('tunnel-status').textContent = `Tunnel: ${error.message}`; } });
 $('query-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   try {
@@ -119,8 +122,8 @@ $('clone-form').addEventListener('submit', async (event) => {
 $('export-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   try {
-    const value = await post(`/api/databases/${encodeURIComponent($('export-db').value)}/export`, {});
-    $('export-result').textContent = JSON.stringify({ database: value.database, size: value.size, sha256: value.sha256 }, null, 2);
+    const value = await post(`/api/databases/${encodeURIComponent($('export-db').value)}/export-chunked`, {});
+    $('export-result').textContent = JSON.stringify({ database: value.database, size: value.size, sha256: value.sha256, transfer: 'chunked' }, null, 2);
     const bytes = Uint8Array.from(atob(value.data_base64), (char) => char.charCodeAt(0));
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.sqlite3' }));
     const link = document.createElement('a'); link.href = url; link.download = `${value.database}.sqlite`; link.textContent = 'Download verified SQLite export'; $('export-result').appendChild(link);
@@ -130,6 +133,6 @@ $('import-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   const file = $('import-file').files[0];
   if (!file) { showError('import-result', { message: 'Choose a SQLite file first.' }); return; }
-  try { $('import-result').textContent = JSON.stringify(await post('/api/databases/console/import', { name: $('import-name').value, data_base64: await fileBase64(file), from: 'console' }), null, 2); await refresh(); } catch (error) { showError('import-result', error); }
+  try { const data = new Uint8Array(await file.arrayBuffer()); const encoded = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1] || ''); reader.onerror = () => reject(new Error('Could not read the selected file.')); reader.readAsDataURL(file); }); $('import-result').textContent = JSON.stringify(await post('/api/databases/console/import-chunked', { name: $('import-name').value, data_base64: encoded, from: 'console' }), null, 2); await refresh(); } catch (error) { showError('import-result', error); }
 });
 refresh();
