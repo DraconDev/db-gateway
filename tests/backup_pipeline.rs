@@ -37,19 +37,7 @@ impl Drop for Server {
     }
 }
 
-fn boot(data_dir: &Path, backup_root: &Path) -> Server {
-    let output = dg()
-        .args(["init", "--data-dir", data_dir.to_str().unwrap()])
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-    let key: String = serde_json::from_slice::<Value>(&output.stdout).unwrap()["owner_key"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let key_file = data_dir.join("owner.key");
-    std::fs::write(&key_file, &key).unwrap();
-    std::fs::set_permissions(&key_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+fn start(data_dir: &Path, backup_root: &Path) -> (Child, String) {
     let mut child = dg()
         .args([
             "serve",
@@ -73,9 +61,26 @@ fn boot(data_dir: &Path, backup_root: &Path) -> Server {
             break;
         }
     }
+    (child, address.expect("server logged its listen address"))
+}
+
+fn boot(data_dir: &Path, backup_root: &Path) -> Server {
+    let output = dg()
+        .args(["init", "--data-dir", data_dir.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let key: String = serde_json::from_slice::<Value>(&output.stdout).unwrap()["owner_key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let key_file = data_dir.join("owner.key");
+    std::fs::write(&key_file, &key).unwrap();
+    std::fs::set_permissions(&key_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let (child, address) = start(data_dir, backup_root);
     Server {
         child,
-        address: address.expect("server logged its listen address"),
+        address,
         key,
         key_file,
         data_dir: data_dir.to_path_buf(),
@@ -161,9 +166,16 @@ fn script_run_reports_fresh_status() {
     cli(&server, &["create", "appdb"]);
     cli(
         &server,
-        &["query", "appdb", "CREATE TABLE t(id INTEGER PRIMARY KEY, v TEXT)"],
+        &[
+            "query",
+            "appdb",
+            "CREATE TABLE t(id INTEGER PRIMARY KEY, v TEXT)",
+        ],
     );
-    cli(&server, &["query", "appdb", "INSERT INTO t(v) VALUES ('x')"]);
+    cli(
+        &server,
+        &["query", "appdb", "INSERT INTO t(v) VALUES ('x')"],
+    );
 
     let output = run_script(&server, &backup_root, "3", &[]);
     assert!(
@@ -264,7 +276,11 @@ fn rewrite_hashes(set: &Path) {
         let hex = hex::encode(sha2::Sha256::digest(&bytes));
         entry["sha256"] = Value::String(hex.clone());
         entry["size"] = Value::from(bytes.len() as u64);
-        std::fs::write(set.join(format!("{}.sha256", entry["name"].as_str().unwrap())), format!("{hex}\n")).unwrap();
+        std::fs::write(
+            set.join(format!("{}.sha256", entry["name"].as_str().unwrap())),
+            format!("{hex}\n"),
+        )
+        .unwrap();
     }
     std::fs::write(manifest_path, serde_json::to_string(&manifest).unwrap()).unwrap();
 }
@@ -338,11 +354,7 @@ fn verify_rejects_tampered_and_malformed_sets() {
 
     // Broken sidecar fails even when file bytes match the manifest.
     let broken_sidecar = mutate_set_copy(&good, dir.path(), "20200101T000002Z");
-    std::fs::write(
-        broken_sidecar.join("appdb.sha256"),
-        "0".repeat(64) + "\n",
-    )
-    .unwrap();
+    std::fs::write(broken_sidecar.join("appdb.sha256"), "0".repeat(64) + "\n").unwrap();
     let (ok, _, _) = verify(dir.path(), "20200101T000002Z");
     assert!(!ok);
 
@@ -543,4 +555,256 @@ fn failed_run_records_attempt() {
     assert_eq!(records.len(), 1);
     assert_eq!(records[0]["outcome"], "error");
     assert_eq!(records[0]["step"], "list");
+}
+
+fn query(server: &Server, key_file: &Path, db: &str, sql: &str) -> Value {
+    let output = dg()
+        .args([
+            "--server",
+            &format!("http://{}", server.address),
+            "--key-file",
+            key_file.to_str().unwrap(),
+            "query",
+            db,
+            sql,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "query: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+#[test]
+fn restore_drill_from_versioned_set() {
+    let dir = tempfile::tempdir().unwrap();
+    let backup_root = dir.path().join("backups");
+    let server = boot(&dir.path().join("data"), &backup_root);
+
+    // Seed with exact rows across supported types plus a foreign key.
+    cli(&server, &["create", "shop"]);
+    for sql in [
+        "CREATE TABLE authors (id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
+        "CREATE TABLE books (id INTEGER PRIMARY KEY, author_id INTEGER NOT NULL REFERENCES authors(id), title TEXT NOT NULL, price REAL, cover BLOB, note TEXT)",
+        "INSERT INTO authors (id, name) VALUES (1, 'octavia'), (2, 'ursula')",
+        "INSERT INTO books (id, author_id, title, price, cover, note) VALUES (1, 1, 'kindred', 9.5, X'0102FF', NULL), (2, 2, 'earthsea', 12.0, X'', 'classic')",
+    ] {
+        cli(&server, &["query", "shop", sql]);
+    }
+    let expected_authors = cli(
+        &server,
+        &["query", "shop", "SELECT id, name FROM authors ORDER BY id"],
+    )["rows"]
+        .clone();
+    let expected_books = cli(
+        &server,
+        &[
+            "query",
+            "shop",
+            "SELECT id, author_id, title, price, cover, note FROM books ORDER BY id",
+        ],
+    )["rows"]
+        .clone();
+
+    // Keys issued before the backup travel in the restored registry.
+    let reader_key = cli(
+        &server,
+        &[
+            "key",
+            "create",
+            "reader",
+            "--role",
+            "database_read_only",
+            "--database",
+            "shop",
+        ],
+    )["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let reader_file = dir.path().join("reader.key");
+    std::fs::write(&reader_file, &reader_key).unwrap();
+    std::fs::set_permissions(&reader_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+    // Tombstoned names are excluded from the set by construction.
+    cli(&server, &["create", "doomed"]);
+    cli(&server, &["delete", "doomed", "--confirm", "doomed"]);
+
+    let output = run_script(&server, &backup_root, "3", &[]);
+    assert!(
+        output.status.success(),
+        "backup script: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let set = only_set(&backup_root);
+    assert!(!set.join("doomed.sqlite").exists());
+
+    // The drill re-verifies the set it is about to restore.
+    let (ok, report, _) = verify(&backup_root, set.file_name().unwrap().to_str().unwrap());
+    assert!(ok, "{report}");
+
+    // Empty target: fresh init, then registry restore while stopped.
+    let target_data = dir.path().join("target-data");
+    let init = dg()
+        .args(["init", "--data-dir", target_data.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(init.status.success());
+    std::fs::copy(
+        set.join("metadata.sqlite.bak"),
+        target_data.join("metadata.sqlite"),
+    )
+    .unwrap();
+    // The restored registry answers to the source owner key, not the
+    // discarded target init key.
+    let (child, address) = start(&target_data, &dir.path().join("target-backups"));
+    let target = Server {
+        child,
+        address,
+        key: server.key.clone(),
+        key_file: server.key_file.clone(),
+        data_dir: target_data.clone(),
+    };
+    let names: Value = cli(&target, &["list"]);
+    assert!(
+        names["databases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|db| db == "shop"),
+        "{names}"
+    );
+
+    // Import each set member through the validated path.
+    for name in ["shop"] {
+        let from = set.join(format!("{name}.sqlite"));
+        let imported = dg()
+            .args([
+                "--server",
+                &format!("http://{}", target.address),
+                "--key-file",
+                server.key_file.to_str().unwrap(),
+                "import",
+                name,
+                "--from",
+                from.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            imported.status.success(),
+            "import: {}",
+            String::from_utf8_lossy(&imported.stderr)
+        );
+    }
+
+    // Exact restored data, and the source is unchanged.
+    assert_eq!(
+        cli(
+            &target,
+            &["query", "shop", "SELECT id, name FROM authors ORDER BY id"]
+        )["rows"],
+        expected_authors
+    );
+    assert_eq!(
+        cli(
+            &target,
+            &[
+                "query",
+                "shop",
+                "SELECT id, author_id, title, price, cover, note FROM books ORDER BY id",
+            ],
+        )["rows"],
+        expected_books
+    );
+    assert_eq!(
+        cli(
+            &server,
+            &["query", "shop", "SELECT id, name FROM authors ORDER BY id"]
+        )["rows"],
+        expected_authors
+    );
+
+    // Restored copy is independent of the source.
+    cli(
+        &target,
+        &[
+            "query",
+            "shop",
+            "INSERT INTO authors (id, name) VALUES (3, 'nk')",
+        ],
+    );
+    assert_eq!(
+        cli(&server, &["query", "shop", "SELECT count(*) FROM authors"])["rows"],
+        serde_json::json!([[2]])
+    );
+
+    // Access re-verification against the restored registry.
+    let read = query(
+        &target,
+        &reader_file,
+        "shop",
+        "SELECT count(*) FROM authors",
+    );
+    assert_eq!(read["rows"], serde_json::json!([[3]]));
+    let denied = dg()
+        .args([
+            "--server",
+            &format!("http://{}", target.address),
+            "--key-file",
+            reader_file.to_str().unwrap(),
+            "query",
+            "shop",
+            "INSERT INTO authors (id, name) VALUES (4, 'nope')",
+        ])
+        .output()
+        .unwrap();
+    assert!(!denied.status.success());
+    let unknown_file = dir.path().join("unknown.key");
+    std::fs::write(&unknown_file, "b".repeat(64)).unwrap();
+    std::fs::set_permissions(&unknown_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let unknown = dg()
+        .args([
+            "--server",
+            &format!("http://{}", target.address),
+            "--key-file",
+            unknown_file.to_str().unwrap(),
+            "query",
+            "shop",
+            "SELECT 1",
+        ])
+        .output()
+        .unwrap();
+    assert!(!unknown.status.success());
+    assert!(
+        String::from_utf8_lossy(&unknown.stdout).contains("invalid_credential"),
+        "{}",
+        String::from_utf8_lossy(&unknown.stdout)
+    );
+
+    // Membership mismatch: restoring onto a held tombstone fails instead
+    // of resurrecting the name.
+    cli(&target, &["delete", "shop", "--confirm", "shop"]);
+    let resurrected = dg()
+        .args([
+            "--server",
+            &format!("http://{}", target.address),
+            "--key-file",
+            server.key_file.to_str().unwrap(),
+            "import",
+            "shop",
+            "--from",
+            set.join("shop.sqlite").to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!resurrected.status.success());
+    assert!(
+        String::from_utf8_lossy(&resurrected.stdout).contains("database_exists"),
+        "{}",
+        String::from_utf8_lossy(&resurrected.stdout)
+    );
 }
