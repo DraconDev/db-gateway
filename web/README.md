@@ -8,10 +8,10 @@ Preferred: let `dg` launch and supervise the companion (build once, then run fro
 
 ```sh
 npm ci --prefix web && npm run build --prefix web
-dg --server http://127.0.0.1:7432 --key-file "$HOME/.config/dg/key" console --port 8787
+dg --server http://127.0.0.1:7432 --key-file "$HOME/.config/dg/key" web --port 8787
 ```
 
-`dg console` prints its ready URL once the companion accepts connections, and stops it again on SIGTERM/SIGINT. Direct launch without `dg` also works:
+`dg web` prints its ready URL once the companion accepts connections, and stops it again on SIGTERM/SIGINT. Direct launch without `dg` also works:
 
 ```sh
 cd web

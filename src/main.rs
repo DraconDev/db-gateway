@@ -150,7 +150,7 @@ enum Command {
     /// Forwards the resolved --server/--key-file values to the companion
     /// and supervises it; the owner credential itself never passes
     /// through this process.
-    Console {
+    Web {
         /// Loopback port for the browser console.
         /// Precedence: flag, DG_CONSOLE_PORT, 8787.
         #[arg(long, env = "DG_CONSOLE_PORT", default_value = "8787")]
@@ -311,7 +311,7 @@ async fn run_console(
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    println!("dg console ready: open http://{address} in a browser");
+    println!("dg web ready: open http://{address} in a browser");
     std::io::stdout().flush().map_err(|_| Error::internal())?;
     #[cfg(unix)]
     {
@@ -379,7 +379,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             Command::Backup {
                 command: BackupCommand::Status,
             } => (Method::GET, "/v1/backups".into(), None, None),
-            Command::Console { port, entry } => {
+            Command::Web { port, entry } => {
                 return run_console(&cli.server, key_path, port, entry)
                     .await
                     .map_err(Application);

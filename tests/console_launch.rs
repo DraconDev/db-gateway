@@ -1,9 +1,9 @@
-//! `dg console` launch contract (disposable stubs, no gateway needed).
+//! `dg web` launch contract (disposable stubs, no gateway needed).
 //!
 //! Run: `timeout 200 cargo test --locked --test console_launch`
 //!
 //! Failure modes are deterministic CLI asserts. The positive launch drives
-//! a stub companion through the real `dg console` supervisor: env
+//! a stub companion through the real `dg web` supervisor: env
 //! passthrough, readiness URL print, HTTP serving, and SIGTERM supervision
 //! with no orphaned child. The real companion is covered by
 //! web/test/browser.test.mjs and scripts/web-console-smoke.mjs.
@@ -60,7 +60,7 @@ fn free_port() -> u16 {
 
 #[test]
 fn invalid_console_port_rejected() {
-    let output = dg().args(["console", "--port", "80"]).output().unwrap();
+    let output = dg().args(["web", "--port", "80"]).output().unwrap();
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("invalid_console_port"), "stderr: {stderr}");
@@ -72,7 +72,7 @@ fn missing_credential_without_key_file() {
     let output = dg()
         .env("HOME", home.path())
         .env_remove("DG_KEY_FILE")
-        .args(["console", "--port", "18787"])
+        .args(["web", "--port", "18787"])
         .output()
         .unwrap();
     assert!(!output.status.success());
@@ -86,7 +86,7 @@ fn missing_companion_entry_reports_actionably() {
     let missing_key = dir.path().join("missing.key");
     let output = dg()
         .args([
-            "console",
+            "web",
             "--port",
             "18787",
             "--key-file",
@@ -113,7 +113,7 @@ fn missing_node_runtime_reports_actionably() {
     let output = dg()
         .env("PATH", empty_path.path())
         .args([
-            "console",
+            "web",
             "--port",
             "18787",
             "--key-file",
@@ -140,12 +140,12 @@ fn console_launch_serves_and_supervises_child() {
     let dir = tempfile::tempdir().unwrap();
     let stub = write_stub(dir.path());
     let port = free_port();
-    // Deliberately nonexistent: `dg console` forwards the path without
+    // Deliberately nonexistent: `dg web` forwards the path without
     // reading key material, and the stub never reads it either.
     let key_path = dir.path().join("unread.key");
     let mut child = dg()
         .args([
-            "console",
+            "web",
             "--port",
             &port.to_string(),
             "--key-file",
@@ -165,7 +165,7 @@ fn console_launch_serves_and_supervises_child() {
     let (ready_tx, ready_rx) = mpsc::channel();
     std::thread::spawn(move || {
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            if line.contains("dg console ready:") {
+            if line.contains("dg web ready:") {
                 let _ = ready_tx.send(line);
                 return;
             }
@@ -173,7 +173,7 @@ fn console_launch_serves_and_supervises_child() {
     });
     let ready = ready_rx
         .recv_timeout(Duration::from_secs(30))
-        .expect("dg console printed its ready line");
+        .expect("dg web printed its ready line");
     assert!(
         ready.contains(&format!("http://127.0.0.1:{port}")),
         "ready line: {ready}"
@@ -203,7 +203,7 @@ fn console_launch_serves_and_supervises_child() {
     });
     let status = exit_rx
         .recv_timeout(Duration::from_secs(15))
-        .expect("dg console exits after SIGTERM")
+        .expect("dg web exits after SIGTERM")
         .unwrap();
     assert!(status.success(), "status: {status}");
     assert!(
