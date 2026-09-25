@@ -33,6 +33,13 @@ BUILT_ON=""
 BUILDER_METADATA="native-host"
 BINARY=""
 RELEASE_CARGO_HOME="${DG_RELEASE_CARGO_HOME:-${CARGO_HOME:-$HOME/.cargo}}"
+RELEASE_TARGET_DIR="${DG_RELEASE_TARGET_DIR:-.cargo/target}"
+case "$RELEASE_TARGET_DIR" in
+    ""|/*|..|../*|*/..|*/../*) fail "DG_RELEASE_TARGET_DIR must be a relative path inside the repository" ;;
+esac
+RELEASE_TARGET_DIR_HOST="$ROOT/$RELEASE_TARGET_DIR"
+RELEASE_TARGET_DIR_CONTAINER="/src/$RELEASE_TARGET_DIR"
+mkdir -p "$RELEASE_TARGET_DIR_HOST"
 
 container_engine() {
     if [ -n "${DG_CONTAINER_ENGINE:-}" ]; then
@@ -63,6 +70,7 @@ run_container() {
         --env SOURCE_DATE_EPOCH=0 \
         --env TZ=UTC \
         --env DG_RELEASE_BUILDER=1 \
+        --env CARGO_TARGET_DIR="$RELEASE_TARGET_DIR_CONTAINER" \
         --volume "$ROOT:/src:rw" \
         --volume "$RELEASE_CARGO_HOME:/root/.cargo:rw" \
         --workdir /src \
@@ -101,19 +109,19 @@ build_micro2() {
             | sh -s -- -y --profile minimal --default-toolchain 1.97.1 >/dev/null
         . "$HOME/.cargo/env"
         cargo build --release --locked --quiet --bin dg
-        ./target/release/dg --version >/dev/null
+        "$CARGO_TARGET_DIR/release/dg" --version >/dev/null
         smoke_dir="$(mktemp -d)"
         trap '\''rm -rf "$smoke_dir"'\'' EXIT
-        key="$(./target/release/dg init --data-dir "$smoke_dir" \
+        key="$("$CARGO_TARGET_DIR/release/dg" init --data-dir "$smoke_dir" \
             | sed -n '\''s/.*"owner_key":"\([0-9a-f]*\)".*/\1/p'\'')"
         test "${#key}" -eq 64
-        interpreter="$(readelf -lW ./target/release/dg \
+        interpreter="$(readelf -lW "$CARGO_TARGET_DIR/release/dg" \
             | sed -n '\''s/.*Requesting program interpreter: \([^]]*\).*/\1/p'\'')"
         test "$interpreter" = /lib64/ld-linux-x86-64.so.2
-        readelf -hW ./target/release/dg \
+        readelf -hW "$CARGO_TARGET_DIR/release/dg" \
             | grep -Eq '\''Machine:[[:space:]]+Advanced Micro Devices X86-64'\''
     ' || fail "pinned-container release build or smoke test failed"
-    BINARY="$ROOT/target/release/dg"
+    BINARY="$RELEASE_TARGET_DIR_HOST/release/dg"
     BUILT_ON="$($CONTAINER_ENGINE run --rm "$BUILDER_IMAGE" sh -c 'uname -srm')"
     BUILDER_METADATA="$BUILDER_IMAGE|glibc-$EXPECTED_GLIBC|$BUILT_ON"
 }
@@ -122,8 +130,9 @@ build_host() {
     [ "$(uname -s)" = "Linux" ] || fail "host bundles currently require Linux"
     [ "$(uname -m)" = "x86_64" ] || fail "host bundles currently require x86_64"
     log "building an explicitly requested, non-micro2 host bundle"
-    cargo build --release --locked --quiet --manifest-path "$ROOT/Cargo.toml" >&2
-    BINARY="$ROOT/target/release/dg"
+    CARGO_TARGET_DIR="$RELEASE_TARGET_DIR_HOST" \
+        cargo build --release --locked --quiet --manifest-path "$ROOT/Cargo.toml" >&2
+    BINARY="$RELEASE_TARGET_DIR_HOST/release/dg"
     BUILT_ON="$(uname -srm)"
 }
 
