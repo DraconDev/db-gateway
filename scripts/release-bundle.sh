@@ -96,7 +96,7 @@ build_micro2() {
         curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs \
             | sh -s -- -y --profile minimal --default-toolchain 1.97.1 >/dev/null
         . "$HOME/.cargo/env"
-        cargo build --release --locked --quiet
+        cargo build --release --locked --quiet --bin dg
         ./target/release/dg --version >/dev/null
         smoke_dir="$(mktemp -d)"
         trap '\''rm -rf "$smoke_dir"'\'' EXIT
