@@ -144,7 +144,9 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
       if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'databases' && parts[2] && parts[3] === 'query') {
         const input = await body(req) as { sql?: unknown; args?: unknown };
         if (typeof input.sql !== 'string' || (input.args !== undefined && !Array.isArray(input.args))) throw new ApiError('invalid_request', 'sql and args are required.', 400);
-        json(res, 200, await api.query(parts[2], input.sql, input.args as never[])); return;
+        const idempotencyKey = req.headers['idempotency-key'];
+        if (idempotencyKey !== undefined && (typeof idempotencyKey !== 'string' || idempotencyKey.length > 128 || !/^[\x21-\x7e]+$/.test(idempotencyKey))) throw new ApiError('invalid_request', 'Invalid Idempotency-Key.', 400);
+        json(res, 200, await api.query(parts[2], input.sql, input.args as never[], idempotencyKey ? { idempotencyKey } : {})); return;
       }
       if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'databases') {
         const input = await body(req) as { name?: unknown };
@@ -157,7 +159,9 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
       if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'databases' && parts[2] && parts[3] === 'batch') {
         const input = await body(req) as { statements?: unknown };
         if (!Array.isArray(input.statements)) throw new ApiError('invalid_request', 'statements are required.', 400);
-        json(res, 200, await api.batch(parts[2], input.statements as never[])); return;
+        const idempotencyKey = req.headers['idempotency-key'];
+        if (idempotencyKey !== undefined && (typeof idempotencyKey !== 'string' || idempotencyKey.length > 128 || !/^[\x21-\x7e]+$/.test(idempotencyKey))) throw new ApiError('invalid_request', 'Invalid Idempotency-Key.', 400);
+        json(res, 200, await api.batch(parts[2], input.statements as never[], idempotencyKey ? { idempotencyKey } : {})); return;
       }
       if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'databases' && parts[2] && parts[3] === 'schema') {
         json(res, 200, await api.schema(parts[2])); return;

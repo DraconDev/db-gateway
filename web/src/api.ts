@@ -13,6 +13,7 @@ export interface CloneResponse { source: string; destination: string }
 export interface DeleteResponse { deleted: boolean; purge_after_seconds: number }
 export interface ExportResponse { database: string; size: number; sha256: string; data_base64: string }
 export interface ImportResponse { imported: string; from: string }
+export interface RequestOptions { idempotencyKey?: string }
 export interface StatusResponse {
   version: string;
   uptime_secs: number;
@@ -51,8 +52,9 @@ export class GatewayApi {
     }
   }
 
-  private async request(path: string, method: string, body?: unknown): Promise<unknown> {
+  private async request(path: string, method: string, body?: unknown, options: RequestOptions = {}): Promise<unknown> {
     const headers: Record<string, string> = { Authorization: `Bearer ${this.credential}`, 'Content-Type': 'application/json' };
+    if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;
     let response: Response;
     try {
       response = await fetch(new URL(path, this.base), { method, headers, body: body === undefined ? undefined : JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(15_000) });
@@ -100,9 +102,9 @@ export class GatewayApi {
     return parse<CreateResponse>(await this.request('/v1/databases', 'POST', { name }), (v): v is CreateResponse => isObject(v) && v.name === name);
   }
 
-  async query(name: string, sql: string, args: QueryValue[] = []): Promise<QueryResult> {
+  async query(name: string, sql: string, args: QueryValue[] = [], options: RequestOptions = {}): Promise<QueryResult> {
     assertName(name); assertQueryArgs(args);
-    return parse<QueryResult>(await this.request(`/v1/databases/${encodeURIComponent(name)}/query`, 'POST', { sql, args }), isQueryResult);
+    return parse<QueryResult>(await this.request(`/v1/databases/${encodeURIComponent(name)}/query`, 'POST', { sql, args }, options), isQueryResult);
   }
 
   async schema(name: string): Promise<QueryResult> {
@@ -110,9 +112,9 @@ export class GatewayApi {
     return this.query(name, "SELECT name, sql FROM sqlite_master WHERE type='table' AND lower(substr(name,1,4))!='_dg_' ORDER BY name");
   }
 
-  async batch(name: string, statements: Array<{ sql: string; args?: QueryValue[] }>): Promise<{ results: QueryResult[] }> {
+  async batch(name: string, statements: Array<{ sql: string; args?: QueryValue[] }>, options: RequestOptions = {}): Promise<{ results: QueryResult[] }> {
     assertName(name); assertStatements(statements);
-    return parse<{ results: QueryResult[] }>(await this.request(`/v1/databases/${encodeURIComponent(name)}/batch`, 'POST', { atomic: true, statements }), (v): v is { results: QueryResult[] } => isObject(v) && Array.isArray(v.results) && v.results.every(isQueryResult));
+    return parse<{ results: QueryResult[] }>(await this.request(`/v1/databases/${encodeURIComponent(name)}/batch`, 'POST', { atomic: true, statements }, options), (v): v is { results: QueryResult[] } => isObject(v) && Array.isArray(v.results) && v.results.every(isQueryResult));
   }
 
   async keys(): Promise<KeyInfo[]> {
