@@ -437,9 +437,11 @@ fn verify_rejects_tampered_and_malformed_sets() {
 }
 
 fn fake_hanging_dg(path: &Path) {
+    // The script always passes --server/--key-file flags before the
+    // subcommand, so scan all of argv like the array-invocation fixture.
     std::fs::write(
         path,
-        "#!/bin/sh\ncase \"$1\" in --version) echo 'dg 0.1.0';; list) echo '{\"databases\":[\"a\"]}';; export) sleep 60;; esac\n",
+        "#!/bin/sh\nfor arg in \"$@\"; do case \"$arg\" in --version) echo 'dg 0.1.0'; exit 0;; list) echo '{\"databases\":[\"a\"]}'; exit 0;; export) sleep 60; exit 0;; esac; done\n",
     )
     .unwrap();
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -542,7 +544,7 @@ fn interrupted_run_publishes_nothing_and_next_run_recovers() {
     // SIGKILL is untrappable, so the killed run records nothing; the
     // recovery run records its own success.
     let records = attempts(&backup_root);
-    assert_eq!(records.len(), 1);
+    assert_eq!(records.len(), 1, "records: {records:?}");
     assert_eq!(records[0]["outcome"], "ok");
 }
 
