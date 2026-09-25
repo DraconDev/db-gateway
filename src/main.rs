@@ -202,11 +202,11 @@ fn console_entry(explicit: Option<PathBuf>) -> Result<PathBuf, dg::error::Error>
         ));
     }
     let mut candidates = Vec::new();
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            candidates.push(dir.join("../../web/dist/server.js"));
-            candidates.push(dir.join("../web/dist/server.js"));
-        }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        candidates.push(dir.join("../../web/dist/server.js"));
+        candidates.push(dir.join("../web/dist/server.js"));
     }
     candidates.push(PathBuf::from("web/dist/server.js"));
     for candidate in &candidates {
@@ -318,47 +318,47 @@ async fn run_console(
         use tokio::signal::unix::{SignalKind, signal};
         let mut sigterm = signal(SignalKind::terminate()).map_err(|_| Error::internal())?;
         let mut sigint = signal(SignalKind::interrupt()).map_err(|_| Error::internal())?;
-        loop {
-            tokio::select! {
-                status = child.wait() => {
-                    let status = status.map_err(|_| Error::internal())?;
-                    if status.success() {
-                        return Ok(());
-                    }
+        tokio::select! {
+            status = child.wait() => {
+                let status = status.map_err(|_| Error::internal())?;
+                if status.success() {
+                    Ok(())
+                } else {
                     eprintln!("console companion exited: {status}");
-                    return Err(Error::new(
+                    Err(Error::new(
                         500,
                         "console_companion_failed",
                         "console companion exited with an error",
-                    ));
-                }
-                _ = sigterm.recv() => {
-                    terminate_child(&mut child).await;
-                    break;
-                }
-                _ = sigint.recv() => {
-                    terminate_child(&mut child).await;
-                    break;
+                    ))
                 }
             }
+            // Shutdown was operator-initiated; the companion's
+            // signal-induced exit status is still a clean stop.
+            _ = sigterm.recv() => {
+                terminate_child(&mut child).await;
+                let _ = child.wait().await;
+                Ok(())
+            }
+            _ = sigint.recv() => {
+                terminate_child(&mut child).await;
+                let _ = child.wait().await;
+                Ok(())
+            }
         }
-        // Shutdown was operator-initiated; the companion's signal-induced
-        // exit status is still a clean stop.
-        let _ = child.wait().await;
-        return Ok(());
     }
     #[cfg(not(unix))]
     {
         let status = child.wait().await.map_err(|_| Error::internal())?;
         if status.success() {
-            return Ok(());
+            Ok(())
+        } else {
+            eprintln!("console companion exited: {status}");
+            Err(Error::new(
+                500,
+                "console_companion_failed",
+                "console companion exited with an error",
+            ))
         }
-        eprintln!("console companion exited: {status}");
-        return Err(Error::new(
-            500,
-            "console_companion_failed",
-            "console companion exited with an error",
-        ));
     }
 }
 

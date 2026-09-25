@@ -195,7 +195,7 @@ fn console_launch_serves_and_supervises_child() {
 
     // SIGTERM supervision: dg exits cleanly and the child is gone (no orphan).
     unsafe {
-        libc::kill(child.id(), libc::SIGTERM);
+        libc::kill(child.id() as i32, libc::SIGTERM);
     }
     let (exit_tx, exit_rx) = mpsc::channel();
     std::thread::spawn(move || {
