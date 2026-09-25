@@ -86,6 +86,27 @@ impl Server {
     }
 }
 
+/// A 429 means the request was shed before lifecycle work began, so retrying
+/// that request is safe. Retrying here keeps the publication assertion about
+/// atomic conflict (409) independent of unrelated machine load.
+fn call_publication_retry_shed(
+    server: &Server,
+    method: &str,
+    path: &str,
+    body: Value,
+) -> (u16, Value) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let (status, response) = server.call(method, path, body.clone());
+        if status != 429 {
+            return (status, response);
+        }
+        assert_eq!(response["error"]["code"], "capacity_exceeded", "{response}");
+        assert!(Instant::now() < deadline, "publication request stayed shed: {response}");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
 fn independent_snapshot(bytes: &[u8], expected: &str) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("snapshot.sqlite");
@@ -150,13 +171,15 @@ fn concurrent_same_source_exports_and_same_target_publication_are_isolated() {
                     scope.spawn(move || {
                         barrier.wait();
                         if import {
-                            server.call(
+                            call_publication_retry_shed(
+                                server,
                                 "POST",
                                 "/v1/databases/source/import",
                                 json!({"name":target,"data_base64":export["data_base64"]}),
                             )
                         } else {
-                            server.call(
+                            call_publication_retry_shed(
+                                server,
                                 "POST",
                                 "/v1/databases/source/clone",
                                 json!({"destination":target}),
