@@ -29,6 +29,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+from pathlib import Path
 
 READINESS_TIMEOUT = 60
 
@@ -86,10 +87,12 @@ def post_keyed(base, key, path, body, idem):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dg-bin", required=True)
+    ap.add_argument("--dg-bin", default=None, help="path to the dg binary (default: .cargo/target/debug/dg)")
     ap.add_argument("--seconds", type=int, default=1800)
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
+    if args.dg_bin is None:
+        args.dg_bin = str(Path(__file__).resolve().parent.parent / ".cargo" / "target" / "debug" / "dg")
     readiness_timeout = float(
         os.environ.get("SOAK_READINESS_TIMEOUT", str(READINESS_TIMEOUT))
     )
