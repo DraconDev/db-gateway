@@ -20,6 +20,9 @@
 # to $BACKUP_ROOT/attempts.jsonl (started/completed timestamps, outcome, set
 # name, step reached) for failure visibility. Re-verify any published set
 # later with `dg backup verify --backup-root DIR [latest|TIMESTAMP]`.
+# Kill a stuck run as a process group (plain Ctrl-C does this): a lone
+# SIGKILL can orphan children that hold the lock until they exit, briefly
+# failing the next run with "another backup is already running".
 set -euo pipefail
 
 SERVER="http://127.0.0.1:7432"

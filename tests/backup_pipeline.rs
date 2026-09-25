@@ -10,7 +10,7 @@
 
 use std::{
     io::{BufRead, BufReader},
-    os::unix::fs::PermissionsExt,
+    os::unix::{fs::PermissionsExt, process::CommandExt},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
@@ -495,7 +495,8 @@ fn interrupted_run_publishes_nothing_and_next_run_recovers() {
 
     let fake = dir.path().join("hanging-dg");
     fake_hanging_dg(&fake);
-    let mut killed = Command::new("bash")
+    let mut killed = Command::new("bash");
+    killed
         .args([
             "scripts/micro2-backup.sh",
             "--server",
@@ -511,9 +512,11 @@ fn interrupted_run_publishes_nothing_and_next_run_recovers() {
         ])
         .env("DG_BIN", &fake)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
+        .stderr(Stdio::piped());
+    // Own process group so the kill takes the whole tree (a lone SIGKILL
+    // would orphan children that hold the backup lock until they exit).
+    killed.process_group(0);
+    let mut killed = killed.spawn().unwrap();
     // Wait until the run is inside the hanging export, then SIGKILL it:
     // untrappable, so staging leaks until the next run cleans up.
     let deadline = Instant::now() + Duration::from_secs(30);
@@ -528,7 +531,9 @@ fn interrupted_run_publishes_nothing_and_next_run_recovers() {
         std::thread::sleep(Duration::from_millis(100));
     }
     std::thread::sleep(Duration::from_secs(2));
-    killed.kill().unwrap();
+    unsafe {
+        libc::kill(-(killed.id() as i32), libc::SIGKILL);
+    }
     let _ = killed.wait();
     assert!(published_sets(&backup_root).is_empty());
 

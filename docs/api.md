@@ -137,8 +137,11 @@ Operator visibility (owner-only; the AI-operator surface — poll these, not log
 ```sh
 dg --key-file owner.key status          # version, uptime, admission config, request-pressure counters
 dg --key-file owner.key backup status   # versioned sets plus per-database fresh/stale/unknown
+dg backup verify --backup-root <dir> latest   # re-verify a published set offline (no server needed)
 dg --key-file owner.key web --port 8787   # start the loopback web console, print its URL (stays in foreground)
 ```
+
+Versioned sets are produced by `scripts/micro2-backup.sh` (one run at a time per backup root; stale staging from killed runs is cleaned at startup; every run appends an outcome line to `<backup-root>/attempts.jsonl`). The script exports each live database through the online-backup path, copies the registry through the SQLite backup API, validates hashes, integrity, foreign keys, and protected tables before atomic publication, then prunes to `--keep` sets. `dg backup verify` repeats the manifest/hash/integrity/FK/protected-table checks on demand and prints a JSON report (`ok`, `failures`, member list); it exits nonzero with `backup_verification_failed` when any check fails, or `backup_set_not_found` for unknown sets. Restore follows [the recovery contract](recovery-contract.md) §3 (registry-restored or fresh-registry path).
 
 `dg web` spawns the workstation web companion (`web/dist/server.js`, built once with `npm run build --prefix web`) using the resolved `--server`/`--key-file` values, waits until it accepts loopback connections, prints `dg web ready: open http://127.0.0.1:<port> in a browser`, and supervises the child until it exits. Only the key *path* is forwarded — `dg` never reads key material, and the browser never receives the owner key. SIGTERM/SIGINT stops both processes (the companion closes its listener and any managed tunnel first). Remaining environment passes through untouched, so `DG_SSH_TARGET`/`DG_SSH_*` managed tunnels keep working; `--entry`/`DG_CONSOLE_ENTRY` overrides companion discovery, which otherwise looks next to the checkout. Requires `node` on PATH; fails closed with `invalid_console_entry`, `invalid_console_port`, `console_runtime_unavailable`, or `console_startup_failed` before serving anything. Loopback-only like `dg serve`; remote access rides the same SSH tunnel.
 
