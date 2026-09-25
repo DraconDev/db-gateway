@@ -27,23 +27,37 @@ A recovery artifact is a directory holding one entry per database plus the
 registry entry:
 
 ```text
-recovery-YYYYMMDDTHHMMSSZ/
+YYYYMMDDTHHMMSSZ/            # e.g. 20260925T223050Z; staging dirs never match
   manifest.json
   metadata.sqlite.bak        # registry: database rows, credential hashes, scopes
   <name>.sqlite              # one standalone SQLite file per database
   <name>.sha256              # hex SHA-256 of <name>.sqlite, one per database
 ```
 
-`manifest.json` shape:
+`manifest.json` shape (as written by the canonical producer,
+`scripts/micro2-backup.sh`):
 
 ```json
 {
   "created": "2026-09-18T00:00:00Z",
+  "timestamp": "20260918T000000Z",
+  "started_at": 1758153600,
+  "completed_at": 1758153612,
+  "registry_captured_at": 1758153610,
+  "verification": "validated_before_publication",
   "tool": "dg export",
+  "dg_version": "0.1.0",
   "databases": [{"name": "game_a", "file": "game_a.sqlite", "sha256": "<hex>", "size": 12345}],
-  "registry": {"file": "metadata.sqlite.bak", "sha256": "<hex>"}
+  "registry": {"file": "metadata.sqlite.bak", "size": 12345, "sha256": "<hex>"}
 }
 ```
+
+The producer also appends one JSON line per run to
+`<backup-root>/attempts.jsonl` (`ts`, `started_at`, `completed_at`,
+`outcome`, `set`, `databases`, `step`) and serializes runs with a
+flock-held `<backup-root>/.backup.lock`. Neither file is a set and the
+status reader ignores both. Re-verify any published set later with
+`dg backup verify --backup-root DIR [latest|TIMESTAMP]`.
 
 Expectations:
 
@@ -78,19 +92,36 @@ live or tombstoned name is forbidden: `import_from` refuses it, and any
 drill that attempts it fails.
 
 1. Start from the artifact directory. Recompute every SHA-256 and compare
-   against both the sidecar and the manifest. Stop on any mismatch.
+   against both the sidecar and the manifest, or run `dg backup verify
+   --backup-root DIR <set>` (same checks plus foreign keys and protected
+   tables). Stop on any mismatch.
 2. Provision the empty target directory and its owner credential locally.
-3. Restore the registry entry first (`metadata.sqlite.bak` → target
-   `metadata.sqlite`) while the target server is stopped, after verifying the
-   backup is a standalone SQLite file, or re-issue keys and record that the
-   drill did so. Never restore a main-file-only copy taken from a live WAL
-   database. A drill must state which path it took.
-4. Import each `<name>.sqlite` under its manifest name through the validated
-   import path (never by copying files into a running data directory).
-5. Run integrity checks (§4), then application-data checks (§4).
-6. Re-verify scoped access: a read-only key reads, a read-only key fails to
+3. Pick exactly one of the two restore paths below. A drill must state
+   which path it took.
+4. Run integrity checks (§4), then application-data checks (§4).
+5. Re-verify scoped access: a read-only key reads, a read-only key fails to
    write, and an unscoped key is denied — or record that the drill restored
    files only and skipped access verification (a gap, not a pass).
+
+### Path A — restore the registry (credentials travel with the data)
+
+Restore `metadata.sqlite.bak` → target `metadata.sqlite` while the target
+server is stopped, after verifying the backup is a standalone SQLite file.
+Never restore a main-file-only copy taken from a live WAL database. Then
+place each verified `<name>.sqlite` into the stopped target data directory
+and start the server. Do not import on this path: the restored registry
+already holds live rows (import refuses live names with `database_exists`),
+and importing would mint new generations and invalidate the restored scoped
+keys. Drop any init-time WAL sidecars (`metadata.sqlite-wal/-shm`) before
+starting so the restored main file opens clean.
+
+### Path B — fresh registry (keys are re-issued)
+
+Keep the target's own freshly initialized registry and import each
+`<name>.sqlite` under its manifest name through the validated import path
+(never by copying files into a running data directory). Re-issue scoped
+keys on the target and record that the drill did so; original credentials
+do not survive this path.
 
 ## 4. Verification checks
 
@@ -117,10 +148,12 @@ Application-data checks (drill-specific, must be exact):
 
 ## 5. Success / failure criteria for a local drill
 
-Pass requires **all** of: SHA-256 chain matches; every import targets an
-empty directory and succeeds; integrity checks pass on every restored
-database; application rows match exactly; source unchanged; restored copy
-independent; no partial database published on any rejected input.
+Pass requires **all** of: SHA-256 chain matches; every database is
+restored either by stopped placement of a verified file (registry-restored
+path) or by validated import into an empty registry (fresh-registry path);
+integrity checks pass on every restored database; application rows match
+exactly; source unchanged; restored copy independent; no partial database
+published on any rejected input.
 
 Fail on **any** of: checksum/sidecar/manifest mismatch; import over a live
 or tombstoned name; `integrity_check` anything but `ok`; foreign-key
@@ -137,12 +170,18 @@ the target name stays absent afterwards.
 
 ```sh
 timeout 120 cargo test --locked --test recovery_drill
+timeout 600 cargo test --locked --test backup_pipeline
 ```
 
-The test seeds fixed schema/rows, exports via the online-backup path,
-imports under a distinct name, asserts integrity plus exact rows on both
-copies, proves copy independence, and proves corrupt input publishes
-nothing.
+`recovery_drill` seeds fixed schema/rows, exports via the online-backup
+path, imports under a distinct name, asserts integrity plus exact rows on
+both copies, proves copy independence, and proves corrupt input publishes
+nothing. `backup_pipeline` proves the versioned-set path end to end: the
+producer script publishes a set the status endpoint reports fresh, `dg
+backup verify` accepts it and rejects tampered/malformed sets, an
+interrupted run publishes nothing and the next run recovers, failures are
+recorded, and the Path A restore drill restores exact rows with
+re-verified access plus tombstone-mismatch rejection.
 
 ## 6. Manual snapshot drill vs continuous backup
 
