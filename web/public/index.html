@@ -2,23 +2,146 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DB Gateway Console</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header><h1>DB Gateway</h1><button id="refresh">Refresh</button></header>
-  <main>
-    <section id="summary" class="cards"></section>
-    <section><h2>Signals</h2><div id="signals" class="cards"></div></section>
-    <section><h2>SSH tunnel</h2><p id="tunnel-status" aria-live="polite"></p><button id="tunnel-start">Start tunnel</button><button id="tunnel-stop">Stop tunnel</button></section>
-    <section><h2>Databases</h2><div id="databases" class="list"></div></section>
-    <section><h2>Backups</h2><pre id="backups"></pre></section>
-    <section><h2>Query</h2><form id="query-form"><label>Database <select id="database"></select></label><label>Idempotency key <input id="idempotency-key" maxlength="128" placeholder="optional"></label><textarea id="sql" aria-label="SQL query" placeholder="SELECT 1"></textarea><button>Run query</button></form><pre id="result" aria-live="polite"></pre></section>
-    <section><h2>Database actions</h2><form id="create-form"><label>New database <input id="new-db" pattern="[a-z0-9][a-z0-9_]{0,63}" required></label><button>Create</button></form><form id="delete-form"><label>Delete <input id="delete-db" required></label><label>Confirm <input id="confirm-db" required></label><button type="submit">Delete with confirmation</button></form></section>
-    <section><h2>Keys</h2><div id="key-list" class="cards"></div><form id="key-form"><label>Key name <input id="key-name" required></label><label>Role <select id="key-role"><option value="database_read_only">read-only</option><option value="database_read_write">read-write</option></select></label><label>Database <input id="key-db" required></label><button>Issue one-time key</button></form><pre id="key-result" aria-live="polite"></pre></section>
-    <section><h2>Atomic batch</h2><form id="batch-form"><label>Database <select id="batch-database"></select></label><label>Idempotency key <input id="batch-idempotency-key" maxlength="128" placeholder="optional"></label><textarea id="batch-json" aria-label="Atomic batch JSON">{"atomic":true,"statements":[]}</textarea><button>Run atomic batch</button></form><pre id="batch-result" aria-live="polite"></pre></section>
-    <section><h2>Lifecycle</h2><form id="clone-form"><label>Source <select id="clone-source"></select></label><label>Destination <input id="clone-destination" required></label><button>Clone</button></form><form id="export-form"><label>Export database <select id="export-db"></select></label><button>Export</button></form><pre id="export-result" aria-live="polite"></pre><form id="import-form"><label>Import as <input id="import-name" required></label><label>SQLite file <input id="import-file" type="file" accept=".sqlite,.db" required></label><button>Import chunked</button></form><pre id="import-result" aria-live="polite"></pre><pre id="lifecycle-result" aria-live="polite"></pre></section>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">Local operator console</p>
+      <h1>DB Gateway</h1>
+      <p id="connection-status" class="muted" aria-live="polite">Loading gateway status…</p>
+    </div>
+    <button id="refresh" type="button">Refresh dashboard</button>
+  </header>
+
+  <main id="console-main" aria-busy="false">
+    <section aria-labelledby="summary-heading">
+      <h2 id="summary-heading" class="sr-only">Gateway summary</h2>
+      <div id="summary" class="cards" aria-live="polite"></div>
+    </section>
+
+    <section aria-labelledby="signals-heading">
+      <div class="section-heading"><h2 id="signals-heading">Signals</h2><span class="muted">Truthful availability, never inferred health</span></div>
+      <div id="signals" class="cards" aria-live="polite"></div>
+    </section>
+
+    <section aria-labelledby="tunnel-heading">
+      <div class="section-heading"><h2 id="tunnel-heading">SSH tunnel</h2><span id="tunnel-status" class="status-pill" aria-live="polite">Tunnel: loading</span></div>
+      <div class="button-row"><button id="tunnel-start" type="button">Start tunnel</button><button id="tunnel-stop" type="button">Stop tunnel</button></div>
+    </section>
+
+    <section aria-labelledby="databases-heading">
+      <div class="section-heading"><h2 id="databases-heading">Databases</h2><span id="database-count" class="muted"></span></div>
+      <div class="database-layout">
+        <div id="databases" class="list" aria-label="Database inventory"></div>
+        <article id="database-detail" class="detail-panel" aria-live="polite" aria-busy="false">
+          <div id="detail-state" class="state state-empty">Select a database to inspect its size, tables, and schema.</div>
+          <div id="detail-content" hidden></div>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="backups-heading">
+      <div class="section-heading"><h2 id="backups-heading">Backup freshness</h2><span class="muted">No off-host collector is configured</span></div>
+      <div id="backups-summary" class="cards" aria-live="polite"></div>
+      <details class="details-block"><summary>Backup metadata</summary><pre id="backups"></pre></details>
+    </section>
+
+    <section aria-labelledby="query-heading">
+      <div class="section-heading"><h2 id="query-heading">Query</h2><span class="muted">Parameterized SQL; writes preserve outcome semantics</span></div>
+      <form id="query-form" class="panel-form" aria-busy="false">
+        <div class="form-grid">
+          <label for="database">Database <select id="database"></select></label>
+          <label for="idempotency-key">Idempotency key <input id="idempotency-key" maxlength="128" placeholder="optional"></label>
+        </div>
+        <label for="sql">SQL <textarea id="sql" rows="4" aria-label="SQL query" placeholder="SELECT 1"></textarea></label>
+        <button type="submit">Run query</button>
+        <span id="query-status" class="form-status" aria-live="polite"></span>
+      </form>
+      <div id="result" class="result-panel" aria-live="polite"></div>
+    </section>
+
+    <section aria-labelledby="actions-heading">
+      <div class="section-heading"><h2 id="actions-heading">Database actions</h2></div>
+      <div class="action-grid">
+        <form id="create-form" class="panel-form" aria-busy="false">
+          <h3>Create</h3>
+          <label for="new-db">New database <input id="new-db" pattern="[a-z0-9][a-z0-9_]{0,63}" required></label>
+          <button type="submit">Create database</button>
+          <span class="form-status" aria-live="polite"></span>
+        </form>
+        <form id="delete-form" class="panel-form danger-form" aria-busy="false">
+          <h3>Delete</h3>
+          <label for="delete-db">Database <input id="delete-db" required></label>
+          <label for="confirm-db">Type exact name <input id="confirm-db" required></label>
+          <button type="submit">Delete with confirmation</button>
+          <span class="form-status" aria-live="polite"></span>
+        </form>
+      </div>
+      <div id="result-actions" class="result-panel" aria-live="polite"></div>
+    </section>
+
+    <section aria-labelledby="keys-heading">
+      <div class="section-heading"><h2 id="keys-heading">Scoped keys</h2><span class="muted">One-time secret; store it outside this browser</span></div>
+      <div id="key-list" class="cards" aria-live="polite"></div>
+      <form id="key-form" class="panel-form" aria-busy="false">
+        <div class="form-grid three">
+          <label for="key-name">Key name <input id="key-name" required></label>
+          <label for="key-role">Role <select id="key-role"><option value="database_read_only">read-only</option><option value="database_read_write">read-write</option></select></label>
+          <label for="key-db">Database <input id="key-db" required></label>
+        </div>
+        <button type="submit">Issue one-time key</button>
+        <span class="form-status" aria-live="polite"></span>
+      </form>
+      <pre id="key-result" class="result-panel" aria-live="polite"></pre>
+    </section>
+
+    <section aria-labelledby="batch-heading">
+      <div class="section-heading"><h2 id="batch-heading">Atomic batch</h2><span class="muted">All statements commit or roll back together</span></div>
+      <form id="batch-form" class="panel-form" aria-busy="false">
+        <div class="form-grid">
+          <label for="batch-database">Database <select id="batch-database"></select></label>
+          <label for="batch-idempotency-key">Idempotency key <input id="batch-idempotency-key" maxlength="128" placeholder="optional"></label>
+        </div>
+        <label for="batch-json">Statements JSON <textarea id="batch-json" rows="5" aria-label="Atomic batch JSON">{"atomic":true,"statements":[]}</textarea></label>
+        <button type="submit">Run atomic batch</button>
+        <span class="form-status" aria-live="polite"></span>
+      </form>
+      <div id="batch-result" class="result-panel" aria-live="polite"></div>
+    </section>
+
+    <section aria-labelledby="lifecycle-heading">
+      <div class="section-heading"><h2 id="lifecycle-heading">Lifecycle</h2><span class="muted">Verified transfers and guarded destructive actions</span></div>
+      <div class="action-grid lifecycle-grid">
+        <form id="clone-form" class="panel-form" aria-busy="false">
+          <h3>Clone</h3>
+          <label for="clone-source">Source <select id="clone-source"></select></label>
+          <label for="clone-destination">New destination <input id="clone-destination" required></label>
+          <button type="submit">Clone database</button>
+          <span class="form-status" aria-live="polite"></span>
+        </form>
+        <form id="export-form" class="panel-form" aria-busy="false">
+          <h3>Export</h3>
+          <label for="export-db">Database <select id="export-db"></select></label>
+          <button type="submit">Export verified SQLite</button>
+          <span class="form-status" aria-live="polite"></span>
+        </form>
+      </div>
+      <pre id="export-result" class="result-panel" aria-live="polite"></pre>
+      <form id="import-form" class="panel-form" aria-busy="false">
+        <h3>Import chunked</h3>
+        <div class="form-grid">
+          <label for="import-name">Import as <input id="import-name" required></label>
+          <label for="import-file">SQLite file <input id="import-file" type="file" accept=".sqlite,.db" required></label>
+        </div>
+        <button type="submit">Import verified SQLite</button>
+        <span class="form-status" aria-live="polite"></span>
+      </form>
+      <pre id="import-result" class="result-panel" aria-live="polite"></pre>
+      <pre id="lifecycle-result" class="result-panel" aria-live="polite"></pre>
+    </section>
   </main>
   <script src="/app.js" defer></script>
 </body>

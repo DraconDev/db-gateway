@@ -28,7 +28,7 @@ dg --key-file owner.key query game_a "SELECT * FROM players"
 - **API reference** (routes, value encoding, error codes, write/retry semantics): [docs/api.md](docs/api.md)
 - **Architecture and decision register**: [docs/architecture.md](docs/architecture.md)
 - **Task list / milestones**: [TASKS.md](TASKS.md)
-- **Local web console** (loopback companion, SSH tunnel workflow, visibility boundaries): [`web/README.md`](web/README.md)
+- **Local web console** (loopback companion, SSH tunnel workflow, data-centric database detail, guarded lifecycle controls, real headless-browser coverage, and visibility boundaries): [`web/README.md`](web/README.md)
 
 ## TypeScript client
 
@@ -41,6 +41,7 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 npm test          # builds the TS client and runs its integration suite against a real dg serve
+npm test --prefix web  # console unit/companion tests plus disposable real-browser E2E
 ```
 
 `Cargo.lock` is tracked to fix dependency resolution. CI runs the Rust checks, the TypeScript client suite, deploy-template validation, and a RustSec advisory scan (`cargo audit` equivalent) on stable Rust.

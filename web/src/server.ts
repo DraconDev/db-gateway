@@ -110,6 +110,9 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
       if (req.method === 'GET' && parts.length === 1 && parts[0] === 'style.css') {
         text(res, 200, await readFile(join(PUBLIC, 'style.css'), 'utf8'), 'text/css; charset=utf-8'); return;
       }
+      if (req.method === 'GET' && parts.length === 1 && parts[0] === 'favicon.ico') {
+        res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return;
+      }
       if (parts[0] === 'api' && parts[1] === 'tunnel' && parts[2] === 'status' && req.method === 'GET') {
         json(res, 200, tunnel.status()); return;
       }
@@ -131,6 +134,8 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
             { name: 'rss', state: 'unavailable', source: 'local companion', reason: 'The gateway API does not expose remote process RSS.' },
             { name: 'disk', state: 'unavailable', source: 'local companion', reason: 'The gateway API does not expose remote filesystem capacity.' },
             { name: 'cpu', state: 'unavailable', source: 'local companion', reason: 'The gateway API does not expose remote CPU utilization.' },
+            { name: 'remote_host', state: 'unavailable', source: 'local companion', reason: 'The gateway API does not expose remote host identity or reachability.' },
+            { name: 'alerts', state: 'unavailable', source: 'local companion', reason: 'No alert collector is configured for this local console.' },
             { name: 'off_host_backup', state: 'not_configured', source: 'gateway', reason: 'No OVH/Litestream collector is configured in this local console.' },
             { name: 'restore_verification', state: 'unavailable', source: 'gateway', reason: 'A restore rehearsal is a separate operator action, not a live health signal.' },
           ],

@@ -45,7 +45,11 @@ The companion validates nested gateway responses at the typed API boundary. Inva
 
 ## Truthful visibility
 
-The dashboard shows the gateway's liveness, version/uptime, admission limits, request counters, database inventory, and backup freshness (`fresh`, `stale`, or `unknown`). RSS, disk, CPU, remote-host, OVH/Litestream, alert, and restore-verification signals are intentionally shown as unavailable/not configured until a real collector exists; the console does not infer them from liveness.
+The dashboard shows the gateway's liveness, version/uptime, admission limits, request counters, database inventory, and backup freshness (`fresh`, `stale`, or `unknown`). RSS, disk, CPU, remote-host, alert, OVH/Litestream, and restore-verification signals are intentionally shown as unavailable/not configured until a real collector exists; the console does not infer them from liveness. Database selection renders a dedicated detail view with size, table row counts, and expandable schema statements rather than dumping raw gateway JSON into the query result.
+
+## Browser verification
+
+`npm test` runs unit/companion tests and the real headless-browser regression suite (`web/test/browser.test.mjs`) against a disposable release binary and loopback gateway. The browser suite exercises dashboard/detail rendering, query and batch submission, lifecycle confirmations, duplicate-submission disabled/`aria-busy` states, tunnel controls, and credential non-disclosure. Set `PLAYWRIGHT_BROWSER_EXECUTABLE` when Chromium is not available at the standard system paths.
 
 ## Scope and safety
 

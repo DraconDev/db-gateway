@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "..",
+    "declaration": false
+  },
+  "include": ["test/contract-conformance.ts", "src/api.ts", "../client/src/index.ts"]
+}
