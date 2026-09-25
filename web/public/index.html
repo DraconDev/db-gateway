@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DB Gateway Console</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header><h1>DB Gateway</h1><button id="refresh">Refresh</button></header>
+  <main>
+    <section id="summary" class="cards"></section>
+    <section><h2>Signals</h2><div id="signals" class="cards"></div></section>
+    <section><h2>Databases</h2><div id="databases" class="list"></div></section>
+    <section><h2>Backups</h2><pre id="backups"></pre></section>
+    <section><h2>Query</h2><form id="query-form"><label>Database <select id="database"></select></label><textarea id="sql" aria-label="SQL query" placeholder="SELECT 1"></textarea><button>Run query</button></form><pre id="result" aria-live="polite"></pre></section>
+    <section><h2>Database actions</h2><form id="create-form"><label>New database <input id="new-db" pattern="[a-z0-9][a-z0-9_]{0,63}" required></label><button>Create</button></form><form id="delete-form"><label>Delete <input id="delete-db" required></label><label>Confirm <input id="confirm-db" required></label><button type="submit">Delete with confirmation</button></form></section>
+    <section><h2>Keys and lifecycle</h2><form id="key-form"><label>Key name <input id="key-name" required></label><label>Role <select id="key-role"><option value="database_read_only">read-only</option><option value="database_read_write">read-write</option></select></label><label>Database <input id="key-db" required></label><button>Issue one-time key</button></form><pre id="key-result" aria-live="polite"></pre><form id="clone-form"><label>Source <input id="clone-source" required></label><label>Destination <input id="clone-destination" required></label><button>Clone</button></form><pre id="lifecycle-result" aria-live="polite"></pre></section>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>

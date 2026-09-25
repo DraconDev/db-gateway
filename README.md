@@ -28,6 +28,7 @@ dg --key-file owner.key query game_a "SELECT * FROM players"
 - **API reference** (routes, value encoding, error codes, write/retry semantics): [docs/api.md](docs/api.md)
 - **Architecture and decision register**: [docs/architecture.md](docs/architecture.md)
 - **Task list / milestones**: [TASKS.md](TASKS.md)
+- **Local web console** (loopback companion, SSH tunnel workflow, visibility boundaries): [`web/README.md`](web/README.md)
 
 ## TypeScript client
 

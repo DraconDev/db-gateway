@@ -1,0 +1,12 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+body { max-width: 1100px; margin: 0 auto; padding: 1rem; }
+header { display: flex; justify-content: space-between; align-items: center; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .75rem; }
+article, .db { background: #8883; border: 1px solid #8886; border-radius: .5rem; padding: .75rem; }
+article { display: flex; flex-direction: column; gap: .35rem; }
+.list { display: flex; flex-wrap: wrap; gap: .5rem; }
+button, select, textarea { font: inherit; padding: .5rem; }
+textarea { width: min(100%, 42rem); min-height: 5rem; }
+pre { overflow: auto; background: #8882; padding: 1rem; border-radius: .5rem; }
+.error strong { color: #d55; }
+@media (prefers-color-scheme: dark) { body { background: #111; color: #eee; } }

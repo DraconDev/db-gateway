@@ -22,6 +22,10 @@ jobs:
           cache-dependency-path: client/package-lock.json
       - run: npm ci --prefix client
       - run: npm test --prefix client
+      - run: npm ci --prefix web
+      - run: npm test --prefix web
+      - run: node scripts/web-console-security-check.mjs
+      - run: node scripts/web-console-smoke.mjs
       - run: ./scripts/validate-deploy.sh
       - run: python3 scripts/check_plan_consistency.py docs/personal-turso-megaplan.md
   audit:

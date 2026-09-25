@@ -22,7 +22,7 @@ DB Gateway is the personal Turso replacement:
 - The server acknowledges a write after the local SQLite transaction commits.
 - Verified versioned copies are copied to an off-host OVH Object Storage bucket.
 - A new or replacement server can be restored and verified from those copies.
-- The CLI remains the primary interface; a web dashboard is not required.
+- The CLI remains the primary interface; a workstation-local web console may complement it through a loopback companion and SSH-forwarded connection, without becoming a public hosted interface.
 
 ### Important durability distinction
 
@@ -576,7 +576,7 @@ Only after the core path is proven:
 - automatic failover;
 - HTTPS edge or private VPN;
 - named CLI contexts;
-- web dashboard;
+- hosted web dashboard or public web service;
 - libSQL-compatible adapter;
 - push alerting;
 - multi-tenant/billing features.
