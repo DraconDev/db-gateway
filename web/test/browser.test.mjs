@@ -105,17 +105,25 @@ test('real browser exercises keys, verified transfer controls, and tunnel lifecy
 test('real browser shows loading and disabled state during duplicate submissions', async () => {
   const { page } = session;
   await page.route('**/api/databases/browserdb/query', async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
     await route.continue();
   });
   const form = page.locator('#query-form');
   const button = form.getByRole('button', { name: 'Run query' });
   await page.locator('#database').selectOption('browserdb');
   await page.locator('#sql').fill('SELECT 1');
-  await button.click();
-  assert.equal(await button.isDisabled(), true);
-  assert.equal(await form.getAttribute('aria-busy'), 'true');
-  await page.waitForTimeout(250);
+  await button.dispatchEvent('click');
+  await page.waitForFunction(() => {
+    const currentForm = document.querySelector('#query-form');
+    const currentButton = currentForm?.querySelector('button[type="submit"]');
+    return currentForm?.getAttribute('aria-busy') === 'true' && currentButton?.disabled === true;
+  }, undefined, { timeout: 5_000 });
+  await page.waitForFunction(() => {
+    const currentForm = document.querySelector('#query-form');
+    const currentButton = currentForm?.querySelector('button[type="submit"]');
+    return currentForm?.getAttribute('aria-busy') === 'false' && currentButton?.disabled === false;
+  }, undefined, { timeout: 10_000 });
+  await page.locator('#result').getByText('Rows affected: 0', { exact: true }).waitFor({ timeout: 10_000 });
   assert.equal(await button.isDisabled(), false);
   assert.equal(await form.getAttribute('aria-busy'), 'false');
   await page.unroute('**/api/databases/browserdb/query');
