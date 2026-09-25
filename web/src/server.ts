@@ -148,7 +148,7 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
         if (idempotencyKey !== undefined && (typeof idempotencyKey !== 'string' || idempotencyKey.length > 128 || !/^[\x21-\x7e]+$/.test(idempotencyKey))) throw new ApiError('invalid_request', 'Invalid Idempotency-Key.', 400);
         json(res, 200, await api.query(parts[2], input.sql, input.args as never[], idempotencyKey ? { idempotencyKey } : {})); return;
       }
-      if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'databases') {
+      if (req.method === 'POST' && parts.length === 2 && parts[0] === 'api' && parts[1] === 'databases') {
         const input = await body(req) as { name?: unknown };
         if (typeof input.name !== 'string') throw new ApiError('invalid_request', 'name is required.', 400);
         json(res, 200, await api.create(input.name)); return;
