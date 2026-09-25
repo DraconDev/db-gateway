@@ -9,7 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 
 const root = resolve(fileURLToPath(new URL('../', import.meta.url)));
-const binary = join(root, 'target/release/dg');
+const targetDir = process.env.CARGO_TARGET_DIR ?? join(root, '.cargo', 'target');
+const binary = join(targetDir, 'release', 'dg');
 const node = process.execPath;
 
 function run(command, args, { cwd = root, timeoutMs = 900_000 } = {}) {
