@@ -27,6 +27,10 @@ function isLoopback(host: string): boolean {
 function bindResponseCredential(res: ServerResponse, credential: string): void {
   RESPONSE_CREDENTIALS.set(res, credential);
 }
+export function logRequestFailure(error: unknown, credential: string): void {
+  const message = error instanceof Error ? error.message : 'unknown error';
+  console.error('console request failed', redactCredential(message, credential));
+}
 function json(res: ServerResponse, status: number, value: unknown): void {
   const body = JSON.stringify(redactCredential(value, RESPONSE_CREDENTIALS.get(res) ?? ''));
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
@@ -251,7 +255,7 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
     } catch (error) {
       if (error instanceof ApiError) json(res, error.status, { error: { code: error.code, message: error.message } });
       else {
-        console.error('console request failed', redactCredential(error instanceof Error ? error.message : 'unknown error', credential));
+        logRequestFailure(error, credential);
         json(res, 500, { error: { code: 'console_error', message: 'Console request failed' } });
       }
     }

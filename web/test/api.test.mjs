@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import { createHash } from 'node:crypto';
 import { ApiError, GatewayApi, TransferError } from '../dist/api.js';
-import { configFromEnv, readCredential } from '../dist/server.js';
+import { configFromEnv, logRequestFailure, readCredential } from '../dist/server.js';
 import { startTunnel, stopTunnel, tunnelCommand, TunnelController } from '../dist/tunnel.js';
 
 const key = 'a'.repeat(64);
@@ -64,6 +64,16 @@ test('gateway adapter redacts owner credentials from errors and successful paylo
     assert.equal(JSON.stringify(status).includes(key), false);
     assert.equal(status.owner_key, '[REDACTED]');
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test('request-failure logging redacts credentials before writing to stderr', () => {
+  const originalError = console.error;
+  const lines = [];
+  console.error = (...values) => lines.push(values.map(String).join(' '));
+  try { logRequestFailure(new Error(`unexpected failure leaked ${key}`), key); }
+  finally { console.error = originalError; }
+  assert.equal(lines.join('\n').includes(key), false);
+  assert.match(lines.join('\n'), /\[REDACTED\]/);
 });
 
 test('local input assertions are typed as invalid requests', async () => {
