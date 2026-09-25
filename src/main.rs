@@ -184,6 +184,17 @@ enum BackupCommand {
     /// Owner-only backup freshness: versioned sets plus per-database
     /// fresh/stale/unknown state.
     Status,
+    /// Re-verify a published backup set offline: manifest schema, hash
+    /// chain, integrity, foreign keys, and protected tables. Prints a
+    /// JSON report; exits nonzero when any check fails.
+    Verify {
+        /// Backup root holding versioned sets.
+        #[arg(long, required = true)]
+        backup_root: PathBuf,
+        /// Set timestamp, or "latest" (default).
+        #[arg(default_value = "latest")]
+        set: String,
+    },
 }
 /// Resolve the console companion entrypoint: explicit override first,
 /// then web/dist/server.js beside the checkout (from the executable or
@@ -379,6 +390,23 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             Command::Backup {
                 command: BackupCommand::Status,
             } => (Method::GET, "/v1/backups".into(), None, None),
+            Command::Backup {
+                command: BackupCommand::Verify { backup_root, set },
+            } => {
+                let report = dg::backup::verify_set(&backup_root, &set).map_err(Application)?;
+                println!(
+                    "{}",
+                    serde_json::to_value(&report).map_err(|_| Application(Error::internal()))?
+                );
+                if report.ok {
+                    return Ok(());
+                }
+                return Err(Application(Error::new(
+                    400,
+                    "backup_verification_failed",
+                    "backup set failed verification; see JSON report",
+                )));
+            }
             Command::Web { port, entry } => {
                 return run_console(&cli.server, key_path, port, entry)
                     .await

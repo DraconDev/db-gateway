@@ -13,6 +13,13 @@
 # Defaults suit the micro2 layout. Run as the service user (dg). Prints the
 # manifest only; never key material. Exit nonzero on any failure (set -e);
 # a failed run publishes nothing.
+#
+# Concurrency: one run at a time per backup root (flock); a contended run
+# exits 1 without touching anything. Stale staging dirs from killed runs are
+# removed at startup while the lock is held. Every run appends one JSON line
+# to $BACKUP_ROOT/attempts.jsonl (started/completed timestamps, outcome, set
+# name, step reached) for failure visibility. Re-verify any published set
+# later with `dg backup verify --backup-root DIR [latest|TIMESTAMP]`.
 set -euo pipefail
 
 SERVER="http://127.0.0.1:7432"
@@ -50,6 +57,43 @@ DG=("$DG_BIN" --server "$SERVER" --key-file "$KEY_FILE")
   echo "--keep must be a positive integer" >&2
   exit 2
 }
+TS=""
+STARTED_AT=0
+COMPLETED_AT=0
+STAGE=""
+PUBLISHED=0
+STEP="init"
+OUTCOME=""
+SET=""
+DB_COUNT=0
+finish() {
+  COMPLETED_AT="$(date -u +%s)"
+  [ -n "$OUTCOME" ] || OUTCOME="error"
+  if [ -d "$BACKUP_ROOT" ]; then
+    python3 - "$BACKUP_ROOT/attempts.jsonl" "$TS" "$STARTED_AT" "$COMPLETED_AT" "$OUTCOME" "$SET" "$DB_COUNT" "$STEP" <<'PY' || true
+import json
+import sys
+
+path, ts, started, completed, outcome, set_name, db_count, step = sys.argv[1:]
+record = {
+    "ts": ts,
+    "started_at": int(started or 0),
+    "completed_at": int(completed or 0),
+    "outcome": outcome,
+    "set": set_name or None,
+    "databases": int(db_count or 0),
+    "step": step,
+}
+with open(path, "a", encoding="utf-8") as stream:
+    stream.write(json.dumps(record, sort_keys=True) + "\n")
+PY
+  fi
+  if [ "$PUBLISHED" -eq 0 ] && [ -n "$STAGE" ]; then
+    rm -rf -- "$STAGE" || true
+  fi
+}
+trap finish EXIT
+
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 # Capture the conservative freshness boundary before listing or exporting any
 # database. The API compares durable write markers against this value, not the
@@ -57,14 +101,16 @@ TS="$(date -u +%Y%m%dT%H%M%SZ)"
 STARTED_AT="$(date -u +%s)"
 mkdir -p "$BACKUP_ROOT"
 chmod 700 "$BACKUP_ROOT"
-STAGE="$(mktemp -d "$BACKUP_ROOT/.staging.XXXXXX")"
-PUBLISHED=0
-cleanup() {
-  if [ "$PUBLISHED" -eq 0 ]; then
-    rm -rf "$STAGE"
+STEP="lock"
+exec 9>"$BACKUP_ROOT/.backup.lock"
+flock -n 9 || { echo "another backup is already running" >&2; exit 1; }
+for stale in "$BACKUP_ROOT"/.staging.*; do
+  if [ -d "$stale" ]; then
+    echo "removing stale staging directory: $stale" >&2
+    rm -rf -- "$stale"
   fi
-}
-trap cleanup EXIT
+done
+STAGE="$(mktemp -d "$BACKUP_ROOT/.staging.XXXXXX")"
 
 VERSION="$("${DG[@]}" --version | awk '{print $2}')"
 DB_LIST="$STAGE/.databases.json"

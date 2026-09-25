@@ -261,7 +261,7 @@ fn default_backup_root(data_dir: &Path) -> Option<PathBuf> {
 
 /// Versioned-set directory names look like `20260922T223715Z` (the backup
 /// script's `%Y%m%dT%H%M%SZ`). Staging dirs and anything else never match.
-fn is_set_dir(name: &str) -> bool {
+pub(crate) fn is_set_dir(name: &str) -> bool {
     let b = name.as_bytes();
     b.len() == 16
         && b[..8].iter().all(|c| c.is_ascii_digit())

@@ -2,6 +2,7 @@
 //! and retention maintenance for tombstoned databases.
 
 pub mod api;
+pub mod backup;
 pub mod client;
 pub mod error;
 pub mod execution;
