@@ -365,8 +365,12 @@ async fn remove(
 ) -> Result<Json<Value>> {
     work(store, headers, move |s, p| {
         p.owner()?;
-        s.delete(&name, RETENTION_SECS)?;
-        s.note_write(&name);
+        s.begin_write(&name)?;
+        let result = s.delete(&name, RETENTION_SECS);
+        if result.is_ok() {
+            s.finish_write(&name);
+        }
+        result?;
         Ok(Json(
             json!({"deleted":true,"purge_after_seconds":RETENTION_SECS}),
         ))
@@ -392,8 +396,12 @@ async fn clone_route(
         if p.role == "database_read_only" {
             return Err(Error::new(403, "forbidden", "read-only credential"));
         }
-        s.clone_database(&name, &body.destination)?;
-        s.note_write(&body.destination);
+        s.begin_write(&body.destination)?;
+        let result = s.clone_database(&name, &body.destination);
+        if result.is_ok() {
+            s.finish_write(&body.destination);
+        }
+        result?;
         Ok(Json(json!({"source":name,"destination":body.destination})))
     })
     .await
@@ -450,8 +458,12 @@ async fn import(
         }
         let temp = s.import_staging(&name)?;
         std::fs::write(temp.path(), &bytes).map_err(|_| Error::internal())?;
-        s.import_from(&body.name, temp.path())?;
-        s.note_write(&body.name);
+        s.begin_write(&body.name)?;
+        let result = s.import_from(&body.name, temp.path());
+        if result.is_ok() {
+            s.finish_write(&body.name);
+        }
+        result?;
         Ok(Json(json!({"imported":body.name,"from":name})))
     })
     .await
@@ -591,8 +603,12 @@ async fn upload_commit(
     let body = json_body(body)?;
     work(store, headers, move |s, p| {
         p.owner()?;
-        s.upload_commit(&id, &body.name)?;
-        s.note_write(&body.name);
+        s.begin_write(&body.name)?;
+        let result = s.upload_commit(&id, &body.name);
+        if result.is_ok() {
+            s.finish_write(&body.name);
+        }
+        result?;
         Ok(Json(json!({"imported": body.name})))
     })
     .await
@@ -632,6 +648,9 @@ async fn execute(
         s.authorize(&p, &name)?;
         let path = s.path(&name)?;
         let _guard = s.acquire_queue(&name, !read)?;
+        if !read {
+            s.begin_write(&name)?;
+        }
         let result = crate::execution::execute(
             &path,
             &statements,
@@ -641,7 +660,7 @@ async fn execute(
             key.as_deref(),
         );
         if !read && result.is_ok() {
-            s.note_write(&name);
+            s.finish_write(&name);
         }
         result.map(Json)
     })

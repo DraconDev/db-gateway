@@ -110,6 +110,9 @@ pub struct Store {
     /// Last successful API write per database, loaded from metadata on
     /// startup so freshness cannot flip to false fresh across a restart.
     writes: Mutex<HashMap<String, SystemTime>>,
+    /// Serializes durable freshness-marker updates. A negative marker is
+    /// written before each mutation and replaced only after commit.
+    marker_lock: Mutex<()>,
     /// Versioned backup sets published by the external backup job
     /// (scripts/micro2-backup.sh layout). Convention: `<data-dir>/../dg-backups`
     /// unless overridden; absent/unreadable means backup status is unknown,
@@ -290,45 +293,106 @@ impl Store {
         self
     }
 
-    /// Record a successful API mutation. Lifecycle and SQL writes persist a
-    /// durable marker after commit; restart safety never treats an absent
-    /// marker as proof that a containing backup is fresh.
-    pub fn note_write(&self, name: &str) {
-        let stamp = SystemTime::now();
-        if let Err(error) = self.persist_write(name, stamp) {
-            tracing::warn!(database = name, error = %error, "backup write marker not persisted");
-        }
+    /// Start a durable freshness interval before a mutation begins. The
+    /// negative marker is intentionally written first: if the process dies
+    /// after the data commit but before the positive marker, restart reports
+    /// `unknown` rather than falsely fresh. If this fence cannot be persisted,
+    /// the mutation is rejected before it can commit.
+    pub fn begin_write(&self, name: &str) -> Result<()> {
+        validate_name(name)?;
+        let _marker_guard = self.marker_lock.lock().map_err(|_| Error::internal())?;
+        self.persist_marker_value(name, -1)?;
         if let Ok(mut writes) = self.writes.lock() {
-            writes.insert(name.to_string(), stamp);
+            writes.remove(name);
         }
-    }
-
-    pub fn create_and_note(&self, name: &str) -> Result<()> {
-        self.create(name)?;
-        self.note_write(name);
         Ok(())
     }
 
+    /// Close a successful mutation's freshness interval. If the positive
+    /// marker cannot be persisted, the pre-write negative marker remains, so
+    /// backup status stays conservative after the mutation and after restart.
+    pub fn finish_write(&self, name: &str) {
+        let stamp = SystemTime::now();
+        let seconds = stamp
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs() as i64)
+            .unwrap_or(i64::MAX);
+        let Ok(_marker_guard) = self.marker_lock.lock() else {
+            tracing::warn!(database = name, "backup write marker lock poisoned");
+            if let Ok(mut writes) = self.writes.lock() {
+                writes.remove(name);
+            }
+            return;
+        };
+        if self.persist_marker_value(name, seconds).is_ok() {
+            if let Ok(mut writes) = self.writes.lock() {
+                writes.insert(name.to_string(), stamp);
+            }
+        } else {
+            tracing::warn!(
+                database = name,
+                "backup write marker persistence failed; freshness remains unknown"
+            );
+            if let Ok(mut writes) = self.writes.lock() {
+                writes.remove(name);
+            }
+        }
+    }
+
+    /// Record a successful mutation for legacy store-level callers. New API
+    /// mutations use `begin_write` before the write and `finish_write` after.
+    pub fn note_write(&self, name: &str) -> Result<()> {
+        self.begin_write(name)?;
+        self.finish_write(name);
+        Ok(())
+    }
+
+    pub fn create_and_note(&self, name: &str) -> Result<()> {
+        self.begin_write(name)?;
+        let result = self.create(name);
+        if result.is_ok() {
+            self.finish_write(name);
+        }
+        result
+    }
+
     pub fn last_write(&self, name: &str) -> Option<SystemTime> {
+        let _marker_guard = self.marker_lock.lock().ok()?;
         self.writes
             .lock()
             .ok()
             .and_then(|writes| writes.get(name).copied())
     }
 
-    fn persist_write(&self, name: &str, stamp: SystemTime) -> Result<()> {
-        let seconds = stamp
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| Error::internal())?
-            .as_secs() as i64;
-        self.meta()?
-            .execute(
-                "INSERT INTO write_markers(name,written_at) VALUES (?1,?2)
-                 ON CONFLICT(name) DO UPDATE SET written_at=excluded.written_at",
-                params![name, seconds],
-            )
-            .map_err(|_| Error::internal())?;
-        Ok(())
+    fn persist_marker_value(&self, name: &str, seconds: i64) -> Result<()> {
+        // Marker writes are tiny, but the same SQLite metadata file is also
+        // used by authentication and lifecycle operations. Serialize our own
+        // updates and retry transient busy/locked failures instead of merely
+        // logging a warning after the data write has already committed.
+        let mut delay = Duration::from_millis(5);
+        let mut last_error = Error::internal();
+        for attempt in 0..6 {
+            let result = self.meta().and_then(|conn| {
+                conn.execute(
+                    "INSERT INTO write_markers(name,written_at) VALUES (?1,?2)
+                     ON CONFLICT(name) DO UPDATE SET written_at=excluded.written_at",
+                    params![name, seconds],
+                )
+                .map(|_| ())
+                .map_err(Error::from)
+            });
+            match result {
+                Ok(()) => return Ok(()),
+                Err(error) => {
+                    last_error = error;
+                    if attempt < 5 {
+                        std::thread::sleep(delay);
+                        delay = (delay * 2).min(Duration::from_millis(160));
+                    }
+                }
+            }
+        }
+        Err(last_error)
     }
 
     fn load_write_markers(&self) -> HashMap<String, SystemTime> {
@@ -438,6 +502,7 @@ impl Store {
             queues: Mutex::new(HashMap::new()),
             metrics: Metrics::new(),
             writes: Mutex::new(HashMap::new()),
+            marker_lock: Mutex::new(()),
             backup_root,
             lifecycle: RwLock::new(()),
             transfers: Mutex::new(HashMap::new()),
@@ -1727,11 +1792,29 @@ mod tests {
     }
 
     #[test]
+    fn write_marker_contention_never_reports_freshness() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store.bootstrap().unwrap();
+        store.create("db").unwrap();
+        store.begin_write("db").unwrap();
+
+        let blocker = Connection::open(dir.path().join("metadata.sqlite")).unwrap();
+        blocker.execute_batch("BEGIN IMMEDIATE").unwrap();
+        store.finish_write("db");
+        assert!(store.last_write("db").is_none());
+        drop(blocker);
+
+        let reopened = Store::open(dir.path()).unwrap();
+        assert!(reopened.last_write("db").is_none());
+    }
+
+    #[test]
     fn write_markers_survive_restart_and_older_malformed_set_is_skipped() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(dir.path()).unwrap();
         store.create("db").unwrap();
-        store.note_write("db");
+        store.note_write("db").unwrap();
         let before = store.last_write("db").unwrap();
         drop(store);
 
