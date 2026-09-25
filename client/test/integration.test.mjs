@@ -7,8 +7,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Gateway, GatewayError } from '../dist/index.js';
 
+const binary = join(import.meta.dirname, '../../.cargo/target/debug/dg');
+
 function start(dataDir) {
-  const child = spawn(join(import.meta.dirname, '../../target/debug/dg'), ['serve', '--listen', '127.0.0.1:0', '--data-dir', dataDir], { stdio: ['ignore', 'ignore', 'pipe'] });
+  const child = spawn(binary, ['serve', '--listen', '127.0.0.1:0', '--data-dir', dataDir], { stdio: ['ignore', 'ignore', 'pipe'] });
   return new Promise((resolve, reject) => {
     let buffer = '';
     child.stderr.on('data', (chunk) => {
@@ -28,7 +30,7 @@ async function withServer(run) {
   const dataDir = mkdtempSync(join(tmpdir(), 'dg-client-'));
   const { child, address } = await start(dataDir);
   try {
-    const init = spawn(join(import.meta.dirname, '../../target/debug/dg'), ['init', '--data-dir', dataDir]);
+    const init = spawn(binary, ['init', '--data-dir', dataDir]);
     const ownerKey = JSON.parse(await new Promise((resolve, reject) => {
       let out = '';
       init.stdout.on('data', (c) => (out += c));
@@ -133,7 +135,7 @@ test('documented CLI walkthrough runs verbatim after bootstrap and serve', async
     const script = 'set -eu\ndg() { "$DG_BIN" --server "$DG_SERVER" "$@"; }\n' + commands;
     const result = spawnSync('bash', ['-c', script], {
       cwd: dataDir, encoding: 'utf8', timeout: 15_000,
-      env: { ...process.env, DG_BIN: join(import.meta.dirname, '../../target/debug/dg'), DG_SERVER: `http://${address}` },
+      env: { ...process.env, DG_BIN: binary, DG_SERVER: `http://${address}` },
     });
     assert.equal(result.status, 0, result.stderr);
     const output = result.stdout.trim().split('\n').map(line => JSON.parse(line));
