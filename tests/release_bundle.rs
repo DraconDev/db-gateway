@@ -10,15 +10,28 @@ use std::{
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::Command,
+    sync::{Mutex, MutexGuard, OnceLock},
 };
 
 const PINNED_IMAGE: &str = "docker.io/library/ubuntu@sha256:496754492fb28b4d3049432f2ca787449331e23fb14f0dd3fffea86bf5a93eb4";
+static RELEASE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+/// Release invocations share the repository target directory. Serialize them
+/// so a real container build and the explicit host build cannot race and leave
+/// a half-written Cargo build directory for the next invocation.
+fn release_lock() -> MutexGuard<'static, ()> {
+    RELEASE_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 fn tempdir() -> tempfile::TempDir {
     tempfile::tempdir().expect("temp dir")
 }
 
 fn run_release(engine: Option<&Path>, target: &str) -> std::process::Output {
+    let _guard = release_lock();
     let mut command = Command::new("timeout");
     command.args(["590", "scripts/release-bundle.sh"]);
     if let Some(engine) = engine {
@@ -155,6 +168,7 @@ fn micro2_pinned_container_builds_bundle_and_records_builder() {
 
 #[test]
 fn explicit_host_bundle_never_claims_micro2_abi_verified() {
+    let _guard = release_lock();
     let dir = tempdir();
     let out = dir.path().join("bundle");
     let mut command = Command::new("timeout");
