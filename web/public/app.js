@@ -122,17 +122,46 @@ $('clone-form').addEventListener('submit', async (event) => {
 $('export-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   try {
-    const value = await post(`/api/databases/${encodeURIComponent($('export-db').value)}/export-chunked`, {});
-    $('export-result').textContent = JSON.stringify({ database: value.database, size: value.size, sha256: value.sha256, transfer: 'chunked' }, null, 2);
-    const bytes = Uint8Array.from(atob(value.data_base64), (char) => char.charCodeAt(0));
-    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.sqlite3' }));
-    const link = document.createElement('a'); link.href = url; link.download = `${value.database}.sqlite`; link.textContent = 'Download verified SQLite export'; $('export-result').appendChild(link);
+    const database = encodeURIComponent($('export-db').value);
+    const begin = await post(`/api/databases/${database}/export-begin`, {});
+    const chunks = [];
+    let offset = 0;
+    try {
+      while (offset < begin.size) {
+        const length = Math.min(1024 * 1024, begin.size - offset);
+        const chunk = await get(`/api/snapshots/${encodeURIComponent(begin.snapshot)}/chunk?offset=${offset}&length=${length}`);
+        if (chunk.size !== begin.size || chunk.sha256 !== begin.sha256 || chunk.offset !== offset) throw new Error('Snapshot metadata changed during transfer');
+        chunks.push(Uint8Array.from(atob(chunk.data_base64), (char) => char.charCodeAt(0)));
+        offset += chunk.data_base64 ? Math.floor(atob(chunk.data_base64).length * 3 / 4) : 0;
+      }
+      const bytes = new Uint8Array(offset); let cursor = 0;
+      for (const chunk of chunks) { bytes.set(chunk, cursor); cursor += chunk.length; }
+      const digest = await crypto.subtle.digest('SHA-256', bytes);
+      const sha256 = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+      if (sha256 !== begin.sha256) throw new Error('Export integrity mismatch');
+      $('export-result').textContent = JSON.stringify({ database: $('export-db').value, size: begin.size, sha256: begin.sha256, transfer: 'chunked' }, null, 2);
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.sqlite3' }));
+      const link = document.createElement('a'); link.href = url; link.download = `${$('export-db').value}.sqlite`; link.textContent = 'Download verified SQLite export'; $('export-result').appendChild(link);
+    } finally {
+      await request(`/api/snapshots/${encodeURIComponent(begin.snapshot)}`, { method: 'DELETE' }).catch(() => undefined);
+    }
   } catch (error) { showError('export-result', error); }
 });
 $('import-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   const file = $('import-file').files[0];
   if (!file) { showError('import-result', { message: 'Choose a SQLite file first.' }); return; }
-  try { const data = new Uint8Array(await file.arrayBuffer()); const encoded = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1] || ''); reader.onerror = () => reject(new Error('Could not read the selected file.')); reader.readAsDataURL(file); }); $('import-result').textContent = JSON.stringify(await post('/api/databases/console/import-chunked', { name: $('import-name').value, data_base64: encoded, from: 'console' }), null, 2); await refresh(); } catch (error) { showError('import-result', error); }
+  try {
+    const data = new Uint8Array(await file.arrayBuffer());
+    let upload = await post('/api/databases/console/import-begin', {});
+    for (let offset = 0; offset < data.length;) {
+      const end = Math.min(offset + 1024 * 1024, data.length);
+      const encoded = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1] || ''); reader.onerror = () => reject(new Error('Could not read the selected file.')); reader.readAsDataURL(new Blob([data.subarray(offset, end)], { type: 'application/octet-stream' })); });
+      await post(`/api/uploads/${encodeURIComponent(upload.upload)}/chunk`, { offset, data_base64: encoded });
+      offset = end;
+    }
+    $('import-result').textContent = JSON.stringify(await post(`/api/uploads/${encodeURIComponent(upload.upload)}/commit`, { name: $('import-name').value }), null, 2);
+    await refresh();
+  } catch (error) { showError('import-result', error); }
 });
 refresh();

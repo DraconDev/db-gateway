@@ -138,21 +138,21 @@ export class GatewayApi {
   }
 
   async status(): Promise<StatusResponse> {
-    return parse<StatusResponse>(await this.request('/v1/status', 'GET'), (v): v is StatusResponse => isObject(v) && typeof v.version === 'string' && typeof v.uptime_secs === 'number' && isObject(v.requests));
+    return parse<StatusResponse>(await this.request('/v1/status', 'GET'), (v): v is StatusResponse => isObject(v) && typeof v.version === 'string' && typeof v.uptime_secs === 'number' && isObject(v.requests), 'invalid_gateway_response');
   }
 
   async backups(): Promise<BackupResponse> {
-    return parse<BackupResponse>(await this.request('/v1/backups', 'GET'), (v): v is BackupResponse => isObject(v) && Array.isArray(v.sets) && isObject(v.per_database));
+    return parse<BackupResponse>(await this.request('/v1/backups', 'GET'), (v): v is BackupResponse => isObject(v) && Array.isArray(v.sets) && isObject(v.per_database), 'invalid_gateway_response');
   }
 
   async list(): Promise<string[]> {
-    const value = parse<{ databases: string[] }>(await this.request('/v1/databases', 'GET'), (v): v is { databases: string[] } => isObject(v) && Array.isArray(v.databases) && v.databases.every((x) => typeof x === 'string'));
+    const value = parse<{ databases: string[] }>(await this.request('/v1/databases', 'GET'), (v): v is { databases: string[] } => isObject(v) && Array.isArray(v.databases) && v.databases.every((x) => typeof x === 'string'), 'invalid_gateway_response');
     return value.databases;
   }
 
   async info(name: string): Promise<DatabaseInfo> {
     assertName(name);
-    const value = parse<DatabaseInfo>(await this.request(`/v1/databases/${encodeURIComponent(name)}`, 'GET'), (v): v is DatabaseInfo => isObject(v) && typeof v.name === 'string' && typeof v.tombstoned === 'boolean' && typeof v.size_bytes === 'number');
+    const value = parse<DatabaseInfo>(await this.request(`/v1/databases/${encodeURIComponent(name)}`, 'GET'), (v): v is DatabaseInfo => isObject(v) && typeof v.name === 'string' && typeof v.tombstoned === 'boolean' && typeof v.size_bytes === 'number', 'invalid_gateway_response');
     return value;
   }
 
@@ -177,7 +177,7 @@ export class GatewayApi {
   }
 
   async keys(): Promise<KeyInfo[]> {
-    const value = parse<{ keys: KeyInfo[] }>(await this.request('/v1/keys', 'GET'), (v): v is { keys: KeyInfo[] } => isObject(v) && Array.isArray(v.keys));
+    const value = parse<{ keys: KeyInfo[] }>(await this.request('/v1/keys', 'GET'), (v): v is { keys: KeyInfo[] } => isObject(v) && Array.isArray(v.keys), 'invalid_gateway_response');
     return value.keys;
   }
 

@@ -175,11 +175,10 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
       if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'databases' && parts[2] && parts[3] === 'export') {
         json(res, 200, await api.exportDatabase(parts[2])); return;
       }
-      if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'databases' && parts[2] && parts[3] === 'export-chunked') {
-        const result = await api.exportChunked(parts[2]);
-        json(res, 200, { database: parts[2], size: result.size, sha256: result.sha256, data_base64: bytesToBase64ForServer(result.data) }); return;
+      if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'databases' && parts[2] && parts[3] === 'export-begin') {
+        json(res, 200, await api.exportBegin(parts[2])); return;
       }
-      if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'snapshots' && parts[2]) {
+      if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'snapshots' && parts[2] && parts[3] === 'chunk') {
         const query = new URL(req.url ?? '/', 'http://console.local').searchParams;
         const offset = Number(query.get('offset') ?? 0);
         const length = Number(query.get('length') ?? 1024 * 1024);
@@ -213,12 +212,6 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
       }
       if (req.method === 'DELETE' && parts[0] === 'api' && parts[1] === 'uploads' && parts[2]) {
         await api.abortUpload(parts[2]); json(res, 200, { aborted: true }); return;
-      }
-      if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'databases' && parts[2] && parts[3] === 'import-chunked') {
-        const input = await body(req) as { name?: unknown; data_base64?: unknown; from?: unknown };
-        if (typeof input.name !== 'string' || typeof input.data_base64 !== 'string') throw new ApiError('invalid_request', 'name and data_base64 are required.', 400);
-        const raw = Uint8Array.from(Buffer.from(input.data_base64, 'base64'));
-        json(res, 200, await api.importChunked(input.name, raw, typeof input.from === 'string' ? input.from : 'console')); return;
       }
       if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'health') { json(res, 200, await api.health()); return; }
       if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'status') { json(res, 200, await api.status()); return; }
