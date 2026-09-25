@@ -679,7 +679,8 @@ fn restore_drill_from_versioned_set() {
     );
 
     // Import each set member through the validated path.
-    for name in ["shop"] {
+    {
+        let name = "shop";
         let from = set.join(format!("{name}.sqlite"));
         let imported = dg()
             .args([
