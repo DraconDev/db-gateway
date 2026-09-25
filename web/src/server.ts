@@ -1,27 +1,41 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { createHash, randomBytes } from 'node:crypto';
+import { isIP } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { ApiError, GatewayApi } from './api.js';
+import { ApiError, GatewayApi, redactCredential } from './api.js';
 import { TunnelController, type TunnelOptions } from './tunnel.js';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(ROOT, '..', 'public');
 const MAX_BODY = 12 * 1024 * 1024;
 const MAX_CHUNK_BODY = 2 * 1024 * 1024;
-const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
+const LOOPBACK_NAMES = new Set(['localhost']);
+const RESPONSE_CREDENTIALS = new WeakMap<ServerResponse, string>();
 
 function env(name: string, fallback = ''): string { return process.env[name] ?? fallback; }
-function isLoopback(host: string): boolean { return LOOPBACK.has(host); }
+function isLoopback(host: string): boolean {
+  if (typeof host !== 'string') return false;
+  const normalized = host.trim().toLowerCase();
+  if (LOOPBACK_NAMES.has(normalized)) return true;
+  if (normalized === '::1' || normalized === '[::1]') return true;
+  if (isIP(normalized) === 4) return normalized.split('.')[0] === '127';
+  if (isIP(normalized) === 6) return normalized === '::1';
+  return false;
+}
+function bindResponseCredential(res: ServerResponse, credential: string): void {
+  RESPONSE_CREDENTIALS.set(res, credential);
+}
 function json(res: ServerResponse, status: number, value: unknown): void {
-  const body = JSON.stringify(value);
+  const body = JSON.stringify(redactCredential(value, RESPONSE_CREDENTIALS.get(res) ?? ''));
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
   res.end(body);
 }
 function text(res: ServerResponse, status: number, body: string, type = 'text/plain; charset=utf-8'): void {
+  const safeBody = redactCredential(body, RESPONSE_CREDENTIALS.get(res) ?? '');
   res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
-  res.end(body);
+  res.end(safeBody);
 }
 async function body(req: IncomingMessage, limit = MAX_BODY): Promise<unknown> {
   let size = 0; const chunks: Buffer[] = [];
@@ -34,17 +48,19 @@ async function body(req: IncomingMessage, limit = MAX_BODY): Promise<unknown> {
   if (!chunks.length) return {};
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new ApiError('invalid_request', 'Request body must be valid JSON.', 400); }
 }
-function pathParts(url: string): string[] { return new URL(url, 'http://console.local').pathname.split('/').filter(Boolean).map((x) => decodeURIComponent(x)); }
+function pathParts(url: string): string[] {
+  try {
+    return new URL(url, 'http://console.local').pathname.split('/').filter(Boolean).map((part) => decodeURIComponent(part));
+  } catch {
+    throw new ApiError('invalid_request', 'Malformed request URL.', 400);
+  }
+}
 function trustedOrigin(origin: string | undefined, config: ConsoleConfig): boolean {
   if (!origin) return true;
   try {
     const url = new URL(origin);
-    return url.protocol === 'http:' && LOOPBACK.has(url.hostname) && (config.port === 0 || Number(url.port || 80) === config.port);
+    return url.protocol === 'http:' && isLoopback(url.hostname) && (config.port === 0 || Number(url.port || 80) === config.port);
   } catch { return false; }
-}
-function assertNoCredential(value: unknown, credential: string): void {
-  const text = JSON.stringify(value);
-  if (typeof text === 'string' && text.includes(credential)) throw new Error('refusing to serialize the owner credential');
 }
 
 export interface ConsoleConfig {
@@ -85,18 +101,20 @@ export async function readCredential(path: string): Promise<string> {
 }
 
 export async function serve(config: ConsoleConfig): Promise<{ close: () => Promise<void>; server: ReturnType<typeof createServer> }> {
+  if (!isLoopback(config.host)) throw new Error('Console host must be loopback');
   const credential = await readCredential(config.keyFile);
   const api = new GatewayApi(config.gatewayUrl, credential);
   const session = sessionId();
   const tunnel = new TunnelController(config.tunnel);
   if (config.tunnel) await tunnel.start();
   const server = createServer(async (req, res) => {
-    const parts = pathParts(req.url ?? '/');
+    bindResponseCredential(res, credential);
     res.setHeader('x-content-type-options', 'nosniff');
     res.setHeader('x-frame-options', 'DENY');
     res.setHeader('referrer-policy', 'no-referrer');
     res.setHeader('content-security-policy', "default-src 'self'; connect-src 'self'; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'");
     try {
+      const parts = pathParts(req.url ?? '/');
       if (!trustedOrigin(req.headers.origin, config)) throw new ApiError('invalid_origin', 'Cross-origin console requests are not allowed.', 403);
       const cookies = (req.headers.cookie ?? '').split(';').map((x) => x.trim());
       if (parts[0] === 'api' && !cookies.includes(`dg_console_session=${session}`)) throw new ApiError('console_session_required', 'Open the console in a browser session first.', 401);
@@ -141,7 +159,7 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
           ],
           tunnel: tunnel.status(),
         };
-        assertNoCredential(value, credential); json(res, 200, value); return;
+        json(res, 200, value); return;
       }
       if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'databases' && parts[2]) {
         const [info, schema] = await Promise.all([api.info(parts[2]), api.schema(parts[2])]);
@@ -232,9 +250,13 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
       json(res, 404, { error: { code: 'not_found', message: 'Console route not found' } });
     } catch (error) {
       if (error instanceof ApiError) json(res, error.status, { error: { code: error.code, message: error.message } });
-      else { console.error('console request failed', error instanceof Error ? error.message : 'unknown error'); json(res, 500, { error: { code: 'console_error', message: 'Console request failed' } }); }
+      else {
+        console.error('console request failed', redactCredential(error instanceof Error ? error.message : 'unknown error', credential));
+        json(res, 500, { error: { code: 'console_error', message: 'Console request failed' } });
+      }
     }
   });
+  if (!isLoopback(config.host)) throw new Error('Console host must be loopback');
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(config.port, config.host, resolve); });
   return {
     server,
@@ -256,5 +278,5 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     console.log(`DB Gateway console listening on http://${config.host}:${config.port}`);
     const stop = () => { void close().finally(() => process.exit(0)); };
     process.once('SIGINT', stop); process.once('SIGTERM', stop);
-  }).catch((error) => { console.error(error instanceof Error ? error.message : error); process.exit(1); });
+  }).catch(() => { console.error('console failed to start'); process.exit(1); });
 }

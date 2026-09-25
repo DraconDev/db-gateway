@@ -48,6 +48,24 @@ test('gateway adapter rejects malformed nested GET responses and malformed error
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test('gateway adapter redacts owner credentials from errors and successful payloads', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => new Response(JSON.stringify({ error: { code: `upstream_${key}`, message: `leaked ${key}` } }), { status: 500, headers: { 'content-type': 'application/json' } });
+    const api = new GatewayApi('http://127.0.0.1:8787', key);
+    await assert.rejects(api.status(), (error) => error instanceof ApiError && !error.code.includes(key) && !error.message.includes(key) && error.message.includes('[REDACTED]'));
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      version: '1', uptime_secs: 0,
+      admission: { acquire_timeout_ms: 1, read_permits: 1, write_permits: 1 },
+      requests: { total: 0, capacity_exceeded: 0, query_deadline_exceeded: 0, internal_error: 0 },
+      owner_key: key,
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+    const status = await api.status();
+    assert.equal(JSON.stringify(status).includes(key), false);
+    assert.equal(status.owner_key, '[REDACTED]');
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('local input assertions are typed as invalid requests', async () => {
   const api = new GatewayApi('http://127.0.0.1:8787', key);
   await assert.rejects(api.info('UPPER'), (error) => error instanceof ApiError && error.code === 'invalid_request' && error.status === 400);
@@ -60,7 +78,7 @@ test('chunked export reports decoded progress and releases a verified snapshot',
   const originalFetch = globalThis.fetch;
   const data = new Uint8Array(1024 * 1024 + 37);
   for (let i = 0; i < data.length; i++) data[i] = i % 251;
-  const snapshot = 'a'.repeat(64);
+  const snapshot = 'c'.repeat(64);
   const digest = sha256(data);
   const progress = [];
   let released = false;

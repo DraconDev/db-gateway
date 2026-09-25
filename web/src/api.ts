@@ -89,6 +89,31 @@ export class TransferError extends ApiError {
 
 class ResponseLimitError extends Error {}
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+const REDACTED = '[REDACTED]';
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function redactText(value: string, credential: string): string {
+  if (!credential) return value;
+  return value.replace(new RegExp(escapeRegExp(credential), 'gi'), REDACTED);
+}
+
+/** Remove the owner credential from every value that can cross the API boundary. */
+export function redactCredential<T>(value: T, credential: string): T {
+  if (!credential) return value;
+  const seen = new WeakSet<object>();
+  const visit = (current: unknown): unknown => {
+    if (typeof current === 'string') return redactText(current, credential);
+    if (current === null || typeof current !== 'object') return current;
+    if (seen.has(current)) return REDACTED;
+    seen.add(current);
+    if (Array.isArray(current)) return current.map(visit);
+    return Object.fromEntries(Object.entries(current).map(([key, child]) => [redactText(key, credential), visit(child)]));
+  };
+  return visit(value) as T;
+}
 
 async function readBounded(response: Response, limit = MAX_RESPONSE_BYTES): Promise<string> {
   const declared = Number(response.headers.get('content-length') ?? 0);
@@ -244,11 +269,11 @@ export class GatewayApi {
       throw new ApiError('invalid_gateway_response', 'Gateway returned invalid JSON.', 502);
     }
     if (!response.ok) {
-      if (isErrorEnvelope(value)) throw new ApiError(value.error.code, value.error.message, response.status);
+      if (isErrorEnvelope(value)) throw new ApiError(redactText(value.error.code, this.credential), redactText(value.error.message, this.credential), response.status);
       if (method === 'GET') throw new ApiError('invalid_gateway_response', 'Gateway returned a malformed error response.', 502);
       throw new ApiError('outcome_unknown', 'The gateway returned an invalid response after a write may have been sent. Replay only an identical request with the same Idempotency-Key.', 503);
     }
-    return value;
+    return redactCredential(value, this.credential);
   }
 
   async health(): Promise<{ status: string }> {
@@ -263,7 +288,7 @@ export class GatewayApi {
     try { text = await readBounded(response, 64 * 1024); } catch { throw new ApiError('invalid_gateway_response', 'Gateway liveness response was invalid.', 502); }
     let value: unknown;
     try { value = text ? JSON.parse(text) : null; } catch { throw new ApiError('invalid_gateway_response', 'Gateway returned invalid JSON.', 502); }
-    return parse(value, (v): v is { status: string } => isObject(v) && v.status === 'ok');
+    return redactCredential(parse(value, (v): v is { status: string } => isObject(v) && v.status === 'ok'), this.credential);
   }
 
   async status(): Promise<StatusResponse> {
