@@ -365,6 +365,7 @@ async fn remove(
 ) -> Result<Json<Value>> {
     work(store, headers, move |s, p| {
         p.owner()?;
+        let _guard = s.acquire_queue(&name, true)?;
         s.begin_write(&name)?;
         let result = s.delete(&name, RETENTION_SECS);
         if result.is_ok() {
@@ -396,6 +397,7 @@ async fn clone_route(
         if p.role == "database_read_only" {
             return Err(Error::new(403, "forbidden", "read-only credential"));
         }
+        let _guard = s.acquire_queue(&body.destination, true)?;
         s.begin_write(&body.destination)?;
         let result = s.clone_database(&name, &body.destination);
         if result.is_ok() {
@@ -458,6 +460,7 @@ async fn import(
         }
         let temp = s.import_staging(&name)?;
         std::fs::write(temp.path(), &bytes).map_err(|_| Error::internal())?;
+        let _guard = s.acquire_queue(&body.name, true)?;
         s.begin_write(&body.name)?;
         let result = s.import_from(&body.name, temp.path());
         if result.is_ok() {
@@ -603,6 +606,7 @@ async fn upload_commit(
     let body = json_body(body)?;
     work(store, headers, move |s, p| {
         p.owner()?;
+        let _guard = s.acquire_queue(&body.name, true)?;
         s.begin_write(&body.name)?;
         let result = s.upload_commit(&id, &body.name);
         if result.is_ok() {

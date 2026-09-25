@@ -1078,6 +1078,11 @@ impl Store {
                 Error::new(404, "database_not_found", "database not found")
             });
         }
+        tx.execute(
+            "INSERT INTO write_markers(name,written_at) VALUES (?1,?2)
+             ON CONFLICT(name) DO UPDATE SET written_at=excluded.written_at",
+            params![name, now],
+        )?;
         tx.commit()?;
         Ok(())
     }
@@ -1184,6 +1189,11 @@ impl Store {
             tx.execute(
                 "INSERT INTO databases (name, created_at, generation) VALUES (?, ?, ?)",
                 rusqlite::params![name, now_secs()?, generation],
+            )?;
+            tx.execute(
+                "INSERT INTO write_markers(name,written_at) VALUES (?1,?2)
+                 ON CONFLICT(name) DO UPDATE SET written_at=excluded.written_at",
+                params![name, now_secs()?],
             )?;
             tx.commit()?;
             Ok(())
