@@ -33,7 +33,7 @@ fn tempdir() -> tempfile::TempDir {
 fn run_release(engine: Option<&Path>, target: &str) -> std::process::Output {
     let _guard = release_lock();
     let mut command = Command::new("timeout");
-    command.args(["590", "scripts/release-bundle.sh"]);
+    command.args(["550", "scripts/release-bundle.sh"]);
     if let Some(engine) = engine {
         command.env("DG_CONTAINER_ENGINE", engine);
     }
@@ -172,7 +172,7 @@ fn explicit_host_bundle_never_claims_micro2_abi_verified() {
     let dir = tempdir();
     let out = dir.path().join("bundle");
     let mut command = Command::new("timeout");
-    command.args(["590", "scripts/release-bundle.sh"]).arg(&out);
+    command.args(["550", "scripts/release-bundle.sh"]).arg(&out);
     command.env("DG_RELEASE_TARGET", "host");
     let output = command.output().expect("run host release bundle");
     assert!(
