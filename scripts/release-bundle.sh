@@ -32,6 +32,7 @@ CONTAINER_ENGINE=""
 BUILT_ON=""
 BUILDER_METADATA="native-host"
 BINARY=""
+RELEASE_CARGO_HOME="${DG_RELEASE_CARGO_HOME:-${CARGO_HOME:-$HOME/.cargo}}"
 
 container_engine() {
     if [ -n "${DG_CONTAINER_ENGINE:-}" ]; then
@@ -61,6 +62,7 @@ run_container() {
         --env TZ=UTC \
         --env DG_RELEASE_BUILDER=1 \
         --volume "$ROOT:/src:rw" \
+        --volume "$RELEASE_CARGO_HOME:/root/.cargo:rw" \
         --workdir /src \
         "$BUILDER_IMAGE" \
         bash -euo pipefail -c "$1"
