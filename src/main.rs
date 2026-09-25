@@ -9,6 +9,7 @@ use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
     process::ExitCode,
+    time::Duration,
 };
 
 /// Stage an export download next to its destination so publication below is
@@ -145,6 +146,20 @@ enum Command {
         #[command(subcommand)]
         command: BackupCommand,
     },
+    /// Start the workstation web console on loopback and print its URL.
+    /// Forwards the resolved --server/--key-file values to the companion
+    /// and supervises it; the owner credential itself never passes
+    /// through this process.
+    Console {
+        /// Loopback port for the browser console.
+        /// Precedence: flag, DG_CONSOLE_PORT, 8787.
+        #[arg(long, env = "DG_CONSOLE_PORT", default_value = "8787")]
+        port: u16,
+        /// Companion entrypoint override. Default: web/dist/server.js
+        /// resolved from the dg executable or working directory.
+        #[arg(long, env = "DG_CONSOLE_ENTRY")]
+        entry: Option<PathBuf>,
+    },
 }
 #[derive(Subcommand)]
 enum KeyCommand {
@@ -170,6 +185,183 @@ enum BackupCommand {
     /// fresh/stale/unknown state.
     Status,
 }
+/// Resolve the console companion entrypoint: explicit override first,
+/// then web/dist/server.js beside the checkout (from the executable or
+/// the working directory).
+fn console_entry(explicit: Option<PathBuf>) -> Result<PathBuf, dg::error::Error> {
+    use dg::error::Error;
+    if let Some(path) = explicit {
+        if path.is_file() {
+            return Ok(path);
+        }
+        eprintln!("console companion not found: {}", path.display());
+        return Err(Error::new(
+            400,
+            "invalid_console_entry",
+            "console companion entrypoint does not exist",
+        ));
+    }
+    let mut candidates = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("../../web/dist/server.js"));
+            candidates.push(dir.join("../web/dist/server.js"));
+        }
+    }
+    candidates.push(PathBuf::from("web/dist/server.js"));
+    for candidate in &candidates {
+        if candidate.is_file() {
+            return Ok(candidate.clone());
+        }
+    }
+    for candidate in &candidates {
+        eprintln!("console companion not found: {}", candidate.display());
+    }
+    Err(Error::new(
+        400,
+        "invalid_console_entry",
+        "console companion not found; run `npm run build --prefix web` first",
+    ))
+}
+
+/// Ask the companion to stop gracefully (it closes its listener and any
+/// managed SSH tunnel), escalating only if it ignores SIGTERM.
+#[cfg(unix)]
+async fn terminate_child(child: &mut tokio::process::Child) {
+    if let Some(pid) = child.id() {
+        // Best effort: the child may already be gone.
+        unsafe {
+            libc::kill(pid as i32, libc::SIGTERM);
+        }
+    }
+    if tokio::time::timeout(Duration::from_secs(10), child.wait())
+        .await
+        .is_err()
+    {
+        let _ = child.kill().await;
+    }
+}
+
+/// Start the workstation console companion, print its loopback URL once
+/// it accepts connections, and supervise it until it exits or we are
+/// signalled. Only the key *path* is forwarded; key material is never
+/// read here. Remaining environment (notably DG_SSH_*) passes through
+/// untouched so managed tunnels keep working.
+async fn run_console(
+    server: &str,
+    key_path: Option<PathBuf>,
+    port: u16,
+    entry: Option<PathBuf>,
+) -> Result<(), dg::error::Error> {
+    use dg::error::Error;
+    if !(1024..=65535).contains(&port) {
+        return Err(Error::new(
+            400,
+            "invalid_console_port",
+            "console port must be 1024-65535",
+        ));
+    }
+    let key_path = key_path.ok_or(Error::new(400, "missing_credential", "--key-file required"))?;
+    let entry = console_entry(entry)?;
+    let mut command = tokio::process::Command::new("node");
+    command
+        .arg(&entry)
+        .env("DG_SERVER", server)
+        .env("DG_KEY_FILE", &key_path)
+        .env("DG_CONSOLE_PORT", port.to_string())
+        .stdin(std::process::Stdio::null());
+    if std::env::var_os("DG_CONSOLE_HOST").is_none() {
+        command.env("DG_CONSOLE_HOST", "127.0.0.1");
+    }
+    let mut child = command.spawn().map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            Error::new(
+                400,
+                "console_runtime_unavailable",
+                "node executable not found on PATH; the console companion requires node",
+            )
+        } else {
+            Error::internal()
+        }
+    })?;
+    // The companion only binds after loading the credential and starting
+    // any managed tunnel, so an accepted connection means ready.
+    let address = format!("127.0.0.1:{port}");
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        if tokio::net::TcpStream::connect(&address).await.is_ok() {
+            break;
+        }
+        if let Some(status) = child.try_wait().map_err(|_| Error::internal())? {
+            eprintln!("console companion exited before becoming ready: {status}");
+            return Err(Error::new(
+                400,
+                "console_startup_failed",
+                "console companion exited before becoming ready; see output above",
+            ));
+        }
+        if tokio::time::Instant::now() >= deadline {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            return Err(Error::new(
+                400,
+                "console_startup_failed",
+                "console companion did not become ready in time",
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    println!("dg console ready: open http://{address} in a browser");
+    std::io::stdout().flush().map_err(|_| Error::internal())?;
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let mut sigterm = signal(SignalKind::terminate()).map_err(|_| Error::internal())?;
+        let mut sigint = signal(SignalKind::interrupt()).map_err(|_| Error::internal())?;
+        loop {
+            tokio::select! {
+                status = child.wait() => {
+                    let status = status.map_err(|_| Error::internal())?;
+                    if status.success() {
+                        return Ok(());
+                    }
+                    eprintln!("console companion exited: {status}");
+                    return Err(Error::new(
+                        500,
+                        "console_companion_failed",
+                        "console companion exited with an error",
+                    ));
+                }
+                _ = sigterm.recv() => {
+                    terminate_child(&mut child).await;
+                    break;
+                }
+                _ = sigint.recv() => {
+                    terminate_child(&mut child).await;
+                    break;
+                }
+            }
+        }
+        // Shutdown was operator-initiated; the companion's signal-induced
+        // exit status is still a clean stop.
+        let _ = child.wait().await;
+        return Ok(());
+    }
+    #[cfg(not(unix))]
+    {
+        let status = child.wait().await.map_err(|_| Error::internal())?;
+        if status.success() {
+            return Ok(());
+        }
+        eprintln!("console companion exited: {status}");
+        return Err(Error::new(
+            500,
+            "console_companion_failed",
+            "console companion exited with an error",
+        ));
+    }
+}
+
 async fn run(cli: Cli) -> Result<(), dg::ServerError> {
     use dg::{ServerError::Application, error::Error};
     use reqwest::Method;
@@ -187,6 +379,11 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             Command::Backup {
                 command: BackupCommand::Status,
             } => (Method::GET, "/v1/backups".into(), None, None),
+            Command::Console { port, entry } => {
+                return run_console(&cli.server, key_path, port, entry)
+                    .await
+                    .map_err(Application);
+            }
             Command::Init { data_dir } => {
                 let key = dg::store::Store::open(&data_dir)
                     .and_then(|store| store.bootstrap())
