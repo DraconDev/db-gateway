@@ -102,7 +102,10 @@ fn call_publication_retry_shed(
             return (status, response);
         }
         assert_eq!(response["error"]["code"], "capacity_exceeded", "{response}");
-        assert!(Instant::now() < deadline, "publication request stayed shed: {response}");
+        assert!(
+            Instant::now() < deadline,
+            "publication request stayed shed: {response}"
+        );
         std::thread::sleep(Duration::from_millis(25));
     }
 }
