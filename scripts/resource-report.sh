@@ -28,7 +28,8 @@ log() { echo "[resource-report] $*" >&2; }
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 log "building (debug, locked)"
 cargo build --locked --quiet --manifest-path "$ROOT/Cargo.toml" >&2
-DG="$ROOT/target/debug/dg"
+TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/.cargo/target}"
+DG="$TARGET_DIR/debug/dg"
 
 rss_kb() {
     awk '/^VmRSS:/ {print $2}' "/proc/$1/status"

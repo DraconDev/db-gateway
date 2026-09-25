@@ -11,6 +11,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/.cargo/target}"
 UNIT="$ROOT/deploy/dg.service"
 GUIDE="$ROOT/docs/deployment.md"
 fail() { echo "[validate-deploy] FAIL: $*" >&2; exit 1; }
@@ -29,7 +30,7 @@ done <<<"$placeholders"
 
 log "checking ExecStart flags against dg serve --help"
 cargo build --locked --quiet --manifest-path "$ROOT/Cargo.toml" >&2
-help="$("$ROOT/target/debug/dg" serve --help)"
+help="$("$TARGET_DIR/debug/dg" serve --help)"
 exec_line="$(grep -E '^ExecStart=' "$UNIT")"
 for flag in $(grep -o -e '--[a-z-]*' <<<"$exec_line" | sort -u); do
     grep -qF -e "$flag" -- <<<"$help" || fail "ExecStart flag $flag not in dg serve --help"
@@ -58,7 +59,7 @@ if command -v systemd-analyze >/dev/null 2>&1; then
     trap 'rm -rf "$tmp"' EXIT
     mkdir -p "$tmp/data"
     sed -e "s|{{DG_USER}}|$(id -un)|g" \
-        -e "s|{{DG_BINARY}}|$ROOT/target/debug/dg|g" \
+        -e "s|{{DG_BINARY}}|$TARGET_DIR/debug/dg|g" \
         -e "s|{{DG_DATA_DIR}}|$tmp/data|g" \
         -e 's|{{DG_LISTEN}}|127.0.0.1:7432|g' \
         "$UNIT" >"$tmp/dg.service"
