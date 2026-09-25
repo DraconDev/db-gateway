@@ -9,21 +9,30 @@
 
 ## Quick start (local only)
 
+One script sets everything up (builds `dg`, installs it to `~/.local/bin`, builds the web companion, verifies, and — with `--smoke` — proves `dg web` works against a disposable gateway):
+
 ```sh
-cargo build --locked
-export PATH="$PWD/.cargo/target/debug:$PATH"
+scripts/setup.sh --smoke
+```
+
+Then, with the owner key saved to a `0600` file:
+
+```sh
 dg init --data-dir state/dg            # once: prints {"owner_key": …} — save it securely, shown once
 dg serve --listen 127.0.0.1:7432 --data-dir state/dg
 ```
 
-In another terminal (owner key saved to a `0600` file):
+In another terminal:
 
 ```sh
 dg --key-file owner.key create game_a
 dg --key-file owner.key query game_a "CREATE TABLE players (id INTEGER PRIMARY KEY, name TEXT)"
 dg --key-file owner.key query game_a "INSERT INTO players VALUES (?, ?)" --args '[1, "aria"]'
 dg --key-file owner.key query game_a "SELECT * FROM players"
+dg --key-file owner.key web --port 8787   # browser view at http://127.0.0.1:8787 (loopback only)
 ```
+
+Prefer an uninstalled debug build instead: `cargo build --locked` plus `export PATH="$PWD/.cargo/target/debug:$PATH"`, then the same commands. `scripts/setup.sh --help` lists options (`--prefix`, `--no-install`).
 
 - **API reference** (routes, value encoding, error codes, write/retry semantics): [docs/api.md](docs/api.md)
 - **Architecture and decision register**: [docs/architecture.md](docs/architecture.md)
@@ -42,6 +51,14 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 npm test          # builds the TS client and runs its integration suite against a real dg serve
 npm test --prefix web  # console unit/companion tests plus disposable real-browser E2E
+node scripts/dg-web-smoke.mjs  # disposable end-to-end of `dg web` (no browser needed)
+```
+
+Fast loop while iterating (instead of the full workspace suite):
+
+```sh
+cargo test --locked --test <name>   # e.g. console_launch, cli, m1_e2e
+node scripts/dg-web-smoke.mjs       # launcher + companion + supervision in ~30s
 ```
 
 `Cargo.lock` is tracked to fix dependency resolution. CI runs the Rust checks, the TypeScript client suite, deploy-template validation, and a RustSec advisory scan (`cargo audit` equivalent) on stable Rust.

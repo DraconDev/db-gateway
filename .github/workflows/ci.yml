@@ -27,6 +27,7 @@ jobs:
       - run: npm test --prefix web
       - run: node scripts/web-console-security-check.mjs
       - run: node scripts/web-console-smoke.mjs
+      - run: node scripts/dg-web-smoke.mjs
       - run: ./scripts/validate-deploy.sh
       - run: python3 scripts/check_plan_consistency.py docs/personal-turso-megaplan.md
   audit:

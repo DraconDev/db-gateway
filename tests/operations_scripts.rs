@@ -212,3 +212,30 @@ fn soak_readiness_wait_is_bounded() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("server never logged"));
 }
+
+#[test]
+fn setup_help_documents_interface_without_building() {
+    let output = Command::new("bash")
+        .args(["scripts/setup.sh", "--help"])
+        .output()
+        .expect("run setup script");
+    assert!(output.status.success());
+    let usage = String::from_utf8_lossy(&output.stderr);
+    for flag in ["--prefix", "--smoke", "--no-install", "--help"] {
+        assert!(usage.contains(flag), "missing {flag}: {usage}");
+    }
+}
+
+#[test]
+fn setup_rejects_unknown_arguments_before_doing_anything() {
+    let output = Command::new("bash")
+        .args(["scripts/setup.sh", "--deploy-production"])
+        .output()
+        .expect("run setup script");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("unknown argument"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
