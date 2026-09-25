@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Steady read/write soak against a real `dg serve` (dummy data).
 
-Usage: soak.py --dg-bin ./target/debug/dg --seconds 1800 --out /tmp/soak.log
+Usage: soak.py --seconds 1800 --out /tmp/soak.log
 
 Spawns `dg init` + `dg serve` on a temp data dir, then drives a mixed
 workload (keyed single-row INSERTs, point SELECTs, range SELECTs,
