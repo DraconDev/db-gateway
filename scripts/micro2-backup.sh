@@ -114,6 +114,7 @@ STAGE="$(mktemp -d "$BACKUP_ROOT/.staging.XXXXXX")"
 
 VERSION="$("${DG[@]}" --version | awk '{print $2}')"
 DB_LIST="$STAGE/.databases.json"
+STEP="list"
 "${DG[@]}" list >"$DB_LIST"
 # NUL-delimited output avoids word splitting and preserves any legal name
 # (including spaces) as one iteration value. The gateway's name validator is
@@ -145,10 +146,12 @@ if [ "${#DBS[@]}" -eq 0 ]; then
   echo "refusing empty backup: no live databases listed" >&2
   exit 1
 fi
+DB_COUNT="${#DBS[@]}"
 
 ENTRIES="$STAGE/.entries.jsonl"
 : >"$ENTRIES"
 for db in "${DBS[@]}"; do
+  STEP="export:$db"
   db_file="$STAGE/$db.sqlite"
   "${DG[@]}" export "$db" --out "$db_file" >/dev/null
   size="$(stat -c%s -- "$db_file")"
@@ -170,6 +173,7 @@ done
 
 # Consistent registry copy through the SQLite online backup API: a raw file
 # copy of a live WAL-mode database is not a valid backup.
+STEP="registry"
 META_SRC="$DATA_DIR/metadata.sqlite"
 [ -f "$META_SRC" ] || { echo "missing registry: $META_SRC" >&2; exit 1; }
 META_FILE="metadata.sqlite.bak"
@@ -193,6 +197,7 @@ meta_size="$(stat -c%s -- "$STAGE/$META_FILE")"
 meta_sha="$(sha256sum -- "$STAGE/$META_FILE" | cut -d' ' -f1)"
 REGISTRY_CAPTURED_AT="$(date -u +%s)"
 CAPTURE_COMPLETED_AT="$(date -u +%s)"
+STEP="manifest"
 
 python3 - "$STAGE/manifest.json" "$TS" "$STARTED_AT" "$CAPTURE_COMPLETED_AT" "$REGISTRY_CAPTURED_AT" "$VERSION" "$META_FILE" "$meta_size" "$meta_sha" "$ENTRIES" <<'PY'
 import datetime
@@ -228,7 +233,9 @@ PY
 
 # Validate the complete private stage before publication: every database and
 # registry file must be a standalone SQLite database, and the manifest,
-# sidecar, and recomputed bytes must agree.
+# sidecar, and recomputed bytes must agree. Database files additionally get
+# the import path's semantic checks (foreign keys, protected tables).
+STEP="validate"
 python3 - "$STAGE" <<'PY'
 import hashlib
 import json
@@ -256,6 +263,21 @@ def check_sqlite(path):
     finally:
         connection.close()
 
+def check_semantics(path):
+    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        (bad,) = connection.execute("SELECT count(*) FROM pragma_foreign_key_check").fetchone()
+        if bad:
+            raise RuntimeError(f"foreign_key_check failed for {path.name}: {bad}")
+        rows = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND lower(substr(name,1,4))='_dg_' ORDER BY name"
+        ).fetchall()
+        smuggled = [name for (name,) in rows if name.lower() != "_dg_replay"]
+        if smuggled:
+            raise RuntimeError(f"protected tables in {path.name}: {smuggled}")
+    finally:
+        connection.close()
+
 for entry in manifest["databases"]:
     path = root / entry["file"]
     sidecar = root / f'{entry["name"]}.sha256'
@@ -265,6 +287,7 @@ for entry in manifest["databases"]:
     if actual != entry["sha256"] or sidecar.read_text().strip() != actual:
         raise RuntimeError(f"database checksum mismatch: {path.name}")
     check_sqlite(path)
+    check_semantics(path)
 
 registry = manifest["registry"]
 registry_path = root / registry["file"]
@@ -276,6 +299,7 @@ check_sqlite(registry_path)
 PY
 
 rm -f -- "$DB_LIST" "$STAGE/.databases" "$ENTRIES"
+STEP="publish"
 DEST="$BACKUP_ROOT/$TS"
 chmod -R go-rwx "$STAGE"
 # A version timestamp has one-second resolution. Never let a concurrent run
@@ -286,12 +310,15 @@ if [ -e "$DEST" ]; then
 fi
 mv -T "$STAGE" "$DEST"
 PUBLISHED=1
+SET="$TS"
 chmod 700 "$DEST"
 
 # Prune to KEEP latest versioned sets (staging dirs never match the glob).
+STEP="prune"
 mapfile -t SETS < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
   | awk '/^[0-9]{8}T[0-9]{6}Z$/' | sort -r)
 for ((index = KEEP; index < ${#SETS[@]}; index++)); do
   rm -rf -- "$BACKUP_ROOT/${SETS[$index]}"
 done
+OUTCOME="ok"
 echo "backup set: $DEST (kept latest $KEEP)" >&2
