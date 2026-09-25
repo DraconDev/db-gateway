@@ -59,22 +59,39 @@ export class GatewayApi {
     try {
       response = await fetch(new URL(path, this.base), { method, headers, body: body === undefined ? undefined : JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(15_000) });
     } catch {
+      if (method !== 'GET') {
+        throw new ApiError('outcome_unknown', 'The gateway connection failed after a write may have been sent. Replay only an identical request with the same Idempotency-Key.', 503);
+      }
       throw new ApiError('transport_unavailable', 'The gateway is unavailable through the configured loopback connection.', 503);
     }
-    const text = await response.text();
+    let text: string;
+    try { text = await response.text(); } catch {
+      if (method !== 'GET') throw new ApiError('outcome_unknown', 'The gateway response was interrupted after a write may have been sent. Replay only an identical request with the same Idempotency-Key.', 503);
+      throw new ApiError('invalid_gateway_response', 'Gateway response could not be read.', 502);
+    }
     let value: unknown;
-    try { value = text ? JSON.parse(text) : null; } catch { throw new ApiError('invalid_gateway_response', 'Gateway returned invalid JSON.', 502); }
+    try { value = text ? JSON.parse(text) : null; } catch {
+      if (method !== 'GET') throw new ApiError('outcome_unknown', 'The gateway returned an invalid response after a write may have been sent. Replay only an identical request with the same Idempotency-Key.', 503);
+      throw new ApiError('invalid_gateway_response', 'Gateway returned invalid JSON.', 502);
+    }
     if (!response.ok) {
       if (isObject(value) && isObject(value.error) && typeof value.error.code === 'string' && typeof value.error.message === 'string') {
         throw new ApiError(value.error.code, value.error.message, response.status);
       }
+      if (method !== 'GET') throw new ApiError('outcome_unknown', 'The gateway returned an invalid response after a write may have been sent. Replay only an identical request with the same Idempotency-Key.', 503);
       throw new ApiError('http_error', 'Gateway returned an invalid error response.', response.status);
     }
     return value;
   }
 
   async health(): Promise<{ status: string }> {
-    const response = await fetch(new URL('/health/live', this.base), { redirect: 'error', signal: AbortSignal.timeout(5_000) });
+    let response: Response;
+    try {
+      response = await fetch(new URL('/health/live', this.base), { redirect: 'error', signal: AbortSignal.timeout(5_000) });
+    } catch {
+      throw new ApiError('transport_unavailable', 'The gateway is unavailable through the configured loopback connection.', 503);
+    }
+    if (!response.ok) throw new ApiError('transport_unavailable', `Gateway liveness returned HTTP ${response.status}.`, 503);
     return parse(await response.json(), (v): v is { status: string } => isObject(v) && v.status === 'ok');
   }
 
