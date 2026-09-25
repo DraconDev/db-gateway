@@ -8,7 +8,7 @@ import { createServer } from 'node:net';
 import { chromium } from 'playwright';
 
 export const repoRoot = resolve(fileURLToPath(new URL('../../', import.meta.url)));
-export const gatewayBinary = join(repoRoot, 'target/release/dg');
+export const gatewayBinary = join(repoRoot, '.cargo/target/release/dg');
 
 export function run(command, args, { cwd = repoRoot, timeoutMs = 900_000 } = {}) {
   return new Promise((resolveRun, rejectRun) => {

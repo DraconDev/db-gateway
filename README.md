@@ -11,7 +11,7 @@
 
 ```sh
 cargo build --locked
-export PATH="$PWD/target/debug:$PATH"
+export PATH="$PWD/.cargo/target/debug:$PATH"
 dg init --data-dir state/dg            # once: prints {"owner_key": …} — save it securely, shown once
 dg serve --listen 127.0.0.1:7432 --data-dir state/dg
 ```
