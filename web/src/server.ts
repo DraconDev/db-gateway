@@ -41,9 +41,9 @@ function trustedOrigin(origin: string | undefined, config: ConsoleConfig): boole
     return url.protocol === 'http:' && LOOPBACK.has(url.hostname) && (config.port === 0 || Number(url.port || 80) === config.port);
   } catch { return false; }
 }
-function noSecret(value: unknown): void {
+function assertNoCredential(value: unknown, credential: string): void {
   const text = JSON.stringify(value);
-  if (typeof text === 'string' && /[a-f0-9]{64}/i.test(text)) throw new Error('refusing to serialize a credential-shaped value');
+  if (typeof text === 'string' && text.includes(credential)) throw new Error('refusing to serialize the owner credential');
 }
 
 export interface ConsoleConfig {
@@ -135,7 +135,7 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
           ],
           tunnel: tunnel.status(),
         };
-        noSecret(value); json(res, 200, value); return;
+        assertNoCredential(value, credential); json(res, 200, value); return;
       }
       if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'databases' && parts[2]) {
         const [info, schema] = await Promise.all([api.info(parts[2]), api.schema(parts[2])]);
