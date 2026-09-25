@@ -113,6 +113,10 @@ pub struct Store {
     /// Serializes durable freshness-marker updates. A negative marker is
     /// written before each mutation and replaced only after commit.
     marker_lock: Mutex<()>,
+    /// A long-lived metadata connection avoids opening and reconfiguring a
+    /// SQLite connection for every write marker. `marker_lock` serializes
+    /// callers; this mutex also keeps the connection itself single-owner.
+    marker_db: Mutex<Connection>,
     /// Versioned backup sets published by the external backup job
     /// (scripts/micro2-backup.sh layout). Convention: `<data-dir>/../dg-backups`
     /// unless overridden; absent/unreadable means backup status is unknown,
@@ -369,52 +373,26 @@ impl Store {
         // used by authentication and lifecycle operations. Serialize our own
         // updates and retry transient busy/locked failures instead of merely
         // logging a warning after the data write has already committed.
-        let mut delay = Duration::from_millis(5);
+        let conn = self.marker_db.lock().map_err(|_| Error::internal())?;
+        let mut delay = Duration::from_millis(2);
         let mut last_error = Error::internal();
-        for attempt in 0..6 {
-            let result = self.meta().and_then(|conn| {
-                conn.execute(
-                    "INSERT INTO write_markers(name,written_at) VALUES (?1,?2)
-                     ON CONFLICT(name) DO UPDATE SET written_at=excluded.written_at",
-                    params![name, seconds],
-                )
-                .map(|_| ())
-                .map_err(Error::from)
-            });
-            match result {
-                Ok(()) => return Ok(()),
+        for attempt in 0..5 {
+            match conn.execute(
+                "INSERT INTO write_markers(name,written_at) VALUES (?1,?2)
+                 ON CONFLICT(name) DO UPDATE SET written_at=excluded.written_at",
+                params![name, seconds],
+            ) {
+                Ok(_) => return Ok(()),
                 Err(error) => {
-                    last_error = error;
-                    if attempt < 5 {
+                    last_error = error.into();
+                    if attempt < 4 {
                         std::thread::sleep(delay);
-                        delay = (delay * 2).min(Duration::from_millis(160));
+                        delay = (delay * 2).min(Duration::from_millis(80));
                     }
                 }
             }
         }
         Err(last_error)
-    }
-
-    fn load_write_markers(&self) -> HashMap<String, SystemTime> {
-        let Ok(conn) = self.meta() else {
-            return HashMap::new();
-        };
-        let Ok(mut stmt) = conn.prepare("SELECT name,written_at FROM write_markers") else {
-            return HashMap::new();
-        };
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-        });
-        rows.into_iter()
-            .flatten()
-            .filter_map(std::result::Result::ok)
-            .filter_map(|(name, seconds)| {
-                let seconds = u64::try_from(seconds).ok()?;
-                UNIX_EPOCH
-                    .checked_add(Duration::from_secs(seconds))
-                    .map(|stamp| (name, stamp))
-            })
-            .collect()
     }
 
     pub fn backup_root(&self) -> Option<PathBuf> {
@@ -495,24 +473,29 @@ impl Store {
         }
         sweep_orphan_transfer_dirs(root);
         let backup_root = default_backup_root(root);
+        let mut metadata = Connection::open(root.join("metadata.sqlite"))?;
+        metadata.busy_timeout(Duration::from_millis(250))?;
+        metadata.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA synchronous=FULL;
+             PRAGMA cache_size=-1024;",
+        )?;
+        migrate_metadata(&mut metadata, root)?;
+        let writes = load_write_markers_from_connection(&metadata).unwrap_or_default();
         let store = Self {
             root: root.to_path_buf(),
             read_lane: Arc::new(Semaphore::new(READ_PERMITS)),
             write_lane: Arc::new(Semaphore::new(WRITE_PERMITS)),
             queues: Mutex::new(HashMap::new()),
             metrics: Metrics::new(),
-            writes: Mutex::new(HashMap::new()),
+            writes: Mutex::new(writes),
             marker_lock: Mutex::new(()),
+            marker_db: Mutex::new(metadata),
             backup_root,
             lifecycle: RwLock::new(()),
             transfers: Mutex::new(HashMap::new()),
             transfer_ttl,
         };
-        let mut metadata = store.meta()?;
-        metadata.execute_batch("PRAGMA journal_mode=WAL;")?;
-        migrate_metadata(&mut metadata, &store.root)?;
-        let writes = store.load_write_markers();
-        *store.writes.lock().map_err(|_| Error::internal())? = writes;
         Ok(store)
     }
     fn meta(&self) -> Result<Connection> {
@@ -1569,6 +1552,24 @@ fn sha256_file(path: &Path) -> Result<String> {
         hasher.update(&buf[..n]);
     }
     Ok(hex::encode(hasher.finalize()))
+}
+
+fn load_write_markers_from_connection(conn: &Connection) -> Result<HashMap<String, SystemTime>> {
+    let mut stmt = conn.prepare("SELECT name,written_at FROM write_markers")?;
+    let rows = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+    })?;
+    let mut writes = HashMap::new();
+    for row in rows {
+        let (name, seconds) = row?;
+        let Ok(seconds) = u64::try_from(seconds) else {
+            continue;
+        };
+        if let Some(stamp) = UNIX_EPOCH.checked_add(Duration::from_secs(seconds)) {
+            writes.insert(name, stamp);
+        }
+    }
+    Ok(writes)
 }
 
 fn migrate_metadata(conn: &mut Connection, root: &Path) -> Result<()> {
