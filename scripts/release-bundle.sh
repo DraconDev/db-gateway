@@ -56,8 +56,8 @@ run_container() {
         --network default \
         --env CARGO_TERM_COLOR=never \
         --env CARGO_INCREMENTAL=0 \
-        --env CARGO_BUILD_JOBS="${DG_RELEASE_BUILD_JOBS:-16}" \
-        --env CARGO_PROFILE_RELEASE_CODEGEN_UNITS="${DG_RELEASE_CODEGEN_UNITS:-256}" \
+        --env CARGO_BUILD_JOBS="${DG_RELEASE_BUILD_JOBS:-4}" \
+        --env CARGO_PROFILE_RELEASE_CODEGEN_UNITS="${DG_RELEASE_CODEGEN_UNITS:-16}" \
         --env RUSTUP_TOOLCHAIN=1.97.1 \
         --env RUSTFLAGS= \
         --env SOURCE_DATE_EPOCH=0 \
