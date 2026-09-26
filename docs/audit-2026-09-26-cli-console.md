@@ -1,5 +1,9 @@
 # Audit: dg CLI + web console (2026-09-26)
 
+> Disposition: T1–T11 implemented and gated (see session work); P1
+> (live visual audit) remains external — needs the Pi Chrome Connector
+> companion in the user's browser.
+
 Scope: the Turso-parity surface — `src/main.rs`, `src/shell.rs`,
 `src/client.rs`, `src/api.rs`, `web/src/*.ts`, `web/public/index.html`,
 `web/public/app.js`, plus the web/Rust test suites by status (not a
