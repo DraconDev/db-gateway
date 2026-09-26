@@ -150,3 +150,78 @@ fn list_info_piped_json_pty_table() {
         "JSON leaked to tty: {screen:?}"
     );
 }
+
+#[test]
+fn status_backup_keys_piped_json_pty_table() {
+    let fleet = Fleet::boot();
+    fleet.cli.ok("create", &["create", "tables_status"]);
+    fleet.cli.q(
+        "seed",
+        "tables_status",
+        "CREATE TABLE t (id INTEGER)",
+    );
+
+    // Piped legs stay machine-readable JSON.
+    let piped_status = fleet.cli.ok("status", &["status"]);
+    assert!(piped_status["version"].is_string());
+    assert!(piped_status["databases"]["tables_status"]["queue_waits"].is_number());
+    let piped_backups = fleet.cli.ok("backup-status", &["backup", "status"]);
+    assert!(
+        piped_backups["backup_root"].is_string() || piped_backups["backup_root"].is_null(),
+        "piped backup status not JSON: {piped_backups}"
+    );
+    let piped_keys = fleet.cli.ok("key-list", &["key", "list"]);
+    assert!(
+        piped_keys["keys"].as_array().unwrap().iter().any(|k| k["name"] == "owner"),
+        "piped key list not JSON keys: {piped_keys}"
+    );
+
+    // Pty legs render aligned tables with no JSON envelope.
+    let base = format!(
+        "{} --server {} --key-file {}",
+        env!("CARGO_BIN_EXE_dg"),
+        fleet.cli.server,
+        fleet.cli.key_file.to_str().unwrap(),
+    );
+    let run_pty = |args: &str| {
+        let out = Command::new("script")
+            .args(["-qec", &format!("{base} {args}"), "/dev/null"])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "pty {args} failed: {out:?}");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+
+    let screen = run_pty("status");
+    for (label, needle) in [
+        ("header", "property | value"),
+        ("version row", "version"),
+        ("usage row", "usage tables_status"),
+        ("queue waits", "queue"),
+        ("queue timeouts", "timeouts"),
+    ] {
+        assert!(screen.contains(needle), "no {label}: {screen:?}");
+    }
+    assert!(
+        !screen.contains("\"uptime_secs\""),
+        "JSON leaked to tty: {screen:?}"
+    );
+
+    let screen = run_pty("backup status");
+    assert!(screen.contains("backup_root"), "no root row: {screen:?}");
+    assert!(
+        !screen.contains("\"backup_root\""),
+        "JSON leaked to tty: {screen:?}"
+    );
+
+    let screen = run_pty("key list");
+    assert!(
+        screen.contains("name | role | databases"),
+        "no key header: {screen:?}"
+    );
+    assert!(screen.contains("owner"), "no owner row: {screen:?}");
+    assert!(
+        !screen.contains("\"keys\""),
+        "JSON leaked to tty: {screen:?}"
+    );
+}
