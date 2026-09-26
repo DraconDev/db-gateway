@@ -916,12 +916,24 @@ impl Store {
         const RETRY_DELAY: Duration = Duration::from_millis(10);
 
         let src_path = self.path(name)?;
-        if dest.exists() {
-            return Err(Error::new(
-                409,
-                "file_exists",
-                "destination file already exists",
-            ));
+        // Atomically claim the destination: a check-then-open lets two
+        // concurrent exports interleave on one path (or a swap land
+        // between the check and SQLite's open). create_new makes the
+        // loser a 409 deterministically.
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(dest)
+        {
+            Ok(claimed) => drop(claimed),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                return Err(Error::new(
+                    409,
+                    "file_exists",
+                    "destination file already exists",
+                ));
+            }
+            Err(_) => return Err(Error::internal()),
         }
         let limit = max_bytes.unwrap_or(MAX_TRANSFER_SIZE);
         // Deliberately no per-database write-slot acquisition: the SQLite
@@ -1281,7 +1293,23 @@ impl Store {
         offset: u64,
         length: usize,
     ) -> Result<(Vec<u8>, u64, String)> {
-        let transfer = self.lookup_transfer(id)?.ok_or_else(snapshot_missing)?;
+        // The registry lock is held for the whole lookup-plus-read: a
+        // concurrent release (or TTL purge) otherwise removes the retained
+        // directory between lookup and open, turning an honest 404 into a
+        // misleading 500. Upload appends already hold this lock across I/O.
+        let mut transfers = self.transfers.lock().map_err(|_| Error::internal())?;
+        let transfer = match transfers.get(id) {
+            Some(entry) if entry.created.elapsed() < self.transfer_ttl => entry.clone(),
+            Some(_) => {
+                let stale = transfers.remove(id);
+                drop(transfers);
+                if let Some(entry) = stale {
+                    let _ = std::fs::remove_dir_all(&entry.dir);
+                }
+                return Err(snapshot_missing());
+            }
+            None => return Err(snapshot_missing()),
+        };
         if transfer.creator != principal.hash && principal.role != "owner" {
             return Err(snapshot_missing());
         }
@@ -2350,6 +2378,72 @@ mod tests {
             "invalid_request"
         );
         assert!(store.snapshot_chunk(&principal, &snap.id, 0, 64).is_ok());
+    }
+
+    #[test]
+    fn export_claims_destination_atomically() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store.create("racedb").unwrap();
+        let dest = dir.path().join("claimed.sqlite");
+        store.export_to("racedb", &dest).unwrap();
+        assert_eq!(
+            store.export_to("racedb", &dest).unwrap_err().code,
+            "file_exists"
+        );
+        // A pre-existing non-database file is also a 409, never an open
+        // through a swapped path.
+        let squat = dir.path().join("squat.sqlite");
+        std::fs::write(&squat, b"not a database").unwrap();
+        assert_eq!(
+            store.export_to("racedb", &squat).unwrap_err().code,
+            "file_exists"
+        );
+    }
+
+    #[test]
+    fn concurrent_export_same_destination_has_one_winner() {
+        use std::sync::{Arc, Barrier};
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(dir.path()).unwrap());
+        store.create("conrsedb").unwrap();
+        let dest = dir.path().join("shared.sqlite");
+        let barrier = Arc::new(Barrier::new(2));
+        let race = |store: Arc<Store>, barrier: Arc<Barrier>, dest: std::path::PathBuf| {
+            barrier.wait();
+            store
+                .export_to_limited("conrsedb", &dest, None)
+                .map(|()| "ok")
+                .unwrap_or_else(|error| {
+                    assert_eq!(error.code, "file_exists");
+                    "conflict"
+                })
+        };
+        let (first, second) = std::thread::scope(|scope| {
+            let one = scope.spawn(|| race(Arc::clone(&store), Arc::clone(&barrier), dest.clone()));
+            let two = scope.spawn(|| race(Arc::clone(&store), Arc::clone(&barrier), dest.clone()));
+            (one.join().unwrap(), two.join().unwrap())
+        });
+        assert!(first != second, "one export must win, one must 409");
+    }
+
+    #[test]
+    fn snapshot_chunk_after_release_is_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let key = store.bootstrap().unwrap();
+        let principal = store.authenticate(&key).unwrap();
+        store.create("reldb").unwrap();
+        let snap = store.export_begin(&principal, "reldb").unwrap();
+        assert!(store.snapshot_chunk(&principal, &snap.id, 0, 64).is_ok());
+        store.snapshot_release(&principal, &snap.id).unwrap();
+        assert_eq!(
+            store
+                .snapshot_chunk(&principal, &snap.id, 0, 64)
+                .unwrap_err()
+                .code,
+            "snapshot_not_found"
+        );
     }
 
     #[test]

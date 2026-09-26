@@ -415,9 +415,9 @@ async fn clone_route(
     .await
 }
 
-/// Owner/authorized-app snapshot export. The body may name an output file
-/// under the server data dir; without "file" the snapshot is returned in the
-/// response body (base64). Streams are bounded by MAX_EXPORT.
+/// Owner/authorized-app snapshot export. The snapshot is returned in the
+/// response body (base64); the server never writes caller-named paths.
+/// Streams are bounded by MAX_EXPORT.
 async fn export(
     State(store): State<Arc<Store>>,
     Path(name): Path<String>,

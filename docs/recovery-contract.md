@@ -84,6 +84,32 @@ Expectations:
   registry row carries `deleted_at`. Restoring a tombstoned name onto a host
   where the tombstone still holds must fail with `database_exists`.
 
+### Producer durability, permissions, and run records
+
+The canonical producer (`scripts/micro2-backup.sh`) holds this contract;
+any replacement producer must hold it too:
+
+- **Permissions.** The backup root is mode `0700`, and every published set
+  is `go-rwx` (files and directories): sets contain full database bytes plus
+  registry credential hashes, so group/other must never read them.
+- **Crash durability.** Publication is a single same-directory rename of a
+  fully validated private stage. Before the rename the producer fsyncs every
+  staged file and the staging directory; after the rename it fsyncs the
+  backup-root directory. A crash therefore surfaces either the previous set
+  or the complete new set, never a published set with unwritten bytes — and
+  `attempts.jsonl` (fsynced per append) records which runs completed.
+- **Run records.** Each `attempts.jsonl` line carries `outcome` (`ok`, or
+  `error` when the run died before setting one) and the `step` reached:
+  `init`, `lock`, `list`, `export:<db>`, `registry`, `manifest`, `validate`,
+  `fsync`, `publish`, `prune`. A line with `outcome: ok` means the named set
+  published; any other line means nothing published.
+- **Retention.** After publication the producer prunes to `--keep` newest
+  versioned sets (default 3). Only `YYYYMMDDTHHMMSSZ` directories match;
+  staging dirs, `.backup.lock`, and `attempts.jsonl` are never pruned.
+- **Empty-listing refusal.** A run that lists zero live databases exits
+  nonzero and publishes nothing: an empty listing is treated as a gateway
+  fault, not as an empty backup.
+
 ## 3. Empty-target restoration (ordered steps)
 
 Restore always targets an **empty data directory** (fresh `dg init` or a

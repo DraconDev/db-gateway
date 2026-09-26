@@ -75,6 +75,7 @@ finish() {
   if [ -d "$BACKUP_ROOT" ]; then
     python3 - "$BACKUP_ROOT/attempts.jsonl" "$TS" "$STARTED_AT" "$COMPLETED_AT" "$OUTCOME" "$SET" "$DB_COUNT" "$STEP" <<'PY' || true
 import json
+import os
 import sys
 
 path, ts, started, completed, outcome, set_name, db_count, step = sys.argv[1:]
@@ -89,6 +90,8 @@ record = {
 }
 with open(path, "a", encoding="utf-8") as stream:
     stream.write(json.dumps(record, sort_keys=True) + "\n")
+    stream.flush()
+    os.fsync(stream.fileno())
 PY
   fi
   if [ "$PUBLISHED" -eq 0 ] && [ -n "$STAGE" ]; then
@@ -302,6 +305,26 @@ check_sqlite(registry_path)
 PY
 
 rm -f -- "$DB_LIST" "$STAGE/.databases" "$ENTRIES"
+# Durability before publication: fsync every staged file and the staging
+# directory itself, so a crash after rename cannot surface a published set
+# with unwritten bytes. The backup-root directory is fsynced after the
+# rename so the new set name is durable too.
+STEP="fsync"
+python3 - "$STAGE" <<'PY'
+import os
+import sys
+
+root = sys.argv[1]
+for dirpath, _dirnames, filenames in os.walk(root):
+    for name in filenames:
+        with open(os.path.join(dirpath, name), "rb") as stream:
+            os.fsync(stream.fileno())
+fd = os.open(root, os.O_RDONLY)
+try:
+    os.fsync(fd)
+finally:
+    os.close(fd)
+PY
 STEP="publish"
 DEST="$BACKUP_ROOT/$TS"
 chmod -R go-rwx "$STAGE"
@@ -315,6 +338,16 @@ mv -T "$STAGE" "$DEST"
 PUBLISHED=1
 SET="$TS"
 chmod 700 "$DEST"
+python3 - "$BACKUP_ROOT" <<'PY'
+import os
+import sys
+
+fd = os.open(sys.argv[1], os.O_RDONLY)
+try:
+    os.fsync(fd)
+finally:
+    os.close(fd)
+PY
 
 # Prune to KEEP latest versioned sets (staging dirs never match the glob).
 STEP="prune"

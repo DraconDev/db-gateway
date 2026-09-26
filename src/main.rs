@@ -29,13 +29,22 @@ fn publish_export_file(temp: tempfile::NamedTempFile, path: &Path) -> dg::error:
         .map_err(|_| dg::error::Error::internal())?;
     // A same-directory hard link is an atomic no-clobber publication on the
     // supported Unix deployment. The temporary link is cleaned on return.
+    // The parent directory fsync makes the new name itself durable: without
+    // it a crash can lose the published file even though its bytes are safe.
     std::fs::hard_link(temp.path(), path).map_err(|error| {
         if error.kind() == std::io::ErrorKind::AlreadyExists {
             dg::error::Error::new(409, "file_exists", "destination file already exists")
         } else {
             dg::error::Error::internal()
         }
-    })
+    })?;
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    std::fs::File::open(parent)
+        .and_then(|dir| dir.sync_all())
+        .map_err(|_| dg::error::Error::internal())
 }
 
 fn api_failed(response: &Value) -> bool {
