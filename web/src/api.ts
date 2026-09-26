@@ -13,11 +13,16 @@ export interface CloneResponse { source: string; destination: string }
 export interface DeleteResponse { deleted: boolean; purge_after_seconds: number }
 export interface ExportResponse { database: string; size: number; sha256: string; data_base64: string }
 export interface ImportResponse { imported: string; from?: string }
+export interface DatabaseUsage {
+  rows_read: number;
+  rows_written: number;
+}
 export interface StatusResponse {
   version: string;
   uptime_secs: number;
   admission: { acquire_timeout_ms: number; read_permits: number; write_permits: number };
   requests: { total: number; capacity_exceeded: number; query_deadline_exceeded: number; internal_error: number };
+  databases?: Record<string, DatabaseUsage>;
 }
 export interface BackupResponse {
   backup_root: string | null;
@@ -177,8 +182,12 @@ function parse<T>(value: unknown, predicate: (v: unknown) => boolean, code = 'in
   return value as T;
 }
 
+function isDatabaseUsage(value: unknown): value is DatabaseUsage {
+  return isObject(value) && isNonNegativeInteger(value.rows_read) && isNonNegativeInteger(value.rows_written);
+}
 function isStatusResponse(value: unknown): value is StatusResponse {
   if (!isObject(value) || typeof value.version !== 'string' || !isNonNegativeInteger(value.uptime_secs) || !isObject(value.admission) || !isObject(value.requests)) return false;
+  if (value.databases !== undefined && (!isObject(value.databases) || !Object.values(value.databases).every(isDatabaseUsage))) return false;
   return isNonNegativeInteger(value.admission.acquire_timeout_ms)
     && isNonNegativeInteger(value.admission.read_permits)
     && isNonNegativeInteger(value.admission.write_permits)

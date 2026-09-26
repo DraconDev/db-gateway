@@ -48,6 +48,25 @@ test('gateway adapter rejects malformed nested GET responses and malformed error
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test('gateway adapter passes per-database usage through and rejects malformed usage', async () => {
+  const originalFetch = globalThis.fetch;
+  const base = {
+    version: '1', uptime_secs: 0,
+    admission: { acquire_timeout_ms: 1, read_permits: 1, write_permits: 1 },
+    requests: { total: 0, capacity_exceeded: 0, query_deadline_exceeded: 0, internal_error: 0 },
+  };
+  try {
+    const api = new GatewayApi('http://127.0.0.1:8787', key);
+    globalThis.fetch = async () => responseJson({ ...base, databases: { appdb: { rows_read: 5, rows_written: 3 } } });
+    const status = await api.status();
+    assert.deepEqual(status.databases, { appdb: { rows_read: 5, rows_written: 3 } });
+    globalThis.fetch = async () => responseJson(base);
+    assert.equal((await api.status()).databases, undefined);
+    globalThis.fetch = async () => responseJson({ ...base, databases: { appdb: { rows_read: -1, rows_written: 0 } } });
+    await assert.rejects(api.status(), (error) => error instanceof ApiError && error.code === 'invalid_gateway_response');
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('gateway adapter redacts owner credentials from errors and successful payloads', async () => {
   const originalFetch = globalThis.fetch;
   try {
