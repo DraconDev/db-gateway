@@ -161,6 +161,9 @@ pub struct Store {
 pub const MAX_TRANSFER_SIZE: u64 = 128 * 1024 * 1024;
 pub const MAX_CHUNK: usize = 1024 * 1024;
 pub const MAX_TRANSFERS: usize = 8;
+/// Wall-clock bound for one `info` call's COUNT(*) scans. Exceeding it
+/// surfaces as query_deadline_exceeded, like statement execution.
+const INFO_DEADLINE: Duration = Duration::from_secs(5);
 pub const TRANSFER_TTL: Duration = Duration::from_secs(15 * 60);
 
 #[derive(Clone)]
@@ -737,7 +740,13 @@ impl Store {
     /// Owner-visible database facts: size, user tables with row counts,
     /// creation time, and tombstone state. Tombstoned names report their
     /// retention deadline instead of table detail; unknown names are 404.
+    /// Row counts are exact COUNT(*) scans bounded by a deadline so one
+    /// `info` call cannot hold the read lane open-ended.
     pub fn info(&self, name: &str) -> Result<serde_json::Value> {
+        self.info_with_deadline(name, Instant::now() + INFO_DEADLINE)
+    }
+
+    fn info_with_deadline(&self, name: &str, deadline: Instant) -> Result<serde_json::Value> {
         validate_name(name)?;
         let row: Option<(Option<i64>, Option<i64>, Option<i64>)> = self
             .meta()?
@@ -766,6 +775,7 @@ impl Store {
         }
         let db = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
             .map_err(|_| Error::internal())?;
+        db.progress_handler(1000, Some(move || Instant::now() >= deadline))?;
         let tables: Vec<String> = db
             .prepare("SELECT name FROM sqlite_master WHERE type='table' AND lower(substr(name,1,4))!='_dg_' ORDER BY name")?
             .query_map([], |r| r.get(0))?
@@ -2260,6 +2270,28 @@ mod tests {
         .unwrap();
         let error = migrate_metadata(&mut conn, dir.path()).unwrap_err();
         assert_eq!(error.code, "metadata_corrupt");
+    }
+
+    #[test]
+    fn info_counts_are_exact_and_bounded_by_a_deadline() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store.create("big").unwrap();
+        let path = store.path("big").unwrap();
+        let mut conn = Connection::open(&path).unwrap();
+        conn.execute_batch("CREATE TABLE t (a INTEGER)").unwrap();
+        {
+            let tx = conn.transaction().unwrap();
+            for i in 0..5000 {
+                tx.execute("INSERT INTO t VALUES (?)", [i]).unwrap();
+            }
+            tx.commit().unwrap();
+        }
+        drop(conn);
+        let info = store.info("big").unwrap();
+        assert_eq!(info["tables"], serde_json::json!([{"name": "t", "rows": 5000}]));
+        let expired = store.info_with_deadline("big", Instant::now() - Duration::from_secs(1));
+        assert_eq!(expired.unwrap_err().code, "query_deadline_exceeded");
     }
 
     #[test]
