@@ -273,6 +273,8 @@ async fn run_console(
         ));
     }
     let key_path = key_path.ok_or(Error::new(400, "missing_credential", "--key-file required"))?;
+    let console_host =
+        std::env::var("DG_CONSOLE_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let entry = console_entry(entry)?;
     let mut command = tokio::process::Command::new("node");
     command
@@ -282,7 +284,7 @@ async fn run_console(
         .env("DG_CONSOLE_PORT", port.to_string())
         .stdin(std::process::Stdio::null());
     if std::env::var_os("DG_CONSOLE_HOST").is_none() {
-        command.env("DG_CONSOLE_HOST", "127.0.0.1");
+        command.env("DG_CONSOLE_HOST", &console_host);
     }
     let mut child = command.spawn().map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
@@ -296,8 +298,9 @@ async fn run_console(
         }
     })?;
     // The companion only binds after loading the credential and starting
-    // any managed tunnel, so an accepted connection means ready.
-    let address = format!("127.0.0.1:{port}");
+    // any managed tunnel, so an accepted connection means ready. Probe the
+    // configured host: a fixed 127.0.0.1 never reaches a ::1 listener.
+    let address = format!("{console_host}:{port}");
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
         if tokio::net::TcpStream::connect(&address).await.is_ok() {
@@ -419,9 +422,129 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 println!("{}", json!({"owner_key":key}));
                 return Ok(());
             }
-            Command::List => (Method::GET, "/v1/databases".into(), None, None),
+            Command::List => {
+                // Interactive terminals get an aligned table; piped output
+                // and --json stay machine-readable JSON.
+                if !cli.json && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+                    let key = dg::client::read_key(key_path.as_deref().ok_or(Application(
+                        Error::new(400, "missing_credential", "--key-file required"),
+                    ))?)
+                    .map_err(Application)?;
+                    let result = dg::client::request(
+                        &cli.server,
+                        &key,
+                        Method::GET,
+                        "/v1/databases",
+                        None,
+                        None,
+                    )
+                    .await
+                    .map_err(Application)?;
+                    if api_failed(&result) {
+                        dg::shell::render(&result, false, &mut std::io::stdout())
+                            .map_err(Application)?;
+                        return Err(Application(api_error()));
+                    }
+                    let rows: Vec<Value> = result["databases"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|name| json!([name]))
+                        .collect();
+                    dg::shell::render(
+                        &json!({"columns":["name"],"rows":rows}),
+                        false,
+                        &mut std::io::stdout(),
+                    )
+                    .map_err(Application)?;
+                    return Ok(());
+                }
+                (Method::GET, "/v1/databases".into(), None, None)
+            }
             Command::Info { name } => {
                 dg::store::validate_name(&name).map_err(Application)?;
+                if !cli.json && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+                    let key = dg::client::read_key(key_path.as_deref().ok_or(Application(
+                        Error::new(400, "missing_credential", "--key-file required"),
+                    ))?)
+                    .map_err(Application)?;
+                    let info = dg::client::request(
+                        &cli.server,
+                        &key,
+                        Method::GET,
+                        &format!("/v1/databases/{name}"),
+                        None,
+                        None,
+                    )
+                    .await
+                    .map_err(Application)?;
+                    if api_failed(&info) {
+                        dg::shell::render(&info, false, &mut std::io::stdout())
+                            .map_err(Application)?;
+                        return Err(Application(api_error()));
+                    }
+                    // Usage is auxiliary: a failed status fetch degrades the
+                    // two usage cells instead of failing the command. Absent
+                    // from a good status means true zero activity.
+                    let (rows_read, rows_written) = dg::client::request(
+                        &cli.server,
+                        &key,
+                        Method::GET,
+                        "/v1/status",
+                        None,
+                        None,
+                    )
+                    .await
+                    .ok()
+                    .filter(|status| !api_failed(status))
+                    .map(|status| {
+                        let use_ = &status["databases"][&name];
+                        (
+                            use_["rows_read"].as_u64().unwrap_or(0).to_string(),
+                            use_["rows_written"].as_u64().unwrap_or(0).to_string(),
+                        )
+                    })
+                    .unwrap_or_else(|| {
+                        ("unavailable".to_string(), "unavailable".to_string())
+                    });
+                    let mut rows = vec![
+                        json!(["name", info["name"]]),
+                        json!(["tombstoned", info["tombstoned"]]),
+                        json!(["size_bytes", info["size_bytes"]]),
+                        json!(["rows_read", rows_read]),
+                        json!(["rows_written", rows_written]),
+                    ];
+                    if info["tombstoned"].as_bool() == Some(true) {
+                        rows.push(json!(["purge_after", info["purge_after"]]));
+                    } else {
+                        rows.push(json!(["created_at", info["created_at"]]));
+                        let tables = info["tables"]
+                            .as_array()
+                            .map(|tables| {
+                                tables
+                                    .iter()
+                                    .map(|t| {
+                                        format!(
+                                            "{} ({} rows)",
+                                            t["name"].as_str().unwrap_or("?"),
+                                            t["rows"].as_u64().unwrap_or(0)
+                                        )
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            })
+                            .unwrap_or_default();
+                        rows.push(json!(["tables", tables]));
+                    }
+                    dg::shell::render(
+                        &json!({"columns":["property","value"],"rows":rows}),
+                        false,
+                        &mut std::io::stdout(),
+                    )
+                    .map_err(Application)?;
+                    return Ok(());
+                }
                 (Method::GET, format!("/v1/databases/{name}"), None, None)
             }
             Command::Create { name } => {

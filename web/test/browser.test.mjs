@@ -209,8 +209,8 @@ test('real browser surfaces form errors on the submitting tab', async () => {
   await gotoView(page, '#/databases');
   await page.locator('#new-db').fill('browserdb');
   await page.getByRole('button', { name: 'Create database' }).click();
-  await page.waitForFunction(() => (document.querySelector('#create-form .form-status')?.textContent ?? '').length > 0, undefined, { timeout: 10_000 });
-  assert.equal(await page.locator('#create-form').getAttribute('aria-busy'), 'false');
+  await page.waitForFunction(() => document.querySelector('#create-form')?.getAttribute('aria-busy') === 'false', undefined, { timeout: 10_000 });
+  assert.match(await page.locator('#create-form .form-status').innerText(), /./);
 });
 
 test('real browser ignores stale detail responses after fast navigation', async () => {

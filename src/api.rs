@@ -144,7 +144,7 @@ pub const STALE_AFTER_SECS: u64 = 300;
 /// request-pressure counters. The machine-readable counterpart to the
 /// human `dg status`; AI operators poll this, not log files.
 async fn status(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<Json<Value>> {
-    work(store, headers, |s, p| {
+    work_read(store, headers, |s, p| {
         p.owner()?;
         let m = s.metrics.snapshot();
         Ok(Json(json!({
@@ -180,7 +180,7 @@ async fn status(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<J
 /// by timestamp, not a restore drill; restore readiness stays a separate
 /// rehearsal (recovery_rehearsal).
 async fn backups(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<Json<Value>> {
-    work(store, headers, |s, p| {
+    work_read(store, headers, |s, p| {
         p.owner()?;
         let live: Vec<String> = s.list(&p)?;
         let now = std::time::SystemTime::now();
@@ -322,7 +322,7 @@ async fn issue(
 }
 /// Owner-only credential inventory. Hashes are never serialized.
 async fn list_keys(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<Json<Value>> {
-    work(store, headers, |s, p| {
+    work_read(store, headers, |s, p| {
         p.owner()?;
         Ok(Json(s.list_keys()?))
     })
@@ -562,7 +562,7 @@ async fn upload_status(
     Path(id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>> {
-    work(store, headers, move |s, p| {
+    work_read(store, headers, move |s, p| {
         p.owner()?;
         let received = s.upload_status(&id)?;
         Ok(Json(
