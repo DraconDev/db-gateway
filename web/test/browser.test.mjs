@@ -204,6 +204,43 @@ test('real browser remains responsive and exposes accessible labels at narrow wi
   assert.equal(metrics.busyMain, 'false');
 });
 
+test('real browser surfaces form errors on the submitting tab', async () => {
+  const { page } = session;
+  await gotoView(page, '#/databases');
+  await page.locator('#new-db').fill('browserdb');
+  await page.getByRole('button', { name: 'Create database' }).click();
+  await page.waitForFunction(() => (document.querySelector('#create-form .form-status')?.textContent ?? '').length > 0, undefined, { timeout: 10_000 });
+  assert.equal(await page.locator('#create-form').getAttribute('aria-busy'), 'false');
+});
+
+test('real browser ignores stale detail responses after fast navigation', async () => {
+  const { page } = session;
+  let delayed = false;
+  await page.route('**/api/databases/browserclone', async (route) => {
+    if (!delayed) { delayed = true; await new Promise((resolve) => setTimeout(resolve, 1500)); }
+    await route.continue().catch(() => {});
+  });
+  try {
+    await page.evaluate(() => { window.location.hash = '#/databases/browserclone'; });
+    await page.evaluate(() => { window.location.hash = '#/databases/browserimported'; });
+    await page.locator('#detail-name').getByText('browserimported', { exact: true }).waitFor({ timeout: 10_000 });
+    await page.waitForTimeout(2000);
+    assert.equal(await page.locator('#detail-name').innerText(), 'browserimported');
+  } finally {
+    await page.unroute('**/api/databases/browserclone');
+  }
+});
+
+test('real browser pages the grid with stable row ordering', async () => {
+  const { page } = session;
+  await gotoView(page, '#/databases/browserdb/data');
+  await page.locator('#grid-table').selectOption('items');
+  await page.locator('#grid-result').getByText('one', { exact: false }).waitFor({ timeout: 10_000 });
+  const grid = session.requests.filter((request) => request.url.endsWith('/api/databases/browserdb/query') && request.method === 'POST' && (request.body ?? '').includes('OFFSET'));
+  assert.equal(grid.length > 0, true);
+  assert.match(grid[grid.length - 1].body, /ORDER BY rowid/);
+});
+
 test('real browser never receives or stores the owner credential', async () => {
   const { page, context } = session;
   const html = await page.content();

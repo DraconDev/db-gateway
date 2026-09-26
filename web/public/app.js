@@ -12,6 +12,8 @@ let detailCache = null;
 let exportTransfer = null;
 let importTransfer = null;
 let gridState = { table: null, offset: 0, hasMore: false };
+let gridUnordered = new Set();
+let detailGeneration = 0;
 const pending = new WeakMap();
 
 async function request(path, { method = 'GET', body, headers = {} } = {}) {
@@ -46,11 +48,19 @@ async function runForm(form, message, work) {
   if (pending.get(form)) return;
   pending.set(form, true);
   setFormBusy(form, true, message);
+  let failed = null;
   try { await work(); }
-  catch (error) { showError('result', error); }
-  finally { pending.set(form, false); setFormBusy(form, false); }
+  catch (error) { failed = error; }
+  pending.set(form, false);
+  if (failed) {
+    // Errors stay on the submitting form's own status line, which is on
+    // the same tab the user is looking at — never a hidden panel.
+    form.setAttribute('aria-busy', 'false');
+    form.querySelectorAll('button, input, select, textarea').forEach((control) => { control.disabled = false; });
+    const status = form.querySelector('.form-status');
+    if (status) status.textContent = failed.message || 'Request failed';
+  } else setFormBusy(form, false);
 }
-function show(value) { $('result').textContent = JSON.stringify(value, null, 2); }
 function showError(target, error) {
   const element = $(target);
   if (element) element.textContent = JSON.stringify({ error: { code: error.code || 'console_error', status: error.status, message: error.message } }, null, 2);
@@ -103,7 +113,8 @@ function renderBackups(backups) {
   $('backups').textContent = JSON.stringify(backups ?? { state: 'unknown' }, null, 2);
 }
 function renderDbTable() {
-  const rows = enrichedDatabases.map((db) => `<tr><td><button type="button" class="db" data-name="${esc(db.name)}">${esc(db.name)}</button></td><td>Database</td><td>${esc(db.rows_read ?? 0)}</td><td>${esc(db.rows_written ?? 0)}</td><td>${esc(fmtBytes(db.size_bytes))}</td><td>${esc(db.backup?.state ?? 'unknown')}</td><td><span class="status-pill">${db.tombstoned ? 'tombstoned' : 'Active'}</span></td><td><button type="button" data-data="${esc(db.name)}">Data</button></td></tr>`).join('');
+  const cell = (value) => (value === null || value === undefined ? '<span class="muted">unavailable</span>' : esc(value));
+  const rows = enrichedDatabases.map((db) => `<tr><td><button type="button" class="db" data-name="${esc(db.name)}">${esc(db.name)}</button></td><td>Database</td><td>${cell(db.rows_read)}</td><td>${cell(db.rows_written)}</td><td>${db.size_bytes === null || db.size_bytes === undefined ? '<span class="muted">unavailable</span>' : esc(fmtBytes(db.size_bytes))}</td><td>${esc(db.backup?.state ?? 'unknown')}</td><td><span class="status-pill">${db.unknown ? 'Unknown' : db.tombstoned ? 'tombstoned' : 'Active'}</span></td><td><button type="button" data-data="${esc(db.name)}">Data</button></td></tr>`).join('');
   $('db-rows').innerHTML = rows || `<tr><td colspan="8" class="muted">No databases reported.</td></tr>`;
   document.querySelectorAll('.db').forEach((button) => button.addEventListener('click', () => navigate('detail', button.dataset.name, 'overview')));
   document.querySelectorAll('[data-data]').forEach((button) => button.addEventListener('click', () => navigate('detail', button.dataset.data, 'data')));
@@ -120,7 +131,8 @@ function renderDetail(detail, tab) {
   const tables = Array.isArray(detail.tables) ? detail.tables : [];
   const schemaRows = detail.schema?.rows ?? [];
   const entry = enrichedDatabases.find((db) => db.name === detail.name);
-  $('detail-activity').innerHTML = [['Rows read', entry?.rows_read ?? 0], ['Rows written', entry?.rows_written ?? 0], ['Storage', fmtBytes(detail.size_bytes)], ['Tables', tables.length]].map(([key, value]) => `<article><b>${esc(key)}</b><strong>${esc(value)}</strong></article>`).join('');
+  const usageOr = (value) => (value === null || value === undefined ? 'unavailable' : value);
+  $('detail-activity').innerHTML = [['Rows read', usageOr(entry?.rows_read)], ['Rows written', usageOr(entry?.rows_written)], ['Storage', fmtBytes(detail.size_bytes)], ['Tables', tables.length]].map(([key, value]) => `<article><b>${esc(key)}</b><strong>${esc(value)}</strong></article>`).join('');
   $('connect-url').textContent = overviewCache?.server_url ? `${overviewCache.server_url}  (database: ${detail.name})` : 'Server URL unavailable.';
   $('detail-tables').innerHTML = `<p class="muted">${detail.size_bytes} bytes · created ${detail.created_at ?? 'unknown'}</p>${tables.length ? `<div class="table-wrap"><table><thead><tr><th>Table</th><th>Rows</th></tr></thead><tbody>${tables.map((table) => `<tr><td>${esc(table.name)}</td><td>${esc(table.rows)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">No user tables reported.</p>'}`;
   $('detail-schema').innerHTML = schemaRows.length ? schemaRows.map((row) => `<details><summary>${esc(row[0])}</summary><pre>${esc(row[1] ?? 'Schema unavailable')}</pre></details>`).join('') : '<p class="muted">No schema statements reported.</p>';
@@ -133,6 +145,7 @@ function renderDetail(detail, tab) {
   $('key-db').value = detail.name;
   $('delete-db').value = detail.name;
   renderGridTables(tables);
+  gridUnordered = new Set(schemaRows.filter((row) => /WITHOUT\s+ROWID/i.test(row[1] ?? '')).map((row) => row[0]));
   if (tab === 'data' && gridState.table) void loadGridPage();
 }
 function renderGridTables(tables) {
@@ -149,7 +162,8 @@ async function loadGridPage() {
   $('grid-page').textContent = 'Loading…';
   try {
     const quoted = `"${table.replace(/"/g, '""')}"`;
-    const value = await post(`/api/databases/${encodeURIComponent(selectedDatabase)}/query`, { sql: `SELECT * FROM ${quoted} LIMIT ${GRID_PAGE_SIZE + 1} OFFSET ${offset}`, args: [] });
+    const order = gridUnordered.has(table) ? '' : ' ORDER BY rowid';
+    const value = await post(`/api/databases/${encodeURIComponent(selectedDatabase)}/query`, { sql: `SELECT * FROM ${quoted}${order} LIMIT ${GRID_PAGE_SIZE + 1} OFFSET ${offset}`, args: [] });
     const rows = value.rows ?? [];
     gridState.hasMore = rows.length > GRID_PAGE_SIZE;
     renderTable('grid-result', value.columns ?? [], rows.slice(0, GRID_PAGE_SIZE), null);
@@ -162,15 +176,23 @@ async function loadGridPage() {
 }
 async function selectDatabase(name, tab) {
   const detail = $('database-detail');
+  const generation = ++detailGeneration;
   selectedDatabase = name;
   detailTab = tab;
   gridState = { table: null, offset: 0, hasMore: false };
   detail.setAttribute('aria-busy', 'true');
   $('detail-state').hidden = false; $('detail-state').className = 'state state-loading'; $('detail-state').textContent = `Loading ${name}…`;
   $('detail-content').hidden = true;
-  try { renderDetail(await get(`/api/databases/${encodeURIComponent(name)}`), tab); }
-  catch (error) { $('detail-state').className = 'state state-error'; $('detail-state').textContent = error.message; }
-  finally { detail.setAttribute('aria-busy', 'false'); }
+  try {
+    const data = await get(`/api/databases/${encodeURIComponent(name)}`);
+    if (generation !== detailGeneration) return;
+    renderDetail(data, tab);
+  }
+  catch (error) {
+    if (generation !== detailGeneration) return;
+    $('detail-state').className = 'state state-error'; $('detail-state').textContent = error.message;
+  }
+  finally { if (generation === detailGeneration) detail.setAttribute('aria-busy', 'false'); }
 }
 function setOptions(id, names) { $(id).innerHTML = names.map((name) => `<option value="${esc(name)}">${esc(name)}</option>`).join(''); }
 function renderUsage(overview) {
@@ -224,7 +246,7 @@ $('tunnel-stop').addEventListener('click', async (event) => { const button = eve
 $('query-form').addEventListener('submit', (event) => { event.preventDefault(); const form = event.currentTarget; runForm(form, 'Running query…', async () => { const headers = $('idempotency-key').value ? { 'idempotency-key': $('idempotency-key').value } : {}; const value = await post(`/api/databases/${encodeURIComponent($('database').value)}/query`, { sql: $('sql').value, args: [] }, headers); renderTable('result', value.columns ?? [], value.rows ?? [], value.rows_affected); }); });
 $('batch-form').addEventListener('submit', (event) => { event.preventDefault(); const form = event.currentTarget; runForm(form, 'Running atomic batch…', async () => { const payload = JSON.parse($('batch-json').value); const statements = Array.isArray(payload) ? payload : payload.statements; const atomic = Array.isArray(payload) ? true : payload.atomic; if (!Array.isArray(statements) || atomic !== true) throw new Error('Batch JSON must contain atomic=true and a statements array.'); const headers = $('batch-idempotency-key').value ? { 'idempotency-key': $('batch-idempotency-key').value } : {}; const value = await post(`/api/databases/${encodeURIComponent($('batch-database').value)}/batch`, { atomic: true, statements }, headers); const first = value.results?.[0]; renderTable('batch-result', first?.columns ?? [], first?.rows ?? [], first?.rows_affected); }); });
 $('create-form').addEventListener('submit', (event) => { event.preventDefault(); const form = event.currentTarget; runForm(form, 'Creating database…', async () => { await post('/api/databases', { name: $('new-db').value }); await refresh(); }); });
-$('delete-form').addEventListener('submit', (event) => { event.preventDefault(); const form = event.currentTarget; const name = $('delete-db').value; if (name !== $('confirm-db').value) { showError('result-actions', { code: 'confirmation_required', message: 'Type the exact database name to confirm deletion.' }); return; } if (!window.confirm(`Tombstone ${name}? This prevents queries until retention purge.`)) { setText('lifecycle-result', 'Deletion cancelled.'); return; } runForm(form, 'Deleting database…', async () => { show(await request(`/api/databases/${encodeURIComponent(name)}`, { method: 'DELETE' })); await refresh(); }); });
+$('delete-form').addEventListener('submit', (event) => { event.preventDefault(); const form = event.currentTarget; const name = $('delete-db').value; if (name !== $('confirm-db').value) { showError('result-actions', { code: 'confirmation_required', message: 'Type the exact database name to confirm deletion.' }); return; } if (!window.confirm(`Tombstone ${name}? This prevents queries until retention purge.`)) { setText('lifecycle-result', 'Deletion cancelled.'); return; } runForm(form, 'Deleting database…', async () => { $('result-actions').textContent = JSON.stringify(await request(`/api/databases/${encodeURIComponent(name)}`, { method: 'DELETE' }), null, 2); await refresh(); }); });
 $('key-form').addEventListener('submit', (event) => { event.preventDefault(); const form = event.currentTarget; runForm(form, 'Issuing one-time key…', async () => { const value = await post('/api/keys', { name: $('key-name').value, role: $('key-role').value, databases: [$('key-db').value] }); $('key-result').textContent = JSON.stringify(value, null, 2); await refresh(); }); });
 $('clone-form').addEventListener('submit', (event) => { event.preventDefault(); const form = event.currentTarget; const source = $('clone-source').value; const destination = $('clone-destination').value; if (databaseNames.includes(destination)) { showError('lifecycle-result', { code: 'database_exists', message: 'Choose a new destination; existing databases are never overwritten.' }); return; } if (!window.confirm(`Clone ${source} to new database ${destination}?`)) { setText('lifecycle-result', 'Clone cancelled.'); return; } runForm(form, 'Cloning database…', async () => { $('lifecycle-result').textContent = JSON.stringify(await post(`/api/databases/${encodeURIComponent(source)}/clone`, { destination }), null, 2); await refresh(); }); });
 $('export-form').addEventListener('submit', (event) => { event.preventDefault(); void runExport(); });

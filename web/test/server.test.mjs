@@ -111,6 +111,68 @@ test('redacts upstream errors and extra fields at the companion response boundar
   }
 });
 
+test('companion degrades list, overview, and detail joins when sections fail', async () => {
+  const gateway = createHttpServer((request, response) => {
+    response.setHeader('content-type', 'application/json');
+    const fail = () => { response.statusCode = 500; response.end(JSON.stringify({ error: { code: 'boom', message: 'fake failure' } })); };
+    if (request.url === '/v1/databases' && request.method === 'GET') {
+      response.end(JSON.stringify({ databases: ['gooddb', 'baddb'] }));
+    } else if (request.url === '/v1/databases/gooddb' && request.method === 'GET') {
+      response.end(JSON.stringify({ name: 'gooddb', tombstoned: false, size_bytes: 512, created_at: 3, tables: [] }));
+    } else if (request.url === '/v1/databases/baddb' && request.method === 'GET') {
+      fail();
+    } else if (request.url === '/v1/status' || request.url === '/v1/keys') {
+      fail();
+    } else if (request.url === '/v1/backups') {
+      response.end(JSON.stringify({ backup_root: null, stale_after_secs: 300, sets: [], per_database: { gooddb: { state: 'fresh', newest_set: 's', age_secs: 1 } } }));
+    } else if (request.url === '/health/live') {
+      response.end(JSON.stringify({ status: 'ok' }));
+    } else if (request.url === '/v1/databases/gooddb/query' && request.method === 'POST') {
+      fail();
+    } else {
+      response.statusCode = 404;
+      response.end(JSON.stringify({ error: { code: 'not_found', message: 'no such fake route' } }));
+    }
+  });
+  await new Promise((resolve, reject) => { gateway.once('error', reject); gateway.listen(0, '127.0.0.1', resolve); });
+  const gatewayAddress = gateway.address();
+  assert.equal(typeof gatewayAddress, 'object');
+  try {
+    await withServer(async (base) => {
+      const page = await fetch(base + '/');
+      const cookie = (page.headers.get('set-cookie') ?? '').split(';')[0];
+      const list = await fetch(base + '/api/databases', { headers: { cookie } });
+      assert.equal(list.status, 200);
+      assert.deepEqual(await list.json(), [
+        {
+          name: 'gooddb', size_bytes: 512, rows_read: null, rows_written: null,
+          backup: { state: 'fresh', newest_set: 's', age_secs: 1 },
+          tombstoned: false, created_at: 3, tables: [],
+        },
+        {
+          name: 'baddb', unknown: true, size_bytes: null, rows_read: null, rows_written: null,
+          backup: { state: 'unknown', newest_set: null, age_secs: null },
+          tombstoned: false, tables: [],
+        },
+      ]);
+      const overview = await fetch(base + '/api/overview', { headers: { cookie } });
+      assert.equal(overview.status, 200);
+      const body = await overview.json();
+      assert.equal(body.gateway.available, true);
+      assert.equal(body.gateway.version, undefined);
+      assert.deepEqual(body.databases, ['gooddb', 'baddb']);
+      assert.deepEqual(body.keys, []);
+      const detail = await fetch(base + '/api/databases/gooddb', { headers: { cookie } });
+      assert.equal(detail.status, 200);
+      assert.deepEqual(await detail.json(), {
+        name: 'gooddb', tombstoned: false, size_bytes: 512, created_at: 3, tables: [], schema: null,
+      });
+    }, { gatewayUrl: `http://127.0.0.1:${gatewayAddress.port}` });
+  } finally {
+    await new Promise((resolve, reject) => gateway.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test('companion joins list, info, usage, and freshness into GET /api/databases', async () => {
   const gateway = createHttpServer((request, response) => {
     response.setHeader('content-type', 'application/json');

@@ -100,9 +100,17 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+let cachedPattern: { credential: string; pattern: RegExp } | undefined;
+function redactPattern(credential: string): RegExp {
+  if (!cachedPattern || cachedPattern.credential !== credential) {
+    cachedPattern = { credential, pattern: new RegExp(escapeRegExp(credential), 'gi') };
+  }
+  return cachedPattern.pattern;
+}
+
 function redactText(value: string, credential: string): string {
   if (!credential) return value;
-  return value.replace(new RegExp(escapeRegExp(credential), 'gi'), REDACTED);
+  return value.replace(redactPattern(credential), REDACTED);
 }
 
 /** Remove the owner credential from every value that can cross the API boundary. */

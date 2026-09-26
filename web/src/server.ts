@@ -145,7 +145,15 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
         json(res, 200, await tunnel.stop()); return;
       }
       if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'overview') {
-        const [health, status, backups, names, keys] = await Promise.all([api.health(), api.status(), api.backups(), api.list(), api.keys()]);
+        // Degraded joins: one failing section must not blank the whole
+        // console. Each fallback keeps the response shape so the UI's
+        // existing `?? 'unavailable'` rendering stays honest.
+        const [healthR, statusR, backupsR, namesR, keysR] = await Promise.allSettled([api.health(), api.status(), api.backups(), api.list(), api.keys()]);
+        const health = healthR.status === 'fulfilled' ? healthR.value : { status: 'unavailable' };
+        const status: Record<string, unknown> = statusR.status === 'fulfilled' ? statusR.value as unknown as Record<string, unknown> : {};
+        const backups = backupsR.status === 'fulfilled' ? backupsR.value : { backup_root: null, stale_after_secs: 0, sets: [], per_database: {} };
+        const names = namesR.status === 'fulfilled' ? namesR.value : [];
+        const keys = keysR.status === 'fulfilled' ? keysR.value : [];
         const value = {
           observed_at: new Date().toISOString(),
           server_url: config.gatewayUrl,
@@ -167,8 +175,10 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
         json(res, 200, value); return;
       }
       if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'databases' && parts[2]) {
-        const [info, schema] = await Promise.all([api.info(parts[2]), api.schema(parts[2])]);
-        json(res, 200, { ...info, schema }); return;
+        const [infoR, schemaR] = await Promise.allSettled([api.info(parts[2]), api.schema(parts[2])]);
+        if (infoR.status !== 'fulfilled') throw infoR.reason;
+        // Schema is advisory; the detail view renders the rest without it.
+        json(res, 200, { ...infoR.value, schema: schemaR.status === 'fulfilled' ? schemaR.value : null }); return;
       }
       if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'databases' && parts[2] && parts[3] === 'query') {
         const input = await body(req) as { sql?: unknown; args?: unknown };
@@ -178,12 +188,26 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
         json(res, 200, await api.query(parts[2], input.sql, input.args as never[], idempotencyKey ? { idempotencyKey } : {})); return;
       }
       if (req.method === 'GET' && parts.length === 2 && parts[0] === 'api' && parts[1] === 'databases') {
-        const [names, status, backups] = await Promise.all([api.list(), api.status(), api.backups()]);
-        const usage = status.databases ?? {};
-        const entries = await Promise.all(names.map(async (name) => {
-          const info = await api.info(name);
-          const fresh = backups.per_database[name] ?? { state: 'unknown', newest_set: null, age_secs: null };
-          const use = usage[name] ?? { rows_read: 0, rows_written: 0 };
+        const [namesR, statusR, backupsR] = await Promise.allSettled([api.list(), api.status(), api.backups()]);
+        // The name list is essential: an empty list on failure would lie.
+        if (namesR.status !== 'fulfilled') throw namesR.reason;
+        // Usage is only unknown when the status fetch itself failed; a
+        // database absent from a good status response has true zero
+        // activity (the gateway records an entry per executed statement).
+        const usage = statusR.status === 'fulfilled' ? statusR.value.databases ?? {} : null;
+        const perDb = backupsR.status === 'fulfilled' ? backupsR.value.per_database : {};
+        const entries = await Promise.all(namesR.value.map(async (name) => {
+          let info;
+          try {
+            info = await api.info(name);
+          } catch {
+            info = null;
+          }
+          if (!info) {
+            return { name, unknown: true as const, size_bytes: null, rows_read: null, rows_written: null, backup: { state: 'unknown' as const, newest_set: null, age_secs: null }, tombstoned: false as const, tables: [] };
+          }
+          const fresh = perDb[name] ?? { state: 'unknown' as const, newest_set: null, age_secs: null };
+          const use = usage?.[name] ?? (usage === null ? { rows_read: null, rows_written: null } : { rows_read: 0, rows_written: 0 });
           const base = { name, size_bytes: info.size_bytes, rows_read: use.rows_read, rows_written: use.rows_written, backup: fresh };
           return info.tombstoned
             ? { ...base, tombstoned: true as const, tables: [] }
