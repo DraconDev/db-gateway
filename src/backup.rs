@@ -70,17 +70,6 @@ fn sha256_file(path: &Path) -> std::io::Result<String> {
     Ok(hex::encode(hasher.finalize()))
 }
 
-fn registry_integrity_ok(path: &Path) -> bool {
-    use rusqlite::OpenFlags;
-    let Ok(conn) = rusqlite::Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-    else {
-        return false;
-    };
-    conn.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
-        .map(|integrity| integrity == "ok")
-        .unwrap_or(false)
-}
-
 /// Verify the selected set (`latest` or an exact timestamp directory).
 /// Returns the full report for any readable set, including failed ones;
 /// only unknown selectors and unreadable roots are hard errors.
@@ -144,9 +133,12 @@ pub fn verify_set(root: &Path, selector: &str) -> Result<SetReport> {
         fail("set has no manifest".to_string());
         return Ok(report);
     };
-    let manifest: serde_json::Value = std::fs::read(&manifest_path)
+    let Some(manifest_bytes) = crate::store::read_manifest_capped(&manifest_path) else {
+        fail("manifest is unreadable or exceeds the size limit".to_string());
+        return Ok(report);
+    };
+    let manifest: serde_json::Value = serde_json::from_slice(&manifest_bytes)
         .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .filter(|manifest: &serde_json::Value| manifest.is_object())
         .unwrap_or(serde_json::Value::Null);
     if manifest.is_null() {
@@ -236,8 +228,11 @@ pub fn verify_set(root: &Path, selector: &str) -> Result<SetReport> {
             return Ok(report);
         }
     }
-    if !registry_integrity_ok(&registry_path) {
-        fail("registry failed integrity_check".to_string());
+    // Same depth as member databases: integrity, foreign keys, and the
+    // protected-table screen. A registry never legitimately carries _dg_
+    // tables, so anything smuggled there fails the set like a bad member.
+    if let Err(error) = validate_import(&registry_path) {
+        fail(format!("registry: {error}"));
         return Ok(report);
     }
     report.has_registry = true;

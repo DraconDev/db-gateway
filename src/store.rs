@@ -451,7 +451,7 @@ impl Store {
             let Some(manifest_path) = manifest_path else {
                 continue;
             };
-            let Ok(bytes) = std::fs::read(manifest_path) else {
+            let Some(bytes) = read_manifest_capped(&manifest_path) else {
                 continue;
             };
             let Ok(manifest) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
@@ -1748,6 +1748,21 @@ fn scope_names(scopes: &[DatabaseScope]) -> Vec<String> {
     scopes.iter().map(|scope| scope.name.clone()).collect()
 }
 
+/// Manifests are kilobytes; anything larger is corruption or abuse, never
+/// a real set. Both the metadata pre-check and the post-read length check
+/// matter: the first avoids the allocation, the second closes the race.
+pub(crate) fn read_manifest_capped(path: &Path) -> Option<Vec<u8>> {
+    const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
+    if std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0) > MAX_MANIFEST_BYTES {
+        return None;
+    }
+    let bytes = std::fs::read(path).ok()?;
+    if bytes.len() as u64 > MAX_MANIFEST_BYTES {
+        return None;
+    }
+    Some(bytes)
+}
+
 /// Only a uniqueness violation means the name is taken; every other
 /// insert failure (I/O, corruption) keeps its underlying mapping instead
 /// of masquerading as a duplicate name.
@@ -2317,6 +2332,24 @@ mod tests {
             .execute("INSERT INTO no_such_table VALUES (1)", [])
             .unwrap_err();
         assert_eq!(map_issue_error(error).code, "invalid_sql");
+    }
+
+    #[test]
+    fn snapshot_chunk_rejects_zero_length() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let key = store.bootstrap().unwrap();
+        let principal = store.authenticate(&key).unwrap();
+        store.create("snapdb").unwrap();
+        let snap = store.export_begin(&principal, "snapdb").unwrap();
+        assert_eq!(
+            store
+                .snapshot_chunk(&principal, &snap.id, 0, 0)
+                .unwrap_err()
+                .code,
+            "invalid_request"
+        );
+        assert!(store.snapshot_chunk(&principal, &snap.id, 0, 64).is_ok());
     }
 
     #[test]

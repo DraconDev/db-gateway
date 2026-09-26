@@ -129,11 +129,30 @@ pub fn validate_import(path: &Path) -> Result<()> {
 const REPLAY_DDL: &str = "create table if not exists _dg_replay (principal text not null, key text not null, hash text not null, result text not null, created integer not null, primary key(principal,key))";
 
 fn normalize(sql: &str) -> String {
-    // Compare tokens: collapse whitespace first so ANY spacing of IF NOT
-    // EXISTS strips to the same form, then lowercase so quoting/case
-    // differences do not cause false rejections.
-    let collapsed = sql.split_whitespace().collect::<Vec<_>>().join(" ");
-    collapsed.to_ascii_lowercase().replace("if not exists ", "")
+    // Token comparison: split on whitespace and DDL punctuation so any
+    // spacing, paren adjacency, or IF NOT EXISTS variant compares equal;
+    // lowercase folds case differences. Inputs are real sqlite_master DDL,
+    // so token streams are unambiguous.
+    let tokens: Vec<&str> = sql
+        .split(|c: char| c.is_whitespace() || c == '(' || c == ')' || c == ',')
+        .filter(|token| !token.is_empty())
+        .collect();
+    let mut kept = Vec::with_capacity(tokens.len());
+    let mut index = 0;
+    while index < tokens.len() {
+        if tokens[index].eq_ignore_ascii_case("if")
+            && tokens.get(index + 1).is_some_and(|next| next.eq_ignore_ascii_case("not"))
+            && tokens
+                .get(index + 2)
+                .is_some_and(|next| next.eq_ignore_ascii_case("exists"))
+        {
+            index += 3;
+        } else {
+            kept.push(tokens[index]);
+            index += 1;
+        }
+    }
+    kept.join(" ").to_ascii_lowercase()
 }
 
 #[cfg(test)]
