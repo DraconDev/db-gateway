@@ -43,6 +43,9 @@ No Turso equivalent; kept as the single-node operational surface:
 - `dg backup verify --backup-root <dir> [set]` — offline re-verification, JSON report.
 - `dg clone/export/import` — SQLite backup-API clone, `.sqlite` snapshot export/import.
 - `dg web` — loopback console on `:8787`; prints URL, no auto-open.
+  Starts its own gateway automatically when `--server` is unreachable
+  (`--data-dir`, default `state/dg`); an already-running gateway is
+  used as-is and never touched on shutdown.
 
 ## Console trust model
 

@@ -1,12 +1,13 @@
-//! `dg web` launch contract (disposable stubs, no gateway needed).
+//! `dg web` launch contract: the console auto-starts its gateway.
 //!
 //! Run: `timeout 200 cargo test --locked --test console_launch`
 //!
 //! Failure modes are deterministic CLI asserts. The positive launch drives
-//! a stub companion through the real `dg web` supervisor: env
-//! passthrough, readiness URL print, HTTP serving, and SIGTERM supervision
-//! with no orphaned child. The real companion is covered by
-//! web/test/browser.test.mjs and scripts/web-console-smoke.mjs.
+//! a stub companion plus a real auto-started gateway through `dg web`:
+//! env passthrough, readiness URL print, HTTP serving, and SIGTERM
+//! supervision with neither child orphaned. A held port proves an
+//! already-running gateway is used as-is (no spawn). The real companion
+//! is covered by web/test/browser.test.mjs and scripts/dg-web-smoke.mjs.
 
 use std::{
     io::{BufRead, BufReader},
@@ -131,18 +132,47 @@ fn missing_node_runtime_reports_actionably() {
     );
 }
 
+/// SIGTERM `dg web` and wait for a clean exit.
+fn sigterm_and_wait(mut child: std::process::Child) {
+    unsafe {
+        libc::kill(child.id() as i32, libc::SIGTERM);
+    }
+    let (exit_tx, exit_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = exit_tx.send(child.wait());
+    });
+    let status = exit_rx
+        .recv_timeout(Duration::from_secs(15))
+        .expect("dg web exits after SIGTERM")
+        .unwrap();
+    assert!(status.success(), "status: {status}");
+}
+
+fn port_closed(port: u16) -> bool {
+    TcpStream::connect_timeout(
+        &format!("127.0.0.1:{port}").parse().unwrap(),
+        Duration::from_secs(2),
+    )
+    .is_err()
+}
+
 #[test]
-fn console_launch_serves_and_supervises_child() {
+fn console_launch_autostarts_gateway_and_supervises_both() {
     if !node_available() {
-        eprintln!("skipping console_launch_serves_and_supervises_child: node not on PATH");
+        eprintln!(
+            "skipping console_launch_autostarts_gateway_and_supervises_both: node not on PATH"
+        );
         return;
     }
     let dir = tempfile::tempdir().unwrap();
     let stub = write_stub(dir.path());
     let port = free_port();
+    let gateway_port = free_port();
+    let gateway_url = format!("http://127.0.0.1:{gateway_port}");
     // Deliberately nonexistent: `dg web` forwards the path without
     // reading key material, and the stub never reads it either.
     let key_path = dir.path().join("unread.key");
+    let data_dir = dir.path().join("auto-data");
     let mut child = dg()
         .args([
             "web",
@@ -153,7 +183,9 @@ fn console_launch_serves_and_supervises_child() {
             "--entry",
             stub.to_str().unwrap(),
             "--server",
-            "http://127.0.0.1:9",
+            &gateway_url,
+            "--data-dir",
+            data_dir.to_str().unwrap(),
         ])
         .env_remove("DG_CONSOLE_HOST")
         .stdout(Stdio::piped())
@@ -185,33 +217,114 @@ fn console_launch_serves_and_supervises_child() {
         .unwrap();
     assert_eq!(body, "stub console");
 
+    // A real gateway was auto-started into the data dir: it answers
+    // unauthenticated liveness on the target port.
+    assert!(data_dir.is_dir(), "auto-started server owns the data dir");
+    let live = reqwest::blocking::get(format!("{gateway_url}/health/live")).unwrap();
+    assert_eq!(live.status(), 200);
+
     let record: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.path().join("env.json")).unwrap())
             .unwrap();
-    assert_eq!(record["DG_SERVER"], "http://127.0.0.1:9");
+    assert_eq!(record["DG_SERVER"], gateway_url);
     assert_eq!(record["DG_KEY_FILE"], key_path.to_str().unwrap());
     assert_eq!(record["DG_CONSOLE_PORT"], port.to_string());
     assert_eq!(record["DG_CONSOLE_HOST"], "127.0.0.1");
 
-    // SIGTERM supervision: dg exits cleanly and the child is gone (no orphan).
-    unsafe {
-        libc::kill(child.id() as i32, libc::SIGTERM);
-    }
-    let (exit_tx, exit_rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = exit_tx.send(child.wait());
-    });
-    let status = exit_rx
-        .recv_timeout(Duration::from_secs(15))
-        .expect("dg web exits after SIGTERM")
-        .unwrap();
-    assert!(status.success(), "status: {status}");
+    // SIGTERM supervision: dg exits cleanly and both children are gone.
+    sigterm_and_wait(child);
     assert!(
-        TcpStream::connect_timeout(
-            &format!("127.0.0.1:{port}").parse().unwrap(),
-            Duration::from_secs(2)
-        )
-        .is_err(),
+        port_closed(port),
         "companion port must be closed after supervised shutdown"
+    );
+    assert!(
+        port_closed(gateway_port),
+        "auto-started gateway port must be closed after supervised shutdown"
+    );
+}
+
+#[test]
+fn web_with_reachable_gateway_starts_no_server() {
+    if !node_available() {
+        eprintln!("skipping web_with_reachable_gateway_starts_no_server: node not on PATH");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let stub = write_stub(dir.path());
+    let port = free_port();
+    // A held port reads as a running gateway: anything listening means
+    // `dg web` must not spawn (a spawn here would fail to bind and the
+    // command would error instead of printing ready).
+    let held = TcpListener::bind("127.0.0.1:0").unwrap();
+    let gateway_port = held.local_addr().unwrap().port();
+    let key_path = dir.path().join("unread.key");
+    let data_dir = dir.path().join("must-stay-absent");
+    let mut child = dg()
+        .args([
+            "web",
+            "--port",
+            &port.to_string(),
+            "--key-file",
+            key_path.to_str().unwrap(),
+            "--entry",
+            stub.to_str().unwrap(),
+            "--server",
+            &format!("http://127.0.0.1:{gateway_port}"),
+            "--data-dir",
+            data_dir.to_str().unwrap(),
+        ])
+        .env_remove("DG_CONSOLE_HOST")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let stdout = child.stdout.take().unwrap();
+    let (ready_tx, ready_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if line.contains("dg web ready:") {
+                let _ = ready_tx.send(line);
+                return;
+            }
+        }
+    });
+    ready_rx
+        .recv_timeout(Duration::from_secs(30))
+        .expect("dg web printed its ready line");
+    assert!(
+        !data_dir.exists(),
+        "no server spawn means no data dir creation"
+    );
+    sigterm_and_wait(child);
+    drop(held);
+}
+
+#[test]
+fn unstartable_gateway_fails_actionably() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = write_stub(dir.path());
+    let output = dg()
+        .args([
+            "web",
+            "--port",
+            "18787",
+            "--key-file",
+            "dummy.key",
+            "--entry",
+            stub.to_str().unwrap(),
+            "--server",
+            "http://127.0.0.1:9",
+            "--data-dir",
+            dir.path().join("data").to_str().unwrap(),
+        ])
+        .env_remove("DG_CONSOLE_HOST")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("gateway_startup_failed"),
+        "stderr: {stderr}"
     );
 }

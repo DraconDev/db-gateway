@@ -149,7 +149,9 @@ enum Command {
     /// Start the workstation web console on loopback and print its URL.
     /// Forwards the resolved --server/--key-file values to the companion
     /// and supervises it; the owner credential itself never passes
-    /// through this process.
+    /// through this process. When the loopback gateway at --server is
+    /// unreachable, a `dg serve` child is started on it automatically
+    /// (same data dir default as `serve`) and supervised alongside.
     Web {
         /// Loopback port for the browser console.
         /// Precedence: flag, DG_CONSOLE_PORT, 8787.
@@ -159,6 +161,11 @@ enum Command {
         /// resolved from the dg executable or working directory.
         #[arg(long, env = "DG_CONSOLE_ENTRY")]
         entry: Option<PathBuf>,
+        /// Data directory for the auto-started gateway. Used only when
+        /// --server is unreachable; an already-running gateway is used
+        /// as-is and this is ignored.
+        #[arg(long, default_value = "state/dg")]
+        data_dir: PathBuf,
     },
 }
 #[derive(Subcommand)]
@@ -235,6 +242,22 @@ fn console_entry(explicit: Option<PathBuf>) -> Result<PathBuf, dg::error::Error>
     ))
 }
 
+/// Stop an auto-started gateway during `dg web` shutdown. No child means
+/// the operator's own gateway is in use; it is never touched.
+async fn stop_gateway(gateway: &mut Option<tokio::process::Child>) {
+    let Some(child) = gateway.as_mut() else {
+        return;
+    };
+    #[cfg(unix)]
+    terminate_child(child).await;
+    #[cfg(not(unix))]
+    {
+        let _ = child.kill().await;
+    }
+    let _ = child.wait().await;
+    *gateway = None;
+}
+
 /// Ask the companion to stop gracefully (it closes its listener and any
 /// managed SSH tunnel), escalating only if it ignores SIGTERM.
 #[cfg(unix)]
@@ -253,6 +276,92 @@ async fn terminate_child(child: &mut tokio::process::Child) {
     }
 }
 
+/// Loopback-http gateway target (`host:port`) we may auto-start a server
+/// on. Anything else (https, non-loopback, unparsable) is left to the
+/// companion to report; this process never spawns remote listeners.
+fn gateway_target(server: &str) -> Option<String> {
+    let url = reqwest::Url::parse(server).ok()?;
+    if url.scheme() != "http" || url.path() != "/" {
+        return None;
+    }
+    let host = url.host_str()?;
+    let ip: std::net::IpAddr = host.trim_matches(['[', ']']).parse().ok()?;
+    if !ip.is_loopback() {
+        return None;
+    }
+    Some(format!("{}:{}", host, url.port().unwrap_or(80)))
+}
+
+/// Wait until `target` accepts TCP connections, the child exits, or the
+/// deadline passes. An accepted connection means the service bound and is
+/// past credential loading; details go to stderr, codes stay static.
+async fn wait_for_listener(
+    target: &str,
+    child: &mut tokio::process::Child,
+    timeout: Duration,
+    service: &str,
+    code: &'static str,
+    exit_message: &'static str,
+    timeout_message: &'static str,
+) -> Result<(), dg::error::Error> {
+    use dg::error::Error;
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        if tokio::net::TcpStream::connect(target).await.is_ok() {
+            return Ok(());
+        }
+        if let Some(status) = child.try_wait().map_err(|_| Error::internal())? {
+            eprintln!("{service} exited before becoming ready: {status}");
+            return Err(Error::new(400, code, exit_message));
+        }
+        if tokio::time::Instant::now() >= deadline {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            return Err(Error::new(400, code, timeout_message));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// Auto-serve leg of `dg web`: when the loopback gateway is unreachable,
+/// start `dg serve` on it (this same executable) and wait for readiness.
+/// Returns the supervised child, or `None` when a gateway is already up
+/// or the target is not auto-startable.
+async fn ensure_gateway(
+    server: &str,
+    data_dir: &Path,
+) -> Result<Option<tokio::process::Child>, dg::error::Error> {
+    use dg::error::Error;
+    let Some(target) = gateway_target(server) else {
+        return Ok(None);
+    };
+    if tokio::net::TcpStream::connect(&target).await.is_ok() {
+        return Ok(None);
+    }
+    let exe = std::env::current_exe().map_err(|_| Error::internal())?;
+    let mut child = tokio::process::Command::new(exe)
+        .args(["serve", "--listen", &target, "--data-dir"])
+        .arg(data_dir)
+        .stdin(std::process::Stdio::null())
+        .spawn()
+        .map_err(|_| Error::internal())?;
+    wait_for_listener(
+        &target,
+        &mut child,
+        Duration::from_secs(15),
+        "auto-started gateway",
+        "gateway_startup_failed",
+        "local gateway exited before becoming ready; run `dg serve` manually to diagnose",
+        "local gateway did not become ready in time",
+    )
+    .await?;
+    eprintln!(
+        "dg web: no gateway at {server}; started local gateway on {target} (data dir {})",
+        data_dir.display()
+    );
+    Ok(Some(child))
+}
+
 /// Start the workstation console companion, print its loopback URL once
 /// it accepts connections, and supervise it until it exits or we are
 /// signalled. Only the key *path* is forwarded; key material is never
@@ -263,6 +372,7 @@ async fn run_console(
     key_path: Option<PathBuf>,
     port: u16,
     entry: Option<PathBuf>,
+    data_dir: PathBuf,
 ) -> Result<(), dg::error::Error> {
     use dg::error::Error;
     if !(1024..=65535).contains(&port) {
@@ -275,6 +385,7 @@ async fn run_console(
     let key_path = key_path.ok_or(Error::new(400, "missing_credential", "--key-file required"))?;
     let console_host = std::env::var("DG_CONSOLE_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let entry = console_entry(entry)?;
+    let mut gateway = ensure_gateway(server, &data_dir).await?;
     let mut command = tokio::process::Command::new("node");
     command
         .arg(&entry)
@@ -300,29 +411,19 @@ async fn run_console(
     // any managed tunnel, so an accepted connection means ready. Probe the
     // configured host: a fixed 127.0.0.1 never reaches a ::1 listener.
     let address = format!("{console_host}:{port}");
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-    loop {
-        if tokio::net::TcpStream::connect(&address).await.is_ok() {
-            break;
-        }
-        if let Some(status) = child.try_wait().map_err(|_| Error::internal())? {
-            eprintln!("console companion exited before becoming ready: {status}");
-            return Err(Error::new(
-                400,
-                "console_startup_failed",
-                "console companion exited before becoming ready; see output above",
-            ));
-        }
-        if tokio::time::Instant::now() >= deadline {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
-            return Err(Error::new(
-                400,
-                "console_startup_failed",
-                "console companion did not become ready in time",
-            ));
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
+    if let Err(error) = wait_for_listener(
+        &address,
+        &mut child,
+        Duration::from_secs(30),
+        "console companion",
+        "console_startup_failed",
+        "console companion exited before becoming ready; see output above",
+        "console companion did not become ready in time",
+    )
+    .await
+    {
+        stop_gateway(&mut gateway).await;
+        return Err(error);
     }
     println!("dg web ready: open http://{address} in a browser");
     std::io::stdout().flush().map_err(|_| Error::internal())?;
@@ -331,8 +432,17 @@ async fn run_console(
         use tokio::signal::unix::{SignalKind, signal};
         let mut sigterm = signal(SignalKind::terminate()).map_err(|_| Error::internal())?;
         let mut sigint = signal(SignalKind::interrupt()).map_err(|_| Error::internal())?;
+        let gateway_exited = async {
+            match gateway.as_mut() {
+                Some(child) => {
+                    let _ = child.wait().await;
+                }
+                None => std::future::pending::<()>().await,
+            }
+        };
         tokio::select! {
             status = child.wait() => {
+                stop_gateway(&mut gateway).await;
                 let status = status.map_err(|_| Error::internal())?;
                 if status.success() {
                     Ok(())
@@ -350,18 +460,33 @@ async fn run_console(
             _ = sigterm.recv() => {
                 terminate_child(&mut child).await;
                 let _ = child.wait().await;
+                stop_gateway(&mut gateway).await;
                 Ok(())
             }
             _ = sigint.recv() => {
                 terminate_child(&mut child).await;
                 let _ = child.wait().await;
+                stop_gateway(&mut gateway).await;
                 Ok(())
+            }
+            // Our gateway died under us; the console is useless without
+            // it, so stop the companion instead of serving errors.
+            _ = gateway_exited => {
+                eprintln!("auto-started gateway exited; stopping console");
+                terminate_child(&mut child).await;
+                let _ = child.wait().await;
+                Err(Error::new(
+                    500,
+                    "gateway_exited",
+                    "auto-started gateway exited; console stopped",
+                ))
             }
         }
     }
     #[cfg(not(unix))]
     {
         let status = child.wait().await.map_err(|_| Error::internal())?;
+        stop_gateway(&mut gateway).await;
         if status.success() {
             Ok(())
         } else {
@@ -408,8 +533,12 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 "backup set failed verification; see JSON report",
             )));
         }
-        Command::Web { port, entry } => {
-            return run_console(&cli.server, key_path, port, entry)
+        Command::Web {
+            port,
+            entry,
+            data_dir,
+        } => {
+            return run_console(&cli.server, key_path, port, entry, data_dir)
                 .await
                 .map_err(Application);
         }
