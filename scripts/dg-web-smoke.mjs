@@ -3,6 +3,12 @@
 // seed one database, launch the installed/candidate dg's `web` subcommand
 // with default companion discovery, then assert the dashboard serves real
 // data, the owner key leaks nowhere, and SIGTERM stops both processes.
+// A second leg covers auto-serve: no pre-started gateway, `dg web` must
+// start its own, serve the same data dir, and take it down on SIGTERM.
+//
+// Owns `dg web` launch/supervision/key-hygiene with thin API proof.
+// Companion API depth (query/batch/transfers/tunnel via direct node
+// spawn, without the supervisor) lives in scripts/web-console-smoke.mjs.
 //
 // Usage: node scripts/dg-web-smoke.mjs [--dg PATH] [--port N]
 // Exit 0 with a JSON summary on success; nonzero with diagnostics on failure.
@@ -119,6 +125,7 @@ try {
     await new Promise((r) => setTimeout(r, 200));
   }
   if (!webOut.includes('dg web ready:')) fail('web_ready', webOut.slice(-2000));
+  if (webOut.includes('started local gateway')) fail('gateway_reused', webOut.slice(-2000));
 
   const dashboard = await fetch(`http://127.0.0.1:${port}/`);
   const html = await dashboard.text();
@@ -142,7 +149,48 @@ try {
   try { await fetch(`http://127.0.0.1:${port}/`); } catch { portClosed = true; }
   if (!portClosed) fail('companion_port_closed', null);
 
-  console.log(JSON.stringify({ ok: true, dg, port, checks: ['seed_create', 'web_ready', 'dashboard_status', 'overview_status', 'overview_data', 'key_in_html', 'key_in_overview', 'key_in_web_output', 'web_exit', 'companion_port_closed'] }));
+  // Second leg: auto-serve. Nothing listens on the target, so `dg web`
+  // must start its own gateway on the same data dir and stop it on SIGTERM.
+  const autoGatewayPort = await freePort();
+  const autoConsolePort = await freePort();
+  const auto = spawn(dg, ['--server', `http://127.0.0.1:${autoGatewayPort}`, '--key-file', keyFile, 'web', '--port', String(autoConsolePort), '--data-dir', dir], {
+    cwd: root,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  children.push(auto);
+  let autoOut = '';
+  auto.stdout.on('data', (chunk) => { autoOut += chunk; });
+  auto.stderr.on('data', (chunk) => { autoOut += chunk; });
+  const autoStarted = Date.now();
+  while (!autoOut.includes('dg web ready:') && Date.now() - autoStarted < 30000) {
+    if (auto.exitCode !== null) fail('auto_serve_ready', autoOut.slice(-2000));
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  if (!autoOut.includes('dg web ready:')) fail('auto_serve_ready', autoOut.slice(-2000));
+  if (!autoOut.includes('started local gateway')) fail('auto_serve_start', autoOut.slice(-2000));
+  const autoDash = await fetch(`http://127.0.0.1:${autoConsolePort}/`);
+  const autoCookie = (autoDash.headers.get('set-cookie') ?? '').split(';')[0];
+  const autoOverview = await (await fetch(`http://127.0.0.1:${autoConsolePort}/api/overview`, { headers: { Cookie: autoCookie } })).text();
+  if (!autoOverview.includes('smokedb')) fail('auto_serve_data', autoOverview.slice(0, 500));
+  auto.kill('SIGTERM');
+  const autoExit = await new Promise((resolveExit) => {
+    const timer = setTimeout(() => resolveExit('TIMEOUT'), 15000);
+    auto.once('exit', (code) => { clearTimeout(timer); resolveExit(code); });
+  });
+  if (autoExit !== 0) fail('auto_serve_exit', autoExit);
+  let autoPortsClosed = false;
+  try {
+    await fetch(`http://127.0.0.1:${autoConsolePort}/`);
+  } catch {
+    try {
+      await fetch(`http://127.0.0.1:${autoGatewayPort}/health/live`);
+    } catch {
+      autoPortsClosed = true;
+    }
+  }
+  if (!autoPortsClosed) fail('auto_serve_ports_closed', null);
+
+  console.log(JSON.stringify({ ok: true, dg, port, checks: ['seed_create', 'web_ready', 'gateway_reused', 'dashboard_status', 'overview_status', 'overview_data', 'key_in_html', 'key_in_overview', 'key_in_web_output', 'web_exit', 'companion_port_closed', 'auto_serve_ready', 'auto_serve_start', 'auto_serve_data', 'auto_serve_exit', 'auto_serve_ports_closed'] }));
 } catch (error) {
   if (process.exitCode !== 1) {
     console.error(JSON.stringify({ ok: false, failed_check: 'unexpected', detail: String(error?.message ?? error).slice(0, 2000) }));

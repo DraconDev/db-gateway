@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+// Companion API depth smoke: spawns `dg serve` plus the companion
+// (web/dist/server.js) directly and walks query/batch/keys/transfers/
+// tunnel/delete. It deliberately does NOT exercise `dg web` supervision,
+// readiness printing, or auto-serve — that layer is owned by
+// scripts/dg-web-smoke.mjs.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { access, chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
