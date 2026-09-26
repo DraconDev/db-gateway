@@ -775,7 +775,7 @@ impl Store {
         }
         let db = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
             .map_err(|_| Error::internal())?;
-        db.progress_handler(1000, Some(move || Instant::now() >= deadline))?;
+        db.progress_handler(100, Some(move || Instant::now() >= deadline))?;
         let tables: Vec<String> = db
             .prepare("SELECT name FROM sqlite_master WHERE type='table' AND lower(substr(name,1,4))!='_dg_' ORDER BY name")?
             .query_map([], |r| r.get(0))?
