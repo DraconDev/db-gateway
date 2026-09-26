@@ -692,16 +692,20 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 }
                 (Method::DELETE, format!("/v1/databases/{name}"), None, None)
             }
-            Command::Shell => {
+            Command::Shell { name } => {
                 let key = dg::client::read_key(key_path.as_deref().ok_or(Application(
                     Error::new(400, "missing_credential", "--key-file required"),
                 ))?)
                 .map_err(Application)?;
+                if let Some(name) = &name {
+                    dg::store::validate_name(name).map_err(Application)?;
+                }
                 return dg::shell::run(
                     &cli.server,
                     &key,
                     cli.json,
                     std::io::stdin().is_terminal() && std::io::stdout().is_terminal(),
+                    name.as_deref(),
                     std::io::stdin(),
                     std::io::stdout(),
                 )
