@@ -248,7 +248,14 @@ try {
   assert.match(appSource, /pushConsoleHistory/);
   assert.match(appSource, /QUERY_HISTORY_LIMIT/);
 
-  const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_BROWSER_EXECUTABLE || undefined, args: ['--no-sandbox'] });
+  let browserExecutable;
+  if (process.env.PLAYWRIGHT_BROWSER_EXECUTABLE) browserExecutable = process.env.PLAYWRIGHT_BROWSER_EXECUTABLE;
+  else {
+    for (const candidate of ['/run/current-system/sw/bin/chromium']) {
+      try { await access(candidate, constants.X_OK); browserExecutable = candidate; break; } catch { /* try the next candidate */ }
+    }
+  }
+  const browser = await chromium.launch({ headless: true, executablePath: browserExecutable, args: ['--no-sandbox'] });
   try {
     const context = await browser.newContext();
     const page = await context.newPage();

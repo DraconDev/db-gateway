@@ -16,8 +16,8 @@ let gridUnordered = new Set();
 let detailGeneration = 0;
 const pending = new WeakMap();
 // Console input history is deliberately in-memory only: statements can
-// carry sensitive literals, so they must never reach localStorage,
-// sessionStorage, or cookies (pinned by web-console-security-check).
+// carry sensitive literals, so they must never reach persistent browser
+// storage or cookies (pinned by web-console-security-check).
 const QUERY_HISTORY_LIMIT = 50;
 const consoleHistories = new Map();
 function historyFor(textareaId) {
