@@ -431,8 +431,8 @@ mod tests {
             input.as_bytes(),
             &mut out,
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
         let text = String::from_utf8(out).unwrap();
         let values: Vec<Value> = text
             .lines()

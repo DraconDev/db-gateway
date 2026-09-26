@@ -89,21 +89,14 @@ enum Command {
     /// Owner-only service status: version, uptime, admission config, and
     /// request-pressure counters.
     Status,
-    /// List databases with size and table counts.
+    /// List database names visible to the credential (owner sees all).
     List,
     /// Create an empty database.
-    Create {
-        name: String,
-    },
+    Create { name: String },
     /// Show size, tables, creation time, and tombstone state of a database.
-    Info {
-        name: String,
-    },
+    Info { name: String },
     /// Clone a database into a new one via the SQLite backup API.
-    Clone {
-        source: String,
-        destination: String,
-    },
+    Clone { source: String, destination: String },
     /// Snapshot a database to a local .sqlite file (owner/app key).
     Export {
         name: String,
@@ -126,9 +119,7 @@ enum Command {
     /// Interactive SQL session over the HTTP API (piped stdin works too).
     /// An optional database name preselects it, like `turso db shell <name>`;
     /// `use <db>` inside still switches.
-    Shell {
-        name: Option<String>,
-    },
+    Shell { name: Option<String> },
     /// Execute one SQL statement and print the result rows.
     Query {
         name: String,
@@ -183,9 +174,7 @@ enum KeyCommand {
         database: Vec<String>,
     },
     /// Revoke a credential immediately.
-    Revoke {
-        name: String,
-    },
+    Revoke { name: String },
     /// Replace the owner credential; prints the new key once (old key dies
     /// immediately). Redirect to a 0600 file and verify before discarding the old.
     RotateOwner,
