@@ -118,7 +118,7 @@
                   <label for="database">Database <select id="database"></select></label>
                   <label for="idempotency-key">Idempotency key <input id="idempotency-key" maxlength="128" placeholder="optional"></label>
                 </div>
-                <label for="sql">SQL <textarea id="sql" rows="4" aria-label="SQL query" placeholder="SELECT 1"></textarea></label>
+                <label for="sql">SQL <small class="muted">Ctrl+Enter runs · ↑/↓ recalls history</small><textarea id="sql" rows="4" aria-label="SQL query" placeholder="SELECT 1"></textarea></label>
                 <button type="submit">Run query</button>
                 <span id="query-status" class="form-status" aria-live="polite"></span>
               </form>
@@ -129,7 +129,7 @@
                   <label for="batch-database">Database <select id="batch-database"></select></label>
                   <label for="batch-idempotency-key">Idempotency key <input id="batch-idempotency-key" maxlength="128" placeholder="optional"></label>
                 </div>
-                <label for="batch-json">Statements JSON <textarea id="batch-json" rows="5" aria-label="Atomic batch JSON">{"atomic":true,"statements":[]}</textarea></label>
+                <label for="batch-json">Statements JSON <small class="muted">Ctrl+Enter runs · ↑/↓ recalls history</small><textarea id="batch-json" rows="5" aria-label="Atomic batch JSON">{"atomic":true,"statements":[]}</textarea></label>
                 <button type="submit">Run atomic batch</button>
                 <span class="form-status" aria-live="polite"></span>
               </form>

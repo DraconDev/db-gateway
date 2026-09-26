@@ -15,6 +15,60 @@ let gridState = { table: null, offset: 0, hasMore: false };
 let gridUnordered = new Set();
 let detailGeneration = 0;
 const pending = new WeakMap();
+// Console input history is deliberately in-memory only: statements can
+// carry sensitive literals, so they must never reach localStorage,
+// sessionStorage, or cookies (pinned by web-console-security-check).
+const QUERY_HISTORY_LIMIT = 50;
+const consoleHistories = new Map();
+function historyFor(textareaId) {
+  let history = consoleHistories.get(textareaId);
+  if (!history) { history = { entries: [], index: 0, draft: '' }; consoleHistories.set(textareaId, history); }
+  return history;
+}
+function pushConsoleHistory(textareaId, statement) {
+  const trimmed = String(statement ?? '').trim();
+  if (!trimmed) return;
+  const history = historyFor(textareaId);
+  if (history.entries[history.entries.length - 1] !== trimmed) {
+    history.entries.push(trimmed);
+    if (history.entries.length > QUERY_HISTORY_LIMIT) history.entries.shift();
+  }
+  history.index = history.entries.length;
+  history.draft = '';
+}
+function stepConsoleHistory(textareaId, direction) {
+  const area = $(textareaId);
+  const history = historyFor(textareaId);
+  if (!area || !history.entries.length) return false;
+  if (history.index === history.entries.length) history.draft = area.value;
+  const next = history.index + direction;
+  if (next < 0 || next > history.entries.length) return false;
+  history.index = next;
+  area.value = next === history.entries.length ? history.draft : history.entries[next];
+  area.selectionStart = area.selectionEnd = area.value.length;
+  return true;
+}
+// Ctrl+Enter (Cmd+Enter on macOS) submits; Up/Down recalls history only
+// when the caret sits on the first/last visual line, so multi-line
+// editing keeps its normal cursor behavior.
+function wireConsoleInput(textareaId, formId) {
+  const area = $(textareaId);
+  if (!area) return;
+  area.addEventListener('keydown', (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+      event.preventDefault();
+      $(formId)?.requestSubmit();
+      return;
+    }
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+    if (area.selectionStart !== area.selectionEnd) return;
+    const before = area.value.slice(0, area.selectionStart);
+    const after = area.value.slice(area.selectionEnd);
+    if (event.key === 'ArrowUp' && before.includes('\n')) return;
+    if (event.key === 'ArrowDown' && after.includes('\n')) return;
+    if (stepConsoleHistory(textareaId, event.key === 'ArrowUp' ? -1 : 1)) event.preventDefault();
+  });
+}
 
 async function request(path, { method = 'GET', body, headers = {} } = {}) {
   const init = { method, headers: { ...headers }, redirect: 'error' };
@@ -243,14 +297,16 @@ $('grid-prev').addEventListener('click', () => { gridState.offset = Math.max(0, 
 $('grid-next').addEventListener('click', () => { if (gridState.hasMore) { gridState.offset += GRID_PAGE_SIZE; void loadGridPage(); } });
 $('tunnel-start').addEventListener('click', async (event) => { const button = event.currentTarget; button.disabled = true; try { await post('/api/tunnel/start', {}); await refresh(); } catch (error) { setText('tunnel-status', `Tunnel: ${error.message}`); } finally { button.disabled = false; } });
 $('tunnel-stop').addEventListener('click', async (event) => { const button = event.currentTarget; button.disabled = true; try { await post('/api/tunnel/stop', {}); await refresh(); } catch (error) { setText('tunnel-status', `Tunnel: ${error.message}`); } finally { button.disabled = false; } });
-$('query-form').addEventListener('submit', (event) => { event.preventDefault(); const form = event.currentTarget; runForm(form, 'Running query…', async () => { const headers = $('idempotency-key').value ? { 'idempotency-key': $('idempotency-key').value } : {}; const value = await post(`/api/databases/${encodeURIComponent($('database').value)}/query`, { sql: $('sql').value, args: [] }, headers); renderTable('result', value.columns ?? [], value.rows ?? [], value.rows_affected); }); });
-$('batch-form').addEventListener('submit', (event) => { event.preventDefault(); const form = event.currentTarget; runForm(form, 'Running atomic batch…', async () => { const payload = JSON.parse($('batch-json').value); const statements = Array.isArray(payload) ? payload : payload.statements; const atomic = Array.isArray(payload) ? true : payload.atomic; if (!Array.isArray(statements) || atomic !== true) throw new Error('Batch JSON must contain atomic=true and a statements array.'); const headers = $('batch-idempotency-key').value ? { 'idempotency-key': $('batch-idempotency-key').value } : {}; const value = await post(`/api/databases/${encodeURIComponent($('batch-database').value)}/batch`, { atomic: true, statements }, headers); const first = value.results?.[0]; renderTable('batch-result', first?.columns ?? [], first?.rows ?? [], first?.rows_affected); }); });
+$('query-form').addEventListener('submit', (event) => { event.preventDefault(); const form = event.currentTarget; pushConsoleHistory('sql', $('sql').value); runForm(form, 'Running query…', async () => { const headers = $('idempotency-key').value ? { 'idempotency-key': $('idempotency-key').value } : {}; const value = await post(`/api/databases/${encodeURIComponent($('database').value)}/query`, { sql: $('sql').value, args: [] }, headers); renderTable('result', value.columns ?? [], value.rows ?? [], value.rows_affected); }); });
+$('batch-form').addEventListener('submit', (event) => { event.preventDefault(); const form = event.currentTarget; pushConsoleHistory('batch-json', $('batch-json').value); runForm(form, 'Running atomic batch…', async () => { const payload = JSON.parse($('batch-json').value); const statements = Array.isArray(payload) ? payload : payload.statements; const atomic = Array.isArray(payload) ? true : payload.atomic; if (!Array.isArray(statements) || atomic !== true) throw new Error('Batch JSON must contain atomic=true and a statements array.'); const headers = $('batch-idempotency-key').value ? { 'idempotency-key': $('batch-idempotency-key').value } : {}; const value = await post(`/api/databases/${encodeURIComponent($('batch-database').value)}/batch`, { atomic: true, statements }, headers); const first = value.results?.[0]; renderTable('batch-result', first?.columns ?? [], first?.rows ?? [], first?.rows_affected); }); });
 $('create-form').addEventListener('submit', (event) => { event.preventDefault(); const form = event.currentTarget; runForm(form, 'Creating database…', async () => { await post('/api/databases', { name: $('new-db').value }); await refresh(); }); });
 $('delete-form').addEventListener('submit', (event) => { event.preventDefault(); const form = event.currentTarget; const name = $('delete-db').value; if (name !== $('confirm-db').value) { showError('result-actions', { code: 'confirmation_required', message: 'Type the exact database name to confirm deletion.' }); return; } if (!window.confirm(`Tombstone ${name}? This prevents queries until retention purge.`)) { setText('lifecycle-result', 'Deletion cancelled.'); return; } runForm(form, 'Deleting database…', async () => { $('result-actions').textContent = JSON.stringify(await request(`/api/databases/${encodeURIComponent(name)}`, { method: 'DELETE' }), null, 2); await refresh(); }); });
 $('key-form').addEventListener('submit', (event) => { event.preventDefault(); const form = event.currentTarget; runForm(form, 'Issuing one-time key…', async () => { const value = await post('/api/keys', { name: $('key-name').value, role: $('key-role').value, databases: [$('key-db').value] }); $('key-result').textContent = JSON.stringify(value, null, 2); await refresh(); }); });
 $('clone-form').addEventListener('submit', (event) => { event.preventDefault(); const form = event.currentTarget; const source = $('clone-source').value; const destination = $('clone-destination').value; if (databaseNames.includes(destination)) { showError('lifecycle-result', { code: 'database_exists', message: 'Choose a new destination; existing databases are never overwritten.' }); return; } if (!window.confirm(`Clone ${source} to new database ${destination}?`)) { setText('lifecycle-result', 'Clone cancelled.'); return; } runForm(form, 'Cloning database…', async () => { $('lifecycle-result').textContent = JSON.stringify(await post(`/api/databases/${encodeURIComponent(source)}/clone`, { destination }), null, 2); await refresh(); }); });
 $('export-form').addEventListener('submit', (event) => { event.preventDefault(); void runExport(); });
 $('import-form').addEventListener('submit', (event) => { event.preventDefault(); void runImport(); });
+wireConsoleInput('sql', 'query-form');
+wireConsoleInput('batch-json', 'batch-form');
 
 function renderTransfer(target, value, actions = []) { const output = $(target); output.textContent = JSON.stringify(value, null, 2); for (const [label, handler] of actions) { const button = document.createElement('button'); button.type = 'button'; button.textContent = label; button.addEventListener('click', handler, { once: true }); output.appendChild(button); } }
 async function runExport() {

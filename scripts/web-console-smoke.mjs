@@ -12,6 +12,7 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { chromium } from 'playwright';
 
 const root = resolve(fileURLToPath(new URL('../', import.meta.url)));
 const targetDir = process.env.CARGO_TARGET_DIR ?? join(root, '.cargo', 'target');
@@ -244,12 +245,33 @@ try {
   assert.match(appSource, /offset \+= part\.length/);
   assert.match(appSource, /Resume import/);
   assert.match(appSource, /Abort upload/);
+  assert.match(appSource, /pushConsoleHistory/);
+  assert.match(appSource, /QUERY_HISTORY_LIMIT/);
+
+  const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_BROWSER_EXECUTABLE || undefined, args: ['--no-sandbox'] });
+  try {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(companionBase + '/#/databases/smoke/data', { waitUntil: 'networkidle' });
+    await page.waitForSelector('#detail-data:not([hidden]) #sql', { timeout: 10_000 });
+    await page.selectOption('#database', 'smoke');
+    await page.fill('#sql', 'SELECT count(*) FROM t');
+    await page.press('#sql', 'Control+Enter');
+    await page.waitForSelector('#result table', { timeout: 10_000 });
+    assert.match(await page.textContent('#result'), /2/);
+    await page.fill('#sql', '');
+    await page.press('#sql', 'ArrowUp');
+    assert.equal(await page.inputValue('#sql'), 'SELECT count(*) FROM t');
+    await page.press('#sql', 'ArrowDown');
+    assert.equal(await page.inputValue('#sql'), '');
+    await context.close();
+  } finally { await browser.close(); }
 
   assert.equal((await companion('/api/tunnel/status')).state, 'not_configured');
   assert.equal((await companion('/api/tunnel/start', { method: 'POST', body: {} })).state, 'not_configured');
   assert.equal((await companion('/api/tunnel/stop', { method: 'POST', body: {} })).state, 'not_configured');
 
-  console.log(JSON.stringify({ ok: true, address, checks: ['build_release', 'health', 'create', 'detail_schema', 'query', 'batch', 'typed_errors', 'key_issue_revoke', 'clone', 'single_export', 'chunked_export_status', 'chunked_import_resume_status', 'upload_abort', 'delete', 'browser_controls', 'tunnel_status_start_stop'] }));
+  console.log(JSON.stringify({ ok: true, address, checks: ['build_release', 'health', 'create', 'detail_schema', 'query', 'batch', 'typed_errors', 'key_issue_revoke', 'clone', 'single_export', 'chunked_export_status', 'chunked_import_resume_status', 'upload_abort', 'delete', 'browser_controls', 'console_hotkeys', 'tunnel_status_start_stop'] }));
 } finally {
   await terminate(consoleProcess);
   await terminate(server);
