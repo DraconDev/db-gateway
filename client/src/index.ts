@@ -7,6 +7,17 @@ export interface RequestOptions { idempotencyKey?: string; maxResponseBytes?: nu
 export interface KeyRequest { name: string; role: 'database_read_only' | 'database_read_write'; databases: string[] }
 export interface KeyInfo { name: string; role: string; databases: string[] }
 export interface TableInfo { name: string; rows: number }
+export interface DatabaseUsage {
+  rows_read: number;
+  rows_written: number;
+}
+export interface StatusResponse {
+  version: string;
+  uptime_secs: number;
+  admission: { acquire_timeout_ms: number; read_permits: number; write_permits: number };
+  requests: { total: number; capacity_exceeded: number; query_deadline_exceeded: number; internal_error: number };
+  databases?: Record<string, DatabaseUsage>;
+}
 export type DatabaseInfo =
   | { name: string; tombstoned: false; size_bytes: number; created_at: number; tables: TableInfo[] }
   | { name: string; tombstoned: true; purge_after: number; size_bytes: number };
@@ -73,6 +84,20 @@ function isDatabaseInfo(v: unknown): v is DatabaseInfo {
   return typeof v.created_at === 'number' && Number.isSafeInteger(v.created_at) && Array.isArray(v.tables) &&
     v.tables.every(t => object(t) && typeof t.name === 'string' && typeof t.rows === 'number' && Number.isSafeInteger(t.rows));
 }
+const isNonNegativeInt = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+function isDatabaseUsage(v: unknown): v is DatabaseUsage {
+  return object(v) && isNonNegativeInt(v.rows_read) && isNonNegativeInt(v.rows_written);
+}
+function isStatusResponse(v: unknown): v is StatusResponse {
+  if (!object(v) || typeof v.version !== 'string' || !isNonNegativeInt(v.uptime_secs) ||
+      !object(v.admission) || !object(v.requests)) return false;
+  if (v.databases !== undefined && (!object(v.databases) || !Object.values(v.databases).every(isDatabaseUsage))) return false;
+  const admission = v.admission, requests = v.requests;
+  return isNonNegativeInt(admission.acquire_timeout_ms) && isNonNegativeInt(admission.read_permits) &&
+    isNonNegativeInt(admission.write_permits) && isNonNegativeInt(requests.total) &&
+    isNonNegativeInt(requests.capacity_exceeded) && isNonNegativeInt(requests.query_deadline_exceeded) &&
+    isNonNegativeInt(requests.internal_error);
+}
 export class Gateway {
   private readonly origin: string;
   constructor(server: string, private readonly credential: string) {
@@ -131,6 +156,11 @@ export class Gateway {
     const result = await this.request('/v1/databases', 'GET');
     if (!object(result) || !isStringArray(result.databases)) throw new GatewayError('outcome_unknown','Malformed list response');
     return result.databases;
+  }
+  async status(): Promise<StatusResponse> {
+    const result = await this.request('/v1/status', 'GET');
+    if (!isStatusResponse(result)) throw new GatewayError('outcome_unknown','Malformed status response');
+    return result;
   }
   async databaseInfo(name: string): Promise<DatabaseInfo> {
     assertName(name);

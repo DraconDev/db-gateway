@@ -69,7 +69,7 @@
                 <form id="clone-form" class="panel-form" aria-busy="false">
                   <h4>Clone</h4>
                   <label for="clone-source">Source <select id="clone-source"></select></label>
-                  <label for="clone-destination">New destination <input id="clone-destination" required></label>
+                  <label for="clone-destination">New destination <input id="clone-destination" pattern="[a-z0-9][a-z0-9_]{0,63}" required></label>
                   <button type="submit">Clone database</button>
                   <span class="form-status" aria-live="polite"></span>
                 </form>
@@ -84,7 +84,7 @@
               <form id="import-form" class="panel-form" aria-busy="false">
                 <h4>Import chunked</h4>
                 <div class="form-grid">
-                  <label for="import-name">Import as <input id="import-name" required></label>
+                  <label for="import-name">Import as <input id="import-name" pattern="[a-z0-9][a-z0-9_]{0,63}" required></label>
                   <label for="import-file">SQLite file <input id="import-file" type="file" accept=".sqlite,.db" required></label>
                 </div>
                 <button type="submit">Import verified SQLite</button>
@@ -141,9 +141,9 @@
               <div id="key-list" class="cards" aria-live="polite"></div>
               <form id="key-form" class="panel-form" aria-busy="false">
                 <div class="form-grid three">
-                  <label for="key-name">Key name <input id="key-name" required></label>
+                  <label for="key-name">Key name <input id="key-name" pattern="[a-z0-9][a-z0-9_]{0,63}" required></label>
                   <label for="key-role">Role <select id="key-role"><option value="database_read_only">read-only</option><option value="database_read_write">read-write</option></select></label>
-                  <label for="key-db">Database <input id="key-db" required></label>
+                  <label for="key-db">Database <input id="key-db" pattern="[a-z0-9][a-z0-9_]{0,63}" required></label>
                 </div>
                 <button type="submit">Issue one-time key</button>
                 <span class="form-status" aria-live="polite"></span>

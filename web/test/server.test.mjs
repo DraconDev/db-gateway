@@ -173,6 +173,52 @@ test('companion degrades list, overview, and detail joins when sections fail', a
   }
 });
 
+test('companion single-shot export and import round-trip bounded payloads', async () => {
+  const data = Buffer.from('fake-sqlite-bytes').toString('base64');
+  const seen = [];
+  const gateway = createHttpServer((request, response) => {
+    let body = '';
+    request.on('data', (chunk) => { body += chunk; });
+    request.on('end', () => {
+      response.setHeader('content-type', 'application/json');
+      seen.push(`${request.method} ${request.url} ${body}`);
+      if (request.url === '/v1/databases/smalldb/export' && request.method === 'POST') {
+        response.end(JSON.stringify({ database: 'smalldb', size: 17, sha256: 'c'.repeat(64), data_base64: data }));
+      } else if (request.url === '/v1/databases/console/import' && request.method === 'POST') {
+        const input = JSON.parse(body);
+        assert.equal(input.name, 'restoredb');
+        assert.equal(input.data_base64, data);
+        response.end(JSON.stringify({ imported: 'restoredb', from: 'console' }));
+      } else {
+        response.statusCode = 404;
+        response.end(JSON.stringify({ error: { code: 'not_found', message: 'no such fake route' } }));
+      }
+    });
+  });
+  await new Promise((resolve, reject) => { gateway.once('error', reject); gateway.listen(0, '127.0.0.1', resolve); });
+  const gatewayAddress = gateway.address();
+  assert.equal(typeof gatewayAddress, 'object');
+  try {
+    await withServer(async (base) => {
+      const page = await fetch(base + '/');
+      const cookie = (page.headers.get('set-cookie') ?? '').split(';')[0];
+      const exported = await fetch(base + '/api/databases/smalldb/export', { method: 'POST', headers: { cookie } });
+      assert.equal(exported.status, 200);
+      assert.deepEqual(await exported.json(), { database: 'smalldb', size: 17, sha256: 'c'.repeat(64), data_base64: data });
+      const imported = await fetch(base + '/api/databases/ignored-label/import', {
+        method: 'POST', headers: { cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'restoredb', data_base64: data }),
+      });
+      assert.equal(imported.status, 200);
+      assert.deepEqual(await imported.json(), { imported: 'restoredb', from: 'console' });
+      assert.equal(seen.some((line) => line.startsWith('POST /v1/databases/smalldb/export')), true);
+      assert.equal(seen.some((line) => line.startsWith('POST /v1/databases/console/import')), true);
+    }, { gatewayUrl: `http://127.0.0.1:${gatewayAddress.port}` });
+  } finally {
+    await new Promise((resolve, reject) => gateway.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test('companion joins list, info, usage, and freshness into GET /api/databases', async () => {
   const gateway = createHttpServer((request, response) => {
     response.setHeader('content-type', 'application/json');

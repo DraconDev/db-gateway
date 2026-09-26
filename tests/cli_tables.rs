@@ -83,3 +83,66 @@ fn query_piped_json_pty_table() {
         "JSON leaked to tty: {screen:?}"
     );
 }
+
+#[test]
+fn list_info_piped_json_pty_table() {
+    let fleet = Fleet::boot();
+    fleet.cli.ok("create", &["create", "tables_cli"]);
+    fleet.cli.q(
+        "seed",
+        "tables_cli",
+        "CREATE TABLE t (id INTEGER)",
+    );
+    fleet.cli.q("insert", "tables_cli", "INSERT INTO t VALUES (1)");
+
+    // Piped legs stay machine-readable JSON.
+    let piped_list = fleet.cli.ok("list", &["list"]);
+    assert!(
+        piped_list["databases"].as_array().unwrap().iter().any(|n| n == "tables_cli"),
+        "piped list not JSON names: {piped_list}"
+    );
+    let piped_info = fleet.cli.ok("info", &["info", "tables_cli"]);
+    assert_eq!(piped_info["name"], "tables_cli");
+    assert_eq!(piped_info["tombstoned"], false);
+
+    // Pty legs render aligned tables with no JSON envelope.
+    let base = format!(
+        "{} --server {} --key-file {}",
+        env!("CARGO_BIN_EXE_dg"),
+        fleet.cli.server,
+        fleet.cli.key_file.to_str().unwrap(),
+    );
+    let list = Command::new("script")
+        .args(["-qec", &format!("{base} list"), "/dev/null"])
+        .output()
+        .unwrap();
+    assert!(list.status.success(), "pty list failed: {list:?}");
+    let screen = String::from_utf8_lossy(&list.stdout).into_owned();
+    assert!(screen.contains("name"), "no list header: {screen:?}");
+    assert!(screen.contains("tables_cli"), "no list row: {screen:?}");
+    assert!(
+        !screen.contains("\"databases\""),
+        "JSON leaked to tty: {screen:?}"
+    );
+
+    let info = Command::new("script")
+        .args(["-qec", &format!("{base} info tables_cli"), "/dev/null"])
+        .output()
+        .unwrap();
+    assert!(info.status.success(), "pty info failed: {info:?}");
+    let screen = String::from_utf8_lossy(&info.stdout).into_owned();
+    for (label, needle) in [
+        ("header", "property"),
+        ("header value column", "value"),
+        ("name row", "tables_cli"),
+        ("usage row", "rows_read"),
+        ("usage value", "rows_written | 1"),
+        ("tables row", "t (1 rows)"),
+    ] {
+        assert!(screen.contains(needle), "no {label}: {screen:?}");
+    }
+    assert!(
+        !screen.contains("\"tables\""),
+        "JSON leaked to tty: {screen:?}"
+    );
+}

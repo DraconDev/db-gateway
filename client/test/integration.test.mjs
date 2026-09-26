@@ -149,3 +149,19 @@ test('documented CLI walkthrough runs verbatim after bootstrap and serve', async
       (error) => error.code === 'invalid_credential');
   });
 });
+
+test('status reports service facts and per-database usage', async () => {
+  await withServer(async (gateway) => {
+    await gateway.request('/v1/databases', 'POST', { name: 'status_db' });
+    await gateway.database('status_db').execute('CREATE TABLE t (id INTEGER)');
+    await gateway.database('status_db').execute('INSERT INTO t VALUES (1)');
+    await gateway.database('status_db').execute('SELECT * FROM t');
+    const status = await gateway.status();
+    assert.equal(typeof status.version, 'string');
+    assert.equal(typeof status.uptime_secs, 'number');
+    assert.deepEqual(Object.keys(status.admission).sort(), ['acquire_timeout_ms', 'read_permits', 'write_permits']);
+    assert.deepEqual(Object.keys(status.requests).sort(), ['capacity_exceeded', 'internal_error', 'query_deadline_exceeded', 'total']);
+    assert.equal(status.requests.total >= 4, true);
+    assert.deepEqual(status.databases.status_db, { rows_read: 1, rows_written: 1 });
+  });
+});

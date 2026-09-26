@@ -921,12 +921,18 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                         role,
                         database,
                     },
-            } => (
-                Method::POST,
-                "/v1/keys".into(),
-                Some(json!({"name":name,"role":role,"databases":database})),
-                None,
-            ),
+            } => {
+                dg::store::validate_name(&name).map_err(Application)?;
+                for db in &database {
+                    dg::store::validate_name(db).map_err(Application)?;
+                }
+                (
+                    Method::POST,
+                    "/v1/keys".into(),
+                    Some(json!({"name":name,"role":role,"databases":database})),
+                    None,
+                )
+            }
             Command::Key {
                 command: KeyCommand::List,
             } => (Method::GET, "/v1/keys".into(), None, None),
