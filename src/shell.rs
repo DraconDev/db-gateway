@@ -38,13 +38,17 @@ pub async fn run(
     key: &str,
     json_mode: bool,
     interactive: bool,
+    initial_database: Option<&str>,
     input: impl Read,
     mut out: impl Write,
 ) -> Result<()> {
+    if let Some(name) = initial_database {
+        validate_name(name)?;
+    }
     let mut session = Session {
         server,
         key,
-        database: None,
+        database: initial_database.map(str::to_owned),
         json_mode,
         pending_key: None,
         batch: None,
@@ -402,6 +406,7 @@ mod tests {
             "unused",
             false,
             true,
+            None,
             b"use demo\n:batch\n.quit\nSELECT 1\n".as_slice(),
             &mut out,
         )
@@ -417,7 +422,15 @@ mod tests {
     async fn oversized_input_is_drained_and_session_recovers() {
         let input = format!("{}\n.bogus\n.quit\n", "x".repeat(MAX_INPUT + 8));
         let mut out = Vec::new();
-        run("unused", "unused", true, false, input.as_bytes(), &mut out)
+        run(
+            "unused",
+            "unused",
+            true,
+            false,
+            None,
+            input.as_bytes(),
+            &mut out,
+        )
             .await
             .unwrap();
         let text = String::from_utf8(out).unwrap();
@@ -446,6 +459,7 @@ mod tests {
             "unused",
             false,
             false,
+            None,
             b".help\n".as_slice(),
             Broken,
         )
@@ -453,5 +467,42 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.code, "shell_io_error");
         assert_eq!(cell_text(&json!("a\n\u{1b}b")), "a\\n\\u{1b}b");
+    }
+
+    #[tokio::test]
+    async fn initial_database_preselects_and_use_overrides() {
+        let mut out = Vec::new();
+        run(
+            "unused",
+            "unused",
+            false,
+            true,
+            Some("demo"),
+            b"use other\n.quit\n".as_slice(),
+            &mut out,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "dg:demo> using other\ndg:other> "
+        );
+    }
+
+    #[tokio::test]
+    async fn invalid_initial_database_is_rejected() {
+        let mut out = Vec::new();
+        let error = run(
+            "unused",
+            "unused",
+            false,
+            false,
+            Some("../escape"),
+            b"".as_slice(),
+            &mut out,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.code, "invalid_name");
     }
 }
