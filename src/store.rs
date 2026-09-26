@@ -2282,7 +2282,10 @@ mod tests {
         }
         drop(conn);
         let info = store.info("big").unwrap();
-        assert_eq!(info["tables"], serde_json::json!([{"name": "t", "rows": 5000}]));
+        assert_eq!(
+            info["tables"],
+            serde_json::json!([{"name": "t", "rows": 5000}])
+        );
     }
 
     #[test]

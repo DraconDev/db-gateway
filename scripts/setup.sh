@@ -97,7 +97,9 @@ fi
 log "OK: dg=$INSTALLED companion=$ROOT/web/dist/server.js"
 cat >&2 <<EOF
 Next:
-  dg init --data-dir state/dg            # once: prints {"owner_key": …} — save it to a 0600 file, shown once
-  dg serve --listen 127.0.0.1:7432 --data-dir state/dg
-  dg --key-file owner.key web --port 8787   # then open http://127.0.0.1:8787 in a browser
+  # once: init prints {"owner_key": …}; extract the raw key to a 0600 file (shown once)
+  dg init --data-dir state/dg | python3 -c "import json,sys; print(json.load(sys.stdin)['owner_key'])" > owner.key && chmod 600 owner.key
+  # web starts its own gateway when none is running; then open the printed URL
+  dg --key-file owner.key web --port 8787
+  # run 'dg serve' separately only for a standalone gateway without the console
 EOF

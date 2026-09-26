@@ -566,21 +566,61 @@ mod tests {
             sql: sql.into(),
             args: vec![],
         };
-        execute(&path, &[s("CREATE TABLE t (a INTEGER)")], false, false, "owner", None).unwrap();
-        execute(&path, &[s("INSERT INTO t VALUES (1)")], false, false, "owner", None).unwrap();
+        execute(
+            &path,
+            &[s("CREATE TABLE t (a INTEGER)")],
+            false,
+            false,
+            "owner",
+            None,
+        )
+        .unwrap();
+        execute(
+            &path,
+            &[s("INSERT INTO t VALUES (1)")],
+            false,
+            false,
+            "owner",
+            None,
+        )
+        .unwrap();
         // A second statement hiding behind a semicolon is rejected, not run.
         assert_eq!(
-            execute(&path, &[s("SELECT 1; DELETE FROM t")], false, false, "owner", None)
-                .unwrap_err()
-                .code,
+            execute(
+                &path,
+                &[s("SELECT 1; DELETE FROM t")],
+                false,
+                false,
+                "owner",
+                None
+            )
+            .unwrap_err()
+            .code,
             "invalid_sql"
         );
-        let rows =
-            execute(&path, &[s("SELECT count(*) FROM t")], false, false, "owner", None).unwrap();
+        let rows = execute(
+            &path,
+            &[s("SELECT count(*) FROM t")],
+            false,
+            false,
+            "owner",
+            None,
+        )
+        .unwrap();
         assert_eq!(rows["rows"], json!([[1]]));
         // A lone terminator or trailing comment is still a single statement.
         assert!(execute(&path, &[s("SELECT 1;")], false, false, "owner", None).is_ok());
-        assert!(execute(&path, &[s("SELECT 1; -- trailing")], false, false, "owner", None).is_ok());
+        assert!(
+            execute(
+                &path,
+                &[s("SELECT 1; -- trailing")],
+                false,
+                false,
+                "owner",
+                None
+            )
+            .is_ok()
+        );
     }
 
     #[test]

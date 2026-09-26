@@ -17,9 +17,10 @@ const root = resolve(fileURLToPath(new URL('../', import.meta.url)));
 const targetDir = process.env.CARGO_TARGET_DIR ?? join(root, '.cargo', 'target');
 const args = process.argv.slice(2);
 let dg = join(targetDir, 'release', 'dg');
+let explicitDg = false;
 let port = 0;
 for (let i = 0; i < args.length; i++) {
-  if (args[i] === '--dg') dg = args[++i] ?? '';
+  if (args[i] === '--dg') { dg = args[++i] ?? ''; explicitDg = true; }
   else if (args[i] === '--port') port = Number(args[++i]);
   else if (args[i] === '--help') {
     console.log('Usage: node scripts/dg-web-smoke.mjs [--dg PATH] [--port N]');
@@ -44,6 +45,16 @@ async function freePort() {
 }
 if (port === 0) port = await freePort();
 if (port < 1024) { console.error(`picked privileged port ${port}; pass --port explicitly`); process.exit(2); }
+if (!explicitDg) {
+  // Never smoke a stale binary: a rebuild is a no-op when fresh, and an
+  // explicit --dg always means "test exactly this artifact".
+  try {
+    execFileSync('cargo', ['build', '--release', '--locked', '--quiet', '--bin', 'dg'], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (error) {
+    console.error(`release build failed: ${error.message}`);
+    process.exit(1);
+  }
+}
 
 const dir = await mkdtemp(join(tmpdir(), 'dg-web-smoke-'));
 const children = [];
