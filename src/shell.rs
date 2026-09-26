@@ -503,6 +503,6 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert_eq!(error.code, "invalid_name");
+        assert_eq!(error.code, "invalid_request");
     }
 }

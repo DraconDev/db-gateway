@@ -89,7 +89,9 @@ enum Command {
     /// Owner-only service status: version, uptime, admission config, and
     /// request-pressure counters.
     Status,
+    /// List databases with size and table counts.
     List,
+    /// Create an empty database.
     Create {
         name: String,
     },
@@ -122,7 +124,12 @@ enum Command {
         confirm: Option<String>,
     },
     /// Interactive SQL session over the HTTP API (piped stdin works too).
-    Shell,
+    /// An optional database name preselects it, like `turso db shell <name>`;
+    /// `use <db>` inside still switches.
+    Shell {
+        name: Option<String>,
+    },
+    /// Execute one SQL statement and print the result rows.
     Query {
         name: String,
         sql: String,
@@ -138,10 +145,12 @@ enum Command {
         #[arg(long)]
         idempotency_key: Option<String>,
     },
+    /// Manage scoped API credentials (create, list, revoke, rotate owner).
     Key {
         #[command(subcommand)]
         command: KeyCommand,
     },
+    /// Backup freshness and offline backup-set verification.
     Backup {
         #[command(subcommand)]
         command: BackupCommand,
@@ -165,6 +174,7 @@ enum Command {
 enum KeyCommand {
     /// List outstanding credentials with scope and role (hashes never shown).
     List,
+    /// Create a scoped credential; prints the raw key once.
     Create {
         name: String,
         #[arg(long,value_parser=["database_read_only","database_read_write"])]
@@ -172,6 +182,7 @@ enum KeyCommand {
         #[arg(long, required = true)]
         database: Vec<String>,
     },
+    /// Revoke a credential immediately.
     Revoke {
         name: String,
     },
