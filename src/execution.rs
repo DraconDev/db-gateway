@@ -129,10 +129,11 @@ pub fn validate_import(path: &Path) -> Result<()> {
 const REPLAY_DDL: &str = "create table if not exists _dg_replay (principal text not null, key text not null, hash text not null, result text not null, created integer not null, primary key(principal,key))";
 
 fn normalize(sql: &str) -> String {
-    // Compare tokens: strip the IF NOT EXISTS variant and all whitespace, and
-    // lowercase so quoting/spacing differences do not cause false rejections.
-    let lowered = sql.to_ascii_lowercase().replace("if not exists ", "");
-    lowered.split_whitespace().collect::<Vec<_>>().join(" ")
+    // Compare tokens: collapse whitespace first so ANY spacing of IF NOT
+    // EXISTS strips to the same form, then lowercase so quoting/case
+    // differences do not cause false rejections.
+    let collapsed = sql.split_whitespace().collect::<Vec<_>>().join(" ");
+    collapsed.to_ascii_lowercase().replace("if not exists ", "")
 }
 
 #[cfg(test)]
@@ -163,6 +164,11 @@ mod import_schema_tests {
             "CREATE TABLE _dg_replay (principal TEXT NOT NULL, key TEXT NOT NULL, hash TEXT NOT NULL, result TEXT NOT NULL, created INTEGER NOT NULL, extra TEXT, PRIMARY KEY(principal,key))",
         ));
         assert!(validate_import(&path).is_err());
+        // Same schema, hostile spacing and mixed case: accepted.
+        drop(make(
+            "CREATE  TABLE\n\tIF  NOT  EXISTS  _DG_Replay (\n  principal   TEXT  NOT  NULL,\nkey TEXT NOT NULL,\nhash TEXT NOT NULL,\nresult TEXT NOT NULL,\ncreated INTEGER NOT NULL,\nPRIMARY KEY(principal,key)\n)",
+        ));
+        validate_import(&path).unwrap();
     }
 
     #[test]
@@ -358,13 +364,19 @@ pub fn execute(
     if statements.is_empty() || statements.len() > 32 {
         return Err(Error::invalid());
     }
-    if let Some(key) = key
-        && (key.is_empty()
-            || key.len() > 128
-            || !key.bytes().all(|b| b.is_ascii_graphic())
-            || read_only)
-    {
-        return Err(Error::invalid());
+    if let Some(key) = key {
+        if read_only {
+            // Reads are naturally replayable; a key on them is meaningless,
+            // so say that instead of a bare malformed-request error.
+            return Err(Error::new(
+                400,
+                "idempotency_key_not_supported",
+                "idempotency keys are only supported for write requests",
+            ));
+        }
+        if key.is_empty() || key.len() > 128 || !key.bytes().all(|b| b.is_ascii_graphic()) {
+            return Err(Error::invalid());
+        }
     }
     let mut conn = open(path)?;
     let deadline = Instant::now() + Duration::from_secs(2);
@@ -554,6 +566,13 @@ mod tests {
             .unwrap_err()
             .code,
             "sql_forbidden"
+        );
+        // Idempotency keys are meaningless on reads; the rejection says so.
+        assert_eq!(
+            execute(&path, &[s("SELECT 1", vec![])], false, true, "reader", Some("k1"))
+                .unwrap_err()
+                .code,
+            "idempotency_key_not_supported"
         );
     }
 
@@ -923,8 +942,9 @@ mod tests {
             sql: sql.into(),
             args: vec![],
         };
-        // A keyed request on a read-only credential is a bad request, not a
-        // replay: reads need no dedupe and no key slot is stored for them.
+        // A keyed request on a read-only credential is rejected with a
+        // dedicated code, not a replay: reads need no dedupe and no key
+        // slot is stored for them.
         assert_eq!(
             execute(
                 &path,
@@ -936,7 +956,7 @@ mod tests {
             )
             .unwrap_err()
             .code,
-            "invalid_request"
+            "idempotency_key_not_supported"
         );
         // The identical keyed shape works for a writer, proving only the
         // read-only combination is rejected.

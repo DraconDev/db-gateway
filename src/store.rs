@@ -630,7 +630,7 @@ impl Store {
                 serde_json::to_string(&scopes).map_err(|_| Error::internal())?
             ],
         )
-        .map_err(|_| Error::new(409, "key_exists", "credential name already exists"))?;
+        .map_err(map_issue_error)?;
         tx.commit()?;
         Ok(key)
     }
@@ -665,10 +665,17 @@ impl Store {
         if name == "owner" {
             return Err(Error::invalid());
         }
-        self.meta()?.execute(
+        let changed = self.meta()?.execute(
             "DELETE FROM credentials WHERE name=? AND role != 'owner'",
             [name],
         )?;
+        if changed == 0 {
+            return Err(Error::new(
+                404,
+                "key_not_found",
+                "no such credential; nothing revoked",
+            ));
+        }
         Ok(())
     }
 
@@ -1085,7 +1092,7 @@ impl Store {
                 |r| r.get(0),
             )?;
             return Err(if exists {
-                Error::new(409, "database_exists", "database already deleted")
+                Error::new(409, "already_deleted", "database already deleted")
             } else {
                 Error::new(404, "database_not_found", "database not found")
             });
@@ -1283,6 +1290,9 @@ impl Store {
             TransferKind::Upload { .. } => return Err(snapshot_missing()),
         };
         if offset > size {
+            return Err(Error::invalid());
+        }
+        if length == 0 {
             return Err(Error::invalid());
         }
         let take = (length as u64).min(MAX_CHUNK as u64).min(size - offset) as usize;
@@ -1736,6 +1746,17 @@ fn parse_scopes(raw: &str) -> Result<Vec<DatabaseScope>> {
 
 fn scope_names(scopes: &[DatabaseScope]) -> Vec<String> {
     scopes.iter().map(|scope| scope.name.clone()).collect()
+}
+
+/// Only a uniqueness violation means the name is taken; every other
+/// insert failure (I/O, corruption) keeps its underlying mapping instead
+/// of masquerading as a duplicate name.
+fn map_issue_error(error: rusqlite::Error) -> Error {
+    if error.sqlite_error_code() == Some(rusqlite::ErrorCode::ConstraintViolation) {
+        Error::new(409, "key_exists", "credential name already exists")
+    } else {
+        error.into()
+    }
 }
 
 fn new_generation(conn: &Connection) -> Result<String> {
@@ -2263,6 +2284,39 @@ mod tests {
         .unwrap();
         let error = migrate_metadata(&mut conn, dir.path()).unwrap_err();
         assert_eq!(error.code, "metadata_corrupt");
+    }
+
+    #[test]
+    fn revoke_and_delete_report_unknown_and_repeated_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        assert_eq!(store.revoke("ghost").unwrap_err().code, "key_not_found");
+        store.create("doomed").unwrap();
+        store.delete("doomed", 3600).unwrap();
+        assert_eq!(
+            store.delete("doomed", 3600).unwrap_err().code,
+            "already_deleted"
+        );
+    }
+
+    #[test]
+    fn issue_error_mapping_distinguishes_duplicates_from_failures() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store.create("scoped").unwrap();
+        let request = || KeyRequest {
+            name: "app".to_string(),
+            role: "database_read_write".to_string(),
+            databases: vec!["scoped".to_string()],
+        };
+        store.issue(request()).unwrap();
+        assert_eq!(store.issue(request()).unwrap_err().code, "key_exists");
+        // A non-constraint failure keeps its own mapping instead of key_exists.
+        let conn = Connection::open_in_memory().unwrap();
+        let error = conn
+            .execute("INSERT INTO no_such_table VALUES (1)", [])
+            .unwrap_err();
+        assert_eq!(map_issue_error(error).code, "invalid_sql");
     }
 
     #[test]

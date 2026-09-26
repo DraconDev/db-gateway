@@ -62,6 +62,8 @@ Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1
 | `database_forbidden` | 403 | Key not scoped to this database |
 | `sql_forbidden` | 403 | Read-only write attempt, or SQL touching protected `_dg_*` tables / disallowed features (attach, pragmas, `ALTER`, triggers/views, temp objects, virtual tables, load_extension, user transactions) |
 | `database_not_found` | 404 | No such database (never silently created) |
+| `key_not_found` | 404 | Revoking a credential name that does not exist; nothing was revoked |
+| `metadata_corrupt` | 500 | Startup migration found an unreadable credential row; the server log names it |
 | `snapshot_not_found` | 404 | Snapshot unknown, expired, or created by another principal |
 | `upload_not_found` | 404 | Upload unknown or expired |
 | `invalid_request` | 400 | Malformed JSON, unknown fields, bad name, unsupported arg, empty batch, more than 32 batch statements, SQL text over 64 KiB, more than 256 args, or malformed idempotency key |
@@ -69,6 +71,8 @@ Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1
 | `invalid_sql` | 400 | Syntax error, wrong parameter count, unknown table/column |
 | `result_limit_exceeded` | 413 | Result exceeds 256 KiB or 1000 rows |
 | `idempotency_key_conflict` | 409 | Same key, different request body |
+| `idempotency_key_not_supported` | 400 | Idempotency key sent on a read-only request; keys only apply to writes |
+| `already_deleted` | 409 | Deleting a database that is already tombstoned |
 | `database_exists` | 409 | Name already registered/file exists, or tombstoned (delete not yet purged) |
 | `already_bootstrapped` | 409 | Second `dg init` attempt |
 | `key_exists` | 409 | Credential name reused |
@@ -81,7 +85,7 @@ Admission waits instead of shedding, on separate read/write lanes. Reads (SELECT
 
 ## Write semantics, Idempotency-Key, retries
 
-Every request runs in one managed transaction; a write is acknowledged only after commit (WAL, `synchronous=FULL`). A failed statement rolls back the whole request. An explicit `query_deadline_exceeded` response means the transaction rolled back. If the transport dies after a write was sent, the outcome is unknown — **never blindly retry an unkeyed write**. To make a write safely replayable, send `Idempotency-Key: <key>`: with the same key and identical body, the server replays the stored original result without re-executing. Key scope is (database, principal, key); retention is 24h, at most 256 keys per principal per database (429 `capacity_exceeded` for new keys at capacity; existing replays still work; other principals unaffected). Read-only credentials must not send the header: a keyed request on a read-only key is rejected with 400 `invalid_request`. Same key + different body = 409. The TS client's `Database.retry(sql,args,key)` is a convenience for explicit replay; resending the original keyed request through the CLI or HTTP API is also supported; no hidden retries exist in client or CLI. Details: `docs/architecture.md`.
+Every request runs in one managed transaction; a write is acknowledged only after commit (WAL, `synchronous=FULL`). A failed statement rolls back the whole request. An explicit `query_deadline_exceeded` response means the transaction rolled back. If the transport dies after a write was sent, the outcome is unknown — **never blindly retry an unkeyed write**. To make a write safely replayable, send `Idempotency-Key: <key>`: with the same key and identical body, the server replays the stored original result without re-executing. Key scope is (database, principal, key); retention is 24h, at most 256 keys per principal per database (429 `capacity_exceeded` for new keys at capacity; existing replays still work; other principals unaffected). Read-only credentials must not send the header: a keyed request on a read-only key is rejected with 400 `idempotency_key_not_supported`. Same key + different body = 409. The TS client's `Database.retry(sql,args,key)` is a convenience for explicit replay; resending the original keyed request through the CLI or HTTP API is also supported; no hidden retries exist in client or CLI. Details: `docs/architecture.md`.
 
 ## Lifecycle: clone, export, import, delete (M2)
 
