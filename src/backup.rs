@@ -269,7 +269,8 @@ mod tests {
         // Checkpoint so the registry copy is self-contained (no WAL sibling).
         {
             let conn = Connection::open(data.join("metadata.sqlite")).unwrap();
-            conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)").unwrap();
+            conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
+                .unwrap();
         }
         let set = root.join("20240101T000000Z");
         std::fs::create_dir_all(&set).unwrap();
@@ -291,8 +292,11 @@ mod tests {
             "registry": {"file": "metadata.sqlite.bak",
                          "size": registry_bytes.len(), "sha256": registry_sha},
         });
-        std::fs::write(set.join("manifest.json"), serde_json::to_vec(&manifest).unwrap())
-            .unwrap();
+        std::fs::write(
+            set.join("manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
     }
 
     #[test]

@@ -46,6 +46,38 @@ fn api_error() -> dg::error::Error {
     dg::error::Error::new(400, "api_error", "API request failed; see JSON response")
 }
 
+/// Terminal-table fetch shared by the JSON-listing commands. Returns
+/// `Ok(None)` when output stays machine JSON (piped stdout or --json);
+/// otherwise fetches, renders any error envelope, and hands the JSON
+/// back for table shaping (Err on API failure).
+async fn table_json(
+    cli: &Cli,
+    key_path: &Option<PathBuf>,
+    method: reqwest::Method,
+    path: &str,
+) -> Result<Option<Value>, dg::ServerError> {
+    use dg::ServerError::Application;
+    if cli.json || !std::io::stdout().is_terminal() {
+        return Ok(None);
+    }
+    let key = dg::client::read_key(key_path.as_deref().ok_or_else(|| {
+        Application(dg::error::Error::new(
+            400,
+            "missing_credential",
+            "--key-file required",
+        ))
+    })?)
+    .map_err(Application)?;
+    let result = dg::client::request(&cli.server, &key, method, path, None, None)
+        .await
+        .map_err(Application)?;
+    if api_failed(&result) {
+        dg::shell::render(&result, false, &mut std::io::stdout()).map_err(Application)?;
+        return Err(Application(api_error()));
+    }
+    Ok(Some(result))
+}
+
 #[derive(Parser)]
 #[command(name = "dg", version, about = "DB Gateway — personal SQLite service")]
 struct Cli {
@@ -512,10 +544,102 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             data_dir,
             backup_root,
         } => return dg::serve(listen, data_dir, backup_root).await,
-        Command::Status => (Method::GET, "/v1/status".into(), None, None),
+        Command::Status => {
+            if let Some(status) = table_json(&cli, &key_path, Method::GET, "/v1/status").await? {
+                let mut rows = vec![
+                    json!(["version", status["version"]]),
+                    json!(["uptime_secs", status["uptime_secs"]]),
+                    json!([
+                        "acquire_timeout_ms",
+                        status["admission"]["acquire_timeout_ms"]
+                    ]),
+                    json!(["read_permits", status["admission"]["read_permits"]]),
+                    json!(["write_permits", status["admission"]["write_permits"]]),
+                    json!(["requests_total", status["requests"]["total"]]),
+                    json!(["capacity_exceeded", status["requests"]["capacity_exceeded"]]),
+                    json!([
+                        "deadline_exceeded",
+                        status["requests"]["query_deadline_exceeded"]
+                    ]),
+                    json!(["internal_error", status["requests"]["internal_error"]]),
+                ];
+                if let Some(usage) = status["databases"].as_object() {
+                    let mut names: Vec<&String> = usage.keys().collect();
+                    names.sort();
+                    for name in names {
+                        rows.push(json!([
+                            format!("usage {name}"),
+                            format!(
+                                "read {}, written {}",
+                                usage[name.as_str()]["rows_read"].as_u64().unwrap_or(0),
+                                usage[name.as_str()]["rows_written"].as_u64().unwrap_or(0)
+                            )
+                        ]));
+                    }
+                }
+                dg::shell::render(
+                    &json!({"columns":["property","value"],"rows":rows}),
+                    false,
+                    &mut std::io::stdout(),
+                )
+                .map_err(Application)?;
+                return Ok(());
+            }
+            (Method::GET, "/v1/status".into(), None, None)
+        }
         Command::Backup {
             command: BackupCommand::Status,
-        } => (Method::GET, "/v1/backups".into(), None, None),
+        } => {
+            if let Some(backups) = table_json(&cli, &key_path, Method::GET, "/v1/backups").await? {
+                let mut rows = vec![
+                    json!(["backup_root", backups["backup_root"]]),
+                    json!(["stale_after_secs", backups["stale_after_secs"]]),
+                ];
+                if let Some(sets) = backups["sets"].as_array() {
+                    rows.push(json!([
+                        "sets",
+                        if sets.is_empty() {
+                            "none".to_string()
+                        } else {
+                            sets.iter()
+                                .filter_map(|set| set["timestamp"].as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        }
+                    ]));
+                }
+                if let Some(per_database) = backups["per_database"].as_object() {
+                    let mut names: Vec<&String> = per_database.keys().collect();
+                    names.sort();
+                    for name in names {
+                        let fresh = &per_database[name.as_str()];
+                        rows.push(json!([
+                            format!("backup {name}"),
+                            format!(
+                                "{}{}{}",
+                                fresh["state"].as_str().unwrap_or("unknown"),
+                                fresh["newest_set"]
+                                    .as_str()
+                                    .map(|set| format!(" @ {set}"))
+                                    .unwrap_or_default(),
+                                fresh["age_secs"]
+                                    .as_u64()
+                                    .map(|age| format!(" ({age}s ago)"))
+                                    .unwrap_or_default()
+                            )
+                        ]));
+                    }
+                }
+                dg::shell::render(
+                    &json!({"columns":["property","value"],"rows":rows}),
+                    false,
+                    &mut std::io::stdout(),
+                )
+                .map_err(Application)?;
+                return Ok(());
+            }
+            (Method::GET, "/v1/backups".into(), None, None)
+        }
         Command::Backup {
             command: BackupCommand::Verify { backup_root, set },
         } => {
@@ -1056,7 +1180,44 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         }
         Command::Key {
             command: KeyCommand::List,
-        } => (Method::GET, "/v1/keys".into(), None, None),
+        } => {
+            if let Some(keys) = table_json(&cli, &key_path, Method::GET, "/v1/keys").await? {
+                let rows: Vec<Value> = keys["keys"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|key| {
+                        let databases = key["databases"]
+                            .as_array()
+                            .map(|dbs| {
+                                dbs.iter()
+                                    .filter_map(Value::as_str)
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            })
+                            .unwrap_or_default();
+                        json!([
+                            key["name"],
+                            key["role"],
+                            if databases.is_empty() && key["role"].as_str() == Some("owner") {
+                                "all".to_string()
+                            } else {
+                                databases
+                            }
+                        ])
+                    })
+                    .collect();
+                dg::shell::render(
+                    &json!({"columns":["name","role","databases"],"rows":rows}),
+                    false,
+                    &mut std::io::stdout(),
+                )
+                .map_err(Application)?;
+                return Ok(());
+            }
+            (Method::GET, "/v1/keys".into(), None, None)
+        }
         Command::Key {
             command: KeyCommand::Revoke { name },
         } => {

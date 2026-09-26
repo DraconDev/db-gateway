@@ -141,7 +141,9 @@ fn normalize(sql: &str) -> String {
     let mut index = 0;
     while index < tokens.len() {
         if tokens[index].eq_ignore_ascii_case("if")
-            && tokens.get(index + 1).is_some_and(|next| next.eq_ignore_ascii_case("not"))
+            && tokens
+                .get(index + 1)
+                .is_some_and(|next| next.eq_ignore_ascii_case("not"))
             && tokens
                 .get(index + 2)
                 .is_some_and(|next| next.eq_ignore_ascii_case("exists"))
@@ -588,9 +590,16 @@ mod tests {
         );
         // Idempotency keys are meaningless on reads; the rejection says so.
         assert_eq!(
-            execute(&path, &[s("SELECT 1", vec![])], false, true, "reader", Some("k1"))
-                .unwrap_err()
-                .code,
+            execute(
+                &path,
+                &[s("SELECT 1", vec![])],
+                false,
+                true,
+                "reader",
+                Some("k1")
+            )
+            .unwrap_err()
+            .code,
             "idempotency_key_not_supported"
         );
     }
