@@ -155,11 +155,9 @@ fn list_info_piped_json_pty_table() {
 fn status_backup_keys_piped_json_pty_table() {
     let fleet = Fleet::boot();
     fleet.cli.ok("create", &["create", "tables_status"]);
-    fleet.cli.q(
-        "seed",
-        "tables_status",
-        "CREATE TABLE t (id INTEGER)",
-    );
+    fleet
+        .cli
+        .q("seed", "tables_status", "CREATE TABLE t (id INTEGER)");
 
     // Piped legs stay machine-readable JSON.
     let piped_status = fleet.cli.ok("status", &["status"]);
@@ -172,7 +170,11 @@ fn status_backup_keys_piped_json_pty_table() {
     );
     let piped_keys = fleet.cli.ok("key-list", &["key", "list"]);
     assert!(
-        piped_keys["keys"].as_array().unwrap().iter().any(|k| k["name"] == "owner"),
+        piped_keys["keys"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|k| k["name"] == "owner"),
         "piped key list not JSON keys: {piped_keys}"
     );
 

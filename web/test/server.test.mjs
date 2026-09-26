@@ -231,7 +231,7 @@ test('companion joins list, info, usage, and freshness into GET /api/databases',
         version: '1', uptime_secs: 0,
         admission: { acquire_timeout_ms: 1, read_permits: 1, write_permits: 1 },
         requests: { total: 0, capacity_exceeded: 0, query_deadline_exceeded: 0, internal_error: 0 },
-        databases: { appdb: { rows_read: 9, rows_written: 4 } },
+        databases: { appdb: { rows_read: 9, rows_written: 4, queue_waits: 1, queue_wait_ms: 0, queue_timeouts: 0 } },
       }));
     } else if (request.url === '/v1/backups') {
       response.end(JSON.stringify({ backup_root: null, stale_after_secs: 300, sets: [], per_database: { appdb: { state: 'fresh', newest_set: 's', age_secs: 1 } } }));
@@ -262,7 +262,7 @@ test('companion joins list, info, usage, and freshness into GET /api/databases',
       assert.equal(overview.status, 200);
       const body = await overview.json();
       assert.equal(body.server_url, `http://127.0.0.1:${gatewayAddress.port}`);
-      assert.deepEqual(body.gateway.databases, { appdb: { rows_read: 9, rows_written: 4 } });
+      assert.deepEqual(body.gateway.databases, { appdb: { rows_read: 9, rows_written: 4, queue_waits: 1, queue_wait_ms: 0, queue_timeouts: 0 } });
     }, { gatewayUrl: `http://127.0.0.1:${gatewayAddress.port}` });
   } finally {
     await new Promise((resolve, reject) => gateway.close((error) => error ? reject(error) : resolve()));
