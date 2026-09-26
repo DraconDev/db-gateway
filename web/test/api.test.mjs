@@ -57,9 +57,9 @@ test('gateway adapter passes per-database usage through and rejects malformed us
   };
   try {
     const api = new GatewayApi('http://127.0.0.1:8787', key);
-    globalThis.fetch = async () => responseJson({ ...base, databases: { appdb: { rows_read: 5, rows_written: 3 } } });
+    globalThis.fetch = async () => responseJson({ ...base, databases: { appdb: { rows_read: 5, rows_written: 3, queue_waits: 2, queue_wait_ms: 7, queue_timeouts: 0 } } });
     const status = await api.status();
-    assert.deepEqual(status.databases, { appdb: { rows_read: 5, rows_written: 3 } });
+    assert.deepEqual(status.databases, { appdb: { rows_read: 5, rows_written: 3, queue_waits: 2, queue_wait_ms: 7, queue_timeouts: 0 } });
     globalThis.fetch = async () => responseJson(base);
     assert.equal((await api.status()).databases, undefined);
     globalThis.fetch = async () => responseJson({ ...base, databases: { appdb: { rows_read: -1, rows_written: 0 } } });

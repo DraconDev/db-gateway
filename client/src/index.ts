@@ -10,6 +10,9 @@ export interface TableInfo { name: string; rows: number }
 export interface DatabaseUsage {
   rows_read: number;
   rows_written: number;
+  queue_waits: number;
+  queue_wait_ms: number;
+  queue_timeouts: number;
 }
 export interface StatusResponse {
   version: string;
@@ -86,7 +89,8 @@ function isDatabaseInfo(v: unknown): v is DatabaseInfo {
 }
 const isNonNegativeInt = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 function isDatabaseUsage(v: unknown): v is DatabaseUsage {
-  return object(v) && isNonNegativeInt(v.rows_read) && isNonNegativeInt(v.rows_written);
+  return object(v) && isNonNegativeInt(v.rows_read) && isNonNegativeInt(v.rows_written) &&
+    isNonNegativeInt(v.queue_waits) && isNonNegativeInt(v.queue_wait_ms) && isNonNegativeInt(v.queue_timeouts);
 }
 function isStatusResponse(v: unknown): v is StatusResponse {
   if (!object(v) || typeof v.version !== 'string' || !isNonNegativeInt(v.uptime_secs) ||

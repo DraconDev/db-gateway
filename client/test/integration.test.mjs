@@ -162,6 +162,13 @@ test('status reports service facts and per-database usage', async () => {
     assert.deepEqual(Object.keys(status.admission).sort(), ['acquire_timeout_ms', 'read_permits', 'write_permits']);
     assert.deepEqual(Object.keys(status.requests).sort(), ['capacity_exceeded', 'internal_error', 'query_deadline_exceeded', 'total']);
     assert.equal(status.requests.total >= 4, true);
-    assert.deepEqual(status.databases.status_db, { rows_read: 1, rows_written: 1 });
+    assert.deepEqual(status.databases.status_db, {
+      rows_read: 1,
+      rows_written: 1,
+      queue_waits: 3,
+      queue_wait_ms: status.databases.status_db.queue_wait_ms,
+      queue_timeouts: 0,
+    });
+    assert.equal(typeof status.databases.status_db.queue_wait_ms, 'number');
   });
 });

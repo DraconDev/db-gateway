@@ -194,11 +194,11 @@ fn status_backup_keys_piped_json_pty_table() {
 
     let screen = run_pty("status");
     for (label, needle) in [
-        ("header", "property | value"),
+        ("header", "property"),
+        ("header value column", "value"),
         ("version row", "version"),
         ("usage row", "usage tables_status"),
-        ("queue waits", "queue"),
-        ("queue timeouts", "timeouts"),
+        ("queue waits", "queue 1 waits/0ms/0 timeouts"),
     ] {
         assert!(screen.contains(needle), "no {label}: {screen:?}");
     }
@@ -215,11 +215,14 @@ fn status_backup_keys_piped_json_pty_table() {
     );
 
     let screen = run_pty("key list");
-    assert!(
-        screen.contains("name | role | databases"),
-        "no key header: {screen:?}"
-    );
-    assert!(screen.contains("owner"), "no owner row: {screen:?}");
+    for (label, needle) in [
+        ("header name column", "name"),
+        ("header role column", "role"),
+        ("header databases column", "databases"),
+        ("owner row", "owner"),
+    ] {
+        assert!(screen.contains(needle), "no {label}: {screen:?}");
+    }
     assert!(
         !screen.contains("\"keys\""),
         "JSON leaked to tty: {screen:?}"

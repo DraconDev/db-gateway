@@ -16,6 +16,9 @@ export interface ImportResponse { imported: string; from?: string }
 export interface DatabaseUsage {
   rows_read: number;
   rows_written: number;
+  queue_waits: number;
+  queue_wait_ms: number;
+  queue_timeouts: number;
 }
 export interface StatusResponse {
   version: string;
@@ -191,7 +194,8 @@ function parse<T>(value: unknown, predicate: (v: unknown) => boolean, code = 'in
 }
 
 function isDatabaseUsage(value: unknown): value is DatabaseUsage {
-  return isObject(value) && isNonNegativeInteger(value.rows_read) && isNonNegativeInteger(value.rows_written);
+  return isObject(value) && isNonNegativeInteger(value.rows_read) && isNonNegativeInteger(value.rows_written) &&
+    isNonNegativeInteger(value.queue_waits) && isNonNegativeInteger(value.queue_wait_ms) && isNonNegativeInteger(value.queue_timeouts);
 }
 function isStatusResponse(value: unknown): value is StatusResponse {
   if (!isObject(value) || typeof value.version !== 'string' || !isNonNegativeInteger(value.uptime_secs) || !isObject(value.admission) || !isObject(value.requests)) return false;
