@@ -44,6 +44,19 @@ No Turso equivalent; kept as the single-node operational surface:
 - `dg clone/export/import` — SQLite backup-API clone, `.sqlite` snapshot export/import.
 - `dg web` — loopback console on `:8787`; prints URL, no auto-open.
 
+## Console trust model
+
+`dg web` binds loopback only (remote access via SSH tunnel, never a
+public listener) and holds the owner credential server-side in the
+companion process — the browser never receives it. The session cookie
+is CSRF defense (SameSite=Strict + loopback origin check), not
+authentication: any local process can mint a session by design, so the
+console trusts the local machine exactly as the `0600` key file does.
+`Secure` is deliberately absent from the cookie (plain HTTP on
+loopback; the localhost exception does not cover `127.0.0.1`). No
+billing, no metered rows: the usage counters in `dg status` and the
+console are visibility only.
+
 ## Deliberately out of scope
 
 Per the project brief (no billing, no multi-user fluff):

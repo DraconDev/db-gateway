@@ -48,19 +48,21 @@ const MAX_CHUNK_RESPONSE: usize = 2 * 1024 * 1024;
 // One client per CLI invocation: every request shares the same builder
 // settings (no proxy, no redirects, 10s timeout), so rebuilding it per
 // request only burned a connection pool per chunked-transfer piece.
-static SHARED_CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+static SHARED_CLIENT: std::sync::OnceLock<std::result::Result<reqwest::Client, ()>> =
+    std::sync::OnceLock::new();
 
 fn shared_client() -> Result<reqwest::Client> {
     SHARED_CLIENT
-        .get_or_try_init(|| {
+        .get_or_init(|| {
             reqwest::Client::builder()
                 .no_proxy()
                 .redirect(reqwest::redirect::Policy::none())
                 .timeout(Duration::from_secs(10))
                 .build()
-                .map_err(|_| Error::internal())
+                .map_err(|_| ())
         })
-        .cloned()
+        .clone()
+        .map_err(|_| Error::internal())
 }
 
 pub async fn request(

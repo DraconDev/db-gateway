@@ -88,17 +88,21 @@ fn query_piped_json_pty_table() {
 fn list_info_piped_json_pty_table() {
     let fleet = Fleet::boot();
     fleet.cli.ok("create", &["create", "tables_cli"]);
-    fleet.cli.q(
-        "seed",
-        "tables_cli",
-        "CREATE TABLE t (id INTEGER)",
-    );
-    fleet.cli.q("insert", "tables_cli", "INSERT INTO t VALUES (1)");
+    fleet
+        .cli
+        .q("seed", "tables_cli", "CREATE TABLE t (id INTEGER)");
+    fleet
+        .cli
+        .q("insert", "tables_cli", "INSERT INTO t VALUES (1)");
 
     // Piped legs stay machine-readable JSON.
     let piped_list = fleet.cli.ok("list", &["list"]);
     assert!(
-        piped_list["databases"].as_array().unwrap().iter().any(|n| n == "tables_cli"),
+        piped_list["databases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|n| n == "tables_cli"),
         "piped list not JSON names: {piped_list}"
     );
     let piped_info = fleet.cli.ok("info", &["info", "tables_cli"]);
