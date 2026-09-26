@@ -161,6 +161,12 @@ async fn status(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<J
                 "query_deadline_exceeded": m.deadline_exceeded,
                 "internal_error": m.internal_error,
             },
+            "databases": s.metrics.usage_snapshot().into_iter().map(|(name, usage)| {
+                (
+                    name,
+                    json!({"rows_read": usage.rows_read, "rows_written": usage.rows_written}),
+                )
+            }).collect::<serde_json::Map<String, Value>>(),
         })))
     })
     .await
@@ -666,9 +672,36 @@ async fn execute(
         if !read && result.is_ok() {
             s.finish_write(&name);
         }
+        if let Ok(value) = result.as_ref() {
+            let (rows_read, rows_written) = execution_usage(value);
+            s.metrics.record_usage(&name, rows_read, rows_written);
+        }
         result.map(Json)
     })
     .await
+}
+
+/// Sum rows read/written from a query/batch result: returned rows count as
+/// read, rows_affected as written (RETURNING clauses legitimately count
+/// both). Batch responses nest per-statement results under `results`.
+fn execution_usage(value: &Value) -> (u64, u64) {
+    fn one(result: &Value) -> (u64, u64) {
+        let read = result["rows"]
+            .as_array()
+            .map(|rows| rows.len() as u64)
+            .unwrap_or(0);
+        let written = result["rows_affected"].as_u64().unwrap_or(0);
+        (read, written)
+    }
+    match value["results"].as_array() {
+        Some(results) => results
+            .iter()
+            .map(one)
+            .fold((0, 0), |(reads, writes), (read, written)| {
+                (reads + read, writes + written)
+            }),
+        None => one(value),
+    }
 }
 async fn query(
     State(store): State<Arc<Store>>,

@@ -43,16 +43,28 @@ pub enum QueueGuard {
     Write(tokio::sync::OwnedRwLockWriteGuard<()>),
 }
 
-/// Request-pressure counters (observability contract §1). Status-level only:
-/// total plus the three shed/degrade signals. Updated at the API layer in
-/// `work_in`, which every route funnels through; per-code detail beyond
-/// these signals stays in the structured logs, not in memory.
+/// Request-pressure counters (observability contract §1): total plus the
+/// three shed/degrade signals. Updated at the API layer in `work_in`,
+/// which every route funnels through; per-code detail beyond these signals
+/// stays in the structured logs, not in memory. Per-database usage lives
+/// alongside (same struct, separate map) for the usage views.
 pub struct Metrics {
     started: Instant,
     total: AtomicU64,
     capacity_exceeded: AtomicU64,
     deadline_exceeded: AtomicU64,
     internal_error: AtomicU64,
+    usage: Mutex<HashMap<String, DbUsage>>,
+}
+
+/// Rows read/written per database since boot. Recorded at the API layer
+/// after a successful query/batch (replayed responses count: they are
+/// served requests). Plain totals under one short mutex, mirroring
+/// `writes`; the registry cap bounds the map.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct DbUsage {
+    pub rows_read: u64,
+    pub rows_written: u64,
 }
 
 /// Point-in-time copy for `/v1/status`. Plain data, no locks held.
@@ -72,7 +84,18 @@ impl Metrics {
             capacity_exceeded: AtomicU64::new(0),
             deadline_exceeded: AtomicU64::new(0),
             internal_error: AtomicU64::new(0),
+            usage: Mutex::new(HashMap::new()),
         }
+    }
+    pub fn record_usage(&self, name: &str, rows_read: u64, rows_written: u64) {
+        if let Ok(mut usage) = self.usage.lock() {
+            let entry = usage.entry(name.to_string()).or_default();
+            entry.rows_read += rows_read;
+            entry.rows_written += rows_written;
+        }
+    }
+    pub fn usage_snapshot(&self) -> HashMap<String, DbUsage> {
+        self.usage.lock().map(|usage| usage.clone()).unwrap_or_default()
     }
     pub fn record_request(&self) {
         self.total.fetch_add(1, Ordering::Relaxed);
