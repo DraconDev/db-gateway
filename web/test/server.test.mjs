@@ -110,3 +110,53 @@ test('redacts upstream errors and extra fields at the companion response boundar
     await new Promise((resolve, reject) => gateway.close((error) => error ? reject(error) : resolve()));
   }
 });
+
+test('companion joins list, info, usage, and freshness into GET /api/databases', async () => {
+  const gateway = createHttpServer((request, response) => {
+    response.setHeader('content-type', 'application/json');
+    if (request.url === '/v1/databases' && request.method === 'GET') {
+      response.end(JSON.stringify({ databases: ['appdb'] }));
+    } else if (request.url === '/v1/databases/appdb' && request.method === 'GET') {
+      response.end(JSON.stringify({ name: 'appdb', tombstoned: false, size_bytes: 2048, created_at: 7, tables: [{ name: 't', rows: 3 }] }));
+    } else if (request.url === '/v1/status') {
+      response.end(JSON.stringify({
+        version: '1', uptime_secs: 0,
+        admission: { acquire_timeout_ms: 1, read_permits: 1, write_permits: 1 },
+        requests: { total: 0, capacity_exceeded: 0, query_deadline_exceeded: 0, internal_error: 0 },
+        databases: { appdb: { rows_read: 9, rows_written: 4 } },
+      }));
+    } else if (request.url === '/v1/backups') {
+      response.end(JSON.stringify({ backup_root: null, stale_after_secs: 300, sets: [], per_database: { appdb: { state: 'fresh', newest_set: 's', age_secs: 1 } } }));
+    } else if (request.url === '/v1/keys' && request.method === 'GET') {
+      response.end(JSON.stringify({ keys: [] }));
+    } else if (request.url === '/health/live') {
+      response.end(JSON.stringify({ status: 'ok' }));
+    } else {
+      response.statusCode = 404;
+      response.end(JSON.stringify({ error: { code: 'not_found', message: 'no such fake route' } }));
+    }
+  });
+  await new Promise((resolve, reject) => { gateway.once('error', reject); gateway.listen(0, '127.0.0.1', resolve); });
+  const gatewayAddress = gateway.address();
+  assert.equal(typeof gatewayAddress, 'object');
+  try {
+    await withServer(async (base) => {
+      const page = await fetch(base + '/');
+      const cookie = (page.headers.get('set-cookie') ?? '').split(';')[0];
+      const list = await fetch(base + '/api/databases', { headers: { cookie } });
+      assert.equal(list.status, 200);
+      assert.deepEqual(await list.json(), [{
+        name: 'appdb', size_bytes: 2048, rows_read: 9, rows_written: 4,
+        backup: { state: 'fresh', newest_set: 's', age_secs: 1 },
+        tombstoned: false, created_at: 7, tables: [{ name: 't', rows: 3 }],
+      }]);
+      const overview = await fetch(base + '/api/overview', { headers: { cookie } });
+      assert.equal(overview.status, 200);
+      const body = await overview.json();
+      assert.equal(body.server_url, `http://127.0.0.1:${gatewayAddress.port}`);
+      assert.deepEqual(body.gateway.databases, { appdb: { rows_read: 9, rows_written: 4 } });
+    }, { gatewayUrl: `http://127.0.0.1:${gatewayAddress.port}` });
+  } finally {
+    await new Promise((resolve, reject) => gateway.close((error) => error ? reject(error) : resolve()));
+  }
+});
