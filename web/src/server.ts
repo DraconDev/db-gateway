@@ -148,6 +148,7 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
         const [health, status, backups, names, keys] = await Promise.all([api.health(), api.status(), api.backups(), api.list(), api.keys()]);
         const value = {
           observed_at: new Date().toISOString(),
+          server_url: config.gatewayUrl,
           gateway: { available: health.status === 'ok', ...status },
           backups,
           databases: names,
@@ -175,6 +176,20 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
         const idempotencyKey = req.headers['idempotency-key'];
         if (idempotencyKey !== undefined && (typeof idempotencyKey !== 'string' || idempotencyKey.length > 128 || !/^[\x21-\x7e]+$/.test(idempotencyKey))) throw new ApiError('invalid_request', 'Invalid Idempotency-Key.', 400);
         json(res, 200, await api.query(parts[2], input.sql, input.args as never[], idempotencyKey ? { idempotencyKey } : {})); return;
+      }
+      if (req.method === 'GET' && parts.length === 2 && parts[0] === 'api' && parts[1] === 'databases') {
+        const [names, status, backups] = await Promise.all([api.list(), api.status(), api.backups()]);
+        const usage = status.databases ?? {};
+        const entries = await Promise.all(names.map(async (name) => {
+          const info = await api.info(name);
+          const fresh = backups.per_database[name] ?? { state: 'unknown', newest_set: null, age_secs: null };
+          const use = usage[name] ?? { rows_read: 0, rows_written: 0 };
+          const base = { name, size_bytes: info.size_bytes, rows_read: use.rows_read, rows_written: use.rows_written, backup: fresh };
+          return info.tombstoned
+            ? { ...base, tombstoned: true as const, tables: [] }
+            : { ...base, tombstoned: false as const, created_at: info.created_at, tables: info.tables };
+        }));
+        json(res, 200, entries); return;
       }
       if (req.method === 'POST' && parts.length === 2 && parts[0] === 'api' && parts[1] === 'databases') {
         const input = await body(req) as { name?: unknown };
