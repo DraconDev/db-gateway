@@ -143,7 +143,9 @@ test('real browser shows loading and disabled state during duplicate submissions
   await gotoView(page, '#/databases/browserdb/data');
   await page.route('**/api/databases/browserdb/query', async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 1_000));
-    await route.continue();
+    // The grid may legitimately share this URL concurrently; if the test
+    // already unrouted, the late continuation is harness noise, not app state.
+    await route.continue().catch(() => {});
   });
   const form = page.locator('#query-form');
   const button = form.getByRole('button', { name: 'Run query' });
