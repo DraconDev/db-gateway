@@ -172,6 +172,9 @@ test('tunnel command is loopback-only and lifecycle is injectable', async () => 
   const spec = tunnelCommand({ target: 'owner@host', localPort: 17432, remotePort: 7432, identityFile: '/tmp/id' });
   assert.deepEqual(spec.args.slice(0, 5), ['-N', '-T', '-o', 'ExitOnForwardFailure=yes', '-L']);
   assert.match(spec.args[5], /^127\.0\.0\.1:17432:127\.0\.0\.1:7432$/);
+  for (const flag of ['ConnectTimeout=10', 'ServerAliveInterval=30', 'ServerAliveCountMax=3']) {
+    assert.equal(spec.args.includes(flag), true, `missing ssh flag ${flag}: ${spec.args}`);
+  }
   const child = new EventEmitter();
   child.pid = 123; child.exitCode = null; child.signalCode = null;
   const signals = [];

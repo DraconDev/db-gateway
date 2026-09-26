@@ -1,4 +1,20 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { Socket } from 'node:net';
+
+export type ReadyProbe = (port: number) => Promise<boolean>;
+export const DEFAULT_READY_TIMEOUT_MS = 15_000;
+const READY_POLL_MS = 200;
+
+function tcpProbe(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = new Socket();
+    const done = (ok: boolean) => { socket.destroy(); resolve(ok); };
+    socket.once('connect', () => done(true));
+    socket.once('error', () => done(false));
+    socket.setTimeout(1000, () => done(false));
+    socket.connect(port, '127.0.0.1');
+  });
+}
 
 export interface TunnelOptions {
   target: string;
@@ -21,7 +37,8 @@ export function tunnelCommand(options: TunnelOptions): TunnelProcess {
   const remotePort = options.remotePort ?? 7432;
   if (!Number.isInteger(remotePort) || remotePort < 1 || remotePort > 65535) throw new Error('Invalid tunnel remote port');
   const command = options.command ?? 'ssh';
-  const args = ['-N', '-T', '-o', 'ExitOnForwardFailure=yes', '-L', `127.0.0.1:${options.localPort}:${remoteHost}:${remotePort}`];
+  const args = ['-N', '-T', '-o', 'ExitOnForwardFailure=yes', '-L', `127.0.0.1:${options.localPort}:${remoteHost}:${remotePort}`,
+    '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3'];
   if (options.identityFile) args.push('-i', options.identityFile);
   args.push(options.target);
   return { command, args };
@@ -73,8 +90,40 @@ export class TunnelController {
   private error: string | undefined;
   private stopping: Promise<TunnelStatus> | undefined;
 
-  constructor(private readonly options: TunnelOptions | undefined, private readonly spawnLike: SpawnLike = spawn) {
+  constructor(
+    private readonly options: TunnelOptions | undefined,
+    private readonly spawnLike: SpawnLike = spawn,
+    private readonly probe: ReadyProbe = tcpProbe,
+    private readonly readyTimeoutMs: number = DEFAULT_READY_TIMEOUT_MS,
+  ) {
     this.state = options ? 'stopped' : 'not_configured';
+  }
+
+  // A spawned ssh process is not a working forward: promote to `running`
+  // only once the local port accepts connections. A tunnel that never
+  // comes up is stopped and reported `failed` rather than left to
+  // impersonate a healthy one. Safe to invoke more than once per child.
+  private watchReady(child: ChildProcess, started: number): void {
+    if (!this.options || this.child !== child || !isRunning(child)) return;
+    const port = this.options.localPort;
+    void this.probe(port).then((ok) => {
+      if (this.child !== child || !isRunning(child) || this.state !== 'starting') return;
+      if (ok) {
+        this.state = 'running';
+        return;
+      }
+      if (Date.now() - started >= this.readyTimeoutMs) {
+        void this.stop().then(() => {
+          if (this.state === 'stopped') {
+            this.state = 'failed';
+            this.error = 'tunnel did not accept connections';
+          }
+        });
+        return;
+      }
+      const timer = setTimeout(() => this.watchReady(child, started), READY_POLL_MS);
+      timer.unref?.();
+    });
   }
 
   async start(): Promise<TunnelStatus> {
@@ -89,7 +138,8 @@ export class TunnelController {
     try {
       const child = startTunnel(this.options, this.spawnLike);
       this.child = child;
-      child.once('spawn', () => { if (this.child === child && this.state === 'starting') this.state = 'running'; });
+      child.once('spawn', () => this.watchReady(child, Date.now()));
+      this.watchReady(child, Date.now());
       child.once('error', (error) => {
         if (this.child === child) { this.state = 'failed'; this.error = error.message; }
       });
