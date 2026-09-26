@@ -372,3 +372,71 @@ fn backups_unreadable_root_is_unknown() {
     assert_eq!(body["sets"].as_array().unwrap().len(), 0);
     assert_eq!(body["per_database"]["udb"]["state"], json!("unknown"));
 }
+
+#[test]
+fn status_reports_per_database_usage_since_boot() {
+    let dir = tempfile::tempdir().unwrap();
+    let owner = init(dir.path());
+    let server = start(dir.path(), &[]);
+    let usage = || -> Value {
+        let (status, body) = get(&server.address, "/v1/status", Some(&owner));
+        assert_eq!(status, 200);
+        body["databases"].clone()
+    };
+    assert_eq!(usage(), json!({}));
+
+    let query = |db: &str, sql: &str| -> (u16, Value) {
+        post(
+            &server.address,
+            &format!("/v1/databases/{db}/query"),
+            &owner,
+            &json!({"sql": sql, "args": []}),
+        )
+    };
+    let (status, _) = post(
+        &server.address,
+        "/v1/databases",
+        &owner,
+        &json!({"name": "udb"}),
+    );
+    assert_eq!(status, 200);
+    let (status, _) = post(
+        &server.address,
+        "/v1/databases",
+        &owner,
+        &json!({"name": "idle"}),
+    );
+    assert_eq!(status, 200);
+    // DDL counting is deliberately not pinned: snapshot after setup and
+    // assert exact deltas for the measured statements only.
+    let (status, _) = query("udb", "CREATE TABLE t(id INTEGER PRIMARY KEY, v TEXT)");
+    assert_eq!(status, 200);
+    let before = usage();
+    let (status, _) = query("udb", "INSERT INTO t(v) VALUES ('a'), ('b'), ('c')");
+    assert_eq!(status, 200);
+    let (status, _) = query("udb", "SELECT * FROM t WHERE v <> 'a'");
+    assert_eq!(status, 200);
+    let (status, _) = post(
+        &server.address,
+        "/v1/databases/udb/batch",
+        &owner,
+        &json!({
+            "atomic": true,
+            "statements": [
+                {"sql": "SELECT * FROM t", "args": []},
+                {"sql": "INSERT INTO t(v) VALUES ('d')", "args": []},
+            ],
+        }),
+    );
+    assert_eq!(status, 200);
+    // Failed statements record nothing.
+    let (status, _) = query("udb", "SELECT * FROM no_such_table");
+    assert_eq!(status, 400);
+    let after = usage();
+    let delta =
+        |key: &str| after["udb"][key].as_u64().unwrap() - before["udb"][key].as_u64().unwrap_or(0);
+    assert_eq!(delta("rows_read"), 2 + 3);
+    assert_eq!(delta("rows_written"), 3 + 1);
+    // Untouched databases stay absent.
+    assert!(after.get("idle").is_none());
+}

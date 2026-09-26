@@ -95,7 +95,10 @@ impl Metrics {
         }
     }
     pub fn usage_snapshot(&self) -> HashMap<String, DbUsage> {
-        self.usage.lock().map(|usage| usage.clone()).unwrap_or_default()
+        self.usage
+            .lock()
+            .map(|usage| usage.clone())
+            .unwrap_or_default()
     }
     pub fn record_request(&self) {
         self.total.fetch_add(1, Ordering::Relaxed);
