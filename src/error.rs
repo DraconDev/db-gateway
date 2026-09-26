@@ -26,6 +26,13 @@ impl Error {
     pub fn internal() -> Self {
         Self::new(500, "internal_error", "internal operation failed")
     }
+    pub fn metadata() -> Self {
+        Self::new(
+            500,
+            "metadata_corrupt",
+            "metadata registry unreadable; see server log for the failing row",
+        )
+    }
     pub fn busy() -> Self {
         Self::new(
             429,

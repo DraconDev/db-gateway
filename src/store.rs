@@ -1662,46 +1662,61 @@ fn migrate_legacy_scopes(conn: &Connection) -> Result<()> {
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
         .collect::<std::result::Result<_, _>>()?;
     for (credential, raw) in credentials {
-        let value: Value = serde_json::from_str(&raw).map_err(|_| Error::internal())?;
-        let entries = value.as_array().ok_or_else(Error::internal)?;
-        // New-format rows are already generation-bound. Parsing validates
-        // their shape and rejects malformed metadata rather than broadening
-        // it at startup.
-        if !entries.iter().all(Value::is_string) {
-            parse_scopes(&raw)?;
-            continue;
+        // One unreadable row refuses startup (fail closed), but the log
+        // names the row so the operator can fix or remove exactly it.
+        if let Err(error) = migrate_one_scope(conn, &credential, &raw) {
+            tracing::error!(
+                credential = %credential,
+                code = error.code,
+                "credential metadata unreadable; refusing startup"
+            );
+            return Err(error);
         }
-        let mut scopes = Vec::with_capacity(entries.len());
-        for entry in entries {
-            let name = entry.as_str().ok_or_else(Error::internal)?;
-            if validate_name(name).is_err() {
-                return Err(Error::internal());
-            }
-            let generation: Option<String> = conn
-                .query_row(
-                    "SELECT generation FROM databases WHERE name=?",
-                    [name],
-                    |r| r.get(0),
-                )
-                .optional()?;
-            // A previously purged scope is retained only as a dropped access
-            // grant. Omitting it is safe; inventing a generation is not.
-            if let Some(generation) = generation {
-                if generation.is_empty() {
-                    return Err(Error::internal());
-                }
-                scopes.push(DatabaseScope {
-                    name: name.to_string(),
-                    generation,
-                });
-            }
-        }
-        let encoded = serde_json::to_string(&scopes).map_err(|_| Error::internal())?;
-        conn.execute(
-            "UPDATE credentials SET databases=? WHERE name=?",
-            params![encoded, credential],
-        )?;
     }
+    Ok(())
+}
+
+fn migrate_one_scope(conn: &Connection, credential: &str, raw: &str) -> Result<()> {
+    let corrupt = Error::metadata;
+    let value: Value = serde_json::from_str(raw).map_err(|_| corrupt())?;
+    let entries = value.as_array().ok_or_else(corrupt)?;
+    // New-format rows are already generation-bound. Parsing validates
+    // their shape and rejects malformed metadata rather than broadening
+    // it at startup.
+    if !entries.iter().all(Value::is_string) {
+        parse_scopes(raw).map_err(|_| corrupt())?;
+        return Ok(());
+    }
+    let mut scopes = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let name = entry.as_str().ok_or_else(corrupt)?;
+        if validate_name(name).is_err() {
+            return Err(corrupt());
+        }
+        let generation: Option<String> = conn
+            .query_row(
+                "SELECT generation FROM databases WHERE name=?",
+                [name],
+                |r| r.get(0),
+            )
+            .optional()?;
+        // A previously purged scope is retained only as a dropped access
+        // grant. Omitting it is safe; inventing a generation is not.
+        if let Some(generation) = generation {
+            if generation.is_empty() {
+                return Err(corrupt());
+            }
+            scopes.push(DatabaseScope {
+                name: name.to_string(),
+                generation,
+            });
+        }
+    }
+    let encoded = serde_json::to_string(&scopes).map_err(|_| corrupt())?;
+    conn.execute(
+        "UPDATE credentials SET databases=? WHERE name=?",
+        params![encoded, credential],
+    )?;
     Ok(())
 }
 
@@ -2231,6 +2246,20 @@ mod tests {
         .unwrap();
         let error = migrate_metadata(&mut conn, dir.path()).unwrap_err();
         assert_eq!(error.code, "invalid_sql");
+    }
+
+    #[test]
+    fn corrupt_credential_row_refuses_startup_with_named_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = Connection::open(dir.path().join("metadata.sqlite")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE credentials(name TEXT PRIMARY KEY, hash TEXT UNIQUE NOT NULL, role TEXT NOT NULL, databases TEXT NOT NULL);
+             CREATE TABLE databases(name TEXT PRIMARY KEY, generation TEXT);
+             INSERT INTO credentials(name, hash, role, databases) VALUES ('badkey', 'h', 'owner', '{oops');",
+        )
+        .unwrap();
+        let error = migrate_metadata(&mut conn, dir.path()).unwrap_err();
+        assert_eq!(error.code, "metadata_corrupt");
     }
 
     #[test]

@@ -254,7 +254,9 @@ fn run_statement(
     conn.authorizer(Some(move |ctx: AuthContext<'_>| authorize(ctx, read_only)))?;
     let result = (|| {
         let mut stmt = conn.prepare(&statement.sql)?;
-        // rusqlite's extra_check rejects multiple statements during prepare.
+        // prepare rejects stacked statements (rusqlite Error::MultipleStatement
+        // → invalid_sql); only a lone terminator or trailing comment is
+        // accepted after the first statement.
         if read_only && !stmt.readonly() {
             return Err(Error::new(403, "sql_forbidden", "read-only credential"));
         }
@@ -553,6 +555,32 @@ mod tests {
             .code,
             "sql_forbidden"
         );
+    }
+
+    #[test]
+    fn stacked_statements_are_rejected_without_side_effects() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.sqlite");
+        initialize(&path).unwrap();
+        let s = |sql: &str| Statement {
+            sql: sql.into(),
+            args: vec![],
+        };
+        execute(&path, &[s("CREATE TABLE t (a INTEGER)")], false, false, "owner", None).unwrap();
+        execute(&path, &[s("INSERT INTO t VALUES (1)")], false, false, "owner", None).unwrap();
+        // A second statement hiding behind a semicolon is rejected, not run.
+        assert_eq!(
+            execute(&path, &[s("SELECT 1; DELETE FROM t")], false, false, "owner", None)
+                .unwrap_err()
+                .code,
+            "invalid_sql"
+        );
+        let rows =
+            execute(&path, &[s("SELECT count(*) FROM t")], false, false, "owner", None).unwrap();
+        assert_eq!(rows["rows"], json!([[1]]));
+        // A lone terminator or trailing comment is still a single statement.
+        assert!(execute(&path, &[s("SELECT 1;")], false, false, "owner", None).is_ok());
+        assert!(execute(&path, &[s("SELECT 1; -- trailing")], false, false, "owner", None).is_ok());
     }
 
     #[test]
