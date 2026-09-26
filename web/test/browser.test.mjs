@@ -87,6 +87,8 @@ test('real browser query, batch, and lifecycle controls use the companion', asyn
 
 test('real browser data grid pages through table rows', async () => {
   const { page } = session;
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.getByRole('tab', { name: 'Data' }).click();
   await page.locator('#database').selectOption('browserdb');
   await page.locator('#sql').fill("INSERT INTO items (label) VALUES ('one'), ('two')");
   await page.getByRole('button', { name: 'Run query' }).click();
