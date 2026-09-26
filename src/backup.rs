@@ -238,3 +238,107 @@ pub fn verify_set(root: &Path, selector: &str) -> Result<SetReport> {
     report.has_registry = true;
     Ok(report)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::Store;
+    use rusqlite::Connection;
+
+    fn sha256_bytes(bytes: &[u8]) -> String {
+        hex::encode(Sha256::digest(bytes))
+    }
+
+    /// Minimal valid set: one member database plus a REAL registry copied
+    /// from a live store, so the registry depth check proves itself against
+    /// genuine metadata rather than a hand-shaped fixture.
+    fn write_set(root: &Path, tamper_registry: bool) {
+        let data = root.join("data");
+        let store = Store::open(&data).unwrap();
+        let member = data.join("member.sqlite");
+        {
+            let conn = Connection::open(&member).unwrap();
+            conn.execute_batch("CREATE TABLE t (a INTEGER); INSERT INTO t VALUES (1)")
+                .unwrap();
+        }
+        if tamper_registry {
+            let conn = Connection::open(data.join("metadata.sqlite")).unwrap();
+            conn.execute_batch("CREATE TABLE _dg_evil (x)").unwrap();
+        }
+        drop(store);
+        // Checkpoint so the registry copy is self-contained (no WAL sibling).
+        {
+            let conn = Connection::open(data.join("metadata.sqlite")).unwrap();
+            conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)").unwrap();
+        }
+        let set = root.join("20240101T000000Z");
+        std::fs::create_dir_all(&set).unwrap();
+        let member_bytes = std::fs::read(&member).unwrap();
+        std::fs::write(set.join("member.sqlite"), &member_bytes).unwrap();
+        let member_sha = sha256_bytes(&member_bytes);
+        std::fs::write(set.join("member.sha256"), format!("{member_sha}\n")).unwrap();
+        let registry_bytes = std::fs::read(data.join("metadata.sqlite")).unwrap();
+        std::fs::write(set.join("metadata.sqlite.bak"), &registry_bytes).unwrap();
+        let registry_sha = sha256_bytes(&registry_bytes);
+        let manifest = serde_json::json!({
+            "started_at": 1,
+            "completed_at": 2,
+            "registry_captured_at": 2,
+            "databases": [
+                {"name": "member", "file": "member.sqlite",
+                 "size": member_bytes.len(), "sha256": member_sha}
+            ],
+            "registry": {"file": "metadata.sqlite.bak",
+                         "size": registry_bytes.len(), "sha256": registry_sha},
+        });
+        std::fs::write(set.join("manifest.json"), serde_json::to_vec(&manifest).unwrap())
+            .unwrap();
+    }
+
+    #[test]
+    fn verify_accepts_real_registry_at_full_depth() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("backups");
+        std::fs::create_dir_all(&root).unwrap();
+        write_set(&root, false);
+        let report = verify_set(&root, "latest").unwrap();
+        assert!(report.ok, "failures: {:?}", report.failures);
+        assert!(report.has_registry);
+        assert_eq!(report.databases.len(), 1);
+    }
+
+    #[test]
+    fn verify_rejects_registry_with_protected_tables() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("backups");
+        std::fs::create_dir_all(&root).unwrap();
+        write_set(&root, true);
+        let report = verify_set(&root, "latest").unwrap();
+        assert!(!report.ok);
+        assert!(
+            report.failures.iter().any(|f| f.starts_with("registry: ")),
+            "failures: {:?}",
+            report.failures
+        );
+    }
+
+    #[test]
+    fn oversized_manifests_fail_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("backups");
+        let set = root.join("20240101T000000Z");
+        std::fs::create_dir_all(&set).unwrap();
+        std::fs::write(set.join("manifest.json"), vec![b'x'; 1024 * 1024 + 1]).unwrap();
+        let store = Store::open(&dir.path().join("data"))
+            .unwrap()
+            .with_backup_root(Some(root.clone()));
+        assert!(store.backup_sets().unwrap().is_empty());
+        let report = verify_set(&root, "latest").unwrap();
+        assert!(!report.ok);
+        assert!(
+            report.failures.iter().any(|f| f.contains("size limit")),
+            "failures: {:?}",
+            report.failures
+        );
+    }
+}
