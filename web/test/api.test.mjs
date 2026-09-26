@@ -198,13 +198,37 @@ test('tunnel controller reports lifecycle without exposing secrets', async () =>
     once(event, fn) { const list = listeners.get(event) ?? []; list.push(fn); listeners.set(event, list); },
     kill(signal) { this.signalCode = signal === 'SIGKILL' ? 'SIGKILL' : 'SIGTERM'; for (const fn of listeners.get('exit') ?? []) fn(null, signal); },
   };
-  const controller = new TunnelController({ target: 'owner@host', localPort: 17432 }, () => fake);
+  const controller = new TunnelController({ target: 'owner@host', localPort: 17432 }, () => fake, async () => true);
   assert.deepEqual(controller.status(), { state: 'stopped' });
   assert.deepEqual(await controller.start(), { state: 'starting', pid: 123 });
   for (const fn of listeners.get('spawn') ?? []) fn();
+  await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(controller.status(), { state: 'running', pid: 123 });
   assert.deepEqual(await controller.stop(), { state: 'stopped' });
   assert.equal(JSON.stringify(controller.status()).includes('owner@host'), false);
+});
+
+test('tunnel controller demotes a tunnel that never accepts connections', async () => {
+  const listeners = new Map();
+  const signals = [];
+  const fake = {
+    pid: 456, exitCode: null, signalCode: null,
+    once(event, fn) { const list = listeners.get(event) ?? []; list.push(fn); listeners.set(event, list); },
+    kill(signal) {
+      signals.push(signal);
+      this.exitCode = 0; this.signalCode = signal;
+      for (const fn of listeners.get('exit') ?? []) fn(0, signal);
+      return true;
+    },
+  };
+  const controller = new TunnelController({ target: 'owner@host', localPort: 17432 }, () => fake, async () => false, 50);
+  assert.deepEqual(await controller.start(), { state: 'starting', pid: 456 });
+  for (const fn of listeners.get('spawn') ?? []) fn();
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const status = controller.status();
+  assert.equal(status.state, 'failed');
+  assert.match(status.error ?? '', /did not accept connections/);
+  assert.equal(signals.includes('SIGTERM'), true);
 });
 
 test('tunnel controller serializes start behind an in-flight stop', async () => {
@@ -227,7 +251,7 @@ test('tunnel controller serializes start behind an in-flight stop', async () => 
     children.push(child);
     return child;
   };
-  const controller = new TunnelController({ target: 'owner@host', localPort: 17432 }, spawn);
+  const controller = new TunnelController({ target: 'owner@host', localPort: 17432 }, spawn, async () => true);
   await controller.start();
   const first = children[0];
   const stopping = controller.stop();
@@ -242,6 +266,7 @@ test('tunnel controller serializes start behind an in-flight stop', async () => 
   assert.equal((await starting).state, 'starting');
   const second = children[1];
   second.emit('spawn');
+  await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(controller.status().state, 'running');
   await controller.stop();
 });

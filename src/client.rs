@@ -45,6 +45,24 @@ const MAX_LIFECYCLE_RESPONSE: usize = 12 * 1024 * 1024;
 // Snapshot chunks carry one 1 MiB piece base64-encoded plus JSON overhead.
 const MAX_CHUNK_RESPONSE: usize = 2 * 1024 * 1024;
 
+// One client per CLI invocation: every request shares the same builder
+// settings (no proxy, no redirects, 10s timeout), so rebuilding it per
+// request only burned a connection pool per chunked-transfer piece.
+static SHARED_CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+
+fn shared_client() -> Result<reqwest::Client> {
+    SHARED_CLIENT
+        .get_or_try_init(|| {
+            reqwest::Client::builder()
+                .no_proxy()
+                .redirect(reqwest::redirect::Policy::none())
+                .timeout(Duration::from_secs(10))
+                .build()
+                .map_err(|_| Error::internal())
+        })
+        .cloned()
+}
+
 pub async fn request(
     server: &str,
     key: &str,
@@ -80,12 +98,7 @@ pub async fn request(
     // destination. Do this for every origin: a proxy is unnecessary for
     // HTTPS too, and disabling it here prevents ambient proxy variables from
     // receiving bearer credentials or redirecting authenticated requests.
-    let client = reqwest::Client::builder()
-        .no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(10))
-        .build()
-        .map_err(|_| Error::internal())?;
+    let client = shared_client()?;
     let mut req = client
         .request(method, url.join(path).map_err(|_| Error::invalid())?)
         .bearer_auth(key);
