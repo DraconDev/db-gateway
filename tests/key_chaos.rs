@@ -278,7 +278,7 @@ fn every_credential_gets_its_exact_code_on_every_route() {
     for (name, cred) in creds {
         let (want, code) = match *name {
             "owner" | "rw_a" => (200, "-"),
-            "ro_a" => (400, "invalid_request"),
+            "ro_a" => (400, "idempotency_key_not_supported"),
             "rw_b" => (403, "database_forbidden"),
             _ => (401, "invalid_credential"),
         };
@@ -320,7 +320,7 @@ fn every_credential_gets_its_exact_code_on_every_route() {
             Some("ro-keyed-read"),
         ),
         400,
-        "invalid_request",
+        "idempotency_key_not_supported",
     );
     check(
         "owner keyed read ka",
