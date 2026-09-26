@@ -21,14 +21,28 @@ after(async () => {
   await stack?.close();
 });
 
+async function gotoView(page, hash) {
+  await page.goto(`${stack.consoleBase}/${hash}`, { waitUntil: 'networkidle' });
+}
+
 test('real browser loads and renders the operator console', async () => {
   const { page } = session;
   await page.getByRole('heading', { name: 'DB Gateway' }).waitFor();
+  await page.getByRole('button', { name: 'Status' }).click();
   await page.getByText('Gateway', { exact: true }).waitFor();
   assert.equal(await page.locator('#summary article').count() > 0, true);
   assert.equal(await page.locator('#signals article').count(), 7);
   assert.match(await page.locator('#tunnel-status').innerText(), /not_configured/);
   assert.deepEqual(session.browserErrors, []);
+});
+
+test('real browser lists databases Turso-style with usage columns', async () => {
+  const { page } = session;
+  await gotoView(page, '#/databases');
+  for (const header of ['Name', 'Type', 'Rows read', 'Rows written', 'Storage', 'Backup', 'Status']) {
+    await page.locator('#db-table').getByRole('columnheader', { name: header }).waitFor();
+  }
+  assert.match(await page.locator('#usage-panel').innerText(), /Databases/);
 });
 
 test('real browser opens a data-centric database detail view', async () => {
@@ -44,11 +58,16 @@ test('real browser opens a data-centric database detail view', async () => {
   await page.getByText('Table statistics', { exact: true }).waitFor();
   assert.match(await page.locator('#database-detail').innerText(), /browserdb/);
   assert.match(await page.locator('#database-detail').innerText(), /No user tables reported/);
+  for (const tab of ['Overview', 'Data', 'Tokens']) {
+    await page.getByRole('tab', { name: tab }).click();
+    assert.equal(await page.getByRole('tab', { name: tab }).getAttribute('aria-selected'), 'true');
+  }
 });
 
 test('real browser query, batch, and lifecycle controls use the companion', async () => {
   const { page, requests } = session;
   page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('tab', { name: 'Data' }).click();
   await page.locator('#database').selectOption('browserdb');
   await page.locator('#sql').fill('CREATE TABLE items (id INTEGER PRIMARY KEY, label TEXT)');
   await page.getByRole('button', { name: 'Run query' }).click();
@@ -57,6 +76,7 @@ test('real browser query, batch, and lifecycle controls use the companion', asyn
   await page.locator('#batch-json').fill('{"atomic":true,"statements":[{"sql":"SELECT count(*) FROM items","args":[]}]}');
   await page.getByRole('button', { name: 'Run atomic batch' }).click();
   await page.locator('#batch-result').getByText('Rows affected: 0', { exact: true }).waitFor();
+  await page.getByRole('tab', { name: 'Overview' }).click();
   await page.locator('#clone-source').selectOption('browserdb');
   await page.locator('#clone-destination').fill('browserclone');
   await page.getByRole('button', { name: 'Clone database' }).click();
@@ -65,8 +85,20 @@ test('real browser query, batch, and lifecycle controls use the companion', asyn
   assert.equal(requests.some((request) => request.url.endsWith('/api/databases/browserdb/clone') && request.method === 'POST'), true);
 });
 
+test('real browser data grid pages through table rows', async () => {
+  const { page } = session;
+  await page.locator('#database').selectOption('browserdb');
+  await page.locator('#sql').fill("INSERT INTO items (label) VALUES ('one'), ('two')");
+  await page.getByRole('button', { name: 'Run query' }).click();
+  await page.locator('#result').getByText('Rows affected: 2', { exact: true }).waitFor();
+  await page.locator('#grid-table').selectOption('items');
+  await page.locator('#grid-result').getByText('one', { exact: false }).waitFor();
+  assert.match(await page.locator('#grid-page').innerText(), /1–2/);
+});
+
 test('real browser exercises keys, verified transfer controls, and tunnel lifecycle', async () => {
   const { page } = session;
+  await page.getByRole('tab', { name: 'Tokens' }).click();
   await page.locator('#key-name').fill('browserkey');
   await page.locator('#key-db').fill('browserdb');
   await page.getByRole('button', { name: 'Issue one-time key' }).click();
@@ -75,6 +107,7 @@ test('real browser exercises keys, verified transfer controls, and tunnel lifecy
   await page.locator('[data-revoke="browserkey"]').click();
   await page.locator('[data-revoke="browserkey"]').waitFor({ state: 'detached' });
 
+  await page.getByRole('tab', { name: 'Overview' }).click();
   await page.locator('#export-db').selectOption('browserdb');
   await page.getByRole('button', { name: 'Export verified SQLite' }).click();
   await page.locator('#export-result').getByText(/complete/, { exact: false }).waitFor();
@@ -97,6 +130,7 @@ test('real browser exercises keys, verified transfer controls, and tunnel lifecy
   await page.locator('#import-result').getByText(/browserimported/, { exact: false }).waitFor();
   await rm(directory, { recursive: true, force: true });
 
+  await page.getByRole('button', { name: 'Status' }).click();
   await page.getByRole('button', { name: 'Start tunnel' }).click();
   await page.locator('#tunnel-status').getByText(/not_configured/, { exact: false }).waitFor();
   await page.getByRole('button', { name: 'Stop tunnel' }).click();
@@ -104,6 +138,7 @@ test('real browser exercises keys, verified transfer controls, and tunnel lifecy
 
 test('real browser shows loading and disabled state during duplicate submissions', async () => {
   const { page } = session;
+  await gotoView(page, '#/databases/browserdb/data');
   await page.route('**/api/databases/browserdb/query', async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 1_000));
     await route.continue();
@@ -131,6 +166,7 @@ test('real browser shows loading and disabled state during duplicate submissions
 
 test('real browser guards destructive and publish actions', async () => {
   const { page } = session;
+  await gotoView(page, '#/databases/browserdb');
   let confirmations = 0;
   page.on('dialog', async (dialog) => { confirmations += 1; await dialog.dismiss(); });
   await page.locator('#delete-db').fill('browserdb');

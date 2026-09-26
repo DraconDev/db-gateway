@@ -2,10 +2,16 @@ const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const MAX_TRANSFER_BYTES = 128 * 1024 * 1024;
 const TRANSFER_CHUNK_BYTES = 1024 * 1024;
+const GRID_PAGE_SIZE = 50;
 let selectedDatabase = null;
+let detailTab = 'overview';
 let databaseNames = [];
+let enrichedDatabases = [];
+let overviewCache = null;
+let detailCache = null;
 let exportTransfer = null;
 let importTransfer = null;
+let gridState = { table: null, offset: 0, hasMore: false };
 const pending = new WeakMap();
 
 async function request(path, { method = 'GET', body, headers = {} } = {}) {
@@ -50,6 +56,15 @@ function showError(target, error) {
   if (element) element.textContent = JSON.stringify({ error: { code: error.code || 'console_error', status: error.status, message: error.message } }, null, 2);
 }
 function setText(target, value) { const element = $(target); if (element) element.textContent = value; }
+function fmtBytes(bytes) {
+  if (!Number.isFinite(bytes)) return 'unavailable';
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB'];
+  let value = bytes / 1024;
+  let unit = units[0];
+  for (const next of units) { unit = next; if (value < 1024 || next === 'GB') break; value /= 1024; }
+  return `${value.toFixed(value < 10 ? 2 : 1)} ${unit}`;
+}
 function renderTable(target, columns, rows, rowsAffected) {
   const element = $(target);
   if (!element) return;
@@ -57,57 +72,153 @@ function renderTable(target, columns, rows, rowsAffected) {
   if (!columns.length) { element.innerHTML = `${affected}<p class="muted">No columns returned.</p>`; return; }
   element.innerHTML = `${affected}<div class="table-wrap"><table><thead><tr>${columns.map((column) => `<th scope="col">${esc(column)}</th>`).join('')}</tr></thead><tbody>${rows.map((row) => `<tr>${columns.map((_, index) => `<td>${esc(row[index])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
+function parseHash() {
+  const parts = (window.location.hash || '#/databases').replace(/^#\//, '').split('/').map(decodeURIComponent);
+  if (parts[0] === 'status') return { view: 'status' };
+  if (parts[0] === 'databases' && parts[1]) {
+    const tab = parts[2] === 'data' || parts[2] === 'tokens' ? parts[2] : 'overview';
+    return { view: 'detail', name: parts[1], tab };
+  }
+  return { view: 'databases' };
+}
+function navigate(view, name = null, tab = 'overview') {
+  if (view === 'status') window.location.hash = '#/status';
+  else if (view === 'detail' && name) window.location.hash = `#/databases/${encodeURIComponent(name)}${tab === 'overview' ? '' : `/${tab}`}`;
+  else window.location.hash = '#/databases';
+}
+function showView(route) {
+  document.querySelectorAll('[data-view-panel]').forEach((panel) => { panel.hidden = panel.dataset.viewPanel !== route.view; });
+  document.querySelectorAll('nav [data-view]').forEach((button) => {
+    const active = button.dataset.view === route.view || (route.view === 'detail' && button.dataset.view === 'databases');
+    if (active) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
+  });
+  if (route.view === 'detail') {
+    document.querySelectorAll('[role="tab"]').forEach((tab) => tab.setAttribute('aria-selected', String(tab.dataset.tab === route.tab)));
+    document.querySelectorAll('[data-tab-panel]').forEach((panel) => { panel.hidden = panel.dataset.tabPanel !== route.tab; });
+  }
+}
 function renderBackups(backups) {
   const entries = Object.entries(backups?.per_database ?? {});
   $('backups-summary').innerHTML = entries.length ? entries.map(([name, value]) => `<article><b>${esc(name)}</b><strong>${esc(value.state)}</strong><small>${value.age_secs == null ? 'Age unavailable' : `${value.age_secs}s old`}</small></article>`).join('') : '<p class="muted">No database freshness records reported.</p>';
   $('backups').textContent = JSON.stringify(backups ?? { state: 'unknown' }, null, 2);
 }
-function renderDetail(detail) {
+function renderDbTable() {
+  const rows = enrichedDatabases.map((db) => `<tr><td><button type="button" class="db" data-name="${esc(db.name)}">${esc(db.name)}</button></td><td>Database</td><td>${esc(db.rows_read ?? 0)}</td><td>${esc(db.rows_written ?? 0)}</td><td>${esc(fmtBytes(db.size_bytes))}</td><td>${esc(db.backup?.state ?? 'unknown')}</td><td><span class="status-pill">${db.tombstoned ? 'tombstoned' : 'Active'}</span></td><td><button type="button" data-data="${esc(db.name)}">Data</button></td></tr>`).join('');
+  $('db-rows').innerHTML = rows || `<tr><td colspan="8" class="muted">No databases reported.</td></tr>`;
+  document.querySelectorAll('.db').forEach((button) => button.addEventListener('click', () => navigate('detail', button.dataset.name, 'overview')));
+  document.querySelectorAll('[data-data]').forEach((button) => button.addEventListener('click', () => navigate('detail', button.dataset.data, 'data')));
+}
+function renderDetail(detail, tab) {
+  detailCache = detail;
   const state = $('detail-state');
   const content = $('detail-content');
   state.hidden = true; state.className = 'state state-empty';
   content.hidden = false;
+  $('detail-name').textContent = detail.name;
+  $('detail-crumb').textContent = detail.name;
+  $('detail-pill').textContent = detail.tombstoned ? 'tombstoned' : 'Active';
   const tables = Array.isArray(detail.tables) ? detail.tables : [];
   const schemaRows = detail.schema?.rows ?? [];
-  content.innerHTML = `<div class="section-heading"><h3>${esc(detail.name)}</h3><span class="status-pill">${detail.tombstoned ? 'tombstoned' : 'live'}</span></div><p class="muted">${detail.size_bytes} bytes · created ${detail.created_at ?? 'unknown'}</p><h4>Table statistics</h4>${tables.length ? `<div class="table-wrap"><table><thead><tr><th>Table</th><th>Rows</th></tr></thead><tbody>${tables.map((table) => `<tr><td>${esc(table.name)}</td><td>${esc(table.rows)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">No user tables reported.</p>'}<h4>Schema</h4>${schemaRows.length ? schemaRows.map((row) => `<details><summary>${esc(row[0])}</summary><pre>${esc(row[1] ?? 'Schema unavailable')}</pre></details>`).join('') : '<p class="muted">No schema statements reported.</p>'}`;
+  const entry = enrichedDatabases.find((db) => db.name === detail.name);
+  $('detail-activity').innerHTML = [['Rows read', entry?.rows_read ?? 0], ['Rows written', entry?.rows_written ?? 0], ['Storage', fmtBytes(detail.size_bytes)], ['Tables', tables.length]].map(([key, value]) => `<article><b>${esc(key)}</b><strong>${esc(value)}</strong></article>`).join('');
+  $('connect-url').textContent = overviewCache?.server_url ? `${overviewCache.server_url}  (database: ${detail.name})` : 'Server URL unavailable.';
+  $('detail-tables').innerHTML = `<p class="muted">${detail.size_bytes} bytes · created ${detail.created_at ?? 'unknown'}</p>${tables.length ? `<div class="table-wrap"><table><thead><tr><th>Table</th><th>Rows</th></tr></thead><tbody>${tables.map((table) => `<tr><td>${esc(table.name)}</td><td>${esc(table.rows)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">No user tables reported.</p>'}`;
+  $('detail-schema').innerHTML = schemaRows.length ? schemaRows.map((row) => `<details><summary>${esc(row[0])}</summary><pre>${esc(row[1] ?? 'Schema unavailable')}</pre></details>`).join('') : '<p class="muted">No schema statements reported.</p>';
+  const backup = entry?.backup ?? overviewCache?.backups?.per_database?.[detail.name] ?? { state: 'unknown' };
+  $('detail-backup').innerHTML = `<article><b>Freshness</b><strong>${esc(backup.state)}</strong><small>${backup.age_secs == null ? 'Age unavailable' : `${backup.age_secs}s old`}</small></article>`;
+  const keys = (Array.isArray(overviewCache?.keys) ? overviewCache.keys : []).filter((key) => (key.databases || []).includes(detail.name));
+  $('key-list').innerHTML = keys.length ? keys.map((key) => `<article><b>${esc(key.name)}</b><strong>${esc(key.role)}</strong><small>${esc((key.databases || []).join(', '))}</small>${key.name === 'owner' ? '' : `<button data-revoke="${esc(key.name)}">Revoke</button>`}</article>`).join('') : '<p class="muted">No scoped keys for this database.</p>';
+  document.querySelectorAll('[data-revoke]').forEach((button) => button.addEventListener('click', async () => { if (!window.confirm(`Revoke key ${button.dataset.revoke}?`)) return; try { await request(`/api/keys/${encodeURIComponent(button.dataset.revoke)}`, { method: 'DELETE' }); await refresh(); } catch (error) { showError('key-result', error); } }));
+  for (const id of ['database', 'batch-database', 'clone-source', 'export-db']) { setOptions(id, databaseNames); $(id).value = detail.name; }
+  $('key-db').value = detail.name;
+  $('delete-db').value = detail.name;
+  renderGridTables(tables);
+  if (tab === 'data' && gridState.table) void loadGridPage();
 }
-async function selectDatabase(name) {
+function renderGridTables(tables) {
+  const select = $('grid-table');
+  const names = tables.map((table) => table.name);
+  setOptions('grid-table', names);
+  if (!names.includes(gridState.table)) { gridState = { table: names[0] ?? null, offset: 0, hasMore: false }; }
+  select.value = gridState.table ?? '';
+  if (!gridState.table) { $('grid-result').innerHTML = '<p class="muted">No tables to browse.</p>'; $('grid-page').textContent = ''; }
+}
+async function loadGridPage() {
+  const { table, offset } = gridState;
+  if (!table || !selectedDatabase) return;
+  $('grid-page').textContent = 'Loading…';
+  try {
+    const quoted = `"${table.replace(/"/g, '""')}"`;
+    const value = await post(`/api/databases/${encodeURIComponent(selectedDatabase)}/query`, { sql: `SELECT * FROM ${quoted} LIMIT ${GRID_PAGE_SIZE + 1} OFFSET ${offset}`, args: [] });
+    const rows = value.rows ?? [];
+    gridState.hasMore = rows.length > GRID_PAGE_SIZE;
+    renderTable('grid-result', value.columns ?? [], rows.slice(0, GRID_PAGE_SIZE), null);
+    const first = rows.length ? offset + 1 : 0;
+    const last = offset + Math.min(rows.length, GRID_PAGE_SIZE);
+    $('grid-page').textContent = rows.length ? `${first}–${last}${gridState.hasMore ? '+' : ''}` : 'No rows';
+    $('grid-prev').disabled = offset === 0;
+    $('grid-next').disabled = !gridState.hasMore;
+  } catch (error) { showError('grid-result', error); $('grid-page').textContent = ''; }
+}
+async function selectDatabase(name, tab) {
   const detail = $('database-detail');
   selectedDatabase = name;
+  detailTab = tab;
+  gridState = { table: null, offset: 0, hasMore: false };
   detail.setAttribute('aria-busy', 'true');
   $('detail-state').hidden = false; $('detail-state').className = 'state state-loading'; $('detail-state').textContent = `Loading ${name}…`;
   $('detail-content').hidden = true;
-  try { renderDetail(await get(`/api/databases/${encodeURIComponent(name)}`)); }
+  try { renderDetail(await get(`/api/databases/${encodeURIComponent(name)}`), tab); }
   catch (error) { $('detail-state').className = 'state state-error'; $('detail-state').textContent = error.message; }
   finally { detail.setAttribute('aria-busy', 'false'); }
 }
 function setOptions(id, names) { $(id).innerHTML = names.map((name) => `<option value="${esc(name)}">${esc(name)}</option>`).join(''); }
+function renderUsage(overview) {
+  const gateway = overview.gateway || {};
+  const requests = gateway.requests || {};
+  const storage = enrichedDatabases.reduce((sum, db) => sum + (Number.isFinite(db.size_bytes) ? db.size_bytes : 0), 0);
+  const reads = enrichedDatabases.reduce((sum, db) => sum + (db.rows_read ?? 0), 0);
+  const writes = enrichedDatabases.reduce((sum, db) => sum + (db.rows_written ?? 0), 0);
+  $('usage-panel').innerHTML = [['Databases', databaseNames.length], ['Storage', fmtBytes(storage)], ['Rows read', reads], ['Rows written', writes], ['Requests', requests.total ?? 'unavailable'], ['Uptime', Number.isFinite(gateway.uptime_secs) ? `${gateway.uptime_secs}s` : 'unavailable']].map(([key, value]) => `<div class="usage-row"><span>${esc(key)}</span><strong>${esc(value)}</strong></div>`).join('');
+}
 async function refresh() {
   const main = $('console-main');
   if (pending.get(main)) return;
   pending.set(main, true); main.setAttribute('aria-busy', 'true'); $('refresh').disabled = true;
   try {
-    const overview = await get('/api/overview');
+    const [overview, enriched] = await Promise.all([get('/api/overview'), get('/api/databases')]);
+    overviewCache = overview;
+    enrichedDatabases = Array.isArray(enriched) ? enriched : [];
     const gateway = overview.gateway || {}; const requests = gateway.requests || {}; const admission = gateway.admission || {}; const tunnel = overview.tunnel || { state: 'not_configured' };
     const cards = [['Gateway', gateway.available ? 'reachable' : 'unavailable'], ['Version', gateway.version ?? 'unavailable'], ['Uptime', Number.isFinite(gateway.uptime_secs) ? `${gateway.uptime_secs}s` : 'unavailable'], ['Requests', requests.total ?? 'unavailable'], ['Capacity errors', requests.capacity_exceeded ?? 'unavailable'], ['Deadline errors', requests.query_deadline_exceeded ?? 'unavailable'], ['Internal errors', requests.internal_error ?? 'unavailable'], ['Admission timeout', admission.acquire_timeout_ms != null ? `${admission.acquire_timeout_ms} ms` : 'unavailable'], ['Read permits', admission.read_permits ?? 'unavailable'], ['Write permits', admission.write_permits ?? 'unavailable'], ['Tunnel', tunnel.state ?? 'not_configured'], ['Databases', Array.isArray(overview.databases) ? overview.databases.length : 'unavailable']];
     $('summary').innerHTML = cards.map(([key, value]) => `<article><b>${esc(key)}</b><strong>${esc(value)}</strong></article>`).join('');
     $('signals').innerHTML = (overview.resource_signals || []).map((signal) => `<article><b>${esc(signal.name)}</b><strong>${esc(signal.state)}</strong><small>${esc(signal.reason || '')}</small></article>`).join('') || '<p class="muted">No resource collector configured.</p>';
     databaseNames = Array.isArray(overview.databases) ? overview.databases : [];
     $('database-count').textContent = `${databaseNames.length} live database${databaseNames.length === 1 ? '' : 's'}`;
-    $('databases').innerHTML = databaseNames.map((name) => `<button class="db" data-name="${esc(name)}" aria-pressed="${name === selectedDatabase}">${esc(name)}</button>`).join('') || '<p class="muted">No databases reported.</p>';
-    document.querySelectorAll('.db').forEach((button) => button.addEventListener('click', () => selectDatabase(button.dataset.name)));
-    for (const id of ['database', 'batch-database', 'clone-source', 'export-db']) setOptions(id, databaseNames);
+    renderDbTable();
+    renderUsage(overview);
     renderBackups(overview.backups);
     $('tunnel-status').textContent = `Tunnel: ${tunnel.state ?? 'not_configured'}${tunnel.error ? ` — ${tunnel.error}` : ''}`;
-    const keys = Array.isArray(overview.keys) ? overview.keys : [];
-    $('key-list').innerHTML = keys.length ? keys.map((key) => `<article><b>${esc(key.name)}</b><strong>${esc(key.role)}</strong><small>${esc((key.databases || []).join(', '))}</small>${key.name === 'owner' ? '' : `<button data-revoke="${esc(key.name)}">Revoke</button>`}</article>`).join('') : '<p class="muted">No scoped keys reported.</p>';
-    document.querySelectorAll('[data-revoke]').forEach((button) => button.addEventListener('click', async () => { if (!window.confirm(`Revoke key ${button.dataset.revoke}?`)) return; try { await request(`/api/keys/${encodeURIComponent(button.dataset.revoke)}`, { method: 'DELETE' }); await refresh(); } catch (error) { showError('key-result', error); } }));
     $('connection-status').textContent = gateway.available ? 'Gateway reachable through the loopback companion.' : 'Gateway unavailable; controls remain available for retry.';
-  } catch (error) { $('connection-status').textContent = error.message; $('signals').innerHTML = '<p class="state state-error">Signals unavailable.</p>'; }
+    const route = parseHash();
+    showView(route);
+    if (route.view === 'detail' && route.name) {
+      if (route.name !== selectedDatabase || !detailCache) await selectDatabase(route.name, route.tab);
+      else { detailTab = route.tab; renderDetail(detailCache, route.tab); }
+    }
+  } catch (error) { $('connection-status').textContent = `Connection failed: ${error.message}`; $('signals').innerHTML = '<p class="state state-error">Signals unavailable.</p>'; }
   finally { pending.set(main, false); main.setAttribute('aria-busy', 'false'); $('refresh').disabled = false; }
 }
 
 $('refresh').addEventListener('click', refresh);
+document.querySelectorAll('nav [data-view]').forEach((button) => button.addEventListener('click', () => navigate(button.dataset.view)));
+$('create-open').addEventListener('click', () => { navigate('databases'); $('new-db').focus(); });
+$('detail-back').addEventListener('click', () => navigate('databases'));
+document.querySelectorAll('[role="tab"]').forEach((tab) => tab.addEventListener('click', () => { if (selectedDatabase) navigate('detail', selectedDatabase, tab.dataset.tab); }));
+window.addEventListener('hashchange', () => { const route = parseHash(); showView(route); if (route.view === 'detail' && route.name && route.name !== selectedDatabase) void selectDatabase(route.name, route.tab); else if (route.view === 'detail' && route.name) { detailTab = route.tab; if (detailCache) renderDetail(detailCache, route.tab); } });
+$('grid-table').addEventListener('change', () => { gridState = { table: $('grid-table').value || null, offset: 0, hasMore: false }; void loadGridPage(); });
+$('grid-prev').addEventListener('click', () => { gridState.offset = Math.max(0, gridState.offset - GRID_PAGE_SIZE); void loadGridPage(); });
+$('grid-next').addEventListener('click', () => { if (gridState.hasMore) { gridState.offset += GRID_PAGE_SIZE; void loadGridPage(); } });
 $('tunnel-start').addEventListener('click', async (event) => { const button = event.currentTarget; button.disabled = true; try { await post('/api/tunnel/start', {}); await refresh(); } catch (error) { setText('tunnel-status', `Tunnel: ${error.message}`); } finally { button.disabled = false; } });
 $('tunnel-stop').addEventListener('click', async (event) => { const button = event.currentTarget; button.disabled = true; try { await post('/api/tunnel/stop', {}); await refresh(); } catch (error) { setText('tunnel-status', `Tunnel: ${error.message}`); } finally { button.disabled = false; } });
 $('query-form').addEventListener('submit', (event) => { event.preventDefault(); const form = event.currentTarget; runForm(form, 'Running query…', async () => { const headers = $('idempotency-key').value ? { 'idempotency-key': $('idempotency-key').value } : {}; const value = await post(`/api/databases/${encodeURIComponent($('database').value)}/query`, { sql: $('sql').value, args: [] }, headers); renderTable('result', value.columns ?? [], value.rows ?? [], value.rows_affected); }); });
@@ -159,4 +270,5 @@ async function runImport() {
   } catch (error) { if (!importTransfer) showError('import-result', error); else { const paused = importTransfer; renderTransfer('import-result', { upload: paused.session.upload, transferred: paused.offset, total: paused.data.length, state: 'paused', error: { code: error.code || 'console_error', message: error.message } }, [['Resume import', () => runImport()], ['Abort upload', async () => { try { await request(`/api/uploads/${encodeURIComponent(paused.session.upload)}`, { method: 'DELETE' }); importTransfer = null; renderTransfer('import-result', { upload: paused.session.upload, state: 'aborted' }); } catch (abortError) { showError('import-result', abortError); } }]]); } }
   finally { pending.set(form, false); setFormBusy(form, false); }
 }
+if (!window.location.hash) window.location.hash = '#/databases';
 refresh();
