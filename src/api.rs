@@ -147,6 +147,28 @@ async fn status(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<J
     work_read(store, headers, |s, p| {
         p.owner()?;
         let m = s.metrics.snapshot();
+        let usage = s.metrics.usage_snapshot();
+        let queue = s.metrics.queue_snapshot();
+        let mut databases: Vec<String> = usage.keys().chain(queue.keys()).cloned().collect();
+        databases.sort();
+        databases.dedup();
+        let databases = databases
+            .into_iter()
+            .map(|name| {
+                let rows = usage.get(&name).copied().unwrap_or_default();
+                let waits = queue.get(&name).copied().unwrap_or_default();
+                (
+                    name,
+                    json!({
+                        "rows_read": rows.rows_read,
+                        "rows_written": rows.rows_written,
+                        "queue_waits": waits.waits,
+                        "queue_wait_ms": waits.wait_ms,
+                        "queue_timeouts": waits.timeouts,
+                    }),
+                )
+            })
+            .collect::<serde_json::Map<String, Value>>();
         Ok(Json(json!({
             "version": env!("CARGO_PKG_VERSION"),
             "uptime_secs": m.uptime_secs,
@@ -161,12 +183,7 @@ async fn status(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<J
                 "query_deadline_exceeded": m.deadline_exceeded,
                 "internal_error": m.internal_error,
             },
-            "databases": s.metrics.usage_snapshot().into_iter().map(|(name, usage)| {
-                (
-                    name,
-                    json!({"rows_read": usage.rows_read, "rows_written": usage.rows_written}),
-                )
-            }).collect::<serde_json::Map<String, Value>>(),
+            "databases": databases,
         })))
     })
     .await

@@ -437,6 +437,11 @@ fn status_reports_per_database_usage_since_boot() {
         |key: &str| after["udb"][key].as_u64().unwrap() - before["udb"][key].as_u64().unwrap_or(0);
     assert_eq!(delta("rows_read"), 2 + 3);
     assert_eq!(delta("rows_written"), 3 + 1);
+    // Every admission pass is measured, including the failed statement's
+    // (the wait happened even though no rows were counted).
+    assert_eq!(delta("queue_waits"), 4);
+    assert_eq!(delta("queue_timeouts"), 0);
+    assert!(after["udb"]["queue_wait_ms"].as_u64().is_some());
     // Untouched databases stay absent.
     assert!(after.get("idle").is_none());
 }

@@ -55,6 +55,7 @@ pub struct Metrics {
     deadline_exceeded: AtomicU64,
     internal_error: AtomicU64,
     usage: Mutex<HashMap<String, DbUsage>>,
+    queue: Mutex<HashMap<String, DbQueue>>,
 }
 
 /// Rows read/written per database since boot. Recorded at the API layer
@@ -65,6 +66,18 @@ pub struct Metrics {
 pub struct DbUsage {
     pub rows_read: u64,
     pub rows_written: u64,
+}
+
+/// Per-database admission-queue waits since boot. `acquire_queue` polls
+/// without FIFO fairness, so a continuous read flood can delay a writer;
+/// these counters are the starvation measurement the queue comment calls
+/// for: sustained `timeouts` growth is the trigger for the
+/// writer-preferring bound (scale proposal Phase 2).
+#[derive(Debug, Default, Clone, Copy)]
+pub struct DbQueue {
+    pub waits: u64,
+    pub wait_ms: u64,
+    pub timeouts: u64,
 }
 
 /// Point-in-time copy for `/v1/status`. Plain data, no locks held.
@@ -85,7 +98,24 @@ impl Metrics {
             deadline_exceeded: AtomicU64::new(0),
             internal_error: AtomicU64::new(0),
             usage: Mutex::new(HashMap::new()),
+            queue: Mutex::new(HashMap::new()),
         }
+    }
+    pub fn record_queue_wait(&self, name: &str, waited: Duration, timed_out: bool) {
+        if let Ok(mut queue) = self.queue.lock() {
+            let entry = queue.entry(name.to_string()).or_default();
+            entry.waits += 1;
+            entry.wait_ms += waited.as_millis() as u64;
+            if timed_out {
+                entry.timeouts += 1;
+            }
+        }
+    }
+    pub fn queue_snapshot(&self) -> HashMap<String, DbQueue> {
+        self.queue
+            .lock()
+            .map(|queue| queue.clone())
+            .unwrap_or_default()
     }
     pub fn record_usage(&self, name: &str, rows_read: u64, rows_written: u64) {
         if let Ok(mut usage) = self.usage.lock() {
@@ -875,21 +905,26 @@ impl Store {
     /// so it polls with short sleeps); call only after path() verifies a
     /// bounded registry entry, same as queue(). Polling is not FIFO-fair
     /// like the async global permits, and a continuous read flood could
-    /// delay a writer — waits stay capped at ACQUIRE_TIMEOUT, and a
-    /// writer-preferring bound gets added only if measurement shows
-    /// starvation (scale proposal Phase 2). Returns the guard to hold.
+    /// delay a writer — waits stay capped at ACQUIRE_TIMEOUT, every wait is
+    /// recorded for the starvation measurement (`DbQueue`, served by
+    /// `/v1/status`), and a writer-preferring bound gets added only if that
+    /// measurement shows starvation (scale proposal Phase 2). Returns the
+    /// guard to hold.
     pub fn acquire_queue(&self, name: &str, write: bool) -> Result<QueueGuard> {
         let queue = self.queue(name)?;
         let start = Instant::now();
         loop {
             if write {
                 if let Ok(guard) = queue.clone().try_write_owned() {
+                    self.metrics.record_queue_wait(name, start.elapsed(), false);
                     return Ok(QueueGuard::Write(guard));
                 }
             } else if let Ok(guard) = queue.clone().try_read_owned() {
+                self.metrics.record_queue_wait(name, start.elapsed(), false);
                 return Ok(QueueGuard::Read(guard));
             }
             if start.elapsed() >= ACQUIRE_TIMEOUT {
+                self.metrics.record_queue_wait(name, start.elapsed(), true);
                 return Err(Error::busy());
             }
             std::thread::sleep(Duration::from_millis(2));
@@ -2425,6 +2460,32 @@ mod tests {
             (one.join().unwrap(), two.join().unwrap())
         });
         assert!(first != second, "one export must win, one must 409");
+    }
+
+    #[test]
+    fn acquire_queue_records_waits_and_timeouts() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store.create("qdb").unwrap();
+        // Concurrent readers admit each other immediately.
+        let first = store.acquire_queue("qdb", false).unwrap();
+        let _second = store.acquire_queue("qdb", false).unwrap();
+        drop(first);
+        let snapshot = store.metrics.queue_snapshot();
+        assert_eq!(snapshot["qdb"].waits, 2);
+        assert_eq!(snapshot["qdb"].timeouts, 0);
+        // An exclusively held queue times the waiter out at the bound.
+        drop(_second);
+        let _exclusive = store.queue("qdb").unwrap().try_write_owned().unwrap();
+        let error = match store.acquire_queue("qdb", false) {
+            Ok(_) => panic!("exclusive hold must time the reader out"),
+            Err(error) => error,
+        };
+        assert_eq!(error.code, "capacity_exceeded");
+        let snapshot = store.metrics.queue_snapshot();
+        assert_eq!(snapshot["qdb"].waits, 3);
+        assert_eq!(snapshot["qdb"].timeouts, 1);
+        assert!(snapshot["qdb"].wait_ms >= ACQUIRE_TIMEOUT.as_millis() as u64);
     }
 
     #[test]

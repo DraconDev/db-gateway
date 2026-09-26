@@ -576,12 +576,16 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                     let mut names: Vec<&String> = usage.keys().collect();
                     names.sort();
                     for name in names {
+                        let entry = &usage[name.as_str()];
                         rows.push(json!([
                             format!("usage {name}"),
                             format!(
-                                "read {}, written {}",
-                                usage[name.as_str()]["rows_read"].as_u64().unwrap_or(0),
-                                usage[name.as_str()]["rows_written"].as_u64().unwrap_or(0)
+                                "read {}, written {}, queue {} waits/{}ms/{} timeouts",
+                                entry["rows_read"].as_u64().unwrap_or(0),
+                                entry["rows_written"].as_u64().unwrap_or(0),
+                                entry["queue_waits"].as_u64().unwrap_or(0),
+                                entry["queue_wait_ms"].as_u64().unwrap_or(0),
+                                entry["queue_timeouts"].as_u64().unwrap_or(0),
                             )
                         ]));
                     }
