@@ -36,6 +36,10 @@ placeholders for future/repeated deployments.
    testing the pinned contract.
 2. Create the dedicated unprivileged user (see placeholder table).
 3. Place the `dg` binary at its final path, owned by root, executable.
+   The bundle carries the gateway only — no web companion. The console
+   runs on the operator machine (`scripts/setup.sh` builds `web/dist`),
+   reaching the gateway over an SSH tunnel; `dg web` from a bare bundle
+   reports `invalid_console_entry` until a companion is staged beside it.
 4. Create the data directory, owned by the service user, mode `0700`.
 5. Run `dg init --data-dir <dir>` once as the service user. It prints
    JSON (`{"owner_key":"…"}`): extract the raw 64-hex value into the
