@@ -154,7 +154,7 @@ Done when: clones/exports remain consistent during writes, failed operations do 
 - [ ] Select and pin a backup tool/version, evaluating Litestream before considering custom backup code.
 - [ ] Automate per-database backup registration with distinct destinations; verify supported configuration/reload behaviour.
 - [ ] Define retention, credential permissions, encryption requirements, and behaviour when the bucket is unavailable.
-- [ ] Expose backup health, last successful backup/recoverable point where available, and lag/staleness through API and CLI.
+- [x] Expose backup health, last successful backup/recoverable point where available, and lag/staleness through API and CLI. (`GET /v1/backups` returns per-database `fresh`/`stale`/`unknown` plus `stale_after_secs`; `dg backup status` surfaces the same; durable write markers survive restart, so freshness is not process-local. Shipped 2026-09-23 per `docs/observability-contract.md` §2. Notification/delivery of failure alerts remains open in `docs/recovery-decisions.md` item 5.)
 - [ ] Restore into a separate target by default, with integrity and application-data verification.
 
 Done when: an end-to-end API write → OVH backup → restore to a separate database → verified read succeeds, and backup failures are visible.
