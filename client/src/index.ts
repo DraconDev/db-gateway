@@ -119,10 +119,20 @@ export class Gateway {
     const headers: Record<string,string> = { Authorization: `Bearer ${this.credential}`, 'Content-Type': 'application/json' };
     if (options.idempotencyKey !== undefined) headers['Idempotency-Key'] = options.idempotencyKey;
     const limit = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE;
+    // A read cannot have committed anything, so only a non-GET leaves the
+    // write outcome genuinely in doubt. Collapsing both into one code told
+    // the operator a write may have committed even for a failed list/status
+    // call. Mirror web/src/api.ts and branch on the method.
+    const writeInDoubt = (detail: string) => new GatewayError('outcome_unknown', `${detail} A write may have committed. Replay with the same key/body within retention; never blindly retry an unkeyed write.`);
     let response: Response;
-    let raw: unknown;
     try {
       response = await fetch(this.origin + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(10_000) });
+    } catch {
+      if (method === 'GET') throw new GatewayError('transport_unavailable', 'The gateway is unavailable through the configured origin.', 503);
+      throw writeInDoubt('Transport failed.');
+    }
+    let bytes: Uint8Array;
+    try {
       const reader = response.body?.getReader();
       if (!reader) throw new Error('Missing response');
       const chunks: Uint8Array[] = [];
@@ -136,17 +146,27 @@ export class Gateway {
           chunks.push(value);
         }
       } finally { await reader.cancel(); }
-      const bytes = new Uint8Array(size); let offset = 0;
+      bytes = new Uint8Array(size);
+      let offset = 0;
       for (const chunk of chunks) { bytes.set(chunk,offset); offset += chunk.length; }
+    } catch (error) {
+      const detail = error instanceof Error && error.message === 'Response limit' ? 'The gateway response exceeded the configured limit' : 'The gateway response was interrupted';
+      if (method === 'GET') throw new GatewayError('invalid_gateway_response', `${detail}.`, 502);
+      throw writeInDoubt(`${detail}.`);
+    }
+    let raw: unknown;
+    try {
       raw = JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(bytes));
     } catch {
-      throw new GatewayError('outcome_unknown','Transport/response failed. A write may have committed. Replay with the same key/body within retention; never blindly retry an unkeyed write.');
+      if (method === 'GET') throw new GatewayError('invalid_gateway_response', 'Gateway returned invalid JSON.', 502);
+      throw writeInDoubt('The gateway returned an unreadable response.');
     }
     if (!response.ok) {
       if (object(raw) && object(raw.error) && typeof raw.error.code === 'string' && typeof raw.error.message === 'string') {
         throw new GatewayError(raw.error.code, raw.error.message, response.status);
       }
-      throw new GatewayError('http_error','Invalid error response',response.status);
+      if (method === 'GET') throw new GatewayError('invalid_gateway_response', 'Gateway returned a malformed error response.', 502);
+      throw writeInDoubt('The gateway returned an unreadable error response.');
     }
     return raw;
   }

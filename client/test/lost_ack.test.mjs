@@ -67,3 +67,72 @@ test('explicit replay requires the original idempotency key', async () => {
     mock.server.close();
   }
 });
+
+// A read never commits anything, so it must not be reported with the code
+// that tells an operator a write may have committed. Split on the method, the
+// way web/src/api.ts does.
+test('severed read surfaces transport_unavailable, never outcome_unknown', async () => {
+  const mock = await mockEndpoint((req, res) => req.socket.destroy());
+  try {
+    const gateway = new Gateway(`http://${mock.address}`, 'a'.repeat(64));
+    await assert.rejects(
+      gateway.listDatabases(),
+      (error) => error instanceof GatewayError && error.code === 'transport_unavailable',
+    );
+    assert.equal(mock.count(), 1);
+  } finally {
+    mock.server.close();
+  }
+});
+
+test('truncated read surfaces invalid_gateway_response, never outcome_unknown', async () => {
+  const mock = await mockEndpoint((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json', Connection: 'close' });
+    res.write('{"databases":[');
+    res.end();
+  });
+  try {
+    const gateway = new Gateway(`http://${mock.address}`, 'a'.repeat(64));
+    await assert.rejects(
+      gateway.listDatabases(),
+      (error) => error instanceof GatewayError && error.code === 'invalid_gateway_response',
+    );
+    assert.equal(mock.count(), 1);
+  } finally {
+    mock.server.close();
+  }
+});
+
+test('oversized read response surfaces invalid_gateway_response, never outcome_unknown', async () => {
+  const mock = await mockEndpoint((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ databases: [], padding: 'x'.repeat(4096) }));
+  });
+  try {
+    const gateway = new Gateway(`http://${mock.address}`, 'a'.repeat(64));
+    await assert.rejects(
+      gateway.request('/v1/databases', 'GET', undefined, { maxResponseBytes: 64 }),
+      (error) => error instanceof GatewayError && error.code === 'invalid_gateway_response',
+    );
+    assert.equal(mock.count(), 1);
+  } finally {
+    mock.server.close();
+  }
+});
+
+test('malformed read error envelope surfaces invalid_gateway_response, never outcome_unknown', async () => {
+  const mock = await mockEndpoint((req, res) => {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end('{"error":"not-an-object"}');
+  });
+  try {
+    const gateway = new Gateway(`http://${mock.address}`, 'a'.repeat(64));
+    await assert.rejects(
+      gateway.listDatabases(),
+      (error) => error instanceof GatewayError && error.code === 'invalid_gateway_response',
+    );
+    assert.equal(mock.count(), 1);
+  } finally {
+    mock.server.close();
+  }
+});
