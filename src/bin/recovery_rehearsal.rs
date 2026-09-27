@@ -107,7 +107,10 @@ impl LocalObjectStore {
             }
             Fault::CrashDuringShipping => {
                 let partial = self.root.join(".primary.sqlite.upload.partial");
-                let half = bytes.len().max(2) / 2;
+                // About half the bytes, never more than the snapshot holds.
+                // The old `.max(2) / 2` guarded a 1-byte input but not a
+                // 0-byte one, so `&bytes[..1]` panicked the drill.
+                let half = bytes.len().div_ceil(2).min(bytes.len());
                 let mut file = File::create(partial).map_err(|error| error.to_string())?;
                 file.write_all(&bytes[..half])
                     .map_err(|error| error.to_string())?;
@@ -445,6 +448,16 @@ fn main() -> AnyResult<()> {
 
     let wal_bytes = create_wal_pressure(&source.path("primary")?)?;
     let disk_marker = rows_store(&source)?.as_array().map_or(0, Vec::len) as i64;
+    // The quota forces the sink to reject deterministically so the fault PATH
+    // is exercised. It says nothing about the scenario the drill is named for,
+    // so the real evidence -- WAL growth while a reader holds the database --
+    // has to be asserted here. It was previously only printed into the report,
+    // which meant a regression that stopped growing the WAL would still emit
+    // "passed": true.
+    require(
+        wal_bytes > 0,
+        "holding a reader produced no WAL growth, so the disk/wal-pressure drill proved nothing",
+    )?;
     sink.quota_bytes = Some(1);
     let disk_result = snapshot_and_ship(&source, &mut sink, disk_marker, Fault::DiskPressure)?;
     require(

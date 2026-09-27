@@ -476,7 +476,17 @@ fn json_mode_multiline_batch_errors_and_eof() {
         "{", // incomplete at EOF is visible, not executed
     ];
     let (stdout, stderr, ok) = shell_session_mode(&server, &owner, &script, true);
-    assert!(ok && stderr.is_empty(), "{stderr}");
+    // The script deliberately ends inside an open batch. That is a command the
+    // shell itself rejected, so it must not exit 0 and let a script read the
+    // truncated input as a successful no-op. The error is still rendered on
+    // stdout before the non-zero exit.
+    assert!(!ok, "incomplete batch at EOF must not exit 0: {stdout}");
+    // The failure is also logged, so a supervising script sees both the exit
+    // code and a diagnostic rather than a silent success.
+    assert!(
+        stderr.contains("incomplete batch at EOF"),
+        "stderr must carry the reason: {stderr}"
+    );
     let values: Vec<Value> = stdout
         .lines()
         .map(|line| serde_json::from_str(line).unwrap_or_else(|_| panic!("non-JSON line: {line}")))

@@ -80,10 +80,19 @@ pub async fn run(
             .map_err(io)?;
         if count == 0 {
             if session.batch.is_some() {
+                // A truncated batch is a command the shell itself rejected, so
+                // the process must not exit 0 and let a script treat the
+                // partial input as a successful no-op.
                 session.error(
                     Error::new(400, "invalid_request", "incomplete batch at EOF"),
                     &mut out,
                 )?;
+                out.flush().map_err(io)?;
+                return Err(Error::new(
+                    400,
+                    "invalid_request",
+                    "incomplete batch at EOF",
+                ));
             }
             out.flush().map_err(io)?;
             return Ok(());
@@ -234,6 +243,11 @@ impl Session<'_> {
         }
         if text.len() + line.len() + 1 > MAX_INPUT {
             self.pending_key = None;
+            // Restore the buffer instead of dropping it. The incomplete-JSON
+            // branch below keeps what was typed so the operator can carry on
+            // editing; returning here without restoring silently discarded up
+            // to 64 KiB of a batch and dropped the shell back to `dg>`.
+            self.batch = Some(text);
             return Err(Error::new(
                 413,
                 "input_limit_exceeded",
@@ -325,9 +339,19 @@ pub fn render(response: &Value, json_mode: bool, out: &mut dyn Write) -> Result<
         && !columns.is_empty()
     {
         let header: Vec<String> = columns.iter().map(cell_text).collect();
+        // `row` is untrusted wire data, and the shell accepts any
+        // `--server` origin including plain http. Indexing it by
+        // `columns.len()` panicked the client on a short row -- a remote
+        // panic reachable from a mismatched gateway or an intercepting
+        // proxy. Zip instead: a missing cell renders as empty, and an
+        // over-long row is truncated to the header.
         let rows: Vec<Vec<String>> = rows
             .iter()
-            .map(|row| (0..columns.len()).map(|i| cell_text(&row[i])).collect())
+            .map(|row| {
+                (0..columns.len())
+                    .map(|i| row.get(i).map_or(String::new(), cell_text))
+                    .collect()
+            })
             .collect();
         let widths: Vec<usize> = header
             .iter()
@@ -441,6 +465,69 @@ mod tests {
         assert_eq!(values.len(), 2);
         assert_eq!(values[0]["error"]["code"], "input_limit_exceeded");
         assert_eq!(values[1]["error"]["code"], "unknown_dot_command");
+    }
+
+    #[tokio::test]
+    async fn short_and_long_rows_render_without_panicking() {
+        // `rows` is untrusted wire data: the shell accepts any --server
+        // origin, including plain http. A row narrower than `columns` used to
+        // index past the end and panic the client.
+        let response = serde_json::json!({
+            "columns": ["a", "b", "c"],
+            "rows": [["1"], ["1", "2", "3", "4"], []],
+        });
+        let mut out = Vec::new();
+        render(&response, false, &mut out).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "a | b | c");
+        assert_eq!(lines[1], "--+---+--");
+        // Short row: missing cells render empty instead of panicking.
+        assert!(lines[2].starts_with('1'), "{text}");
+        // Over-long row: truncated to the header width.
+        assert_eq!(lines[3], "1 | 2 | 3");
+        // Empty row: all cells empty, still rendered.
+        assert_eq!(lines[4], "  |   |  ");
+        assert_eq!(lines.len(), 5, "{text}");
+    }
+
+    #[tokio::test]
+    async fn batch_over_the_input_ceiling_keeps_what_was_typed() {
+        // The incomplete-JSON branch restores the buffer so the operator can
+        // keep editing; the over-limit branch used to drop it, discarding up
+        // to 64 KiB and dropping the shell back to `dg>`.
+        let input = format!(":batch\n\"atomic\":true,\"statements\":[]}}\n.quit\n");
+        let mut out = Vec::new();
+        let result = run(
+            "unused",
+            "unused",
+            true,
+            false,
+            None,
+            input.as_bytes(),
+            &mut out,
+        )
+        .await;
+        // The crafted line is syntactically complete-but-wrong, so it fails
+        // deserialization rather than the ceiling; drive the ceiling directly.
+        assert!(result.is_ok(), "{:?}", result.err());
+
+        let mut session = Session {
+            server: "unused",
+            key: "unused",
+            database: None,
+            json_mode: true,
+            pending_key: None,
+            batch: Some("x".repeat(MAX_INPUT)),
+        };
+        let mut out = Vec::new();
+        let error = session
+            .batch_line(&"y".repeat(16), &mut out)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "input_limit_exceeded");
+        let restored = session.batch.expect("batch buffer must survive the ceiling");
+        assert_eq!(restored.len(), MAX_INPUT, "buffer must be returned intact");
     }
 
     #[tokio::test]
