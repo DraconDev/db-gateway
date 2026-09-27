@@ -163,9 +163,12 @@ impl LocalObjectStore {
 
     fn archive_registry(&self, source_root: &Path) -> AnyResult<Value> {
         let source = source_root.join("metadata.sqlite");
-        // The source Store has no open metadata connection at this point. Make
-        // the registry copy self-contained instead of relying on an adjacent
-        // WAL file to be present in the object mock.
+        // The source Store IS still live here and holds its own metadata
+        // connection, so the registry copy cannot rely on an adjacent WAL file
+        // being present in the object mock. Open the file directly, force a
+        // TRUNCATE checkpoint, and only then copy the single main file, so
+        // the archive is self-contained by construction rather than by
+        // assuming no other connection is around.
         let source_conn = Connection::open(&source)?;
         source_conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
         drop(source_conn);
