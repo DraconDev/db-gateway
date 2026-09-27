@@ -48,8 +48,13 @@ Record the freeze timestamp — it bounds the loss window for everything after.
 ### Stage 3 — Final export + gateway validation (observable)
 
 1. Export the pilot database from Turso; record size + SHA-256.
-2. Validate locally against gateway constraints: file fits the 8 MiB import
-   envelope, no views/triggers/temp objects (risk 3 — redesign if present),
+2. Validate locally against gateway constraints: file fits the 128 MiB
+   lifecycle transfer ceiling (`MAX_TRANSFER_SIZE`). That is the real gate —
+   `dg import` always uses the chunked path, which is why the 8 MiB
+   single-shot HTTP body limit is not an import ceiling. Above 8 MiB the
+   single-shot `/v1/databases/{name}/import` route refuses, but the CLI
+   chunks transparently and nothing extra is required of the operator. Also
+   no views/triggers/temp objects (risk 3 — redesign if present),
    FK coherence via join spot-checks, statement/limit census from the
    inventory.
 3. Transform denied objects into the migration artifact (flattened schema,

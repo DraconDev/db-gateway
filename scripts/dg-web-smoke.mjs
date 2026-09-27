@@ -8,7 +8,7 @@
 //
 // Owns `dg web` launch/supervision/key-hygiene with thin API proof.
 // Companion API depth (query/batch/transfers/tunnel via direct node
-// spawn, without the supervisor) lives in scripts/web-console-smoke.mjs.
+// spawn, without the supervisor) lives in web/scripts/web-console-smoke.mjs.
 //
 // Usage: node scripts/dg-web-smoke.mjs [--dg PATH] [--port N]
 // Exit 0 with a JSON summary on success; nonzero with diagnostics on failure.

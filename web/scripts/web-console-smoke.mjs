@@ -4,6 +4,12 @@
 // tunnel/delete. It deliberately does NOT exercise `dg web` supervision,
 // readiness printing, or auto-serve — that layer is owned by
 // scripts/dg-web-smoke.mjs.
+//
+// This gate lives under web/ (not the repo-root scripts/ dir) so that the
+// bare `playwright` specifier resolves against web/node_modules, the one
+// package that declares it. From scripts/ the lookup walks past the repo and
+// only succeeds against a machine-global module dir, which silently breaks the
+// gate on a clean CI checkout.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { access, chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -14,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
 
-const root = resolve(fileURLToPath(new URL('../', import.meta.url)));
+const root = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const targetDir = process.env.CARGO_TARGET_DIR ?? join(root, '.cargo', 'target');
 const binary = join(targetDir, 'release', 'dg');
 const node = process.execPath;

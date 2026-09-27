@@ -8,7 +8,12 @@ import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { chromium } from 'playwright';
 
-const root = resolve(fileURLToPath(new URL('../', import.meta.url)));
+// This gate lives under web/ (not the repo-root scripts/ dir) so that the
+// bare `playwright` specifier resolves against web/node_modules, the one
+// package that declares it. From scripts/ the lookup walks past the repo and
+// only succeeds against a machine-global module dir, which silently breaks the
+// gate on a clean CI checkout.
+const root = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const distServer = join(root, 'web/dist/server.js');
 const key = 'd'.repeat(64);
 const files = ['web/src/server.ts', 'web/src/api.ts', 'web/public/app.js', 'web/public/index.html'];

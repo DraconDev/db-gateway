@@ -157,8 +157,12 @@ local preparation must wait for owner answers:
    (at-rest and in-transit) for backup objects.
 4. Restore-target policy: always a separate database/host, who may authorize
    a restore over an existing name, and how long rollback artifacts are kept.
-5. Backup-health contract: where last-successful-backup and staleness are
-   exposed (API/CLI), and who is notified on failure.
+5. Backup-health notification: who is notified on failure, over which sink,
+   and at what cadence. The exposure half is **not** open — `GET /v1/backups`
+   (per-database `fresh`/`stale`/`unknown` plus `stale_after_secs`) and
+   `dg backup status` shipped 2026-09-23, per `docs/observability-contract.md`
+   §2. Only the delivery side of `docs/observability-contract.md` §3 alert 4
+   still has no owner.
 6. Whether the sandbox evidence accepts continuous Profile C under the
    five-minute lag objective and what measured headroom is required on the 1 GB
    host.

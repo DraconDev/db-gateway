@@ -34,8 +34,12 @@ jobs:
       - run: echo "PLAYWRIGHT_BROWSER_EXECUTABLE=$(node -e "const {chromium}=require('playwright'); console.log(chromium.executablePath())")" >> $GITHUB_ENV
         working-directory: web
       - run: npm test --prefix web
-      - run: node scripts/web-console-security-check.mjs
-      - run: node scripts/web-console-smoke.mjs
+      # The two browser gates live under web/ so their bare `playwright`
+      # import resolves against web/node_modules, the package that declares
+      # it. Running them from the repo-root scripts/ dir walks the lookup
+      # past the repo and only succeeds against a machine-global module dir.
+      - run: node web/scripts/web-console-security-check.mjs
+      - run: node web/scripts/web-console-smoke.mjs
       - run: node scripts/dg-web-smoke.mjs
       - run: ./scripts/validate-deploy.sh
       - run: python3 scripts/check_plan_consistency.py docs/personal-turso-megaplan.md

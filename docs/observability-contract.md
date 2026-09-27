@@ -66,8 +66,9 @@ Minimum future alerts are:
 1. service inactive or unexpectedly restarting;
 2. disk/inode headroom below the accepted operating floor;
 3. sustained request pressure or deadline failures;
-4. backup attempt failure, lag over 300 seconds after a committed change,
-   missing database, or missing registry;
+4. backup attempt failure, committed changes not represented by a verified
+   copy within the owner-approved snapshot cadence (§2), missing database,
+   or missing registry;
 5. restore verification failure or an artifact checksum mismatch;
 6. resource measurements outside the accepted host budget.
 
