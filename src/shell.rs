@@ -496,22 +496,6 @@ mod tests {
         // The incomplete-JSON branch restores the buffer so the operator can
         // keep editing; the over-limit branch used to drop it, discarding up
         // to 64 KiB and dropping the shell back to `dg>`.
-        let input = format!(":batch\n\"atomic\":true,\"statements\":[]}}\n.quit\n");
-        let mut out = Vec::new();
-        let result = run(
-            "unused",
-            "unused",
-            true,
-            false,
-            None,
-            input.as_bytes(),
-            &mut out,
-        )
-        .await;
-        // The crafted line is syntactically complete-but-wrong, so it fails
-        // deserialization rather than the ceiling; drive the ceiling directly.
-        assert!(result.is_ok(), "{:?}", result.err());
-
         let mut session = Session {
             server: "unused",
             key: "unused",
@@ -526,7 +510,9 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(error.code, "input_limit_exceeded");
-        let restored = session.batch.expect("batch buffer must survive the ceiling");
+        let restored = session
+            .batch
+            .expect("batch buffer must survive the ceiling");
         assert_eq!(restored.len(), MAX_INPUT, "buffer must be returned intact");
     }
 

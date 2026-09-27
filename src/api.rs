@@ -605,6 +605,18 @@ async fn upload_chunk(
     let body = json_body(body)?;
     work(store, headers, move |s, p| {
         p.owner()?;
+        // Reject an oversized chunk before allocating the decoded buffer.
+        // upload_append enforces MAX_CHUNK authoritatively, but by then the
+        // base64 has already been decoded and a 2 MiB body has cost a ~1.5 MiB
+        // allocation. Standard base64 carries 3 bytes per 4 characters, so
+        // anything longer than 4*ceil(MAX_CHUNK/3) cannot decode small enough.
+        if body.data_base64.len() > 4 * crate::store::MAX_CHUNK.div_ceil(3) {
+            return Err(Error::new(
+                413,
+                "result_limit_exceeded",
+                "chunk exceeds the per-chunk transfer ceiling",
+            ));
+        }
         let bytes = BASE64_STANDARD
             .decode(body.data_base64.as_bytes())
             .map_err(|_| Error::invalid())?;

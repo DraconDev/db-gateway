@@ -42,9 +42,18 @@ fn publish_export_file(temp: tempfile::NamedTempFile, path: &Path) -> dg::error:
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    std::fs::File::open(parent)
+    if std::fs::File::open(parent)
         .and_then(|dir| dir.sync_all())
-        .map_err(|_| dg::error::Error::internal())
+        .is_err()
+    {
+        // The artifact is already visible at `path`. Reporting failure while
+        // leaving it there tells the operator the export did not happen when
+        // it did, and the stale file then blocks the next export. Undo the
+        // link so the reported state and the on-disk state agree.
+        let _ = std::fs::remove_file(path);
+        return Err(dg::error::Error::internal());
+    }
+    Ok(())
 }
 
 fn api_failed(response: &Value) -> bool {
@@ -317,6 +326,18 @@ async fn terminate_child(child: &mut tokio::process::Child) {
     }
 }
 
+/// Render a `host:port` authority for a socket address, bracketing an IPv6
+/// literal. A bare `::1:8787` does not parse as a `SocketAddr` and is not a
+/// valid URL authority either; `[::1]:8787` is both. A host that already
+/// carries brackets (as `Url::host_str` returns for IPv6) is left alone.
+fn authority(host: &str, port: u16) -> String {
+    if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    }
+}
+
 /// Loopback-http gateway target (`host:port`) we may auto-start a server
 /// on. Anything else (https, non-loopback, unparsable) is left to the
 /// companion to report; this process never spawns remote listeners.
@@ -330,7 +351,7 @@ fn gateway_target(server: &str) -> Option<String> {
     if !ip.is_loopback() {
         return None;
     }
-    Some(format!("{}:{}", host, url.port().unwrap_or(80)))
+    Some(authority(host, url.port().unwrap_or(80)))
 }
 
 /// Wait until `target` accepts TCP connections, the child exits, or the
@@ -427,6 +448,10 @@ async fn run_console(
     let console_host = std::env::var("DG_CONSOLE_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let entry = console_entry(entry)?;
     let mut gateway = ensure_gateway(server, &data_dir).await?;
+    // Past this point every exit path must stop the auto-started gateway:
+    // tokio's Child has no kill_on_drop, so an early `?` orphans a `dg serve`
+    // that keeps holding the data dir and the port. This is most reachable
+    // when node is missing, which fails the spawn below.
     let mut command = tokio::process::Command::new("node");
     command
         .arg(&entry)
@@ -437,21 +462,25 @@ async fn run_console(
     if std::env::var_os("DG_CONSOLE_HOST").is_none() {
         command.env("DG_CONSOLE_HOST", &console_host);
     }
-    let mut child = command.spawn().map_err(|error| {
-        if error.kind() == std::io::ErrorKind::NotFound {
-            Error::new(
-                400,
-                "console_runtime_unavailable",
-                "node executable not found on PATH; the console companion requires node",
-            )
-        } else {
-            Error::internal()
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            stop_gateway(&mut gateway).await;
+            return Err(if error.kind() == std::io::ErrorKind::NotFound {
+                Error::new(
+                    400,
+                    "console_runtime_unavailable",
+                    "node executable not found on PATH; the console companion requires node",
+                )
+            } else {
+                Error::internal()
+            });
         }
-    })?;
+    };
     // The companion only binds after loading the credential and starting
     // any managed tunnel, so an accepted connection means ready. Probe the
     // configured host: a fixed 127.0.0.1 never reaches a ::1 listener.
-    let address = format!("{console_host}:{port}");
+    let address = authority(&console_host, port);
     if let Err(error) = wait_for_listener(
         &address,
         &mut child,
@@ -464,15 +493,38 @@ async fn run_console(
     .await
     {
         stop_gateway(&mut gateway).await;
+        terminate_child(&mut child).await;
+        let _ = child.wait().await;
         return Err(error);
     }
     println!("dg web ready: open http://{address} in a browser");
-    std::io::stdout().flush().map_err(|_| Error::internal())?;
+    if std::io::stdout().flush().is_err() {
+        stop_gateway(&mut gateway).await;
+        terminate_child(&mut child).await;
+        let _ = child.wait().await;
+        return Err(Error::internal());
+    }
     #[cfg(unix)]
     {
         use tokio::signal::unix::{SignalKind, signal};
-        let mut sigterm = signal(SignalKind::terminate()).map_err(|_| Error::internal())?;
-        let mut sigint = signal(SignalKind::interrupt()).map_err(|_| Error::internal())?;
+        let mut sigterm = match signal(SignalKind::terminate()) {
+            Ok(signal) => signal,
+            Err(_) => {
+                stop_gateway(&mut gateway).await;
+                terminate_child(&mut child).await;
+                let _ = child.wait().await;
+                return Err(Error::internal());
+            }
+        };
+        let mut sigint = match signal(SignalKind::interrupt()) {
+            Ok(signal) => signal,
+            Err(_) => {
+                stop_gateway(&mut gateway).await;
+                terminate_child(&mut child).await;
+                let _ = child.wait().await;
+                return Err(Error::internal());
+            }
+        };
         let gateway_exited = async {
             match gateway.as_mut() {
                 Some(child) => {
@@ -993,6 +1045,19 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                         .map_err(|_| Application(Error::invalid()))?;
                     if n == 0 {
                         break;
+                    }
+                    // The size check at open time is a one-shot sample of a
+                    // path the caller controls: the file can grow while we
+                    // read it, and a pseudo-file can report a small length and
+                    // then stream indefinitely. Enforce the ceiling on the
+                    // running total so the bound the error message promises
+                    // is a real bound, not just the server's per-append check.
+                    if offset + n as u64 > dg::store::MAX_TRANSFER_SIZE {
+                        return Err(Application(Error::new(
+                            413,
+                            "result_limit_exceeded",
+                            "import exceeds bounded local file size",
+                        )));
                     }
                     let encoded = base64::Engine::encode(
                         &base64::engine::general_purpose::STANDARD,
