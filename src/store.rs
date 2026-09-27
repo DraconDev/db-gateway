@@ -1183,7 +1183,14 @@ impl Store {
     pub fn purge_expired(&self) -> Result<Vec<String>> {
         let _exclusive = match self.lifecycle.try_write() {
             Ok(lease) => lease,
-            Err(std::sync::TryLockError::WouldBlock) => return Ok(Vec::new()),
+            // A contended tick is normal, not an error: the 1s cadence means
+            // the next tick almost always succeeds. But a tombstone can then
+            // sit past its retention window with no trace, so record the
+            // deferral. Debug level keeps it free when nothing is wrong.
+            Err(std::sync::TryLockError::WouldBlock) => {
+                tracing::debug!("purge tick deferred; lifecycle lease busy");
+                return Ok(Vec::new());
+            }
             Err(_) => return Err(Error::internal()),
         };
         let now = now_secs()?;

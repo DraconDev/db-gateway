@@ -120,6 +120,8 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Generate the owner locally; emits its credential once. Redirect securely.
+    /// The key is also announced on stderr, since stdout alone is easy to lose
+    /// to terminal scrollback.
     Init {
         #[arg(long)]
         data_dir: PathBuf,
@@ -179,7 +181,7 @@ enum Command {
         #[arg(long)]
         idempotency_key: Option<String>,
     },
-    /// Execute an atomic JSON batch from a file.
+    /// Execute an atomic JSON batch from a file. The file is read whole and is capped at 64 KiB.
     Batch {
         name: String,
         file: PathBuf,
@@ -258,6 +260,15 @@ enum BackupCommand {
 /// the working directory).
 fn console_entry(explicit: Option<PathBuf>) -> Result<PathBuf, dg::error::Error> {
     use dg::error::Error;
+    // TRUST BOUNDARY (owner decision 2026-09-27): the last candidate below is
+    // resolved relative to the process working directory and handed straight to
+    // `node`, so `dg web` run inside an untrusted checkout executes that
+    // directory's JavaScript with the operator's privileges. This is the
+    // intended repo-local developer workflow and matches any Node-based dev
+    // tool, so the fallback is kept deliberately. The two exe-relative
+    // candidates are preferred, so an installed dg uses the companion shipped
+    // beside it. An operator who needs the stricter posture should pass
+    // --entry explicitly.
     if let Some(path) = explicit {
         if path.is_file() {
             return Ok(path);
@@ -735,6 +746,15 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             let key = dg::store::Store::open(&data_dir)
                 .and_then(|store| store.bootstrap())
                 .map_err(Application)?;
+            // The owner key grants full control of every database, so it must
+            // not end up in terminal scrollback or a CI log. stdout still
+            // carries it -- an interactive operator needs to read it, and
+            // `dg init | tee` must keep working -- but the reminder goes to
+            // stderr, where it is visible in a terminal and absent from a
+            // redirect.
+            eprintln!(
+                "dg init: the owner key is on stdout and is shown only once -- redirect it to a mode-0600 file (e.g. `dg init --data-dir DIR > ~/.config/dg/key`) and clear your scrollback."
+            );
             println!("{}", json!({"owner_key":key}));
             return Ok(());
         }
