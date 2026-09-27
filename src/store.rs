@@ -1301,17 +1301,27 @@ impl Store {
             .and_then(|file| file.sync_all())
             .map_err(|_| Error::internal())?;
         if std::fs::hard_link(staged.path(), &path).is_err() {
-            // A link that exists but is not durable is worse than no link:
-            // undo it rather than leaving an unregistered file that blocks a
-            // later import of the same name.
-            if sync_parent_dir(&path).is_err() {
-                remove_database_files(&path);
-            }
+            // The link never appeared, so this process published nothing and
+            // owns no file at `path`. Return the conflict and touch nothing:
+            // a pre-existing file belongs to whoever put it there, and
+            // create() applies the same rule ("an unregistered file needs
+            // operator recovery, not silent adoption").
             return Err(Error::new(
                 409,
                 "database_exists",
                 "database file exists or cannot be published",
             ));
+        }
+        // The link exists; now make its directory entry durable. This must
+        // succeed BEFORE the registry row that names it is committed, or a
+        // crash in between leaves the registry pointing at a file that never
+        // reached stable storage -- `path()` only checks is_file(), so there
+        // is no self-healing and no signal beyond a 500. Because the link is
+        // ours, a failure here means we unlink it rather than stranding an
+        // unregistered file that would block a later import of this name.
+        if let Err(error) = sync_parent_dir(&path) {
+            remove_database_files(&path);
+            return Err(error);
         }
         let result = (|| {
             tx.execute(
