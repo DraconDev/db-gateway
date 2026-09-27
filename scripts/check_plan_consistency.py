@@ -256,9 +256,12 @@ def main(argv: Iterable[str] | None = None) -> int:
     master_path = args.master if args.master.is_absolute() else root / args.master
     legacy_path = args.legacy or Path("docs/plan-2026-09-22.md")
     tasks_path = args.tasks or Path("TASKS.md")
-    if not args.legacy and not legacy_path.is_absolute():
+    # Root every relative input against --root, exactly like the positional
+    # master. Resolving explicit --legacy/--tasks against the process CWD
+    # instead made them fail from any working directory but the repo root.
+    if not legacy_path.is_absolute():
         legacy_path = root / legacy_path
-    if not args.tasks and not tasks_path.is_absolute():
+    if not tasks_path.is_absolute():
         tasks_path = root / tasks_path
     try:
         master = Document.read(master_path)
