@@ -2734,9 +2734,7 @@ mod purge_tests {
             store.create(&name).unwrap();
             // Touch every per-name map the way a served request would.
             let _guard = store.acquire_queue(&name, false).unwrap();
-            store
-                .metrics
-                .record_usage(&name, 10, 20);
+            store.metrics.record_usage(&name, 10, 20);
             store
                 .metrics
                 .record_queue_wait(&name, Duration::from_millis(3), false);
@@ -2746,9 +2744,11 @@ mod purge_tests {
             let markers: i64 = store
                 .meta()
                 .unwrap()
-                .query_row("SELECT count(*) FROM write_markers WHERE name=?", [&name], |r| {
-                    r.get(0)
-                })
+                .query_row(
+                    "SELECT count(*) FROM write_markers WHERE name=?",
+                    [&name],
+                    |r| r.get(0),
+                )
                 .unwrap();
             assert_eq!(markers, 1, "create must leave a freshness marker");
 
@@ -2761,9 +2761,11 @@ mod purge_tests {
             let markers: i64 = store
                 .meta()
                 .unwrap()
-                .query_row("SELECT count(*) FROM write_markers WHERE name=?", [&name], |r| {
-                    r.get(0)
-                })
+                .query_row(
+                    "SELECT count(*) FROM write_markers WHERE name=?",
+                    [&name],
+                    |r| r.get(0),
+                )
                 .unwrap();
             assert_eq!(markers, 0, "purge must drop the freshness marker");
         }
