@@ -92,8 +92,8 @@ The remaining decisions do not block local preparation. Accepted production RPO/
 - [x] Document API routes, SQL value encoding, errors, transaction semantics, and CLI command structure. (`docs/api.md`)
 - [x] Inventory existing client requirements before deciding between a custom protocol/client and libSQL compatibility.
 - [x] Define write acknowledgement, ambiguous timeout outcomes, retry behaviour, and idempotency support.
-- [ ] Define recovery objectives and acceptable downtime/data-loss window; distinguish local durability from asynchronous bucket backup.
-- [ ] Establish a memory budget for the complete 1 GB deployment. (Initial gateway concurrency/cache/result limits exist in [execution core](src/execution.rs) and [decision register](docs/architecture.md); measured gateway + backup + OS headroom remains unverified.)
+- [x] Define recovery objectives and acceptable downtime/data-loss window; distinguish local durability from asynchronous bucket backup. (Profile C accepted 2026-09-27 as a **working target, not a guarantee**: 5-minute lag/RPO, 15-minute RTO, 7 days frequent / 30 daily production / 7 daily development versions — `docs/recovery-decisions.md` §4 and §6.1. Local durability is `synchronous=FULL` in-process; the RPO is an asynchronous bucket property and stays unproven until the sandbox.)
+- [ ] Establish a memory budget for the complete 1 GB deployment. (Initial gateway concurrency/cache/result limits exist in [execution core](src/execution.rs) and [decision register](docs/architecture.md); measured gateway + backup + OS headroom remains unverified. **Deliberately still open** per the 2026-09-27 owner decision: `MemoryMax` stays unset until release-profile RSS and target OS baseline are measured, because a cap picked without a measurement OOM-kills the gateway under the very burst the budget exists to absorb. The page-cache term is ~24 MiB, not ~10 MiB — two independent admission lanes, 8 readers + 4 writers. See `docs/resource-budget.md`.)
 
 Done when: the initial architecture and explicit non-goals are documented, with unresolved compatibility and durability decisions identified.
 

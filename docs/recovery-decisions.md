@@ -105,7 +105,17 @@ Notes:
   1 GB headroom, encryption, retention, and bucket-outage behavior. The
   owner-selected working objective is explicit, but it is not adoption evidence.
 
-## 4. Working Profile C recommendation (local preparation, not acceptance)
+## 4. Working Profile C recommendation (owner-accepted 2026-09-27 as a target, not a guarantee)
+**Owner decision, 2026-09-27: ACCEPTED as the working objective, explicitly not
+as a guarantee.** The five-minute lag/RPO objective, the 15-minute
+restore-to-verified-readable-copy objective, and the retention classes (7 days
+of frequent recovery points, 30 daily production versions, 7 daily development
+versions) stand. Nothing here is an SLO, a backup SLA, or evidence of coverage:
+adoption still depends on the sandbox proving lag, failure visibility, resource
+headroom, retention, registry coverage, encryption, and separate-target restore
+under real replication. Until the sandbox passes, a missed objective is a
+finding to investigate, not a breach to page anyone about.
+
 
 Use Profile C as the **working local objective**: continuous WAL-style
 shipping with a five-minute lag objective, seven days of frequent recovery
@@ -146,26 +156,31 @@ continuous path recovered.
 
 ## 6. Unresolved owner decisions (explicit, blocking live work)
 
-None of the following is decided by this brief. Live M3 backup work beyond
-local preparation must wait for owner answers:
+**Decided 2026-09-27** (recorded here so it stops blocking; implementation
+follows in the sandbox/notification work):
 
-1. Accept, replace, or reject the working Profile C objectives: five-minute
-   lag/RPO objective, 15-minute RTO objective, and retention per database class.
-2. Monthly budget cap for backup storage/requests/egress, and which
-   databases are excluded from scheduled backup.
-3. Bucket region/endpoint, credential scope, and encryption requirements
-   (at-rest and in-transit) for backup objects.
-4. Restore-target policy: always a separate database/host, who may authorize
-   a restore over an existing name, and how long rollback artifacts are kept.
-5. Backup-health notification: who is notified on failure, over which sink,
-   and at what cadence. The exposure half is **not** open — `GET /v1/backups`
-   (per-database `fresh`/`stale`/`unknown` plus `stale_after_secs`) and
-   `dg backup status` shipped 2026-09-23, per `docs/observability-contract.md`
-   §2. Only the delivery side of `docs/observability-contract.md` §3 alert 4
-   still has no owner.
-6. Whether the sandbox evidence accepts continuous Profile C under the
-   five-minute lag objective and what measured headroom is required on the 1 GB
-   host.
+1. **ACCEPTED as a working target, not a guarantee** — the Profile C objectives
+   in §4: five-minute lag/RPO, 15-minute RTO, and the retention classes. Not an
+   SLO and not coverage evidence; the sandbox gates any stronger claim.
+2. **STILL OPEN** — monthly budget cap, excluded databases, bucket
+   region/endpoint, credential scope, and encryption. These need real bucket
+   facts and pricing, so they are deliberately deferred to the sandbox step
+   rather than guessed here.
+3. **STILL OPEN** — same inputs as 2, plus what headroom the 1 GB host must
+   show. Deferred with 2.
+4. **DECIDED** — restore policy: a restore always lands on a **separate**
+   database/target; overwriting an existing name requires **explicit owner
+   authorization** (never an unattended or key-scoped path); rollback artifacts
+   are kept **7 days**. This also matches the two restore paths already
+   described in `docs/recovery-contract.md`.
+5. **DECIDED** — backup-health notification: **immediate on failure plus a daily
+   digest** of per-database fresh/stale/unknown. The exposure half already
+   shipped (`GET /v1/backups`, `dg backup status`); this settles only delivery.
+   No alert stack exists in the project today, so the digest is the floor the
+   notification work must clear.
+6. **STILL OPEN** — whether sandbox evidence accepts continuous Profile C under
+   the five-minute objective, and what measured headroom the 1 GB host must
+   show. This is the question the sandbox exists to answer.
 
 ## Sources (public, accessed 2026-09-18)
 

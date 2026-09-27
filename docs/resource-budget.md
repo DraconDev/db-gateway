@@ -38,6 +38,14 @@ release-blocking measurement.
 No 1 GB fit claim is possible until each of these is measured on the target
 host shape (or an equivalent VM), with the release profile:
 
+> **Owner decision 2026-09-27:** `deploy/dg.service` keeps `MemoryMax` unset
+> until items 1 and 3 below are measured. A cap chosen without a measurement is
+> a guess, and a wrong hard cap gets the gateway OOM-killed under the very
+> burst the budget exists to absorb. Item 1 plus item 3, with item 2's sidecar
+> headroom, is what would justify a value. Remember the page-cache term in this
+> budget is ~24 MiB (8 readers + 4 writers x ~2 MiB), not the ~10 MiB an
+> earlier single-lane reading implied.
+
 1. Release-profile RSS under a realistic workload (owner's actual database
    sizes and query mix), idle and sustained.
 2. Litestream sidecar RSS + disk staging during a snapshot/replication cycle.

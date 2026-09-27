@@ -33,6 +33,16 @@ ReadWritePaths={{DG_DATA_DIR}}
 # MemoryMax remains unset until the release-blocking measurements in
 # docs/resource-budget.md are accepted. The local micro2 sample is not a
 # deployment-wide cap; do not turn it into a hard limit from memory.
+#
+# Owner decision 2026-09-27: KEEP UNSET. A value chosen without a measurement
+# is a guess, and a wrong hard cap does not degrade the service gracefully --
+# it gets the gateway OOM-killed under exactly the burst the budget is meant to
+# absorb. What would justify setting it: item 1 below (release-profile RSS
+# under a realistic workload) plus item 3 (target OS baseline with the data
+# dir hot) measured on the target host shape, with headroom for the Litestream
+# sidecar from item 2. Note the page-cache component of that budget is ~24 MiB,
+# not ~10 MiB: the gateway runs two independent admission lanes, 8 readers and
+# 4 writers, each connection carrying a ~2 MiB cache.
 # MemoryMax=64M
 
 [Install]
