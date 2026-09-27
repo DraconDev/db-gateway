@@ -61,7 +61,11 @@ pub struct Metrics {
 /// Rows read/written per database since boot. Recorded at the API layer
 /// after a successful query/batch (replayed responses count: they are
 /// served requests). Plain totals under one short mutex, mirroring
-/// `writes`; the registry cap bounds the map.
+/// `writes`. Keyed by database name, so the map is bounded by the number of
+/// DISTINCT names seen since boot, not by the live registry cap: a
+/// create/purge cycle on a fresh name leaves an entry behind unless it is
+/// pruned. `Metrics::forget` drops a purged name's entry, called only under
+/// the exclusive lifecycle lease.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DbUsage {
     pub rows_read: u64,
@@ -122,6 +126,18 @@ impl Metrics {
             let entry = usage.entry(name.to_string()).or_default();
             entry.rows_read += rows_read;
             entry.rows_written += rows_written;
+        }
+    }
+    /// Drop the per-name counters for a purged database. Only safe under the
+    /// exclusive lifecycle lease, which every admitted request holds in
+    /// shared form, so no in-flight request can still be recording or
+    /// reading this name's entry.
+    pub fn forget(&self, name: &str) {
+        if let Ok(mut queue) = self.queue.lock() {
+            queue.remove(name);
+        }
+        if let Ok(mut usage) = self.usage.lock() {
+            usage.remove(name);
         }
     }
     pub fn usage_snapshot(&self) -> HashMap<String, DbUsage> {
@@ -854,6 +870,14 @@ impl Store {
         drop(file);
         let result = (|| {
             crate::execution::initialize(&path)?;
+            // Same publication ordering as import_from: the directory entry
+            // that create_new just made must be durable before the registry
+            // row naming it is committed, or a crash can leave the registry
+            // pointing at a file that does not exist.
+            std::fs::File::open(&path)
+                .and_then(|handle| handle.sync_all())
+                .map_err(|_| Error::internal())?;
+            sync_parent_dir(&path)?;
             let created_at = now_secs()?;
             tx.execute(
                 "INSERT INTO databases (name, created_at, generation) VALUES (?, ?, ?)",
@@ -1182,9 +1206,24 @@ impl Store {
                 "DELETE FROM databases WHERE name=? AND deleted_at IS NOT NULL",
                 [&name],
             )?;
+            // The freshness marker is keyed by the same name, so a purge that
+            // leaves the row behind grows metadata.sqlite without bound and
+            // reloads every marker into memory on the next boot.
+            tx.execute("DELETE FROM write_markers WHERE name=?", [&name])?;
             purged.push(name);
         }
         tx.commit()?;
+        // Prune the per-name in-memory state for the names just purged. Safe
+        // here and only here: the exclusive lifecycle lease held above is
+        // shared by every admitted request, so none can be mid-admission with
+        // this name's queue guard in hand. Removing the entry cannot split a
+        // guard, because no other holder can exist at this point.
+        for name in &purged {
+            if let Ok(mut queues) = self.queues.lock() {
+                queues.remove(name);
+            }
+            self.metrics.forget(name);
+        }
         Ok(purged)
     }
 
@@ -1244,13 +1283,29 @@ impl Store {
             return Err(Error::new(409, "database_exists", "database exists"));
         }
         let generation = new_generation(&tx)?;
-        std::fs::hard_link(staged.path(), &path).map_err(|_| {
-            Error::new(
+        // Publication durability ordering, mirroring publish_export_file in
+        // src/main.rs: make the staged bytes durable, link the name, fsync
+        // the containing directory so the new entry is stable, and only then
+        // commit the registry row. Without the directory fsync a crash can
+        // leave the registry naming a database whose file never reached
+        // stable storage, and `path()` then reports a registered database as
+        // missing with no way to recover it short of a manual registry edit.
+        std::fs::File::open(staged.path())
+            .and_then(|file| file.sync_all())
+            .map_err(|_| Error::internal())?;
+        if std::fs::hard_link(staged.path(), &path).is_err() {
+            // A link that exists but is not durable is worse than no link:
+            // undo it rather than leaving an unregistered file that blocks a
+            // later import of the same name.
+            if sync_parent_dir(&path).is_err() {
+                remove_database_files(&path);
+            }
+            return Err(Error::new(
                 409,
                 "database_exists",
                 "database file exists or cannot be published",
-            )
-        })?;
+            ));
+        }
         let result = (|| {
             tx.execute(
                 "INSERT INTO databases (name, created_at, generation) VALUES (?, ?, ?)",
@@ -1863,6 +1918,20 @@ fn path_with_suffix(base: &Path, suffix: &str) -> PathBuf {
     let mut s = base.as_os_str().to_os_string();
     s.push(suffix);
     PathBuf::from(s)
+}
+
+/// fsync a directory so a name newly linked or created inside it survives a
+/// crash. The data fsync on the file is not enough: the directory entry is a
+/// separate write, and losing it after the registry row is durable leaves a
+/// registered database with no file. Mirrors the CLI's publish_export_file.
+fn sync_parent_dir(path: &Path) -> Result<()> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    std::fs::File::open(parent)
+        .and_then(|dir| dir.sync_all())
+        .map_err(|_| Error::internal())
 }
 
 fn remove_database_files(base: &Path) {
@@ -2648,5 +2717,59 @@ mod purge_tests {
         assert!(!path.with_extension("sqlite-wal").exists());
         // Registry row is gone: recreate works.
         store.create("doomed").unwrap();
+    }
+
+    #[test]
+    fn purge_prunes_per_name_state_and_write_markers() {
+        // Per-name state is keyed by database name, so a create/purge cycle on
+        // fresh names used to leave the queue guard, the usage counters, the
+        // queue-wait counters, and the durable write marker behind forever --
+        // three in-memory maps growing without bound over the process
+        // lifetime, plus a metadata table that reloads every row at boot.
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store.bootstrap().unwrap();
+        for index in 0..4 {
+            let name = format!("cycle{index}");
+            store.create(&name).unwrap();
+            // Touch every per-name map the way a served request would.
+            let _guard = store.acquire_queue(&name, false).unwrap();
+            store
+                .metrics
+                .record_usage(&name, 10, 20);
+            store
+                .metrics
+                .record_queue_wait(&name, Duration::from_millis(3), false);
+            assert!(store.queues.lock().unwrap().contains_key(&name));
+            assert!(store.metrics.usage_snapshot().contains_key(&name));
+            assert!(store.metrics.queue_snapshot().contains_key(&name));
+            let markers: i64 = store
+                .meta()
+                .unwrap()
+                .query_row("SELECT count(*) FROM write_markers WHERE name=?", [&name], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            assert_eq!(markers, 1, "create must leave a freshness marker");
+
+            store.delete(&name, 0).unwrap();
+            assert_eq!(store.purge_expired().unwrap(), vec![name.clone()]);
+
+            assert!(!store.queues.lock().unwrap().contains_key(&name));
+            assert!(!store.metrics.usage_snapshot().contains_key(&name));
+            assert!(!store.metrics.queue_snapshot().contains_key(&name));
+            let markers: i64 = store
+                .meta()
+                .unwrap()
+                .query_row("SELECT count(*) FROM write_markers WHERE name=?", [&name], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            assert_eq!(markers, 0, "purge must drop the freshness marker");
+        }
+        assert!(
+            store.queues.lock().unwrap().is_empty(),
+            "the queue map must not grow across create/purge cycles"
+        );
     }
 }
