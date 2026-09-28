@@ -208,20 +208,18 @@ async fn backup_notifier(store: std::sync::Arc<store::Store>, config: BackupNoti
                 ),
             }
         }
-        if failure.due() {
-            if let Some(attempt) = last_failed_attempt(&store) {
-                if delivered.should_report(&attempt) {
-                    if let Ok(health) = backup_health::snapshot(&store) {
-                        let note = notify::failure_note(&health, &attempt);
-                        if !notify::deliver_all(&config.sinks, &note).await.is_empty() {
-                            tracing::error!(
-                                code = "backup_failure_delivery_failed",
-                                attempt = %attempt.ts,
-                                "backup failure notice delivery failed"
-                            );
-                        }
-                    }
-                }
+        if failure.due()
+            && let Some(attempt) = last_failed_attempt(&store)
+            && delivered.should_report(&attempt)
+            && let Ok(health) = backup_health::snapshot(&store)
+        {
+            let note = notify::failure_note(&health, &attempt);
+            if !notify::deliver_all(&config.sinks, &note).await.is_empty() {
+                tracing::error!(
+                    code = "backup_failure_delivery_failed",
+                    attempt = %attempt.ts,
+                    "backup failure notice delivery failed"
+                );
             }
         }
     }
@@ -232,8 +230,7 @@ fn last_failed_attempt(store: &store::Store) -> Option<backup_health::AttemptRec
     let root = store.backup_root()?;
     backup_health::read_attempts(&root)
         .into_iter()
-        .filter(|attempt| attempt.failed())
-        .next_back()
+        .rfind(|attempt| attempt.failed())
 }
 
 /// One timer, built so the FIRST tick is a full period away.
