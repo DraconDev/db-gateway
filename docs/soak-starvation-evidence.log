@@ -38,10 +38,47 @@
 # of what the queue does, which is how the first attempt at this evidence
 # produced a false NO_STARVATION -- see "the measurement that was wrong".
 
+## interleaved A/B: the decision-relevant comparison, drift-immune
+
+The headline comparison below has a weakness worth fixing rather than
+explaining: the pre-fix and post-fix arms were measured in two different time
+windows, so background load could differ between them. So the two BINARIES
+were alternated instead, one 2-block run each, in a single time window:
+
+    for round in 1 2 3; do
+      for side in prefix ticket; do
+        scripts/soak_starvation.py --dg-bin /tmp/dg-$side --blocks 2 \
+            --seconds 60 --readers 12 --writers 4 --scan-rows 12000 \
+            --out /tmp/ab-interleaved.log
+      done
+    done
+
+Each run is a control block and a flood block, so background load reaches
+both designs in the same minutes. Results, 3 rounds of each, 12 readers /
+4 writers / 12000-row scans:
+
+| design | verdicts | flood writer rejection | control | flood queue timeouts | reader rejections | flood writes/s | mean flood load1 |
+|---|---|---|---|---|---|---|---|
+| pre-fix polled RwLock | STARVED x3 | **40.279%** | 0.206% | 840 | 0 | 12.0 | 19.9 |
+| post-fix ticket lock | NO_STARVATION x3 | **0.000%** | 0.000% | **0** | **0** | 77.8 | 16.4 |
+
+Per-round flood writer rejection, pre-fix: 32.440%, 41.810%, 46.586%.
+Post-fix: 0.000%, 0.000%, 0.000% -- not a low rate, an absent one. The
+post-fix side recorded zero rejections of any kind, writer or reader, in all
+three rounds and both arms.
+
+This is the comparison the decision actually rests on, and it is the one
+that survives a busy machine: the two designs are measured in the same
+minutes under the same neighbours, so anything the machine contributes
+applies to both. That is the same reasoning as the interleaved arms within a
+single run, applied one level up to the A/B itself.
+
 ## headline A/B: the same flood, before and after the bound
 
 Identical harness, identical parameters (12 readers, 4 writers, 12000-row
-scans), same machine, one session:
+scans), same machine, one session. (Measured in two separate time windows, so
+the interleaved table above is the stronger form of the same comparison; this
+one is kept because it carries the per-block detail.)
 
 | | pre-fix polled RwLock | post-fix ticket lock |
 |---|---|---|
@@ -251,11 +288,14 @@ per core; the objective's reference bad state was 110, about 7x that.
 What that means for the claims in this log:
 
 * The VERDICT does not depend on an idle machine, and is not a latency
-  measurement. It is a comparison of two arms measured at the same moment on
-  the same box, in alternating blocks, on the writer REJECTION RATE. The
-  isolated stress table above is stronger still, since it has no machine load
-  in it at all: it runs the admission code with no HTTP client and no client
-  pacing, and it separates the two designs 100%-rejected against 0%.
+  measurement. Three independent layers each remove the machine from the
+  claim: the interleaved A/B alternates the two BINARIES in one time window,
+  so the comparison that decides the question is common-mode with the
+  neighbours; within each run the control and flood arms alternate, so drift
+  cannot load one of them; and the isolated stress runs the admission code
+  with no HTTP client at all, so it has no machine load in it whatsoever.
+  What the machine contributes is common-mode, and the decision rests on the
+  writer REJECTION RATE rather than on a latency threshold.
 * The ABSOLUTE latencies in this log are NOT trustworthy as characterisations
   of the gateway. A single-INSERT p50 of 46-48ms is this rig, not the code;
   on an idle box it would be a small fraction of that. Anyone quoting them as
