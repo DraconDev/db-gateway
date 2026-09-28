@@ -318,8 +318,10 @@ fi
 # The config gains the database, then replication is started for it over the
 # control socket. SIGHUP is NOT the mechanism: it terminates the process, and
 # this rehearsal measured that rather than assuming it.
-RELOAD_SIGNAL="control socket: litestream start <db>"
-"$LITESTREAM" start -config "$LITESTREAM_CFG" "$data_dir/rehearsal_two.sqlite" \
+# `start` takes no -config: it talks to the running daemon over the control
+# socket, which is precisely why a database can be picked up without a restart.
+RELOAD_SIGNAL="control socket: litestream start -socket <sock> <db-path>"
+"$LITESTREAM" start -socket "$CONTROL_SOCK" "$data_dir/rehearsal_two.sqlite" \
     > "$rehearsal_root/reload.log" 2>&1 || RELOAD_SIGNAL="control socket: FAILED ($(head -1 "$rehearsal_root/reload.log" 2>/dev/null))"
 ADDED=0
 for _ in $(seq 1 40); do
@@ -353,10 +355,10 @@ wait "$LITESTREAM_PID" 2>/dev/null || true
 # --------------------------------------------------------------------------
 mkdir -p "$restore_dir"
 RESTORE_OK=0
-# `litestream restore` takes the DESTINATION as its positional argument and
-# reads the replica location from the config, so the source never appears here.
-if "$LITESTREAM" restore -config "$LITESTREAM_CFG" "$restore_dir/rehearsal.sqlite" \
-    > "$rehearsal_root/restore.log" 2>&1; then
+# -o is the destination; the positional argument is the SOURCE, which is
+# matched against the config's db path (a replica URL works as the source too).
+if "$LITESTREAM" restore -config "$LITESTREAM_CFG" -o "$restore_dir/rehearsal.sqlite" \
+    "$data_dir/rehearsal.sqlite" > "$rehearsal_root/restore.log" 2>&1; then
     RESTORE_OK=1
 fi
 if [ "$RESTORE_OK" -eq 1 ] && [ -f "$restore_dir/rehearsal.sqlite" ]; then
