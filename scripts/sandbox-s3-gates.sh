@@ -739,39 +739,96 @@ EOF
 G8_LS_PID=$!
 sleep 4
 
-g8_write_and_serve() {
-    # $1 label
-    local before after errs
+g8_count() {
+    # Row count of the LIVE gateway database, or of the standalone file when the
+    # gateway is not built.
+    if [ "$G8_HAVE_DG" = "1" ]; then
+        "${DG8[@]}" --json query sbfail "SELECT count(*) AS n FROM ledger" 2>/dev/null | jfield rows.0.0
+    else
+        python3 -c "
+import sqlite3;print(sqlite3.connect('$G8_SRC').execute('SELECT count(*) FROM ledger').fetchone()[0])" 2>/dev/null || echo 0
+    fi
+}
+
+g8_write() {
     if [ "$G8_HAVE_DG" = "1" ]; then
         "${DG8[@]}" query sbfail "INSERT INTO ledger(note) VALUES ('$1')" >/dev/null 2>&1 || true
-        before="$("${DG8[@]}" --json query sbfail "SELECT count(*) AS n FROM ledger" 2>/dev/null | jfield rows.0.0)"
     else
         python3 -c "
 import sqlite3;c=sqlite3.connect('$G8_SRC')
 c.execute(\"INSERT INTO ledger(note) VALUES ('$1')\");c.commit()" 2>/dev/null || true
-        before="$(python3 -c "
-import sqlite3;print(sqlite3.connect('$G8_SRC').execute('SELECT count(*) FROM ledger').fetchone()[0])" 2>/dev/null || echo 0)"
     fi
-    "${LITESTREAM:-"$LITESTREAM"}" sync -socket "$G8_SOCK" "$G8_SRC" >/dev/null 2>&1 || true
-    sleep 2
-    if [ "$G8_HAVE_DG" = "1" ]; then
-        after="$("${DG8[@]}" --json query sbfail "SELECT count(*) AS n FROM ledger" 2>/dev/null | jfield rows.0.0)"
-    else
-        after="$(python3 -c "
-import sqlite3;print(sqlite3.connect('$G8_SRC').execute('SELECT count(*) FROM ledger').fetchone()[0])" 2>/dev/null || echo 0)"
+}
+
+# How many rows the BUCKET holds right now. This is the operator-visible
+# consequence, and it is the only measurement that cannot be faked: a backup
+# that quietly stopped accepting writes still exits 0, still logs nothing, and
+# still has a replica directory. A restore either has the write or it does not.
+g8_restored() {
+    local out="$G8_ROOT/probe-restore.sqlite"
+    rm -f "$out"
+    cat > "$G8_ROOT/probe-restore.yml" <<EOF
+dbs:
+  - path: $G8_SRC
+    replica:
+      url: s3://$BUCKET/sbx/g8?endpoint=$SCHEME://$G8_PORT_P&region=$REGION
+EOF
+    timeout 45 "$LITESTREAM" restore -config "$G8_ROOT/probe-restore.yml" \
+        -o "$out" "$G8_SRC" > "$G8_ROOT/probe-restore.log" 2>&1 || true
+    python3 -c "
+import sqlite3
+try:
+    print(sqlite3.connect('$out').execute('SELECT count(*) FROM ledger').fetchone()[0])
+except Exception:
+    print(-1)" 2>/dev/null || echo -1
+}
+
+# One phase of the fault drill: $1 label, $2 expect-faulted (yes|no).
+g8_write_and_serve() {
+    local label="$1" expect="$2"
+    # BEFORE the write. The previous version read the count after inserting, so
+    # every phase compared a number with itself and reported all four checks as
+    # stalled while the row count rose from 21 to 24 in front of it.
+    local before after restored sync_out sync_said daemon_said
+    before="$(g8_count)"
+    g8_write "$label"
+    after="$(g8_count)"
+    sync_out="$("$LITESTREAM" sync -socket "$G8_SOCK" "$G8_SRC" 2>&1 || true)"
+    printf '%s\n' "$sync_out" | tail -1 | cut -c1-120 > "$G8_ROOT/sync-last.txt"
+    sync_said="no"
+    printf '%s' "$sync_out" | grep -qiE 'error|denied|403|forbidden|no such host|connection|timeout' && sync_said="yes"
+    daemon_said="no"
+    grep -qiE 'level=(ERROR|WARN)' "$G8_ROOT/litestream.log" 2>/dev/null && daemon_said="yes"
+    restored="$(g8_restored)"
+    G8_RESULTS+=("$label: live $before -> $after, in-bucket $restored, sync reported the failure: $sync_said, daemon log level=ERROR/WARN: $daemon_said")
+    [ "${after:-0}" -gt "${before:-0}" ] && G8_SERVED+=("served") || G8_SERVED+=("STALLED")
+    # While faulted, the write must NOT be in the bucket: that is what "the
+    # backup is stale" means in practice, and it is the fact an operator needs.
+    if [ "$expect" = "yes" ]; then
+        if [ "${restored:--1}" -ge 0 ] && [ "${restored:-0}" -le "${before:-0}" ]; then
+            G8_STALE_OK+=("yes")
+        else
+            G8_STALE_OK+=("no")
+        fi
     fi
-    errs="$(grep -ciE 'level=(ERROR|WARN)' "$G8_ROOT/litestream.log" 2>/dev/null || true)"
-    G8_RESULTS+=("$1: rows $before -> $after, daemon error/warn lines: ${errs:-0}")
-    G8_SERVED+=("$([ "${after:-0}" -gt "${before:-0}" ] && echo served || echo STALLED)")
+    [ "$sync_said" = "yes" ] && G8_SURFACED+=("yes") || G8_SURFACED+=("no")
+    [ "$daemon_said" = "yes" ] && G8_DAEMON+=("yes") || G8_DAEMON+=("no")
 }
 
 G8_RESULTS=()
 G8_SERVED=()
-g8_write_and_serve healthy
+G8_STALE_OK=()
+G8_SURFACED=()
+G8_DAEMON=()
+g8_write_and_serve healthy no
 
 # (a) revoked credentials: the credential is wrong, the endpoint is fine.
 printf 'method=PUT status=403 code=AccessDenied message=injected revoked-credential fault\n' > "$G8_FAULTS"
-g8_write_and_serve revoked-credentials
+g8_write_and_serve revoked-credentials yes
+
+# (a) revoked credentials: the credential is wrong, the endpoint is fine.
+printf 'method=PUT status=403 code=AccessDenied message=injected revoked-credential fault\n' > "$G8_FAULTS"
+g8_write_and_serve revoked-credentials yes
 G8_A="$(grep -c 'revoked-credential fault' "$G8_ROOT/litestream.log" 2>/dev/null || true)"
 
 # (b) blocked egress: the destination stops answering at all. This is the case
