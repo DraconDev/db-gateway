@@ -625,7 +625,11 @@ fn a_webhook_the_operator_cannot_mean_is_refused_at_startup() {
     // non-loopback sink is refused rather than quietly accepted, and refused
     // BEFORE the listener opens -- an operator who sees this exit code has
     // not half-enabled delivery they think they have.
-    for url in ["http://example.com/hook", "not a url", "ftp://127.0.0.1/hook"] {
+    for url in [
+        "http://example.com/hook",
+        "not a url",
+        "ftp://127.0.0.1/hook",
+    ] {
         let output = Command::new(env!("CARGO_BIN_EXE_dg"))
             .args([
                 "serve",
