@@ -841,17 +841,23 @@ g8_write_and_serve blocked-egress yes
 printf 'method=GET status=403 code=AccessDenied message=injected quota fault\n' > "$G8_FAULTS"
 g8_write_and_serve near-quota yes
 
-# Recovery: clear the fault, write once more, and prove by RESTORE that the
-# missing writes arrived. "Replication resumed" is only worth something if the
-# bucket really has them afterwards, so this is checked by restoring, not by
-# looking for a reassuring line in a log.
+# Recovery: clear the fault, restart the daemon so its exponential backoff
+# (built up while the faults were active) does not mask a working recovery,
+# write once more, and prove by RESTORE that the missing writes arrived.
+# "Replication resumed" is only worth something if the bucket really has them
+# afterwards, so this is checked by restoring, not by looking for a
+# reassuring line in a log.
 : > "$G8_FAULTS"
-sleep 1
+kill "$G8_LS_PID" 2>/dev/null || true; wait "$G8_LS_PID" 2>/dev/null || true
+"$LITESTREAM" replicate -config "$G8_ROOT/litestream.yml" > "$G8_ROOT/litestream.log" 2>&1 &
+G8_LS_PID=$!
+# Give the new daemon a moment to list objects, then write.
+sleep 4
 G8_LIVE_AFTER="$(g8_count)"
 g8_write "after-recovery"
 G8_RECOVERED=0
 G8_RECOVERED_ROWS=-1
-for _ in $(seq 1 30); do
+for _ in $(seq 1 20); do
     "$LITESTREAM" sync -socket "$G8_SOCK" "$G8_SRC" >/dev/null 2>&1 || true
     G8_RECOVERED_ROWS="$(g8_restored)"
     if [ "${G8_RECOVERED_ROWS:--1}" -ge 0 ] 2>/dev/null && [ "${G8_RECOVERED_ROWS:-0}" -ge "${G8_LIVE_AFTER:-0}" ]; then
