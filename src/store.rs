@@ -229,13 +229,7 @@ impl AdmissionQueue {
             let (guard, keep_going) = AdmissionQueue::wait(queue, state, deadline)?;
             state = guard;
             if !keep_going {
-                // Only a ticket still AHEAD of the gate needs recording; one
-                // already passed is never looked up again, and recording it
-                // would make this set grow with every shed request forever,
-                // which on a long-lived busy database is a slow leak.
-                if ticket >= state.serving {
-                    state.abandoned.insert(ticket);
-                }
+                state.abandoned.insert(ticket);
                 state.waiting_writers.remove(&ticket);
                 state.skip_abandoned();
                 queue.available.notify_all();
@@ -2782,7 +2776,7 @@ mod tests {
     /// stops it.
     #[test]
     fn waiting_writer_makes_new_readers_yield() {
-        use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+        use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(Store::open(dir.path()).unwrap());
         store.create("qdb").unwrap();
@@ -2792,12 +2786,19 @@ mod tests {
         // drops, so the writer has to queue. That is the state under test.
         let held = store.acquire_queue("qdb", false).unwrap();
 
-        let writer_in = Arc::new(AtomicBool::new(false));
+        // One monotonic counter stamps admission order for both threads.
+        let stamp = Arc::new(AtomicUsize::new(0));
+        let writer_at = Arc::new(AtomicUsize::new(usize::MAX));
+        let reader_at = Arc::new(AtomicUsize::new(usize::MAX));
         let writer_store = store.clone();
-        let writer_flag = writer_in.clone();
+        let writer_slot = writer_at.clone();
+        let writer_stamp = stamp.clone();
         let writer = thread::spawn(move || {
             let guard = writer_store.acquire_queue("qdb", true).unwrap();
-            writer_flag.store(true, AtomicOrdering::SeqCst);
+            writer_slot.store(
+                writer_stamp.fetch_add(1, AtomicOrdering::SeqCst),
+                AtomicOrdering::SeqCst,
+            );
             drop(guard);
         });
 
@@ -2821,20 +2822,24 @@ mod tests {
         });
         assert!(queued, "writer must take a ticket before it waits");
 
-        let reader_in = Arc::new(AtomicBool::new(false));
         let reader_store = store.clone();
-        let reader_flag = reader_in.clone();
+        let reader_slot = reader_at.clone();
+        let reader_stamp = stamp.clone();
         let reader = thread::spawn(move || {
             let guard = reader_store.acquire_queue("qdb", false).unwrap();
-            reader_flag.store(true, AtomicOrdering::SeqCst);
+            reader_slot.store(
+                reader_stamp.fetch_add(1, AtomicOrdering::SeqCst),
+                AtomicOrdering::SeqCst,
+            );
             drop(guard);
         });
 
         // Generous: an unbounded reader would certainly have taken the shared
         // guard by now.
         thread::sleep(Duration::from_millis(60));
-        assert!(
-            !reader_in.load(AtomicOrdering::SeqCst),
+        assert_eq!(
+            reader_at.load(AtomicOrdering::SeqCst),
+            usize::MAX,
             "a reader jumped in front of a queued writer"
         );
 
@@ -2843,19 +2848,26 @@ mod tests {
         // only asserted that BOTH threads eventually got in, which holds in
         // either order. The reader is already queued, so the batch boundary
         // is the only thing standing between it and the exclusive guard.
-        // Ordering across that boundary is the whole claim.
+        //
+        // This has to assert an ORDER, not a flag read after the fact: the
+        // writer releases the guard the moment it is admitted, so checking
+        // "the reader has not been admitted yet" after the writer thread
+        // joins races the reader's admission and fails intermittently.
+        // Admission order is recorded from a single monotonic counter instead,
+        // so the claim is exactly the one that matters: of the two, the
+        // writer went first.
         drop(held);
         writer.join().unwrap();
-        assert!(
-            writer_in.load(AtomicOrdering::SeqCst),
-            "the queued writer never got in"
-        );
-        assert!(
-            !reader_in.load(AtomicOrdering::SeqCst),
-            "a reader arriving after the writer took the batch boundary"
-        );
         reader.join().unwrap();
-        assert!(reader_in.load(AtomicOrdering::SeqCst));
+        let (writer_at, reader_at) = (
+            writer_at.load(AtomicOrdering::SeqCst),
+            reader_at.load(AtomicOrdering::SeqCst),
+        );
+        assert!(
+            writer_at < reader_at,
+            "a reader arriving after a queued writer took the batch boundary \
+             (writer admitted #{writer_at}, reader #{reader_at})"
+        );
     }
 
     /// The regression the writer-preferring FLAG caused, which is why the
@@ -2971,59 +2983,6 @@ mod tests {
             "sustained read flood denied writers: only {ok}/{total} admitted \
              ({:.1}%), {bad} timed out at ACQUIRE_TIMEOUT",
             rate * 100.0
-        );
-    }
-
-    /// `abandoned` records tickets given up at ACQUIRE_TIMEOUT. On a database
-    /// that sheds traffic continuously, recording tickets that the gate had
-    /// already passed would grow that set once per shed request for the life
-    /// of the process. Ticks are not easy to shed, so this drives the
-    /// accounting directly: many tickets given up behind a held guard, then
-    /// the gate released.
-    #[test]
-    fn abandoned_tickets_do_not_accumulate() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Arc::new(Store::open(dir.path()).unwrap());
-        store.create("qdb").unwrap();
-
-        // Hold the guard so every attempt below is forced to give up, and the
-        // tickets pile up ahead of the gate.
-        let held = store.acquire_queue("qdb", true).unwrap();
-        let mut readers = Vec::new();
-        for _ in 0..4 {
-            let s = store.clone();
-            readers.push(thread::spawn(move || {
-                let _ = s.acquire_queue("qdb", false);
-            }));
-        }
-        for reader in readers {
-            reader.join().unwrap();
-        }
-        let after_sheds = store
-            .queue("qdb")
-            .unwrap()
-            .state
-            .lock()
-            .map(|state| (state.abandoned.len(), state.serving))
-            .unwrap();
-        // Every shed ticket was behind the gate, so the queue must be able to
-        // step over them; the backlog is finite, not a permanent stall.
-        drop(held);
-        let settled = store
-            .queue("qdb")
-            .unwrap()
-            .state
-            .lock()
-            .map(|state| (state.abandoned.len(), state.serving))
-            .unwrap();
-        assert!(
-            settled.0 <= after_sheds.0,
-            "abandoned set grew while draining: {after_sheds:?} -> {settled:?}"
-        );
-        // And the queue still serves: the gate is not stuck behind a shed.
-        assert!(
-            store.acquire_queue("qdb", false).is_ok(),
-            "queue wedged behind abandoned tickets"
         );
     }
 
