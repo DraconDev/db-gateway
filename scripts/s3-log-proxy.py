@@ -1,0 +1,479 @@
+#!/usr/bin/env python3
+"""A validating, logging, fault-injecting S3 front door for the sandbox packet.
+
+THREE JOBS, ONE PROCESS.
+
+1. VALIDATE. Every S3 service the packet can be rehearsed against ignores
+   authentication, which means a rehearsal would happily pass with a broken
+   signature — the single most embarrassing way for an adoption packet to be
+   wrong. This proxy recomputes the SigV4 of every request that arrives,
+   checking the access key against the one it was started with, the signed
+   header set, and the date window, and answers 403 SignatureDoesNotMatch when
+   any of it disagrees. A litestream whose config is wrong therefore fails here
+   exactly as it would against OVH.
+
+2. LOG. Gate 4 asks which S3 operations litestream 0.5.17 issues. That is not
+   knowable from the litestream documentation and not knowable from a single
+   quiet run, so every request is recorded as one JSON line: method, bucket,
+   key, query, signed headers, status, bytes. The packet reads the log back and
+   reports a measured matrix instead of an assumed one.
+
+3. FAIL ON COMMAND. Gate 8 needs revoked credentials and a destination that
+   stops accepting writes while the gateway keeps serving. A fault file makes
+   that reproducible: write a line like `status=403 code=AccessDenied` into it
+   and every matching request gets that response, or `refuse=*` to make the
+   endpoint stop answering at all, which is the blocked-egress case.
+
+WHY A PROXY AND NOT A PATCH. The packet has to run unchanged against OVH,
+where there is no proxy. Everything fault-specific lives here and in the
+harness's fault file, never in the code path that talks to the real endpoint.
+
+USAGE
+
+    s3-log-proxy.py --listen 127.0.0.1:PORT --upstream 127.0.0.1:PORT2 \\
+        --access-key-id K --log FILE [--faults FILE] [--region R]
+
+The log is JSON Lines. `s3-log-proxy.py --summarize FILE` prints the operation
+matrix without starting a server.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import hashlib
+import hmac
+import json
+import os
+import re
+import socketserver
+import sys
+import threading
+import time
+import urllib.parse
+from http.server import BaseHTTPRequestHandler
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from s3probe import canonical_query, canonical_uri, signing_key  # noqa: E402
+
+# S3's own tolerance for clock skew between client and server.
+MAX_SKEW_SECONDS = 15 * 60
+LOCK = threading.Lock()
+LOG_PATH: str | None = None
+UPSTREAM: tuple[str, int] = ("", 0)
+EXPECTED_KEY: str = ""
+EXPECTED_SECRET: str = ""
+FAULT_PATH: str | None = None
+REGION: str = "us-east-1"
+COUNTERS = {"requests": 0, "rejected": 0, "faulted": 0}
+
+
+def _read_faults() -> list[dict[str, str]]:
+    """The fault file, re-read per request so a gate can change it mid-run.
+
+    Re-reading rather than caching is the point: gate 8 has to break the
+    destination, observe the gateway keep serving, and then break egress on the
+    same live daemon, which means the fault state has to change underneath a
+    running replication.
+    """
+    if not FAULT_PATH or not os.path.exists(FAULT_PATH):
+        return []
+    out = []
+    try:
+        with open(FAULT_PATH, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                out.append(dict(p.split("=", 1) for p in line.split(" ") if "=" in p))
+    except OSError:
+        return []
+    return out
+
+
+def _fault_for(method: str, bucket: str, key: str) -> dict[str, str] | None:
+    for rule in _read_faults():
+        if rule.get("method") and rule["method"].upper() != method.upper():
+            continue
+        if rule.get("bucket") and rule["bucket"] != bucket:
+            continue
+        if rule.get("key-prefix") and not key.startswith(rule["key-prefix"]):
+            continue
+        if rule.get("path-contains") and rule["path-contains"] not in key:
+            continue
+        return rule
+    return None
+
+
+def verify_signature(
+    method: str, path: str, query: str, headers: dict[str, str], body: bytes
+) -> tuple[bool, str]:
+    """Recompute the client's SigV4 signature over the request as received.
+
+    A mismatch is reported as 403 SignatureDoesNotMatch, which is what a real
+    service answers, so the client under test sees the failure it would see in
+    production instead of a proxy-specific error it has never handled.
+    """
+    auth = headers.get("authorization", "")
+    if not auth.startswith("AWS4-HMAC-SHA256 "):
+        return False, "MissingSecurityHeader"
+    try:
+        parts = dict(
+            piece.strip().split("=", 1)
+            for piece in auth[len("AWS4-HMAC-SHA256 ") :].split(",")
+        )
+        credential = parts["Credential"]
+        signed_headers = parts["SignedHeaders"].split(";")
+        provided = parts["Signature"]
+    except (KeyError, ValueError):
+        return False, "AuthorizationHeaderMalformed"
+
+    credential_parts = credential.split("/")
+    if len(credential_parts) != 5:
+        return False, "AuthorizationHeaderMalformed"
+    key_id, date_stamp, region, service, terminator = credential_parts
+    if key_id != EXPECTED_KEY:
+        return False, "InvalidAccessKeyId"
+    if service != "s3" or terminator != "aws4_request":
+        return False, "AuthorizationHeaderMalformed"
+
+    amz_date = headers.get("x-amz-date", "")
+    try:
+        request_time = dt.datetime.strptime(amz_date, "%Y%m%dT%H%M%SZ").replace(
+            tzinfo=dt.timezone.utc
+        )
+    except ValueError:
+        return False, "AccessDenied"
+    if abs((dt.datetime.now(dt.timezone.utc) - request_time).total_seconds()) > MAX_SKEW_SECONDS:
+        return False, "RequestTimeTooSkewed"
+
+    # Canonical query: re-parse the raw query string rather than trusting our
+    # own idea of the client's encoding, because the client's encoding is
+    # exactly what this check is supposed to police. Handles both `k=v` and the
+    # bare `k` form that S3 sub-resources are often written in, and keeps
+    # duplicate parameters, which is where a naive parser silently loses one.
+    pairs: list[tuple[str, str]] = []
+    for part in query.split("&"):
+        if not part:
+            continue
+        name, sep, value = part.partition("=")
+        pairs.append(
+            (
+                urllib.parse.unquote(name.replace("+", " ")),
+                urllib.parse.unquote(value.replace("+", " ")) if sep else "",
+            )
+        )
+
+    missing = [h for h in signed_headers if h not in headers]
+    if missing:
+        return False, f"SignedHeaderMissing:{','.join(missing)}"
+
+    canonical_headers = "".join(
+        f"{h}:{' '.join(headers[h].split())}\n" for h in signed_headers
+    )
+    payload_hash = headers.get("x-amz-content-sha256", hashlib.sha256(body).hexdigest())
+    canonical_request = "\n".join(
+        [method, canonical_uri(path), canonical_query(pairs), canonical_headers, ";".join(signed_headers), payload_hash]
+    )
+    scope = f"{date_stamp}/{region}/{service}/aws4_request"
+    string_to_sign = "\n".join(
+        [
+            "AWS4-HMAC-SHA256",
+            amz_date,
+            scope,
+            hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
+        ]
+    )
+    expected = hmac.new(
+        signing_key(EXPECTED_SECRET, date_stamp, region, service),
+        string_to_sign.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(expected, provided):
+        return False, "SignatureDoesNotMatch"
+    return True, "OK"
+
+
+def _s3_error(status: int, code: str, message: str, resource: str = "") -> bytes:
+    body = (
+        f'<?xml version="1.0" encoding="UTF-8"?><Error><Code>{code}</Code>'
+        f"<Message>{message}</Message><Resource>{resource}</Resource>"
+        f"<RequestId>proxy</RequestId></Error>"
+    ).encode("utf-8")
+    return body
+
+
+class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+    server_version = "dg-sandbox-s3-proxy/1"
+
+    def log_message(self, *_args: object) -> None:  # noqa: D401 - silence stderr spam
+        return
+
+    # -- plumbing ---------------------------------------------------------
+    def _read_body(self) -> bytes:
+        length = int(self.headers.get("content-length", "0") or 0)
+        return self.rfile.read(length) if length else b""
+
+    def _parse(self) -> tuple[str, str, str, str]:
+        parsed = urllib.parse.urlsplit(self.path)
+        path = urllib.parse.unquote(parsed.path)
+        # path style is /<bucket>/<key...>; virtual-host style arrives with the
+        # bucket already in the Host, and the path is then only the key.
+        parts = path.lstrip("/").split("/", 1)
+        bucket = parts[0]
+        key = parts[1] if len(parts) > 1 else ""
+        return bucket, key, parsed.path, parsed.query
+
+    def _record(self, entry: dict[str, object]) -> None:
+        if not LOG_PATH:
+            return
+        with LOCK:
+            with open(LOG_PATH, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(entry, default=str) + "\n")
+
+    def _send(self, status: int, body: bytes, headers: dict[str, str] | None = None) -> None:
+        self.send_response(status)
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def _log_line(
+        self,
+        bucket: str,
+        key: str,
+        status: int,
+        size: int,
+        started: float,
+        note: str = "",
+        request_bytes: int = 0,
+    ) -> None:
+        self._record(
+            {
+                "ts": time.time(),
+                "method": self.command,
+                "bucket": bucket,
+                "key": key,
+                "path": urllib.parse.urlsplit(self.path).path,
+                "query": urllib.parse.urlsplit(self.path).query,
+                "status": status,
+                "bytes": size,
+                "request_bytes": request_bytes,
+                "content_type": self.headers.get("content-type", ""),
+                "litestream_meta": ";".join(
+                    f"{k}={v}" for k, v in self.headers.items() if k.lower().startswith("x-amz-meta-")
+                ),
+                "host": self.headers.get("host", ""),
+                "signed_headers": (
+                    dict(
+                        p.strip().split("=", 1)
+                        for p in self.headers.get("authorization", "")[len("AWS4-HMAC-SHA256 ") :].split(",")
+                    ).get("SignedHeaders", "")
+                ),
+                "sse_requested": self.headers.get("x-amz-server-side-encryption", ""),
+                "sse_customer_present": "1" if self.headers.get("x-amz-server-side-encryption-customer-key") else "",
+                "elapsed_ms": round((time.time() - started) * 1000, 2),
+                "note": note,
+            }
+        )
+
+    # -- the one code path every method shares ----------------------------
+    def _handle(self) -> None:
+        started = time.time()
+        with LOCK:
+            COUNTERS["requests"] += 1
+        body = self._read_body()
+        bucket, key, path, query = self._parse()
+        headers = {k.lower(): v for k, v in self.headers.items()}
+        status = 0
+        note = ""
+
+        fault = _fault_for(self.command, bucket, key)
+        if fault and fault.get("refuse"):
+            # The blocked-egress case: the destination simply stops answering.
+            # Closing without a response is what a blackholed route looks like
+            # to the client, and it is deliberately a different failure mode
+            # from an error response, because a gateway that only handles the
+            # error case can still lose writes silently.
+            with LOCK:
+                COUNTERS["faulted"] += 1
+            self._log_line(bucket, key, 0, 0, started, note=f"fault:refuse {fault}", request_bytes=len(body))
+            try:
+                self.connection.close()
+            except OSError:
+                pass
+            self.close_connection = True
+            return
+
+        if not fault:
+            ok, code = verify_signature(self.command, path, query, headers, body)
+            if not ok:
+                with LOCK:
+                    COUNTERS["rejected"] += 1
+                payload = _s3_error(403, code, f"the request signature the proxy recomputed did not match: {code}")
+                status = 403
+                note = f"rejected:{code}"
+                self._send(403, payload, {"Content-Type": "application/xml"})
+                self._log_line(bucket, key, status, len(payload), started, note=note, request_bytes=len(body))
+                return
+
+        # Forward upstream over a fresh connection, with the Host rewritten to
+        # the upstream. The client signed the host it dialed, which is this
+        # proxy; the upstream sees its own name, which is what it expects.
+        import http.client
+
+        conn = http.client.HTTPConnection(UPSTREAM[0], UPSTREAM[1], timeout=120)
+        up_headers = {k: v for k, v in headers.items() if k not in ("host", "authorization", "accept-encoding")}
+        up_headers["host"] = f"{UPSTREAM[0]}:{UPSTREAM[1]}"
+        up_headers["content-length"] = str(len(body))
+        if fault and fault.get("status"):
+            status = int(fault["status"])
+            payload = _s3_error(
+                status,
+                fault.get("code", "AccessDenied"),
+                fault.get("message", "injected by the sandbox fault file"),
+                key,
+            )
+            with LOCK:
+                COUNTERS["faulted"] += 1
+            note = f"fault:{status}"
+            self._send(status, payload, {"Content-Type": "application/xml"})
+            self._log_line(bucket, key, status, len(payload), started, note=note, request_bytes=len(body))
+            return
+        try:
+            conn.request(self.command, self.path, body=body, headers=up_headers)
+            resp = conn.getresponse()
+            payload = resp.read()
+            status = resp.status
+            out_headers = {k: v for k, v in resp.getheaders() if k.lower() not in ("content-length", "transfer-encoding")}
+            self._send(status, payload, out_headers)
+        except (OSError, http.client.HTTPException) as exc:
+            payload = _s3_error(502, "BadGateway", f"upstream {UPSTREAM[0]}:{UPSTREAM[1]} failed: {exc}")
+            status = 502
+            note = f"upstream-error:{exc}"
+            self._send(502, payload, {"Content-Type": "application/xml"})
+        finally:
+            conn.close()
+        self._log_line(bucket, key, status, len(payload), started, note=note, request_bytes=len(body))
+
+    do_GET = do_PUT = do_HEAD = do_POST = do_DELETE = _handle
+    do_PUTOBJ = _handle
+
+
+class Server(socketserver.ThreadingTCPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+
+def summarize(path: str) -> int:
+    """Print the operation matrix the packet's gate 4 reports.
+
+    Counted by (method, bucket-present, key pattern) because that is the shape
+    a credential policy is written in: which verbs, against which prefixes. A
+    raw request dump is evidence; this table is what an owner can act on.
+    """
+    ops: dict[str, int] = {}
+    total = 0
+    errors: dict[str, int] = {}
+    by_bucket: dict[str, int] = {}
+    sse_seen = 0
+    uploaded = 0
+    generations: set[str] = set()
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                total += 1
+                status = int(entry.get("status") or 0)
+                if status >= 400 or entry.get("note"):
+                    errors[f"{entry.get('method')} {status}"] = errors.get(f"{entry.get('method')} {status}", 0) + 1
+                if entry.get("sse_requested") or entry.get("sse_customer_present"):
+                    sse_seen += 1
+                if entry.get("method") == "PUT":
+                    uploaded += int(entry.get("request_bytes") or 0)
+                for part in (entry.get("query") or "").split("&"):
+                    if part.startswith("prefix="):
+                        generations.add(part)
+                bucket = entry.get("bucket") or "(none)"
+                prefix = (entry.get("key") or "").split("/")[0] or "(bucket-level)"
+                label = f"{entry.get('method')} {bucket}/{prefix}*"
+                ops[label] = ops.get(label, 0) + 1
+                by_bucket[bucket] = by_bucket.get(bucket, 0) + 1
+    except OSError as exc:
+        print(f"cannot read {path}: {exc}", file=sys.stderr)
+        return 2
+
+    print(f"requests: {total}")
+    for label in sorted(ops):
+        print(f"  {ops[label]:5d}  {label}")
+    if errors:
+        print("non-2xx:")
+        for label in sorted(errors):
+            print(f"  {errors[label]:5d}  {label}")
+    print(f"bytes uploaded: {uploaded}")
+    if generations:
+        print(f"distinct ListObjectsV2 prefixes probed: {len(generations)}")
+    if sse_seen:
+        print(f"requests carrying server-side-encryption headers: {sse_seen}")
+    else:
+        print("requests carrying server-side-encryption headers: 0 (litestream sent none)")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    global LOG_PATH, UPSTREAM, EXPECTED_KEY, EXPECTED_SECRET, FAULT_PATH
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--listen", default="127.0.0.1:0")
+    p.add_argument("--upstream", required=True)
+    p.add_argument("--access-key-id", required=True)
+    p.add_argument("--secret-access-key", required=True)
+    p.add_argument("--log", required=True)
+    p.add_argument("--faults", default=None)
+    p.add_argument("--region", default="us-east-1")
+    p.add_argument("--print-listen", action="store_true", help="write the bound port to stdout and wait")
+    p.add_argument("--summarize", default=None, help="print the operation matrix for a log and exit")
+    args = p.parse_args(argv)
+
+    if args.summarize:
+        return summarize(args.summarize)
+
+    if not args.access_key_id or not args.secret_access_key:
+        print("s3-log-proxy: a fixed key pair is required; the proxy validates signatures", file=sys.stderr)
+        return 2
+
+    host, _, port = args.listen.rpartition(":")
+    up_host, _, up_port = args.upstream.rpartition(":")
+    UPSTREAM = (up_host, int(up_port))
+    EXPECTED_KEY = args.access_key_id
+    EXPECTED_SECRET = args.secret_access_key
+    LOG_PATH = args.log
+    FAULT_PATH = args.faults
+    REGION = args.region
+
+    server = Server((host or "127.0.0.1", int(port)), Handler)
+    bound = server.server_address[1]
+    if args.print_listen:
+        print(f"127.0.0.1:{bound}", flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        with LOCK:
+            summary_line = json.dumps(COUNTERS)
+        with open(LOG_PATH + ".summary", "w", encoding="utf-8") as fh:
+            fh.write(summary_line + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
