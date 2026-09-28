@@ -875,8 +875,12 @@ G8_N_DAEMON=0
 for s in ${G8_DAEMON[@]+"${G8_DAEMON[@]}"}; do [ "$s" = "yes" ] && G8_N_DAEMON=$((G8_N_DAEMON+1)); done
 G8_SIGNAL_LINES="$(grep -iE 'level=(ERROR|WARN)' "$G8_ROOT/litestream.log" 2>/dev/null | head -4 || true)"
 G8_BACKUP_STATE="(gateway not built)"
+# `dg backup status` is the operator-facing staleness signal. On a minimum
+# data dir it can exit nonzero, and `set -e` would abort the whole record
+# group; capturing both stdout and the exit code keeps the finding on the
+# page no matter what the binary does.
 if [ "$G8_HAVE_DG" = "1" ]; then
-    G8_BACKUP_STATE="$("${DG8[@]}" backup status 2>/dev/null | tr '\n' ' ' | cut -c1-220)"
+    G8_BACKUP_STATE="$("${DG8[@]}" backup status 2>&1 | tr '\n' ' ' | cut -c1-220 || echo '(unavailable)')"
 fi
 
 {
