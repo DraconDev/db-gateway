@@ -662,7 +662,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 vec![std::sync::Arc::new(dg::notify::LogSink)];
             if let Some(url) = &backup_notify_webhook {
                 let sink = dg::notify::WebhookSink::new(url.clone())
-                    .map_err(|error| Application(dg::error::Error::invalid()))?;
+                    .map_err(|_| Application(dg::error::Error::invalid()))?;
                 tracing::info!(url = sink.url(), "backup notifications: webhook sink added");
                 sinks.push(std::sync::Arc::new(sink));
             }
