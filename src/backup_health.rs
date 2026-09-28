@@ -17,6 +17,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use crate::store::Store;
 
@@ -254,15 +255,27 @@ mod tests {
             .with_backup_root(Some(root))
     }
 
-    fn write_set(root: &std::path::Path, stamp: &str, databases: &[&str], coverage_start: u64) {
+    /// `coverage_start` of `None` writes a manifest with no usable
+    /// `started_at`, which is what a set published by an older script (or by
+    /// hand) looks like to the reader.
+    fn write_set(
+        root: &std::path::Path,
+        stamp: &str,
+        databases: &[&str],
+        coverage_start: Option<u64>,
+    ) {
         let set = root.join(stamp);
         std::fs::create_dir_all(&set).unwrap();
+        let (started, completed) = match coverage_start {
+            Some(seconds) => (json!(seconds), json!(seconds + 1)),
+            None => (serde_json::Value::Null, serde_json::Value::Null),
+        };
         std::fs::write(
             set.join("manifest.json"),
             serde_json::to_vec(&serde_json::json!({
-                "started_at": coverage_start,
-                "completed_at": coverage_start + 1,
-                "registry_captured_at": coverage_start + 1,
+                "started_at": started,
+                "completed_at": completed,
+                "registry_captured_at": completed,
                 "databases": databases
                     .iter()
                     .map(|name| serde_json::json!({
@@ -309,7 +322,7 @@ mod tests {
             .unwrap()
             .as_secs()
             + 60;
-        write_set(&root, "20240101T000000Z", &["alpha"], boundary);
+        write_set(&root, "20240101T000000Z", &["alpha"], Some(boundary));
         let health = snapshot(&store).unwrap();
         assert_eq!(health.databases[0].state, "fresh");
         assert_eq!(health.databases[0].newest_set.as_deref(), Some("20240101T000000Z"));
@@ -329,7 +342,7 @@ mod tests {
             .unwrap()
             .as_secs()
             - 60;
-        write_set(&root, "20240101T000000Z", &["alpha"], boundary);
+        write_set(&root, "20240101T000000Z", &["alpha"], Some(boundary));
         let health = snapshot(&store).unwrap();
         assert_eq!(health.databases[0].state, "stale");
         assert_eq!(health.attention().len(), 1);
@@ -343,7 +356,7 @@ mod tests {
         let root = dir.path().join("dg-backups");
         // started_at absent: the manifest parses, so the set is visible, but
         // there is no durable boundary to compare a write against.
-        write_set(&root, "20240101T000000Z", &["alpha"], 0);
+        write_set(&root, "20240101T000000Z", &["alpha"], None);
         let health = snapshot(&store).unwrap();
         assert_eq!(
             health.databases[0].state, "unknown",
@@ -363,11 +376,11 @@ mod tests {
             .unwrap()
             .as_secs()
             + 60;
-        write_set(&root, "20240101T000000Z", &["alpha"], boundary);
+        write_set(&root, "20240101T000000Z", &["alpha"], Some(boundary));
         // The newer set is published later but proves nothing, so it cannot
         // become the newest boundary and it cannot downgrade a proven one to
         // a false fresh. The proven boundary still governs.
-        write_set(&root, "20240102T000000Z", &["alpha"], 0);
+        write_set(&root, "20240102T000000Z", &["alpha"], None);
         let health = snapshot(&store).unwrap();
         let alpha = &health.databases[0];
         assert_eq!(
@@ -445,7 +458,7 @@ mod tests {
             .unwrap()
             .as_secs()
             + 60;
-        write_set(&root, "20240101T000000Z", &["alpha"], boundary);
+        write_set(&root, "20240101T000000Z", &["alpha"], Some(boundary));
         let health = snapshot(&store).unwrap();
         let beta = health
             .databases
