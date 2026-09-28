@@ -155,6 +155,34 @@ per-database deltas (flood): {"hot": {"queue_waits": 44611, "queue_wait_ms": 278
 | 3:control | 22.58 | 0 | | 4:flood | 28.52 | 3 |
 | 5:control | 24.06 | 9 | | 6:flood | 15.72 | 0 |
 
+## isolated stress: the bound, with no client in the way
+
+The soak drives the real server over HTTP, which leaves a gap between
+requests, and that gap is exactly what let the phase design look healthy. So
+the queue was also stressed directly, with the admission code copied verbatim
+and no network at all: 8 reader threads (the server's READ_PERMITS) that
+re-acquire immediately with NO client-side gap, 4 writer threads, 6 seconds
+per case. The only variable is the reader's hold time.
+
+| reader hold | phase design: writers admitted / rejected | ticket lock: writers admitted / rejected |
+|---|---|---|
+| 2ms  | 0 / 48 (**100% rejected**) | 4,380 / 0 (0%) |
+| 20ms | 0 / 48 (**100% rejected**) | 896 / 0 (0%) |
+| 45ms | 0 / 48 (**100% rejected**) | 313 / 0 (0%) |
+
+Readers were never rejected by either design (0 at every hold), which is the
+whole point: the phase design was not losing throughput, it was refusing to
+admit writers at all, and it did so while looking perfectly healthy to a
+paced client. The ticket lock admits every writer at every hold.
+
+`abandoned` drained to 0 in all six cases, so the give-up accounting does not
+accumulate and the queue does not wedge behind a shed ticket.
+
+This also answers the sharpest open question about the bound: a writer's wait
+is bounded by the readers already inside it, so the long-hold case is the
+adversarial one. Eight readers at 45ms is 360ms of worst-case drain, still
+inside ACQUIRE_TIMEOUT=500ms, and the measured result is zero timeouts.
+
 ## load gate
 
 GATE_PLACEHOLDER
