@@ -36,6 +36,18 @@ BUCKET="${DG_REHEARSAL_BUCKET:-dg-sandbox-rehearsal}"
 KEY_ID="${DG_REHEARSAL_KEY_ID:-S3[DRACON_SECRET:REDACTED]}"
 SECRET="${DG_REHEARSAL_SECRET:-rehearsal-secret-not-a-real-credential}"
 
+# An audit line OUTSIDE the state dir, because the state dir is what gets
+# deleted. A rehearsal that silently lost its endpoint left nothing to read
+# afterwards, and the cause turned out to be a second run of this script tearing
+# down a state dir it did not own.
+audit() { printf '%s %s pid=%s ppid=%s state=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$$" "$PPID" "$STATE_DIR" >> "${STATE_DIR}.audit" 2>/dev/null || true; }
+
+# stop is only allowed to tear down state this process started. Without the
+# owner check, two concurrent rehearsals sharing the default state directory
+# have the second one kill the first one's endpoint, and -- because the state
+# dir is a fixed path -- the first one's stop then deletes the live one.
+state_owner() { cat "$STATE_DIR/owner.pid" 2>/dev/null || true; }
+
 free_port() {
     python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()'
 }
@@ -80,6 +92,8 @@ EOF
 
     rm -rf "$STATE_DIR"
     mkdir -p "$STATE_DIR/data" "$STATE_DIR/log"
+    echo "$$" > "$STATE_DIR/owner.pid"
+    audit start
     S3_PORT="$(free_port)"
     PROXY_PORT="$(free_port)"
 
@@ -131,6 +145,14 @@ EOF
 }
 
 stop() {
+    local owner
+    owner="$(state_owner)"
+    if [ -n "$owner" ] && [ "$owner" != "$$" ] && kill -0 "$owner" 2>/dev/null; then
+        audit "stop REFUSED (owned by live pid $owner)"
+        echo "refusing to stop: $STATE_DIR belongs to the live process $owner, not this one" >&2
+        return 0
+    fi
+    audit stop
     if [ -f "$STATE_DIR/pids" ]; then
         while read -r pid; do
             kill "$pid" 2>/dev/null || true

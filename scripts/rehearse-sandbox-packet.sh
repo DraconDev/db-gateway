@@ -34,7 +34,8 @@ usage: scripts/rehearse-sandbox-packet.sh --out FILE
   -h|--help       this text
 
   DG_REHEARSAL_TIMEOUT   seconds to allow the packet (default 1800)
-  DG_REHEARSAL_STATE     endpoint state dir (default ~/.local/dg-sandbox/s3-rehearsal)
+  DG_REHEARSAL_STATE     endpoint state dir (default: a fresh dir inside this
+                         run's own temp tree, so runs cannot collide)
 USAGE
 }
 
@@ -48,21 +49,26 @@ done
 [ -n "$OUT" ] || { echo "--out is required" >&2; usage; exit 2; }
 mkdir -p "$(dirname "$OUT")"
 
-STATE_DIR="${DG_REHEARSAL_STATE:-$HOME/.local/dg-sandbox/s3-rehearsal}"
+STATE_DIR="${DG_REHEARSAL_STATE:-}"
 SANDBOX_DIR="$(mktemp -d "${TMPDIR:-/tmp}/dg-sandbox-run-XXXXXX")"
+# Each run gets its OWN endpoint state directory. A fixed path shared between
+# two concurrent rehearsals lets one run's stop() kill the other's endpoint and
+# delete its state -- which is exactly what happened to a rehearsal whose
+# endpoint vanished mid-gate.
+[ -n "$STATE_DIR" ] || STATE_DIR="$SANDBOX_DIR/endpoint"
 STATUS=0
 
 # Everything this script starts is torn down whatever happens, including on an
 # interrupt: a rehearsal that leaves a proxy bound to a port is a rehearsal that
 # made the next one fail confusingly.
 cleanup() {
-    "$ENDPOINT_SCRIPT" stop >/dev/null 2>&1 || true
+    DG_REHEARSAL_STATE="$STATE_DIR" "$ENDPOINT_SCRIPT" stop >/dev/null 2>&1 || true
     rm -rf "$SANDBOX_DIR"
 }
 trap cleanup EXIT INT TERM
 
 echo "== starting the disposable endpoint" >&2
-if ! EXPORTS="$("$ENDPOINT_SCRIPT" start)"; then
+if ! EXPORTS="$(DG_REHEARSAL_STATE="$STATE_DIR" "$ENDPOINT_SCRIPT" start)"; then
     echo "the rehearsal endpoint could not be started; the S3 gates stay BLOCKED" >&2
     exit 2
 fi
@@ -105,10 +111,17 @@ if [ -n "$STRAY" ]; then post "STRAY temp trees newer than the packet: $STRAY"; 
 else post "no dg-sandbox* temp tree newer than the packet"; fi
 
 # 3. no logging proxy or store this driver started is still running
+#    comm on process-id lists needs both sides empty-safe: an empty pre-list
+#    prints one blank line, and comparing blank lines reports a phantom
+#    survivor, which is how this check first failed a run that leaked nothing.
+pidset_diff() {
+    comm -13 <(printf '%s\n' "$1" | grep -E '^[0-9]+$' | sort) \
+             <(printf '%s\n' "$2" | grep -E '^[0-9]+$' | sort) | tr '\n' ' '
+}
 POST_PIDS="$(pgrep -f 's3-log-proxy.py --listen' 2>/dev/null | sort | tr '\n' ' ' || true)"
 POST_STORE="$(pgrep -f 'gofakes3 -host' 2>/dev/null | sort | tr '\n' ' ' || true)"
-NEW_PROXY="$(comm -13 <(printf '%s\n' $PRE_PIDS) <(printf '%s\n' $POST_PIDS) | tr '\n' ' ')"
-NEW_STORE="$(comm -13 <(printf '%s\n' $PRE_STORE) <(printf '%s\n' $POST_STORE) | tr '\n' ' ')"
+NEW_PROXY="$(pidset_diff "$PRE_PIDS" "$POST_PIDS")"
+NEW_STORE="$(pidset_diff "$PRE_STORE" "$POST_STORE")"
 if [ -n "$NEW_PROXY" ] || [ -n "$NEW_STORE" ]; then
     post "SURVIVING processes started by the rehearsal: proxy='$NEW_PROXY' store='$NEW_STORE'"
     STATUS=1
