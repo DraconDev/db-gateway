@@ -154,11 +154,18 @@ impl QueueState {
 ///   against 5 writer rejections in one run. A bound that moves the queue
 ///   sideways is not a bound.
 /// * A phase-fair lock that closed the read phase for a queued writer was
-///   right about who wins a phase and wrong about when a phase ends: it
-///   handed the read phase to any queued reader, so under a continuous read
-///   flood a writer was admitted 0 times in 6 attempts. Its safety depended
-///   on client pacing rather than on the queue, which is the failure a
-///   benchmark on a paced client cannot see.
+///   right about who wins a phase and wrong about what decides it. Its writer
+///   test ignored `writer_phase` entirely, so a writer was admitted at
+///   whatever instant one of its threads happened to observe
+///   `readers_active == 0`, while `refresh_phase` handed the read phase to
+///   any queued reader at each batch boundary. That is a race, not a bound:
+///   writer admission is decided by thread scheduling rather than by queue
+///   order. Measured outcomes on the same box disagreed by construction --
+///   0-1 of 48 writer attempts admitted over three runs on one harness,
+///   essentially all attempts admitted on another, 2 of 358 in an earlier
+///   audit -- so the rate is a property of the harness, not of the design.
+///   The defect is structural and does not depend on which number you get:
+///   nothing in that design guaranteed a queued writer's turn.
 ///
 /// This one has no phases to race. Admission is decided by ticket order, a
 /// queued writer is admitted at the next reader batch boundary, and neither
@@ -3108,6 +3115,96 @@ mod tests {
              admissions, {} reader admissions",
             writer_admits.load(Seq::SeqCst),
             reader_admits.load(Seq::SeqCst)
+        );
+    }
+
+    /// Admission must follow QUEUE ORDER, not thread scheduling. This is the
+    /// guard that actually protects the design, and it is deliberately an
+    /// order assertion rather than an admission rate.
+    ///
+    /// The rate assertion in `sustained_read_flood_still_admits_writers` was
+    /// tried first and is a property check, not a regression guard: the
+    /// replaced phase design passes it, because in that design a writer was
+    /// admitted whenever a writer thread happened to observe
+    /// `readers_active == 0`, which a busy harness often lets it do. Its
+    /// observed rate swung from 0/48 to ~11,292/~48 depending only on thread
+    /// count and pacing.
+    ///
+    /// Order has no such freedom. Here a writer is queued first and a reader
+    /// second, so the writer's ticket is smaller, and `serving` only advances
+    /// in ticket order -- the reader CANNOT be admitted first, on any
+    /// schedule. The replaced design could and did lose that race, so a
+    /// hundred trials catch it even though any single trial might not.
+    #[test]
+    fn admission_follows_queue_order_not_a_race() {
+        use std::sync::atomic::{AtomicUsize, Ordering as Seq};
+        const TRIALS: usize = 100;
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(dir.path()).unwrap());
+        store.create("qdb").unwrap();
+        let mut losses = 0;
+
+        for trial in 0..TRIALS {
+            // A guard already held, so both waiters queue behind it and their
+            // relative order is decided by when they take their tickets.
+            let held = store.acquire_queue("qdb", false).unwrap();
+            let stamp = Arc::new(AtomicUsize::new(0));
+            let writer_at = Arc::new(AtomicUsize::new(usize::MAX));
+            let reader_at = Arc::new(AtomicUsize::new(usize::MAX));
+
+            let ws = store.clone();
+            let wst = stamp.clone();
+            let wat = writer_at.clone();
+            let writer = thread::spawn(move || {
+                let Ok(guard) = ws.acquire_queue("qdb", true) else {
+                    return;
+                };
+                wat.store(wst.fetch_add(1, Seq::SeqCst), Seq::SeqCst);
+                drop(guard);
+            });
+            // Only queue the reader once the writer really holds a ticket, so
+            // "first to queue" is not itself a race.
+            let queued = (0..500).any(|_| {
+                if store
+                    .queue("qdb")
+                    .unwrap()
+                    .state
+                    .lock()
+                    .map(|state| !state.waiting_writers.is_empty())
+                    .unwrap_or(false)
+                {
+                    true
+                } else {
+                    thread::sleep(Duration::from_millis(1));
+                    false
+                }
+            });
+            assert!(queued, "trial {trial}: writer never queued");
+
+            let rs = store.clone();
+            let rst = stamp.clone();
+            let rat = reader_at.clone();
+            let reader = thread::spawn(move || {
+                let Ok(guard) = rs.acquire_queue("qdb", false) else {
+                    return;
+                };
+                rat.store(rst.fetch_add(1, Seq::SeqCst), Seq::SeqCst);
+                drop(guard);
+            });
+
+            drop(held);
+            writer.join().unwrap();
+            reader.join().unwrap();
+            let (w, r) = (writer_at.load(Seq::SeqCst), reader_at.load(Seq::SeqCst));
+            if w > r {
+                losses += 1;
+            }
+        }
+        assert_eq!(
+            losses, 0,
+            "a reader was admitted ahead of a writer that queued first, in \
+             {losses} of {TRIALS} trials: admission is being decided by \
+             scheduling instead of by queue order"
         );
     }
 

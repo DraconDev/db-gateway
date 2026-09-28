@@ -68,22 +68,29 @@ closely (pre-fix 22/34, 30/27, 34/38; post-fix 22/27, 23/29, 24/16).
 ## the measurement that was wrong
 
 An earlier version of this log reported NO_STARVATION for a design that was
-wrong, and the reason is worth keeping. That design closed the read phase
-for a queued writer and then decided who owned the queue with:
+wrong, and the reason is worth keeping. That design closed the read phase for
+a queued writer and then decided who owned the queue with:
 
     self.writer_phase = self.waiting_readers == 0 && self.writer_serving < self.writer_next;
 
-Under a genuine read flood `waiting_readers` is essentially never zero, so
-the read phase was re-opened for the readers at every batch boundary and a
-queued writer was never preferred. It was a mutex race, not a bound, and its
-safety depended on the CLIENT's request pacing: the Python harness leaves a
-gap between requests, in which `waiting_readers` hits zero and a writer slips
-in. The verdict was measuring the client, not the queue.
+Its writer admission test ignored `writer_phase` entirely. So a writer was
+admitted at whatever moment one of its threads happened to observe
+`readers_active == 0`, while the phase refresh handed the read phase to any
+queued reader at each batch boundary. Writer admission was a mutex race
+decided by thread scheduling, and nothing in the design guaranteed a queued
+writer its turn.
 
-Caught in-repo, not taken on report: with 8 readers (the server's own
-READ_PERMITS) re-acquiring with no gap and 2 writers, that queue admitted
-**0 of 6 writers, all 6 timing out at ACQUIRE_TIMEOUT**. The soak could not
-see it because of the client gap.
+That is the defect, and it is what the shipped design removes. How badly it
+lost is NOT a property of the design, and this log previously got that
+wrong: it recorded "0 of 6 writers admitted, all timing out" as though the
+number were a measurement of the design. It is not. The same code admits
+almost every writer attempt under a different harness shape, and the three
+different results are tabulated in the isolated-stress section below. The
+in-repo reproduction that first exposed it is kept for its SHAPE -- 8
+readers, no client gap -- not for its number, and the guard that now protects
+against a regression asserts admission ORDER, which the old design could lose
+and the new one cannot, rather than an admission RATE, which the old design
+sometimes passed.
 
 The shipped design is a ticket lock with no phases to race. `serving` names
 the only ticket allowed to proceed, and a reader may enter only while no
@@ -155,33 +162,58 @@ per-database deltas (flood): {"hot": {"queue_waits": 44611, "queue_wait_ms": 278
 | 3:control | 22.58 | 0 | | 4:flood | 28.52 | 3 |
 | 5:control | 24.06 | 9 | | 6:flood | 15.72 | 0 |
 
-## isolated stress: the bound, with no client in the way
+## isolated stress: what is and is not a property of the queue
 
 The soak drives the real server over HTTP, which leaves a gap between
-requests, and that gap is exactly what let the phase design look healthy. So
-the queue was also stressed directly, with the admission code copied verbatim
-and no network at all: 8 reader threads (the server's READ_PERMITS) that
-re-acquire immediately with NO client-side gap, 4 writer threads, 6 seconds
-per case. The only variable is the reader's hold time.
+requests. That gap is not a detail: it is what made the first attempt at
+this evidence wrong, and it is also what made one of the numbers below
+unreproducible. So the admission code was stressed directly, with the code
+copied verbatim and no client at all -- 8 reader threads (the server's
+READ_PERMITS) re-acquiring immediately with NO client-side gap, 4 writer
+threads, 6 seconds per case, varying only the reader's hold time.
 
-| reader hold | phase design: writers admitted / rejected | ticket lock: writers admitted / rejected |
-|---|---|---|
-| 2ms  | 0 / 48 (**100% rejected**) | 4,380 / 0 (0%) |
-| 20ms | 0 / 48 (**100% rejected**) | 896 / 0 (0%) |
-| 45ms | 0 / 48 (**100% rejected**) | 313 / 0 (0%) |
+**The shipped ticket lock, and what is solid.** Zero writer timeouts at every
+hold, and zero reader timeouts: 4380, 896 and 313 writer admissions at 2ms,
+20ms and 45ms. `abandoned` drained to 0 in every case, so the give-up
+accounting does not accumulate and nothing wedges behind a shed ticket. An
+independent audit reproduced this with its own extraction of the same code
+(28,795 / 28,720 / 28,618 writer admissions, 0 rejected).
 
-Readers were never rejected by either design (0 at every hold), which is the
-whole point: the phase design was not losing throughput, it was refusing to
-admit writers at all, and it did so while looking perfectly healthy to a
-paced client. The ticket lock admits every writer at every hold.
+**The rejected phase design, and what is NOT solid.** An earlier revision of
+this log reported it as "0 of 48 writer attempts admitted, 100% rejected" at
+all three holds, as a settled separation from the shipped design. That number
+does not reproduce, and it should not have been recorded as measured. The
+same design measured three different ways:
 
-`abandoned` drained to 0 in all six cases, so the give-up accounting does not
-accumulate and the queue does not wedge behind a shed ticket.
+| harness | 2ms | 20ms | 45ms |
+|---|---|---|---|
+| this log's first stress | 0 of 48 admitted | 0 of 48 | 0 of 48 (one run: 1 of 52) |
+| the independent audit's stress | ~11,292 admitted | ~11,343 | ~11,259 |
+| the earlier audit's repro | 2 of 358 admitted, over 45s | - | - |
 
-This also answers the sharpest open question about the bound: a writer's wait
-is bounded by the readers already inside it, so the long-hold case is the
-adversarial one. Eight readers at 45ms is 360ms of worst-case drain, still
-inside ACQUIRE_TIMEOUT=500ms, and the measured result is zero timeouts.
+The reason is structural, and it is worth stating precisely because it is
+the actual defect. In that design the writer's admission test did not consult
+the read phase at all, so a writer was admitted at whatever moment one of its
+threads happened to observe `readers_active == 0` -- while the phase refresh
+handed the read phase to any queued reader at each batch boundary. Writer
+admission was therefore a mutex race decided by thread scheduling, and
+whether a writer won it depended on the harness's thread count and pacing, not
+on the queue's logic. A soak driven by a paced HTTP client sits in exactly
+the regime where writers win that race, which is how the design looked
+healthy for so long.
+
+**So the claim is not "the old design rejected 100% of writers."** The claim
+is: in the old design nothing guaranteed a queued writer's turn, so its
+admission rate was a scheduling artifact; in the shipped ticket lock
+admission follows queue order by construction, which is why it is 0
+timeouts at every hold and why the in-repo test asserts an ORDER rather than
+a rate.
+
+That order is asserted deterministically by
+`admission_follows_queue_order_not_a_race`, which queues a writer and then a
+reader a hundred times over and fails if the reader is ever admitted first.
+The ticket lock makes that impossible, since `serving` only advances in
+ticket order; the old design could and did lose that race.
 
 ## load gate
 
