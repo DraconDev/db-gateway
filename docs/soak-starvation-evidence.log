@@ -185,7 +185,46 @@ inside ACQUIRE_TIMEOUT=500ms, and the measured result is zero timeouts.
 
 ## load gate
 
-GATE_PLACEHOLDER
+The gate is implemented, it was engaged for this evidence, and it REFUSED to
+report. That is the honest outcome, recorded here rather than papered over.
+
+    scripts/soak_starvation.py ... --max-load1 4.0 --load-patience 6 \
+        --load-poll 15 --load-timeout 5400
+
+    # load gate: load1=25.19 > 4.0, waiting (this box is shared; latency under
+    # contention is worthless)
+    ...
+    AssertionError: load never stayed <= 4.0 for 6 samples within 5400.0s
+    (load1=15.62); refusing to report a latency soak measured under contention
+
+So there is NO `load_gate.gated: true` line in this log, and there is no
+quiet-machine run behind any number here. After a full 90-minute window the
+lowest sustained reading was 15.62 and the gate gave up rather than produce a
+contended latency figure. The floor for this rig across the whole session was
+load1 14-16 on 16 cores, i.e. it never drops below roughly one runnable task
+per core; the objective's reference bad state was 110, about 7x that.
+
+What that means for the claims in this log:
+
+* The VERDICT does not depend on an idle machine, and is not a latency
+  measurement. It is a comparison of two arms measured at the same moment on
+  the same box, in alternating blocks, on the writer REJECTION RATE. The
+  isolated stress table above is stronger still, since it has no machine load
+  in it at all: it runs the admission code with no HTTP client and no client
+  pacing, and it separates the two designs 100%-rejected against 0%.
+* The ABSOLUTE latencies in this log are NOT trustworthy as characterisations
+  of the gateway. A single-INSERT p50 of 46-48ms is this rig, not the code;
+  on an idle box it would be a small fraction of that. Anyone quoting them as
+  gateway performance would be wrong.
+* The fix itself does not depend on load either. The bound is a ticket
+  ordering property, and its test asserts a writer admission rate rather than a
+  latency, so `cargo test` measures the same thing on a busy box as on a quiet
+  one.
+
+What is left genuinely open: a gated run with `load_gate.gated: true` on an
+actually idle machine, to put trustworthy absolute numbers on the record. The
+command is in "reproducing" below and the gate is already built to refuse
+rather than fudge it.
 
 ## reproducing
 
