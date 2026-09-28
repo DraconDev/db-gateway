@@ -255,14 +255,48 @@ a rate.
 
 That order is asserted by
 `admission_follows_queue_order_not_a_race`, which queues a writer, waits for
-it to hold a ticket, then queues a reader -- a hundred times over -- and fails
-if the reader is ever admitted first. Run against the shipped queue it loses
-**0 of 100** trials, which is structural rather than lucky: `serving` only
-advances in ticket order, so the reader cannot be admitted first on any
-schedule. Run against the replaced phase design, same experiment, it loses
-**25 of 100**. That is the regression guard the admission-rate check could
-never have been: the rate swings with thread count and pacing, the order
-cannot.
+it to hold a ticket, then queues readers behind it -- a hundred times over --
+and fails if any of them is ever admitted first. Run against the shipped
+queue it loses **0 of 300** trials, which is structural rather than lucky:
+`serving` only advances in ticket order, so no reader can be admitted first
+on any schedule.
+
+**How many readers is the whole test, and getting it wrong is how this log
+was wrong twice.** A first version of that guard queued exactly ONE reader
+behind the writer and was recorded here as losing 25 of 100 against the
+replaced design. It does not. Patched into a scratch copy of this crate
+(a96f261's queue, nothing else changed) it passed: 0 losses per 100, and 0 of
+300 over three runs. The reason is mechanical: a condvar wakes waiters in the
+order they blocked, so a lone reader queued behind a writer loses the state
+mutex to the writer it just overtook, every time. One reader is not a race,
+it is a queue.
+
+What defeats the phase design is a BATCH, because it re-opens the read phase
+to every queued reader at each boundary and the winner is whichever of them
+the scheduler runs first. With readers behind the writer -- 3, and then 8 to
+match the server's READ_PERMITS -- the same experiment does separate them,
+reproducibly, and the guard now uses that shape:
+
+| readers queued behind the writer | phase design (trials lost / 100) | shipped ticket lock |
+|---|---|---|
+| 1 | 0, 0, 0 | 0, 0, 0 |
+| 3 | 4, 7, 6 | 0, 0, 0 |
+| 8 | 28, 34, 30 | 0, 0, 0 |
+
+With the old queue patched into a scratch copy of this crate, the in-repo
+test itself now fails every run: **65, 135 and 67 trials lost of 100**, at
+load1 78-80. The rate is a race rate so it moves with machine load; the zero
+on the shipped design is structural. That is the regression guard the
+admission-rate check could never have been, and the reason the rate check is
+kept as a property test only is that on the old design it passes on one run
+and fails on the next.
+
+    scripts/admission_order_probe.sh [rounds] [readers_behind]
+
+extracts both queue bodies from git and runs this experiment against both, so
+every number in the table above is one command away instead of a claim about
+a harness nobody else can see. It exits non-zero if the shipped design ever
+loses a trial, which makes it usable as a check and not only as evidence.
 
 ## load gate
 
