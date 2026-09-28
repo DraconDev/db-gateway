@@ -1201,7 +1201,10 @@ fi
 # borrow. AWS_* are exported by this script for litestream, so the restore runs
 # with them set only to the sandbox key and every discovery file pointed at
 # nothing: the point is that the restore needs the key it was handed and no
-# profile on the machine.
+# profile on the machine. SSL_CERT_FILE has to be passed through too, or
+# litestream rejects the rehearsal endpoint's self-signed certificate
+# before the signature check -- a true negative that has nothing to do with
+# "no ambient credentials".
 G10_OUT="$G10_ROOT/restored.sqlite"
 rm -f "$G10_OUT"
 env -i PATH=/usr/bin:/bin HOME="$SANDBOX/home" \
@@ -1210,6 +1213,7 @@ env -i PATH=/usr/bin:/bin HOME="$SANDBOX/home" \
     AWS_CONFIG_FILE="$SANDBOX/home/.aws-empty" \
     AWS_SHARED_CREDENTIALS_FILE="$SANDBOX/home/.aws-empty" \
     AWS_EC2_METADATA_DISABLED=true AWS_REGION="$REGION" \
+    SSL_CERT_FILE="${SSL_CERT_FILE:-}" \
     timeout 120 "$LITESTREAM" restore -config "$G10_ROOT/litestream.yml" -o "$G10_OUT" "$G10_SRC" \
     > "$G10_ROOT/restore.log" 2>&1 || true
 G10_ROWS="$(python3 - "$G10_OUT" <<'PY'
@@ -1230,6 +1234,7 @@ env -i PATH=/usr/bin:/bin HOME="$SANDBOX/home" \
     AWS_CONFIG_FILE="$SANDBOX/home/.aws-empty" \
     AWS_SHARED_CREDENTIALS_FILE="$SANDBOX/home/.aws-empty" \
     AWS_EC2_METADATA_DISABLED=true AWS_REGION="$REGION" \
+    SSL_CERT_FILE="${SSL_CERT_FILE:-}" \
     DG_SANDBOX_WITHDRAW=1 \
     timeout 120 env AWS_ACCESS_KEY_ID= AWS_SECRET_ACCESS_KEY= \
     "$LITESTREAM" restore -config "$G10_ROOT/litestream.yml" -o "$G10_NOKEY_OUT" "$G10_SRC" \
