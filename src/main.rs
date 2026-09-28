@@ -783,6 +783,76 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             (Method::GET, "/v1/backups".into(), None, None)
         }
         Command::Backup {
+            command: BackupCommand::Digest {
+                data_dir,
+                backup_root,
+                json: as_json,
+            },
+        } => {
+            // Deliberately local, not an HTTP round trip: the digest an
+            // operator reads while the gateway is down or restarting is the
+            // one they need most, and asking a wedged process for its own
+            // health report is a bad way to deliver it. Same rule, same
+            // `snapshot`, so this and the sink cannot disagree.
+            let store = dg::store::Store::open(&data_dir).map_err(Application)?;
+            let store = match backup_root {
+                Some(root) => store.with_backup_root(Some(root)),
+                None => store,
+            };
+            let health = dg::backup_health::snapshot(&store).map_err(Application)?;
+            let note = dg::notify::digest_note(&health);
+            if as_json {
+                println!("{}", serde_json::to_string(&note).map_err(Application)?);
+            } else {
+                let mut rows: Vec<Value> = vec![json!(["state", note.title.clone()])];
+                for db in &health.databases {
+                    rows.push(json!([
+                        format!("backup {}", db.name),
+                        format!(
+                            "{}{}{}",
+                            db.state,
+                            db.newest_set
+                                .as_deref()
+                                .map(|set| format!(" @ {set}"))
+                                .unwrap_or_default(),
+                            db.age_secs
+                                .map(|age| format!(" ({age}s ago)"))
+                                .unwrap_or_default()
+                        )
+                    ]));
+                }
+                if let Some(failure) = &health.last_failure {
+                    rows.push(json!([
+                        "last failure",
+                        format!(
+                            "{} at step {}",
+                            if failure.ts.is_empty() { "?" } else { &failure.ts },
+                            if failure.step.is_empty() { "?" } else { &failure.step }
+                        )
+                    ]));
+                }
+                rows.push(json!(["action", note.action.clone()]));
+                dg::shell::render(
+                    &json!({"columns":["property","value"],"rows":rows}),
+                    false,
+                    &mut std::io::stdout(),
+                )
+                .map_err(Application)?;
+            }
+            // Alert 4 is a condition, not a report: a digest that exits 0
+            // while a database is unrepresented is how a schedule gets
+            // mistaken for a backup. `unknown` fails too, because §2 says
+            // unknown is the state that keeps a scheduled job honest.
+            if health.attention().is_empty() {
+                return Ok(());
+            }
+            Err(Application(dg::error::Error::new(
+                1,
+                "backup_unhealthy",
+                "at least one database is stale or has no verified copy",
+            )))
+        }
+        Command::Backup {
             command: BackupCommand::Verify { backup_root, set },
         } => {
             let report = dg::backup::verify_set(&backup_root, &set).map_err(Application)?;
