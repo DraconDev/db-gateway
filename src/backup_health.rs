@@ -17,7 +17,6 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 use crate::store::Store;
 
@@ -245,7 +244,7 @@ pub fn read_attempts(root: &std::path::Path) -> Vec<AttemptRecord> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
+    use serde_json::json;
 
     fn store_with_backup_root(dir: &std::path::Path) -> Store {
         let root = dir.join("dg-backups");
@@ -287,13 +286,6 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-    }
-
-    fn age_of(root: &std::path::Path, stamp: &str) -> SystemTime {
-        // The freshness age is measured from the set's mtime; a test that
-        // wanted to assert a number would have to sleep, so instead the
-        // tests assert state and the newest set, and only that an age exists.
-        root.join(stamp).metadata().unwrap().modified().unwrap()
     }
 
     #[test]
@@ -472,6 +464,5 @@ mod tests {
             .find(|db| db.name == "beta")
             .expect("beta is live and must be reported");
         assert_eq!(beta.state, "unknown");
-        let _ = age_of(&root, "20240101T000000Z");
     }
 }
