@@ -64,7 +64,11 @@ STATUS=0
 # it before checking what it left.
 teardown() {
     DG_REHEARSAL_STATE="$STATE_DIR" "$ENDPOINT_SCRIPT" stop >/dev/null 2>&1 || true
-    rm -rf "$SANDBOX_DIR"
+    if [ "${DG_REHEARSAL_KEEP_STATE:-0}" = "1" ] && [ -e "$STATE_DIR" ]; then
+        echo "== DG_REHEARSAL_KEEP_STATE=1: leaving $STATE_DIR for inspection" >&2
+    else
+        rm -rf "$SANDBOX_DIR"
+    fi
 }
 trap teardown EXIT INT TERM
 
@@ -86,6 +90,25 @@ echo "== running the packet (timeout ${TIMEOUT_S}s)" >&2
 timeout "$TIMEOUT_S" "$PACKET_SCRIPT" --out "$OUT" --rehearsal
 STATUS=$?
 echo "== packet exited $STATUS" >&2
+
+# Fold the endpoint's own request log into the packet BEFORE teardown. It is
+# the record every request the packet made produced, including the ones no gate
+# printed, and teardown deletes it. Losing it would mean the one artefact that
+# can refute this packet does not survive the packet.
+if [ -s "$STATE_DIR/log/requests.jsonl" ]; then
+    {
+        echo
+        echo "## every request the rehearsal endpoint received (${STATE_DIR##*/}/log/requests.jsonl)"
+        echo
+        echo '```json'
+        cat "$STATE_DIR/log/requests.jsonl"
+        echo '```'
+    } >> "$OUT"
+    echo "== folded $(grep -c '' "$STATE_DIR/log/requests.jsonl") endpoint requests into the packet" >&2
+else
+    echo "== WARNING: the endpoint recorded no requests at all" >&2
+    tail -20 "$STATE_DIR/log/proxy.log" >> "$OUT" 2>/dev/null || true
+fi
 
 # Teardown BEFORE the checks below. They assert that teardown left nothing
 # behind, so they have to run after it -- and asserting before the cleanup has

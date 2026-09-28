@@ -389,9 +389,15 @@ class TLSServer(Server):
         super().__init__(addr, handler)
 
     def server_bind(self):
-        self.socket = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        self.socket.load_cert_chain(self.certfile, self.keyfile)
+        # socketserver's recipe: bind the real socket first, then wrap it. The
+        # obvious-looking `self.socket = ssl.SSLContext(...)` replaces the
+        # listening socket with a context object, and the process dies on the
+        # first connection -- or at construction, with an error that says
+        # nothing about TLS.
         super().server_bind()
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(self.certfile, self.keyfile)
+        self.socket = context.wrap_socket(self.socket, server_side=True)
 
 
 def summarize(path: str) -> int:

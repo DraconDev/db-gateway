@@ -181,6 +181,19 @@ s=socket.socket(); s.settimeout(0.2)
 sys.exit(0 if s.connect_ex(('127.0.0.1',$PROXY_PORT))==0 else 1)" 2>/dev/null && break
         sleep 0.1
     done
+    # A dead endpoint must stop the rehearsal here, loudly. Waiting for a port
+    # that nothing will ever answer produces a packet whose every gate fails
+    # with "connection refused", which reads like an S3 problem and is not one.
+    if ! kill -0 "$PROXY_PID" 2>/dev/null; then
+        echo "the recording proxy died on startup; the S3 gates cannot run" >&2
+        cat "$STATE_DIR/log/proxy.log" >&2 || true
+        exit 1
+    fi
+    if ! kill -0 "$STORE_PID" 2>/dev/null; then
+        echo "the object store died on startup; the S3 gates cannot run" >&2
+        cat "$STATE_DIR/log/store.log" >&2 || true
+        exit 1
+    fi
 
     # The bucket is created through the proxy, so its existence is proved by the
     # same signed path litestream will use rather than by a side door.
