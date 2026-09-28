@@ -33,7 +33,7 @@ SHELL_SCRIPTS=(
 PY_FILES=("$REPO/scripts/s3probe.py" "$REPO/scripts/s3-log-proxy.py")
 
 # Variables the parent script documents as exported, or the shell always has.
-PROVIDED='^(BASH_SOURCE|PATH|HOME|TMPDIR|PWD|USER|SHELL|PIPESTATUS|LINENO|RANDOM|SECONDS|IFS|PYTHONPATH|LANG|TERM|LC_[A-Z_]+|DG_SANDBOX_[A-Z0-9_]+|DG_REHEARSAL_[A-Z0-9_]+|AWS_[A-Z0-9_]+|SSL_CERT_FILE|DG_REAL_HOME|DG_BIN)$'
+PROVIDED='^(BASH_SOURCE|PATH|HOME|TMPDIR|PWD|USER|SHELL|PPID|BASH|BASH_VERSION|PIPESTATUS|LINENO|RANDOM|SECONDS|IFS|PYTHONPATH|LANG|TERM|LC_[A-Z_]+|DG_SANDBOX_[A-Z0-9_]+|DG_REHEARSAL_[A-Z0-9_]+|AWS_[A-Z0-9_]+|SSL_CERT_FILE|DG_REAL_HOME|DG_BIN)$'
 
 problems=0
 
@@ -74,6 +74,30 @@ def is_case_boundary(line: str) -> bool:
     s = line.rstrip()
     return s.endswith(";;") or s.endswith(")") or s.endswith("esac")
 
+
+def in_array_literal(line: str) -> bool:
+    """`NAME=(` on this line opens an array literal that is still open."""
+    return bool(re.search(r"=\($", line.rstrip())) or line.rstrip() == "("
+
+
+def in_heredoc(lineno: int) -> bool:
+    """True when the 1-based line is inside a shell heredoc.
+
+    The packet scripts embed Python this way, and a Python line is not shell:
+    flagging its quoting produces nothing but noise.
+    """
+    tag = None
+    for i, line in enumerate(lines, 1):
+        if tag is None:
+            m = re.search(r"<<-?\s*'?\`?\"?([A-Za-z_]\w*)\`?\"?'?", line)
+            if m and m.group(1) not in ("", "-"):
+                tag = m.group(1)
+        elif line.strip() == tag:
+            tag = None
+        elif i == lineno:
+            return True
+    return False
+
 for i, line in enumerate(lines[:-1]):
     stripped = line.rstrip()
     if not stripped or stripped.endswith("\\") or is_case_boundary(stripped):
@@ -83,6 +107,14 @@ for i, line in enumerate(lines[:-1]):
     nxt = lines[i + 1]
     if not BARE_ARGS.match(nxt.strip()) or is_case_boundary(nxt.rstrip()):
         continue
+    # A bare quoted string is a legitimate element of an array literal
+    # (`ARR=( "a" "b" )` written one per line), which is the only other place
+    # this shape appears. The state has to be tracked, not inferred from the
+    # line at hand: the opener is the line BEFORE the first element.
+    if in_array_literal(stripped):
+        continue
+    if in_heredoc(i + 1):
+        continue
     print(f"  {rel}:{i + 1}: this line ends a command with no backslash, so the")
     print(f"    next line runs as a command of its own: {nxt.strip()[:70]}")
     problems += 1
@@ -91,8 +123,7 @@ for i, line in enumerate(lines[:-1]):
 # A name assigned ANYWHERE in the file is not an unguarded environment read.
 # Collecting every assignment (including the second and third name on a
 # `local a=1 b=2` line) is what keeps this from drowning in false positives.
-assigned = set(re.findall(r"(?<![=!<>])((?:^|\s)(?:export\s+|local\s+|declare\s+(?:-\w+\s+)?|readonly\s+)?)(\w+)\s*=(?!=)", text, re.M))
-assigned = {m[1] for m in assigned}
+assigned = set(re.findall(r"(?<![=!<>])(\w+)\s*=(?!=)", text))
 for m in re.finditer(r"^\s*local\s+((?:[A-Za-z_]\w*\s+)+)$", text, re.M):
     assigned.update(m.group(1).split())
 for m in re.finditer(r"^\s*read\s+(?:-[a-zA-Z]+\s+)*((?:[A-Za-z_]\w*\s+)+)", text, re.M):
@@ -108,7 +139,9 @@ for i, line in enumerate(lines, 1):
         continue
     body = line.split("  #", 1)[0]
     for name in re.findall(r"\$\{?([A-Za-z_]\w*)\}?", body):
-        if not name or name in assigned or name in guarded or provided.match(name):
+        # One-letter names are awk/sed field and register variables far more
+        # often than they are environment knobs (`sed -n '2,$p'`).
+        if len(name) < 2 or name in assigned or name in guarded or provided.match(name):
             continue
         if (name, i) in seen:
             continue
