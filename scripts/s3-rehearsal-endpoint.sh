@@ -61,7 +61,7 @@ export DG_SANDBOX_REGION='us-east-1'
 export DG_SANDBOX_ACCESS_KEY_ID='$KEY_ID'
 export DG_SANDBOX_SECRET_KEY='$SECRET'
 export DG_SANDBOX_FAULT_FILE='$STATE_DIR/faults'
-export DG_SANDBOX_CA_BUNDLE='$STATE_DIR/tls/ca.pem'
+export DG_SANDBOX_CA_BUNDLE='$STATE_DIR/tls/bundle.pem'
 export DG_SANDBOX_TLS_CERT='$STATE_DIR/tls/ca.pem'
 export DG_SANDBOX_TLS_KEY='$STATE_DIR/tls/key.pem'
 export DG_SANDBOX_REHEARSAL=1
@@ -143,6 +143,18 @@ EOF
         echo "could not create a TLS certificate for the rehearsal endpoint" >&2
         exit 1
     fi
+    # Go's crypto/x509 reads SSL_CERT_FILE, and litestream 0.5.17 ABORTS its
+    # replica client if AWS_CA_BUNDLE is set: "cannot load aws config: unable to
+    # add custom RootCAs HTTPClient, has no WithTransportOptions". So
+    # SSL_CERT_FILE is the only way to teach this pinned version to trust the
+    # rehearsal certificate. The system roots stay in the bundle so a request
+    # that legitimately leaves loopback still validates normally.
+    : > "$STATE_DIR/tls/bundle.pem"
+    for f in /etc/ssl/certs/ca-bundle.crt /etc/ssl/certs/ca-certificates.crt \
+             /etc/pki/tls/certs/ca-bundle.crt; do
+        [ -r "$f" ] && cat "$f" >> "$STATE_DIR/tls/bundle.pem" && break
+    done
+    cat "$STATE_DIR/tls/ca.pem" >> "$STATE_DIR/tls/bundle.pem"
     S3_PORT="$(free_port)"
     PROXY_PORT="$(free_port)"
 
@@ -197,9 +209,9 @@ sys.exit(0 if s.connect_ex(('127.0.0.1',$PROXY_PORT))==0 else 1)" 2>/dev/null &&
 
     # The bucket is created through the proxy, so its existence is proved by the
     # same signed path litestream will use rather than by a side door.
-    REHEARSAL_CA="$STATE_DIR/tls/ca.pem" \
+    REHEARSAL_CA="$STATE_DIR/tls/bundle.pem" \
     python3 "$(dirname "$PROXY")/s3probe.py" --endpoint "127.0.0.1:$PROXY_PORT" --scheme https \
-        --ca-bundle "$STATE_DIR/tls/ca.pem" \
+        --ca-bundle "$STATE_DIR/tls/bundle.pem" \
         --bucket "$BUCKET" --access-key-id "$KEY_ID" --secret-access-key "$SECRET" \
         create-bucket >/dev/null 2>&1 || true
 

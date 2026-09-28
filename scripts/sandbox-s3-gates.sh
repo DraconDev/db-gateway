@@ -98,11 +98,14 @@ LITESTREAM="$PIN_ROOT/litestream"
 [ -x "$DG_BIN" ] || echo "warning: dg binary not built at $DG_BIN; gateway-dependent gates will report BLOCKED" >&2
 
 # TLS trust. A real S3 endpoint presents a publicly valid certificate, so a
-# rehearsal against a self-signed one has to be told to trust it -- explicitly,
-# by pinning that one CA, never by switching verification off. The AWS SDK
-# reads AWS_CA_BUNDLE for its whole TLS config, so this reaches litestream
-# without a litestream-specific option, which means the replica URL the packet
-# reports as the minimal working one is exactly the URL OVH needs.
+# rehearsal against a self-signed one has to be told to trust it. NOT via
+# AWS_CA_BUNDLE: measured on 2026-09-28, litestream 0.5.17 aborts its replica
+# client with "cannot load aws config: unable to add custom RootCAs HTTPClient,
+# has no WithTransportOptions" -- the documented AWS variable is unusable with
+# this version, and the failure is total, not a fallback. SSL_CERT_FILE is read
+# by Go's crypto/x509, so the whole trust decision stays in the Go process and
+# the replica URL the packet reports as minimal stays exactly what OVH needs --
+# no skip-verify, no litestream-specific option, verification still ON.
 CA_ARGS=()
 CA_NOTE="system trust store (the endpoint's certificate chains to a public CA)"
 if [ -n "${DG_SANDBOX_CA_BUNDLE:-}" ]; then
@@ -110,9 +113,10 @@ if [ -n "${DG_SANDBOX_CA_BUNDLE:-}" ]; then
         echo "refusing: DG_SANDBOX_CA_BUNDLE=$DG_SANDBOX_CA_BUNDLE is not readable" >&2
         exit 2
     fi
-    export AWS_CA_BUNDLE="$DG_SANDBOX_CA_BUNDLE"
+    export SSL_CERT_FILE="$DG_SANDBOX_CA_BUNDLE"
+    unset AWS_CA_BUNDLE || true
     CA_ARGS=(--ca-bundle "$DG_SANDBOX_CA_BUNDLE")
-    CA_NOTE="pinned CA bundle $DG_SANDBOX_CA_BUNDLE (self-signed rehearsal endpoint); certificate verification stays ON"
+    CA_NOTE="SSL_CERT_FILE=$DG_SANDBOX_CA_BUNDLE (system roots + the rehearsal endpoint's self-signed CA); verification stays ON, and AWS_CA_BUNDLE is deliberately NOT set because litestream 0.5.17 aborts on it"
 fi
 
 # --------------------------------------------------------------------------
