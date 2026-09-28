@@ -836,7 +836,7 @@ G8_A="$(grep -c 'revoked-credential fault' "$G8_ROOT/litestream.log" 2>/dev/null
 # exactly this shape. The wildcard `refuse=*` would also block the restore's
 # own GETs, which makes "the write is absent from the bucket" unmeasurable;
 # measuring it requires a narrower fault.
-printf 'method=PUT refuse\n' > "$G8_FAULTS"
+printf 'method=PUT refuse=true\n' > "$G8_FAULTS"
 g8_write_and_serve blocked-egress yes
 
 # (c) destination near quota: the LIST (the listing path, which is what the
@@ -1161,17 +1161,27 @@ sleep 1
 G10_HEAD="$("${S3PROBE[@]}" head-object "$G10_PREFIX/0000/0000000000000001-0000000000000001.ltx" 2>&1 || true)"
 G10_SSE="$(printf '%s' "$G10_HEAD" | jfield sse)"
 G10_HEAD_ANY=""
-for k in $("$("${S3PROBE[@]}" list-versions --prefix "$G10_PREFIX/" 2>&1 || true)" | python3 -c '
-import json,sys
-try: d=json.load(sys.stdin)
-except Exception: raise SystemExit(0)
-for v in d.get("versions",[]): print(v["key"])' 2>/dev/null); do
+# Capture the keys into a bash array -- never word-split a captured JSON into a
+# `for`, which would bash-try-to-execute the JSON fragments as commands.
+mapfile -t G10_KEYS < <("${S3PROBE[@]}" list-versions --prefix "$G10_PREFIX/" 2>/dev/null \
+    | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(0)
+for v in d.get("versions", []):
+    print(v["key"])' 2>/dev/null) || true
+for k in "${G10_KEYS[@]:-}"; do
+    [ -z "$k" ] && continue
     H="$("${S3PROBE[@]}" head-object "$k" 2>&1 || true)"
     S="$(printf '%s' "$H" | jfield sse)"
     [ -n "$S" ] && G10_HEAD_ANY="$S"
     [ -z "$G10_HEAD_ANY" ] && G10_HEAD_ANY="(none reported)"
 done
-[ -z "$G10_HEAD_ANY" ] && G10_HEAD_ANY="(no objects listed)"
+if [ -z "$G10_HEAD_ANY" ]; then
+    [ "${#G10_KEYS[@]}" -eq 0 ] && G10_HEAD_ANY="(no objects listed)" || G10_HEAD_ANY="(none reported)"
+fi
 
 # The restore half, with the environment stripped to nothing a restore could
 # borrow. AWS_* are exported by this script for litestream, so the restore runs
