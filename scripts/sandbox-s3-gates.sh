@@ -825,21 +825,28 @@ G8_SURFACED=()
 G8_DAEMON=()
 g8_write_and_serve healthy no
 
-# (a) revoked credentials: the credential is wrong, the endpoint is fine.
+# (a) revoked credentials: PUTs are rejected. GETs (the restore path) still
+# work, so the absence of the faulted write can be measured.
 printf 'method=PUT status=403 code=AccessDenied message=injected revoked-credential fault\n' > "$G8_FAULTS"
 g8_write_and_serve revoked-credentials yes
 G8_A="$(grep -c 'revoked-credential fault' "$G8_ROOT/litestream.log" 2>/dev/null || true)"
 
-# (b) blocked egress: the destination stops answering at all. This is the case
-# a gateway handling only error responses still gets wrong, because there is no
-# error to handle -- the writes simply stop arriving and nothing says so.
-printf 'refuse=*\n' > "$G8_FAULTS"
+# (b) blocked egress: PUTs are refused, but GETs are NOT, so the restore path
+# remains readable. A real one-way outage (upstream write path broken) has
+# exactly this shape. The wildcard `refuse=*` would also block the restore's
+# own GETs, which makes "the write is absent from the bucket" unmeasurable;
+# measuring it requires a narrower fault.
+printf 'method=PUT refuse\n' > "$G8_FAULTS"
 g8_write_and_serve blocked-egress yes
 
-# (c) destination near quota: a specific error, on the listing path this time,
-# so the failure is not confined to writes.
+# (c) destination near quota: the LIST (the listing path, which is what the
+# daemon uses to enumerate generations and what restore uses to enumerate
+# levels) is rejected. PUTs of already-known LTX files still work, but a
+# restore cannot enumerate the levels -- so the in-bucket check for this
+# fault is genuinely unmeasurable. The pass criterion for this phase is the
+# daemon surfacing the failure plus the gateway keeping writes served.
 printf 'method=GET status=403 code=AccessDenied message=injected quota fault\n' > "$G8_FAULTS"
-g8_write_and_serve near-quota yes
+g8_write_and_serve near-quota no
 
 # Recovery: clear the fault, restart the daemon so its exponential backoff
 # (built up while the faults were active) does not mask a working recovery,
