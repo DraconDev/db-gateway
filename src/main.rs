@@ -137,6 +137,24 @@ enum Command {
         /// missing.
         #[arg(long)]
         backup_root: Option<PathBuf>,
+        /// Deliver the backup-health digest on this cadence, in seconds
+        /// (observability contract §3 alert 4). 0 disables the digest and
+        /// leaves only immediate failure notices. The log sink is always on;
+        /// the default is off, because a notification is an opt-in.
+        #[arg(long, default_value_t = 0)]
+        backup_digest_secs: u64,
+        /// How often to check the producer's attempt log for a new failure,
+        /// in seconds. 0 disables the immediate notice. Independent of the
+        /// digest cadence: a failure is news, freshness is a daily question.
+        #[arg(long, default_value_t = 0)]
+        backup_failure_poll_secs: u64,
+        /// Also POST each notification as JSON to this URL, in addition to
+        /// the log sink. HTTPS, or plain HTTP on a literal loopback address.
+        /// Never read from the environment: a notification that starts
+        /// leaving the host because a unit file changed is not a change
+        /// anyone reviewed.
+        #[arg(long)]
+        backup_notify_webhook: Option<String>,
     },
     /// Owner-only service status: version, uptime, admission config, and
     /// request-pressure counters.
@@ -243,6 +261,24 @@ enum BackupCommand {
     /// Owner-only backup freshness: versioned sets plus per-database
     /// fresh/stale/unknown state.
     Status,
+    /// The daily backup-health digest, exactly as the notification sink
+    /// renders it: per-database fresh/stale/unknown, newest verified set,
+    /// age, and a bounded operator action. Reads the data directory and the
+    /// backup root directly, so it works with the gateway stopped -- which
+    /// is when an operator most wants it. Exits nonzero when any database
+    /// is stale or unknown.
+    Digest {
+        /// Data directory to read durable write markers from.
+        #[arg(long, default_value = "state/dg")]
+        data_dir: PathBuf,
+        /// Backup root holding versioned sets. Defaults to
+        /// `<data-dir>/../dg-backups`, the same convention `serve` uses.
+        #[arg(long)]
+        backup_root: Option<PathBuf>,
+        /// Emit the structured note instead of the human table.
+        #[arg(long)]
+        json: bool,
+    },
     /// Re-verify a published backup set offline: manifest schema, hash
     /// chain, integrity, foreign keys, and protected tables. Prints a
     /// JSON report; exits nonzero when any check fails.
@@ -615,7 +651,37 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             listen,
             data_dir,
             backup_root,
-        } => return dg::serve(listen, data_dir, backup_root).await,
+            backup_digest_secs,
+            backup_failure_poll_secs,
+            backup_notify_webhook,
+        } => {
+            // A flag that cannot be honoured is refused at startup rather
+            // than half-applied: a sink silently dropped means an operator
+            // believes they have webhook delivery and do not.
+            let mut sinks: Vec<std::sync::Arc<dyn dg::notify::Sink>> =
+                vec![std::sync::Arc::new(dg::notify::LogSink)];
+            if let Some(url) = &backup_notify_webhook {
+                let sink = dg::notify::WebhookSink::new(url.clone())
+                    .map_err(|error| Application(dg::error::Error::invalid()))?;
+                tracing::info!(url = sink.url(), "backup notifications: webhook sink added");
+                sinks.push(std::sync::Arc::new(sink));
+            }
+            let notify = dg::BackupNotify {
+                sinks,
+                digest_interval: std::time::Duration::from_secs(backup_digest_secs),
+                failure_poll: std::time::Duration::from_secs(backup_failure_poll_secs),
+                cadence_secs: dg::backup_health::STALE_AFTER_SECS,
+            };
+            if notify.enabled() {
+                tracing::info!(
+                    digest_secs = backup_digest_secs,
+                    failure_poll_secs = backup_failure_poll_secs,
+                    sinks = sinks.len(),
+                    "backup-health notification delivery enabled"
+                );
+            }
+            return dg::serve(listen, data_dir, backup_root, notify).await;
+        }
         Command::Status => {
             if let Some(status) = table_json(&cli, &key_path, Method::GET, "/v1/status").await? {
                 let mut rows = vec![

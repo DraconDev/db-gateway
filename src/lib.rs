@@ -18,7 +18,6 @@ use axum::{Json, Router, routing::get};
 use serde::Serialize;
 use tokio::net::TcpListener;
 
-use crate::{backup_health, notify};
 
 #[derive(Debug)]
 pub enum ServerError {
@@ -87,7 +86,7 @@ pub fn router() -> Router {
 pub struct BackupNotify {
     /// Sinks, in delivery order. The log sink is always present when
     /// delivery is enabled at all.
-    pub sinks: Vec<Arc<notify::Sink>>,
+    pub sinks: Vec<Arc<dyn notify::Sink>>,
     /// How often the per-database digest goes out. Zero disables the digest
     /// and leaves only immediate failure notices, which is a legitimate
     /// configuration and not a broken one.
@@ -142,7 +141,10 @@ pub async fn serve(
     tracing::info!(address = %listener.local_addr()?, "liveness server listening");
     let server = axum::serve(listener, app).with_graceful_shutdown(shutdown_signal());
     if backup_notify.enabled() {
-        tokio::spawn(backup_notifier(store.clone(), backup_notify));
+        // Detached on purpose: the notifier runs until the process ends, and
+        // the graceful-shutdown future below is what stops the server. A
+        // shutdown race here would mean a lost final digest, not a crash.
+        let _notifier = tokio::spawn(backup_notifier(store.clone(), backup_notify));
     }
     tokio::select! {
         result = server.into_future() => result.map_err(ServerError::Io),
@@ -167,16 +169,17 @@ pub async fn serve(
 async fn backup_notifier(store: std::sync::Arc<store::Store>, config: BackupNotify) {
     let mut digest = Cadence::new(config.digest_interval);
     let mut failure = Cadence::new(config.failure_poll);
+    // Delivery state starts empty on purpose: the first failure poll reports
+    // the newest failed attempt even if it predates this process, so a
+    // restart is never the reason a 03:00 backup failure goes unreported. It
+    // reports that one attempt, and the daily digest carries the history.
     let mut delivered = notify::DeliveryState::default();
-    // Read the attempt log once before the first poll so a failure that
-    // happened before this process started is still reported once. An
-    // operator restarting the gateway must not be the reason a 03:00 backup
-    // failure goes unreported.
-    let mut seen = last_failed_attempt(&store);
     loop {
         let wait = digest.until_next().min(failure.until_next());
         if wait.is_zero() {
-            continue;
+            // Both cadences are off but delivery is on: nothing to do, and
+            // spinning would burn a core forever.
+            return;
         }
         tokio::time::sleep(wait).await;
         if digest.due() {
@@ -196,8 +199,7 @@ async fn backup_notifier(store: std::sync::Arc<store::Store>, config: BackupNoti
         }
         if failure.due() {
             if let Some(attempt) = last_failed_attempt(&store) {
-                if attempt.identity() != seen.as_deref().unwrap_or_default() {
-                    seen = Some(attempt.identity().to_string());
+                if delivered.should_report(&attempt) {
                     if let Ok(health) = backup_health::snapshot(&store) {
                         let note = notify::failure_note(&health, &attempt);
                         if !notify::deliver_all(&config.sinks, &note).await.is_empty() {
@@ -249,12 +251,14 @@ impl Cadence {
 
     /// Time until the next tick. Zero for a disabled cadence, which makes
     /// `min` skip it -- the loop then sleeps on whichever timer is live.
+    /// Saturating rather than subtracting raw, so a tick that came due while
+    /// a sink was slow reads as "due now" instead of panicking.
     fn until_next(&self) -> Duration {
         if self.disabled() {
             return Duration::ZERO;
         }
-        (self.next - tokio::time::Instant::now())
-            .max(Duration::from_millis(1))
+        self.next
+            .saturating_duration_since(tokio::time::Instant::now())
     }
 
     /// True once the period has elapsed, rescheduling from now. A tick that
