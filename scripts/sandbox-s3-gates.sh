@@ -169,6 +169,8 @@ start_proxy() {
         --access-key-id "$DG_SANDBOX_ACCESS_KEY_ID" --secret-access-key "$DG_SANDBOX_SECRET_KEY" \
         --region "$REGION" --log "$reqlog" --faults "$faultfile" --port-file "$portfile" \
         ${TLS_CERT:+--tls-cert "$TLS_CERT" --tls-key "$TLS_KEY"} \
+        --upstream-scheme "$SCHEME" \
+        ${DG_SANDBOX_CA_BUNDLE:+--upstream-ca-bundle "$DG_SANDBOX_CA_BUNDLE"} \
         >/dev/null 2>&1 &
     local pid=$!
     CLEANUP+=("kill $pid 2>/dev/null || true")
@@ -287,6 +289,13 @@ probe_variant() {
         return 1
     fi
     pport="${pport#*:}"
+    # {{EP}} is the recording proxy, NOT the configured endpoint. Pointing
+    # litestream at the endpoint and expecting the proxy to record is the bug
+    # this line exists to prevent: the proxy saw zero requests and every variant
+    # reported "0 objects written" while replication was in fact succeeding
+    # against the endpoint behind it. A variant that deliberately omits the
+    # endpoint leaves {{EP}} out and goes wherever litestream goes by default.
+    url="${url//\{\{EP\}\}/$PROXY_PORT}"
     local cfg="$SANDBOX/gate3-$label.yml"
     cat > "$cfg" <<EOF
 logging:
@@ -324,12 +333,12 @@ PY
     return 1
 }
 
-WORKING_URL="$REPLICA_BASE/gate3?endpoint=$ENDPOINT&region=$REGION"
+WORKING_URL="$REPLICA_BASE/gate3?endpoint={{EP}}&region=$REGION"
 probe_variant "working"      "$WORKING_URL"                                   && GATE3_OK=$((GATE3_OK+1))
 probe_variant "no-endpoint"  "$REPLICA_BASE/gate3?region=$REGION"              || true
-probe_variant "wrong-region" "$REPLICA_BASE/gate3?endpoint=$ENDPOINT&region=nowhere-1" || true
-probe_variant "no-region"    "$REPLICA_BASE/gate3?endpoint=$ENDPOINT"           || true
-probe_variant "path-style"   "$REPLICA_BASE/gate3?endpoint=$ENDPOINT&region=$REGION" || true
+probe_variant "wrong-region" "$REPLICA_BASE/gate3?endpoint={{EP}}&region=nowhere-1" || true
+probe_variant "no-region"    "$REPLICA_BASE/gate3?endpoint={{EP}}"             || true
+probe_variant "path-style"   "$REPLICA_BASE/gate3?endpoint={{EP}}&region=$REGION" || true
 
 # The variant that decides whether the rehearsal means anything. A local run can
 # pass for the wrong reason -- an endpoint that accepts anything, or a client
@@ -372,7 +381,8 @@ fi
     printf '  on it: "cannot load aws config: unable to add custom RootCAs\n'
     printf '  HTTPClient, has no WithTransportOptions". SSL_CERT_FILE is read by\n'
     printf '  Go instead and works. Trust in this run: %s\n' "$CA_NOTE"
-    printf '\nminimal working replica URL:\n  %s\n' "$WORKING_URL"
+    printf '\nminimal working replica URL (against the configured endpoint):\n'
+    printf '  s3://%s/gate3?endpoint=%s&region=%s\n' "$BUCKET" "$ENDPOINT" "$REGION"
     printf '\nNOTE: `replica.path` cannot carry a URL. `path: s3://...` fails with\n'
     printf '  "replica path cannot be a url, please use the url field instead".\n'
 } >> "$OUT"

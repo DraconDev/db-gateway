@@ -62,6 +62,26 @@ MAX_SKEW_SECONDS = 15 * 60
 LOCK = threading.Lock()
 LOG_PATH: str | None = None
 UPSTREAM: tuple[str, int] = ("", 0)
+UPSTREAM_TLS = False
+UPSTREAM_CA: str | None = None
+
+
+def _upstream_conn():
+    """Open a connection to the upstream endpoint in ITS scheme.
+
+    Hard-coding HTTPConnection here is a trap that only shows up once two
+    proxies are chained: the rehearsal endpoint is itself a TLS proxy, so a
+    recording proxy in front of it spoke plain HTTP to a TLS port, the
+    handshake never completed, and the gate recorded "0 objects written" with
+    no error anywhere -- a silent false negative that looks exactly like a
+    litestream configuration problem.
+    """
+    if not UPSTREAM_TLS:
+        return http.client.HTTPConnection(UPSTREAM[0], UPSTREAM[1], timeout=120)
+    import ssl
+
+    ctx = ssl.create_default_context(cafile=UPSTREAM_CA) if UPSTREAM_CA else ssl.create_default_context()
+    return http.client.HTTPSConnection(UPSTREAM[0], UPSTREAM[1], timeout=120, context=ctx)
 EXPECTED_KEY: str = ""
 EXPECTED_SECRET: str = ""
 FAULT_PATH: str | None = None
@@ -326,7 +346,7 @@ class Handler(BaseHTTPRequestHandler):
         # proxy; the upstream sees its own name, which is what it expects.
         import http.client
 
-        conn = http.client.HTTPConnection(UPSTREAM[0], UPSTREAM[1], timeout=120)
+        conn = _upstream_conn()
         up_headers = {k: v for k, v in headers.items() if k not in ("host", "authorization", "accept-encoding")}
         up_headers["host"] = f"{UPSTREAM[0]}:{UPSTREAM[1]}"
         up_headers["content-length"] = str(len(body))
@@ -462,7 +482,7 @@ def summarize(path: str) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    global LOG_PATH, UPSTREAM, EXPECTED_KEY, EXPECTED_SECRET, FAULT_PATH
+    global LOG_PATH, UPSTREAM, EXPECTED_KEY, EXPECTED_SECRET, FAULT_PATH, UPSTREAM_TLS, UPSTREAM_CA
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--listen", default="127.0.0.1:0")
     p.add_argument("--upstream", required=True)
@@ -481,6 +501,11 @@ def main(argv: list[str] | None = None) -> int:
                         "be non-empty instead of capturing a command substitution")
     p.add_argument("--tls-cert", default=None, help="serve https with this certificate")
     p.add_argument("--tls-key", default=None, help="the key for --tls-cert")
+    p.add_argument("--upstream-scheme", default="http", choices=["http", "https"],
+                   help="the scheme the UPSTREAM speaks. Set https when the upstream is "
+                        "itself a TLS endpoint, e.g. the rehearsal endpoint's proxy")
+    p.add_argument("--upstream-ca-bundle", default=None,
+                   help="CA to trust for an https upstream")
     p.add_argument("--summarize", default=None, help="print the operation matrix for a log and exit")
     args = p.parse_args(argv)
 
@@ -494,6 +519,8 @@ def main(argv: list[str] | None = None) -> int:
     host, _, port = args.listen.rpartition(":")
     up_host, _, up_port = args.upstream.rpartition(":")
     UPSTREAM = (up_host, int(up_port))
+    UPSTREAM_TLS = args.upstream_scheme == "https"
+    UPSTREAM_CA = args.upstream_ca_bundle
     EXPECTED_KEY = args.access_key_id
     EXPECTED_SECRET = args.secret_access_key
     LOG_PATH = args.log
