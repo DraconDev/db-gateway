@@ -1054,7 +1054,7 @@ except Exception:
 PY
 )"
 
-G9_LIMIT_MIB=$(( $(printf '%s' "$G9_LIMIT" | sed 's/G$//;s/M$//') ) )
+G9_LIMIT_MIB=$(printf '%s' "$G9_LIMIT" | sed 's/G$//;s/M$//')
 G9_LIMIT_BYTES=$G9_LIMIT_MIB
 case "${G9_LIMIT: -1}" in
     G) G9_LIMIT_BYTES=$(( G9_LIMIT_MIB * 1024 * 1024 ));;
