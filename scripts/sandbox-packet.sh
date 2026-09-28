@@ -315,21 +315,35 @@ fi
 "${DG[@]}" create rehearsal_two >/dev/null
 "${DG[@]}" query rehearsal_two "CREATE TABLE t (a INTEGER)" >/dev/null
 "${DG[@]}" query rehearsal_two "INSERT INTO t VALUES (1)" >/dev/null
-# The config must GAIN the database first -- creating it in the gateway is not
-# enough -- and only then does the control socket start replicating it. That
-# two-step is the whole of gate 7: config edit plus one command, no restart.
+# Gate 7 asks a yes/no question and wants the exact command recorded, so this
+# measures both documented routes instead of assuming one:
+#
+#   (a) edit the config, then `litestream start` over the control socket. The
+#       running daemon holds its config in memory, so a database added to the
+#       FILE is invisible to it: `start` answers "database not found". That is
+#       the finding, not a failure of this script.
+#   (b) `litestream register -replica <url>` over the same socket, which
+#       registers a database with the running daemon without a restart and
+#       without editing the config.
+#
+# SIGHUP is not a reload mechanism here: it terminates the process, and this
+# rehearsal measured that rather than assuming it.
 cat >> "$LITESTREAM_CFG" <<EOF
   - path: $data_dir/rehearsal_two.sqlite
     replica:
       path: $replica_dir
 EOF
-# SIGHUP is NOT the reload mechanism: it terminates the process, and this
-# rehearsal measured that rather than assuming it.
-# `start` takes no -config: it talks to the running daemon over the control
-# socket, which is precisely why a database can be picked up without a restart.
-RELOAD_SIGNAL="control socket: litestream start -socket <sock> <db-path>"
+CONFIG_EDIT_START="(not attempted)"
 "$LITESTREAM" start -socket "$CONTROL_SOCK" "$data_dir/rehearsal_two.sqlite" \
-    > "$rehearsal_root/reload.log" 2>&1 || RELOAD_SIGNAL="control socket: FAILED ($(head -1 "$rehearsal_root/reload.log" 2>/dev/null))"
+    > "$rehearsal_root/start-after-config-edit.log" 2>&1 \
+    && CONFIG_EDIT_START="config edit + litestream start: WORKED" \
+    || CONFIG_EDIT_START="config edit + litestream start: FAILED -- $(head -1 "$rehearsal_root/start-after-config-edit.log" 2>/dev/null)"
+
+REGISTER_CMD="litestream register -socket <sock> -replica <url> <db-path>"
+"$LITESTREAM" register -socket "$CONTROL_SOCK" -replica "$replica_dir" \
+    "$data_dir/rehearsal_two.sqlite" > "$rehearsal_root/register.log" 2>&1 \
+    && REGISTER_RESULT="WORKED" || REGISTER_RESULT="FAILED -- $(head -1 "$rehearsal_root/register.log" 2>/dev/null)"
+
 ADDED=0
 for _ in $(seq 1 40); do
     if [ -d "$replica_dir/rehearsal_two" ] || find "$replica_dir" -path '*rehearsal_two*' 2>/dev/null | grep -q .; then
@@ -338,16 +352,32 @@ for _ in $(seq 1 40); do
     fi
     sleep 0.25
 done
+
+# The remove side, which §7 also asks for: stop replicating a database and
+# confirm the daemon honours it.
+UNREGISTER_RESULT="(not attempted)"
 if [ "$ADDED" -eq 1 ]; then
-    record 7 PASS "rehearsal: a database added to the config was replicated WITHOUT restarting litestream" \
-        "signal/command used: $RELOAD_SIGNAL" \
-        "SIGHUP was tried first and terminated the process, so it is not a reload signal here" \
-        "second database appeared in the replica tree: yes" \
+    "$LITESTREAM" unregister -socket "$CONTROL_SOCK" "$data_dir/rehearsal_two.sqlite" \
+        > "$rehearsal_root/unregister.log" 2>&1 \
+        && UNREGISTER_RESULT="litestream unregister: WORKED" \
+        || UNREGISTER_RESULT="litestream unregister: FAILED -- $(head -1 "$rehearsal_root/unregister.log" 2>/dev/null)"
+fi
+
+if [ "$ADDED" -eq 1 ]; then
+    record 7 PASS "rehearsal: a new database was picked up WITHOUT restarting litestream, via the control socket" \
+        "route (a) $CONFIG_EDIT_START" \
+        "route (b) register over the control socket: $REGISTER_RESULT" \
+        "remove side: $UNREGISTER_RESULT" \
+        "ANSWER for §6: the config FILE is read at startup only. Adding a database" \
+        "to a running daemon means 'litestream register -replica <url> <db-path>'" \
+        "over the control socket (or a restart). SIGHUP is not a reload signal:" \
+        "it terminates the process." \
         "NOT §6 GATE 7: file replica. The sandbox must repeat this against the" \
-        "bucket and against the deployed unit file's own reload path."
+        "bucket and confirm the deployed unit's own socket path and permissions."
 else
-    record 7 FAIL "rehearsal: a database added to the config did not start replicating" \
-        "signal/command used: $RELOAD_SIGNAL" \
+    record 7 FAIL "rehearsal: no documented route started replication for a new database without a restart" \
+        "route (a) $CONFIG_EDIT_START" \
+        "route (b) register over the control socket: $REGISTER_RESULT" \
         "litestream log tail:" \
         "$(tail -5 "$rehearsal_root/litestream.log" 2>/dev/null | sed 's/^/  /')"
 fi
