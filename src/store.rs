@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex, RwLock, RwLockReadGuard,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicU64, Ordering},
     },
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -72,38 +72,11 @@ pub struct DbUsage {
     pub rows_written: u64,
 }
 
-/// A per-database admission queue: the shared/exclusive guard plus the
-/// writer-preference counter that bounds how long a read flood can delay a
-/// writer. See `Store::acquire_queue`, which is the only writer of
-/// `waiting_writers` and the only acquirer of `guard`.
-#[derive(Debug, Default)]
-pub struct AdmissionQueue {
-    guard: Arc<tokio::sync::RwLock<()>>,
-    waiting_writers: AtomicUsize,
-}
-
-/// Declares a waiting writer for as long as it is on the stack, so a panic
-/// inside `acquire_queue` cannot leave readers blocked forever. Dropping it
-/// releases the declaration; the counter is only ever adjusted through this
-/// type on the write path.
-struct DeclaredWriter<'a>(&'a AtomicUsize);
-
-impl Drop for DeclaredWriter<'_> {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::AcqRel);
-    }
-}
-
-/// Poll interval for the admission spin. The writer-preferring bound, not
-/// this number, is what keeps a writer moving: with the bound in place a
-/// writer's wait is one in-flight read plus at most this interval.
-const QUEUE_POLL_INTERVAL: Duration = Duration::from_millis(2);
-
 /// Per-database admission-queue waits since boot. `acquire_queue` polls
 /// without FIFO fairness, so a continuous read flood can delay a writer;
-/// these counters are the starvation measurement that showed it and that
-/// now guards the writer-preferring bound: `timeouts` should stay flat under
-/// a read flood, and any sustained growth means the bound is not holding.
+/// these counters are the starvation measurement the queue comment calls
+/// for: sustained `timeouts` growth is the trigger for the
+/// writer-preferring bound (scale proposal Phase 2).
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DbQueue {
     pub waits: u64,
@@ -204,7 +177,7 @@ pub struct Store {
     // Per-database guards: std RwLock below is the lifecycle lease, while
     // these tokio RwLocks are admission lanes — fully qualified to keep the
     // two apart.
-    queues: Mutex<HashMap<String, Arc<AdmissionQueue>>>,
+    queues: Mutex<HashMap<String, Arc<tokio::sync::RwLock<()>>>>,
     pub metrics: Metrics,
     /// Last successful API write per database, loaded from metadata on
     /// startup so freshness cannot flip to false fresh across a restart.
@@ -941,12 +914,12 @@ impl Store {
         }
         Ok(path)
     }
-    pub fn queue(&self, name: &str) -> Result<Arc<AdmissionQueue>> {
+    pub fn queue(&self, name: &str) -> Result<Arc<tokio::sync::RwLock<()>>> {
         // Call only after path() verifies a bounded registry entry.
         let mut queues = self.queues.lock().map_err(|_| Error::internal())?;
         Ok(queues
             .entry(name.to_string())
-            .or_insert_with(|| Arc::new(AdmissionQueue::default()))
+            .or_insert_with(|| Arc::new(tokio::sync::RwLock::new(())))
             .clone())
     }
 
@@ -954,63 +927,32 @@ impl Store {
     /// guard (WAL allows concurrent readers against one writer); writers
     /// take the exclusive guard. Runs on a blocking thread (it cannot await,
     /// so it polls with short sleeps); call only after path() verifies a
-    /// bounded registry entry, same as queue(). Every wait is recorded for
-    /// the starvation measurement (`DbQueue`, served by `/v1/status`), and
-    /// waits stay capped at ACQUIRE_TIMEOUT.
-    ///
-    /// Polling an RwLock is not FIFO-fair: a writer that loses `try_write_
-    /// owned` is NOT enqueued in the lock's own fair queue, so it is
-    /// invisible to the lock, and the readers the global read lane releases
-    /// can take the shared guard again before the writer's next poll. The
-    /// soak measured exactly that (docs/soak-starvation-evidence.log): a
-    /// read flood on ONE database raised the writer rejection rate from
-    /// 0.61% to 9.16% and halved write throughput, 35.2/s to 17.5/s, with
-    /// 3/3 matched block pairs separating in the flood's disfavour.
-    ///
-    /// The bound is `AdmissionQueue::waiting_writers`: a writer declares
-    /// itself BEFORE its first attempt, and a reader declines the shared
-    /// guard while any writer is declared, so the writer's next poll finds
-    /// the guard free. That bounds a writer's wait at roughly one in-flight
-    /// read plus the poll interval, and it does not hand the queue to the
-    /// readers: a declared writer is always making progress, and readers
-    /// resume as soon as none is waiting.
+    /// bounded registry entry, same as queue(). Polling is not FIFO-fair
+    /// like the async global permits, and a continuous read flood could
+    /// delay a writer — waits stay capped at ACQUIRE_TIMEOUT, every wait is
+    /// recorded for the starvation measurement (`DbQueue`, served by
+    /// `/v1/status`), and a writer-preferring bound gets added only if that
+    /// measurement shows starvation (scale proposal Phase 2). Returns the
+    /// guard to hold.
     pub fn acquire_queue(&self, name: &str, write: bool) -> Result<QueueGuard> {
         let queue = self.queue(name)?;
         let start = Instant::now();
-        let result = if write {
-            queue.waiting_writers.fetch_add(1, Ordering::AcqRel);
-            // Unwinds the declaration if the acquire path ever panics, so a
-            // leaked writer can never leave the read lane closed.
-            let _declared = DeclaredWriter(&queue.waiting_writers);
-            loop {
-                if let Ok(guard) = queue.guard.clone().try_write_owned() {
-                    break Ok(QueueGuard::Write(guard));
+        loop {
+            if write {
+                if let Ok(guard) = queue.clone().try_write_owned() {
+                    self.metrics.record_queue_wait(name, start.elapsed(), false);
+                    return Ok(QueueGuard::Write(guard));
                 }
-                if start.elapsed() >= ACQUIRE_TIMEOUT {
-                    break Err(Error::busy());
-                }
-                thread::sleep(QUEUE_POLL_INTERVAL);
+            } else if let Ok(guard) = queue.clone().try_read_owned() {
+                self.metrics.record_queue_wait(name, start.elapsed(), false);
+                return Ok(QueueGuard::Read(guard));
             }
-        } else {
-            loop {
-                // Yielding to a declared writer is the whole bound: a reader
-                // that skips here is what lets the writer win its next poll.
-                if queue.waiting_writers.load(Ordering::Acquire) == 0
-                    && let Ok(guard) = queue.guard.clone().try_read_owned()
-                {
-                    break Ok(QueueGuard::Read(guard));
-                }
-                if start.elapsed() >= ACQUIRE_TIMEOUT {
-                    break Err(Error::busy());
-                }
-                thread::sleep(QUEUE_POLL_INTERVAL);
+            if start.elapsed() >= ACQUIRE_TIMEOUT {
+                self.metrics.record_queue_wait(name, start.elapsed(), true);
+                return Err(Error::busy());
             }
-        };
-        match &result {
-            Ok(_) => self.metrics.record_queue_wait(name, start.elapsed(), false),
-            Err(_) => self.metrics.record_queue_wait(name, start.elapsed(), true),
+            std::thread::sleep(Duration::from_millis(2));
         }
-        result
     }
 
     /// SQLite online backup of `name` to `dest`, consistent during writes.
@@ -2620,13 +2562,7 @@ mod tests {
         assert_eq!(snapshot["qdb"].timeouts, 0);
         // An exclusively held queue times the waiter out at the bound.
         drop(_second);
-        let _exclusive = store
-            .queue("qdb")
-            .unwrap()
-            .guard
-            .clone()
-            .try_write_owned()
-            .unwrap();
+        let _exclusive = store.queue("qdb").unwrap().try_write_owned().unwrap();
         let error = match store.acquire_queue("qdb", false) {
             Ok(_) => panic!("exclusive hold must time the reader out"),
             Err(error) => error,
@@ -2636,113 +2572,6 @@ mod tests {
         assert_eq!(snapshot["qdb"].waits, 3);
         assert_eq!(snapshot["qdb"].timeouts, 1);
         assert!(snapshot["qdb"].wait_ms >= ACQUIRE_TIMEOUT.as_millis() as u64);
-    }
-
-    /// The writer-preferring bound that `docs/soak-starvation-evidence.log`
-    /// paid for. A declared writer must be able to win its next poll, which
-    /// only holds if a reader arriving mid-wait DECLINES the shared guard
-    /// instead of taking it.
-    ///
-    /// The setup is deliberately a held READ guard, not a held write guard.
-    /// Holding the exclusive guard would block any arriving reader anyway
-    /// and the test would pass with the bound deleted — it has to be a
-    /// situation where a reader *could* get in and only the bound stops it.
-    #[test]
-    fn waiting_writer_makes_new_readers_yield() {
-        use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
-        let dir = tempfile::tempdir().unwrap();
-        let store = Arc::new(Store::open(dir.path()).unwrap());
-        store.create("qdb").unwrap();
-
-        // A reader holding the shared guard: more readers may still join it,
-        // but the writer below cannot take the exclusive guard until it
-        // drops. The writer therefore has to declare and wait, which is the
-        // state under test.
-        let held = store.acquire_queue("qdb", false).unwrap();
-
-        let writer_in = Arc::new(AtomicBool::new(false));
-        let writer_store = store.clone();
-        let writer_flag = writer_in.clone();
-        let writer = thread::spawn(move || {
-            let guard = writer_store.acquire_queue("qdb", true).unwrap();
-            writer_flag.store(true, AtomicOrdering::SeqCst);
-            drop(guard);
-        });
-
-        // Wait for the declaration rather than assuming a delay, but stay
-        // well inside ACQUIRE_TIMEOUT so the writer has not given up.
-        let declared = (0..200).any(|_| {
-            if store
-                .queue("qdb")
-                .unwrap()
-                .waiting_writers
-                .load(AtomicOrdering::SeqCst)
-                > 0
-            {
-                true
-            } else {
-                thread::sleep(QUEUE_POLL_INTERVAL);
-                false
-            }
-        });
-        assert!(
-            declared,
-            "writer must declare itself before it starts polling"
-        );
-
-        let reader_in = Arc::new(AtomicBool::new(false));
-        let reader_store = store.clone();
-        let reader_flag = reader_in.clone();
-        let reader = thread::spawn(move || {
-            let guard = reader_store.acquire_queue("qdb", false).unwrap();
-            reader_flag.store(true, AtomicOrdering::SeqCst);
-            drop(guard);
-        });
-
-        // Several poll intervals: long enough that a reader which is free to
-        // take the shared guard would certainly have taken it by now.
-        thread::sleep(QUEUE_POLL_INTERVAL * 15);
-        assert!(
-            !reader_in.load(AtomicOrdering::SeqCst),
-            "a reader took the shared guard while a writer was declared"
-        );
-
-        // Releasing hands the queue over: the writer gets in, then the reader.
-        drop(held);
-        writer.join().unwrap();
-        reader.join().unwrap();
-        assert!(writer_in.load(AtomicOrdering::SeqCst));
-        assert!(reader_in.load(AtomicOrdering::SeqCst));
-        assert_eq!(
-            store
-                .queue("qdb")
-                .unwrap()
-                .waiting_writers
-                .load(AtomicOrdering::SeqCst),
-            0,
-            "the declaration must be released once the writer is done"
-        );
-    }
-
-    /// The bound must not simply hand the queue to the readers: with no
-    /// writer declared, concurrent readers still admit each other at once.
-    #[test]
-    fn readers_still_share_the_guard_when_no_writer_waits() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path()).unwrap();
-        store.create("qdb").unwrap();
-        let first = store.acquire_queue("qdb", false).unwrap();
-        let second = store.acquire_queue("qdb", false).unwrap();
-        assert_eq!(
-            store
-                .queue("qdb")
-                .unwrap()
-                .waiting_writers
-                .load(Ordering::SeqCst),
-            0
-        );
-        drop(first);
-        drop(second);
     }
 
     #[test]
