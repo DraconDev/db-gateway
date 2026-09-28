@@ -666,6 +666,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 tracing::info!(url = sink.url(), "backup notifications: webhook sink added");
                 sinks.push(std::sync::Arc::new(sink));
             }
+            let sink_count = sinks.len();
             let notify = dg::BackupNotify {
                 sinks,
                 digest_interval: std::time::Duration::from_secs(backup_digest_secs),
@@ -676,7 +677,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 tracing::info!(
                     digest_secs = backup_digest_secs,
                     failure_poll_secs = backup_failure_poll_secs,
-                    sinks = sinks.len(),
+                    sinks = sink_count,
                     "backup-health notification delivery enabled"
                 );
             }
@@ -802,7 +803,10 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             let health = dg::backup_health::snapshot(&store).map_err(Application)?;
             let note = dg::notify::digest_note(&health);
             if as_json {
-                println!("{}", serde_json::to_string(&note).map_err(Application)?);
+                println!(
+                    "{}",
+                    serde_json::to_string(&note).map_err(|_| Application(dg::error::Error::internal()))?
+                );
             } else {
                 let mut rows: Vec<Value> = vec![json!(["state", note.title.clone()])];
                 for db in &health.databases {
@@ -846,11 +850,11 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             if health.attention().is_empty() {
                 return Ok(());
             }
-            Err(Application(dg::error::Error::new(
+            return Err(Application(dg::error::Error::new(
                 1,
                 "backup_unhealthy",
                 "at least one database is stale or has no verified copy",
-            )))
+            )));
         }
         Command::Backup {
             command: BackupCommand::Verify { backup_root, set },
