@@ -130,10 +130,10 @@ impl BackupHealth {
 /// Ported from the `/v1/backups` handler unchanged; see that handler's own
 /// comment for why the containing set is chosen by durable coverage boundary
 /// rather than by publication time.
-pub fn snapshot(store: &Store) -> BackupHealth {
+pub fn snapshot(store: &Store) -> Result<BackupHealth, crate::error::Error> {
     let now = SystemTime::now();
     let sets = store.backup_sets();
-    let mut names: Vec<String> = store.list_all();
+    let mut names: Vec<String> = store.list_all()?;
     if let Some(ref sets) = sets {
         for set in sets {
             for db in &set.databases {
@@ -212,7 +212,7 @@ pub fn snapshot(store: &Store) -> BackupHealth {
         }
         None => (None, None),
     };
-    BackupHealth {
+    Ok(BackupHealth {
         backup_root: root,
         stale_after_secs: STALE_AFTER_SECS,
         generated_at: now
@@ -222,7 +222,7 @@ pub fn snapshot(store: &Store) -> BackupHealth {
         databases,
         last_attempt,
         last_failure,
-    }
+    })
 }
 
 /// Read the producer's attempt log. Tolerant by construction: the file is
@@ -288,7 +288,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = store_with_backup_root(dir.path());
         store.create_and_note("alpha").unwrap();
-        let health = snapshot(&store);
+        let health = snapshot(&store).unwrap();
         assert_eq!(health.databases.len(), 1);
         assert_eq!(health.databases[0].name, "alpha");
         assert_eq!(health.databases[0].state, "unknown");
@@ -309,7 +309,7 @@ mod tests {
             .as_secs()
             + 60;
         write_set(&root, "20240101T000000Z", &["alpha"], boundary);
-        let health = snapshot(&store);
+        let health = snapshot(&store).unwrap();
         assert_eq!(health.databases[0].state, "fresh");
         assert_eq!(health.databases[0].newest_set.as_deref(), Some("20240101T000000Z"));
         assert!(health.attention().is_empty());
@@ -329,7 +329,7 @@ mod tests {
             .as_secs()
             - 60;
         write_set(&root, "20240101T000000Z", &["alpha"], boundary);
-        let health = snapshot(&store);
+        let health = snapshot(&store).unwrap();
         assert_eq!(health.databases[0].state, "stale");
         assert_eq!(health.attention().len(), 1);
     }
@@ -367,7 +367,7 @@ mod tests {
             .unwrap();
         file.set_modified(future).unwrap();
         drop(file);
-        let health = snapshot(&store);
+        let health = snapshot(&store).unwrap();
         assert_eq!(
             health.databases[0].state, "unknown",
             "an unbounded newer set must not overwrite a proven boundary"
@@ -419,7 +419,7 @@ mod tests {
             ),
         )
         .unwrap();
-        let health = snapshot(&store);
+        let health = snapshot(&store).unwrap();
         assert_eq!(health.last_attempt.as_ref().unwrap().ts, "c");
         assert_eq!(health.last_failure.as_ref().unwrap().ts, "b");
         assert_eq!(health.last_failure.as_ref().unwrap().step, "export");
@@ -442,7 +442,7 @@ mod tests {
             .as_secs()
             + 60;
         write_set(&root, "20240101T000000Z", &["alpha"], boundary);
-        let health = snapshot(&store);
+        let health = snapshot(&store).unwrap();
         let beta = health
             .databases
             .iter()

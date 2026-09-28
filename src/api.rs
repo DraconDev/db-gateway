@@ -222,7 +222,7 @@ async fn backups(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<
         }
         // Freshness is computed by the shared rule, not re-derived here, so
         // this endpoint and the notification digest cannot disagree.
-        let health = crate::backup_health::snapshot(s);
+        let health = crate::backup_health::snapshot(s)?;
         let mut per_database = serde_json::Map::new();
         for db in &health.databases {
             per_database.insert(
