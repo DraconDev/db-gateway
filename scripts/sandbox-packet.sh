@@ -363,12 +363,16 @@ REGISTER_CMD="litestream register -socket <sock> -replica file://<dir> <db-path>
 # which is itself part of the answer.
 ADDED=0
 SIGNAL_LINES=""
-for _ in $(seq 1 40); do
+# Generous window: the first signal for a database with no prior replica state
+# can take tens of seconds, and a rehearsal that declares FAIL on a slow log
+# line would record a false negative about the tool.
+for _ in $(seq 1 120); do
     # `|| true`: an empty grep is the normal state on the first polls, and
     # under `set -e` an assignment that fails would kill the whole packet.
     SIGNAL_LINES="$(grep -F 'rehearsal_two.sqlite' "$rehearsal_root/litestream.log" 2>/dev/null \
         | grep -E 'fetched latest L0|snapshot complete|replicating to|compaction complete' | head -4 || true)"
-    if [ -n "$SIGNAL_LINES" ]; then
+    if [ -n "$SIGNAL_LINES" ] || find "$replica_dir/rehearsal_two" -name '*.ltx' 2>/dev/null | grep -q .; then
+        [ -n "$SIGNAL_LINES" ] || SIGNAL_LINES="(no log line; replica root $replica_dir/rehearsal_two now holds .ltx segments for it)"
         ADDED=1
         break
     fi
