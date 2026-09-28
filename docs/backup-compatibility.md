@@ -132,6 +132,68 @@ integrity + application-data verification before it is trusted. The
 (`metadata.sqlite`, credential hashes, database rows) needs its own backup
 coverage or restored databases lose their authorization context.
 
+## 6a. Sandbox run status (2026-09-28)
+
+**Gate 1 is done. Gates 3, 4, 6, 8, 9, 10, 11 and 12 are BLOCKED on a test
+bucket that does not exist yet.** Gates 2, 5 and 7 have passed in *rehearsal
+form* against a file replica, which is not §6 evidence. Nothing here is an
+adoption result.
+
+    scripts/sandbox-packet.sh --out <file> --i-have-owner-go-ahead
+
+refuses to run without the owner's authorization, and exits nonzero while any
+gate is BLOCKED, so a packet with blocked gates cannot be read as a completed
+run. Every invocation runs with `HOME` pointed at the sandbox and an empty
+AWS config, because Litestream discovers ambient `~/.aws` credentials: a gate
+that passes with the operator's personal profile proves nothing and leaks it
+to a third party.
+
+| gate | state | evidence |
+| --- | --- | --- |
+| 1 pin and record | **PASS** | `litestream 0.5.17`, tarball sha256 matched against the release's own `checksums.txt`, installed beside (not over) the v0.3.13 on `PATH`, which must not be used for §6 |
+| 2 WAL contention | rehearsal PASS | replication advanced under 60 live gateway writes with 0 busy/deadline failures; **no** p50/p99 comparison and no 1 GB-shaped sandbox yet |
+| 3 explicit OVH endpoint | BLOCKED | needs the bucket; `endpoint` and `region` are honoured as replica URL query parameters |
+| 4 operation coverage | BLOCKED | needs the bucket |
+| 5 restore drill | rehearsal PASS | restored to a separate path, 260 rows matching the source exactly; **no** gateway import validation, mid-history point, or corrupt-artifact case yet |
+| 6 retention drill | BLOCKED | needs the bucket |
+| 7 registration/reload | rehearsal PASS | a database added at runtime was replicated with no restart, via `litestream register` over the control socket |
+| 8 failure visibility | BLOCKED | needs the bucket |
+| 9 resource headroom | BLOCKED | needs a 1 GB-shaped sandbox |
+| 10 encryption | BLOCKED | needs the bucket; see the findings below, which change the shape of the decision |
+| 11 registry coverage | BLOCKED | needs the bucket |
+| 12 cleanup | BLOCKED | needs the bucket |
+
+Full transcript, including the measured findings below:
+`docs/sandbox-packet-2026-09-28-rehearsal.log`.
+
+### What the rehearsal found, measured on 0.5.17
+
+These four are the reason to run the rehearsal before spending a bucket, and
+each one would otherwise have been discovered by a gate recording a false
+PASS:
+
+1. **`litestream restore` can exit 0 and write a database containing none of
+   the source's tables.** Restoring from a bare replica directory
+   (`file://<dir>`) succeeded and produced a 16 KiB file whose tables were all
+   absent. Gate 5 must compare rows, never exit status.
+2. **A replica root is not namespaced per database.** Two databases sharing one
+   replica path interleave their LTX segments, and a restore for one returns
+   the *other* database's snapshot, silently. Every S3 config must give each
+   database its own prefix (`s3://<bucket>/<db-name>`); the gateway holds N
+   databases, so this is load-bearing, not tidy.
+3. **A config file is read at startup only.** `litestream start` over the
+   control socket answers "database not found" for a database added to the
+   file, and the working route is
+   `litestream register -socket <sock> -replica <url> <db-path>`. SIGHUP
+   terminates the process rather than reloading it. `litestream status` and
+   `litestream ltx` also require the database to be in the config, so the
+   daemon log is the only signal for a runtime-added database.
+4. **Unknown replica keys are silently ignored.** A config carrying
+   `sse-customer-key` replicated with no error and no encryption. Decision 3
+   (encryption) therefore cannot be settled by writing a key into the config
+   and observing that Litestream starts; it must be settled at the bucket or by
+   a mechanism this packet verifies end to end.
+
 ## 6. Sandbox checks required before adoption
 
 The local rehearsal is a prerequisite trust-boundary check, not a substitute

@@ -1,0 +1,118 @@
+# Sandbox adoption packet (docs/backup-compatibility.md §6)
+
+date: 2026-09-28T18:28:01Z
+host: Linux 7.1.2 x86_64
+litestream pinned: 0.5.17 (/home/dracon/.local/dg-sandbox/litestream-0.5.17)
+bucket: <unset>
+endpoint: <unset>
+region: <unset>
+
+Gates are PASS, FAIL or BLOCKED. BLOCKED means not executed and not
+evidence of anything; it is never a pass. A packet with a BLOCKED
+gate is not an adoption packet.
+
+## gate 1: PASS -- litestream 0.5.17, release tarball checksum matches the published checksums.txt
+$ litestream version
+0.5.17
+tarball sha256 (published): cfb371176d164437ae869f8351cfde49bd1804ae71c61923f75c9cba9c9c006d
+tarball sha256 (on disk)  : cfb371176d164437ae869f8351cfde49bd1804ae71c61923f75c9cba9c9c006d
+binary sha256: 200e4248a4cc83da2ca52babe66774f1a71afa993d31373adb0ce0fe12154647
+config reference: etc/litestream.yml shipped in the 0.5.17 tarball, read on 2026-09-28
+NOTE: the litestream on PATH is v0.3.13, which is NOT the pinned
+version. This packet used the pinned binary; the PATH one must not be used for §6.
+
+## gate 2: PASS -- rehearsal: replication advanced under 60 live writes with 0 busy/deadline failures
+rows before live writes: 200
+busy+capacity_exceeded+deadline after 60 live writes: 0
+replica advanced (new .ltx segment): yes
+NOT §6 GATE 2: file replica, not OVH; no 1 GB-shaped sandbox; no p50/p99 comparison yet.
+
+## gate 7: PASS -- rehearsal: a new database was replicated WITHOUT restarting litestream, via the control socket
+route (a) config edit + litestream start: FAILED -- Error: start failed: database not found: /tmp/dg-sandbox-DHwxX4/rehearsal/data/rehearsal_two.sqlite
+route (b) register over the control socket: WORKED
+remove side: litestream unregister: WORKED
+signal observed in the daemon log:
+  (no log line; replica root /tmp/dg-sandbox-DHwxX4/rehearsal/replica/rehearsal_two now holds .ltx segments for it)
+ANSWER for §6: the config FILE is read at startup only. Adding a database
+to a running daemon means 'litestream register -replica <url> <db-path>'
+over the control socket (or a restart). SIGHUP is not a reload signal:
+it terminates the process.
+NOT §6 GATE 7: file replica. The sandbox must repeat this against the
+bucket and confirm the deployed unit's own socket path and permissions.
+
+## gate 5: PASS -- rehearsal: restored to a separate path, row count matches the source exactly
+restore target: /tmp/dg-sandbox-DHwxX4/rehearsal/restore/rehearsal.sqlite (separate directory, not the data dir)
+rows in source: 260
+rows in restored copy: 260
+NOT §6 GATE 5: file replica; no gateway import validation of the restored
+file, no mid-history point, and no corrupt-artifact rejection case.
+
+## gate 3: BLOCKED -- not executed: explicit OVH endpoint/region config, path-style and skip-verify variants
+reason: needs DG_SANDBOX_BUCKET + DG_SANDBOX_ENDPOINT (+ DG_SANDBOX_REGION, DG_SANDBOX_ACCESS_KEY_ID, DG_SANDBOX_SECRET_KEY) and a bucket the owner confirms is disposable
+this is not a pass and not evidence of anything
+
+## gate 4: BLOCKED -- not executed: every S3 operation litestream 0.5.17 issues succeeds against the test region/class
+reason: needs DG_SANDBOX_BUCKET + DG_SANDBOX_ENDPOINT (+ DG_SANDBOX_REGION, DG_SANDBOX_ACCESS_KEY_ID, DG_SANDBOX_SECRET_KEY) and a bucket the owner confirms is disposable
+this is not a pass and not evidence of anything
+
+## gate 6: BLOCKED -- not executed: retention/lifecycle drill, 7/30-day version counts
+reason: needs DG_SANDBOX_BUCKET + DG_SANDBOX_ENDPOINT (+ DG_SANDBOX_REGION, DG_SANDBOX_ACCESS_KEY_ID, DG_SANDBOX_SECRET_KEY) and a bucket the owner confirms is disposable
+this is not a pass and not evidence of anything
+
+## gate 8: BLOCKED -- not executed: failure visibility: revoked credentials, blocked egress, destination near quota
+reason: needs DG_SANDBOX_BUCKET + DG_SANDBOX_ENDPOINT (+ DG_SANDBOX_REGION, DG_SANDBOX_ACCESS_KEY_ID, DG_SANDBOX_SECRET_KEY) and a bucket the owner confirms is disposable
+this is not a pass and not evidence of anything
+
+## gate 9: BLOCKED -- not executed: resource headroom for gateway + litestream on a 1 GB-shaped sandbox
+reason: needs DG_SANDBOX_BUCKET + DG_SANDBOX_ENDPOINT (+ DG_SANDBOX_REGION, DG_SANDBOX_ACCESS_KEY_ID, DG_SANDBOX_SECRET_KEY) and a bucket the owner confirms is disposable
+this is not a pass and not evidence of anything
+
+## gate 10: BLOCKED -- not executed: encryption mode exercised end-to-end, including restore without ambient credentials
+reason: needs DG_SANDBOX_BUCKET + DG_SANDBOX_ENDPOINT (+ DG_SANDBOX_REGION, DG_SANDBOX_ACCESS_KEY_ID, DG_SANDBOX_SECRET_KEY) and a bucket the owner confirms is disposable
+this is not a pass and not evidence of anything
+
+## gate 11: BLOCKED -- not executed: metadata.sqlite backed up and restored, scoped keys resolve after recovery
+reason: needs DG_SANDBOX_BUCKET + DG_SANDBOX_ENDPOINT (+ DG_SANDBOX_REGION, DG_SANDBOX_ACCESS_KEY_ID, DG_SANDBOX_SECRET_KEY) and a bucket the owner confirms is disposable
+this is not a pass and not evidence of anything
+
+## gate 12: BLOCKED -- not executed: deletion of every test bucket/key/config, with no residue
+reason: needs DG_SANDBOX_BUCKET + DG_SANDBOX_ENDPOINT (+ DG_SANDBOX_REGION, DG_SANDBOX_ACCESS_KEY_ID, DG_SANDBOX_SECRET_KEY) and a bucket the owner confirms is disposable
+this is not a pass and not evidence of anything
+
+## config surface of the pinned litestream, measured
+
+endpoint and region are accepted as replica URL query parameters and are
+honoured: the log line then reads type=s3 region=<r> endpoint=https://<e>.
+
+Unknown replica keys are SILENTLY IGNORED. A config carrying
+`sse-customer-key` replicated with no error and no encryption, which means
+an encryption setting that this version does not implement would read as
+working. Decision 3 (encryption) must therefore be settled at the bucket or
+by an explicitly verified mechanism, never by writing a key into the config
+and observing that litestream starts.
+
+The same applies to `force-path-style` as a query parameter: accepted
+silently, no effect observed. §6 gate 3 must record the minimal WORKING
+config, which is the only way to tell a working setting from an ignored one.
+
+`litestream restore` can EXIT 0 AND PRODUCE A DATABASE WITH NONE OF THE
+SOURCE TABLES. Restoring from a bare replica directory ("file://<dir>")
+succeeded and wrote a 16 KiB file whose tables were all absent. A gate that
+checked only the exit code would record that as a passing restore. Every
+restore in §6 gate 5 must compare rows, not statuses.
+
+`litestream status` and `litestream ltx` require the database to be present in
+the CONFIG FILE, so neither can probe a database that was added with
+`litestream register`. For a database added at runtime the daemon log is the
+only signal available.
+
+A REPLICA ROOT IS NOT NAMESPACED PER DATABASE. Two databases sharing one
+replica path interleave their LTX segments, and `litestream restore` for one
+then returns the OTHER database snapshot: exit status 0, wrong file. Every
+S3 config must therefore give each database its own prefix, e.g.
+s3://<bucket>/<db-name>. The gateway holds N databases, so this is not
+optional bookkeeping; it is what makes gate 5 restore the right database.
+
+A config file is read at STARTUP. Adding a database to the file while the
+daemon runs does nothing; `litestream start` then answers "database not
+found". Adding one at runtime requires `litestream register -socket <sock>
