@@ -658,8 +658,17 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             // A flag that cannot be honoured is refused at startup rather
             // than half-applied: a sink silently dropped means an operator
             // believes they have webhook delivery and do not.
-            let mut sinks: Vec<std::sync::Arc<dyn dg::notify::Sink>> =
-                vec![std::sync::Arc::new(dg::notify::LogSink)];
+            let wants_delivery = backup_digest_secs > 0
+                || backup_failure_poll_secs > 0
+                || backup_notify_webhook.is_some();
+            let mut sinks: Vec<std::sync::Arc<dyn dg::notify::Sink>> = if wants_delivery {
+                // The log sink is the floor: structured logging is already
+                // the service's operator channel, so it is the one sink that
+                // works with nothing configured anywhere.
+                vec![std::sync::Arc::new(dg::notify::LogSink)]
+            } else {
+                Vec::new()
+            };
             if let Some(url) = &backup_notify_webhook {
                 let sink = dg::notify::WebhookSink::new(url.clone()).map_err(|error| {
                     // A flag the operator wrote is worth a sentence back: a
@@ -687,7 +696,6 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 sinks,
                 digest_interval: std::time::Duration::from_secs(backup_digest_secs),
                 failure_poll: std::time::Duration::from_secs(backup_failure_poll_secs),
-                cadence_secs: dg::backup_health::STALE_AFTER_SECS,
             };
             if notify.enabled() {
                 tracing::info!(

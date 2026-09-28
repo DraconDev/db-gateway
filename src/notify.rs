@@ -85,6 +85,12 @@ pub struct Note {
     /// The bounded operator action. Never an instruction to trust the
     /// backup, and never an RPO.
     pub action: String,
+    /// The §2 look-at-it reference the states are judged against, named as
+    /// `/v1/backups` names it so the two read the same. Deliberately not
+    /// called an RPO: it is an objective nobody has accepted as a guarantee,
+    /// and a notification that carried one would be making a promise the
+    /// project has not earned.
+    pub stale_after_secs: u64,
 }
 
 /// Render a failure notice for one attempt. The database list is carried
@@ -124,6 +130,7 @@ pub fn failure_note(health: &BackupHealth, attempt: &AttemptRecord) -> Note {
                 .map(|root| root.display().to_string())
                 .unwrap_or_else(|| "<root>".to_string())
         ),
+        stale_after_secs: health.stale_after_secs,
     }
 }
 
@@ -162,6 +169,7 @@ pub fn digest_note(health: &BackupHealth) -> Note {
         last_attempt: health.last_attempt.clone(),
         failure: health.last_failure.clone(),
         action,
+        stale_after_secs: health.stale_after_secs,
     }
 }
 
@@ -195,7 +203,10 @@ pub fn render_text(note: &Note) -> String {
             }
         ));
     }
-    out.push_str(&format!("\n  action: {}", note.action));
+    out.push_str(&format!(
+        "\n  judged against a {}s reference; action: {}",
+        note.stale_after_secs, note.action
+    ));
     out
 }
 
@@ -619,6 +630,13 @@ mod tests {
         // The failure record travels with the note, so a sink can route on
         // it instead of parsing the title.
         assert_eq!(note.failure.as_ref().unwrap().step, "manifest");
+    }
+
+    #[test]
+    fn a_note_names_the_reference_it_is_judged_against() {
+        let note = digest_note(&health());
+        assert_eq!(note.stale_after_secs, 300);
+        assert!(render_text(&note).contains("300s reference"));
     }
 
     #[test]

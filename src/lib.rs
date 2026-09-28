@@ -93,9 +93,6 @@ pub struct BackupNotify {
     /// How often the producer's attempt log is checked for a new failure.
     /// Zero disables the watch, and then failures surface only in the digest.
     pub failure_poll: Duration,
-    /// The owner-approved snapshot cadence this gateway is measured against,
-    /// reported in the digest so a reader knows the target it is judged by.
-    pub cadence_secs: u64,
 }
 
 impl BackupNotify {
@@ -106,7 +103,6 @@ impl BackupNotify {
             sinks: Vec::new(),
             digest_interval: Duration::ZERO,
             failure_poll: Duration::ZERO,
-            cadence_secs: backup_health::STALE_AFTER_SECS,
         }
     }
 
