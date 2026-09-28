@@ -3174,7 +3174,6 @@ mod tests {
             let held = store.acquire_queue("qdb", false).unwrap();
             let stamp = Arc::new(AtomicUsize::new(0));
             let writer_at = Arc::new(AtomicUsize::new(usize::MAX));
-            let reader_at = Arc::new(AtomicUsize::new(usize::MAX));
 
             let ws = store.clone();
             let wst = stamp.clone();
