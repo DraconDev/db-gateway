@@ -1223,10 +1223,10 @@ if [ "$G10_ROWS" = "100" ]; then
             "withdrawn-credential restore: exit $G10_NOKEY_RC, ${G10_NOKEY_MSG:-(silent)}"
     else
         record 10 FAIL "the restore worked but nothing is encrypted: no object reports server-side encryption" \
-            "litestream accepted an sse-customer-key without error (0.5.17 ignores it)"
-            "objects under $G10_PREFIX report no x-amz-server-side-encryption header"
-            "restore with no ambient credentials: $G10_ROWS/100 rows"
-            "-> decision 3 must be settled at the bucket, or by a mechanism this"
+            "litestream accepted an sse-customer-key without error (0.5.17 ignores it)" \
+            "objects under $G10_PREFIX report no x-amz-server-side-encryption header" \
+            "restore with no ambient credentials: $G10_ROWS/100 rows" \
+            "-> decision 3 must be settled at the bucket, or by a mechanism this" \
             "   packet can verify end to end. Not by config."
     fi
 else
