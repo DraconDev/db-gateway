@@ -2938,10 +2938,15 @@ mod tests {
 
     /// A SUSTAINED read flood must not deny writers. The reader threads here
     /// re-acquire immediately with no client-side gap, which is the shape a
-    /// genuinely read-bound workload has and the shape the previous
-    /// `writer_phase` design failed: because `refresh_phase` handed the read
-    /// phase to any queued reader, `waiting_readers` was never zero, so a
-    /// queued writer was never preferred and timed out almost every time.
+    /// genuinely read-bound workload has.
+    ///
+    /// This asserts a RATE, so read it as a property check on the design in
+    /// front of you and not as a regression guard: the replaced phase design
+    /// passes it, because there a writer was admitted whenever one of its
+    /// threads happened to observe `readers_active == 0`, and how often that
+    /// happened was a property of the harness rather than the queue. The
+    /// guard against that design is the ORDER assertion in
+    /// `admission_follows_queue_order_not_a_race`.
     ///
     /// Reader count matches the server's own READ_PERMITS=8.
     #[test]
@@ -3130,15 +3135,34 @@ mod tests {
     /// observed rate swung from 0/48 to ~11,292/~48 depending only on thread
     /// count and pacing.
     ///
-    /// Order has no such freedom. Here a writer is queued first and a reader
-    /// second, so the writer's ticket is smaller, and `serving` only advances
-    /// in ticket order -- the reader CANNOT be admitted first, on any
-    /// schedule. The replaced design could and did lose that race, so a
-    /// hundred trials catch it even though any single trial might not.
+    /// Order has no such freedom. Here a writer is queued first, so its
+    /// ticket is smaller, and `serving` only advances in ticket order -- a
+    /// reader CANNOT be admitted first, on any schedule.
+    ///
+    /// The number of readers behind that writer is the whole test. One
+    /// reader is NOT enough to catch the old design: a condvar wakes waiters
+    /// in the order they blocked, and a single queued reader therefore loses
+    /// the state mutex to the writer it overtook, so the replaced phase
+    /// design passes a one-reader version of this test (measured: 0 of 300
+    /// trials lost, against 0 of 300 for this one). What defeats that design
+    /// is a BATCH, because it re-opens the read phase to every queued reader
+    /// at each batch boundary and the winner is whichever of them the
+    /// scheduler runs first -- not the writer holding the older ticket. So
+    /// this queues READERS-behind-the-writer, matching the server's own
+    /// READ_PERMITS, and counts a trial lost if ANY of them is admitted
+    /// first. Measured against the replaced design at load1 78-80: 28, 34 and
+    /// 30 losses per 100 trials with 8 readers, 4, 7 and 6 with 3. The rate
+    /// is a race rate, so it moves with machine load; the zero on this design
+    /// is structural rather than lucky. `scripts/admission_order_probe.sh`
+    /// rebuilds both queues verbatim and reproduces those numbers.
     #[test]
     fn admission_follows_queue_order_not_a_race() {
         use std::sync::atomic::{AtomicUsize, Ordering as Seq};
         const TRIALS: usize = 100;
+        /// The server's READ_PERMITS: a reader batch this size is what a
+        /// read flood actually looks like, and it is the size the old
+        /// design's phase re-open hands the queue to.
+        const READERS_BEHIND: usize = 8;
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(Store::open(dir.path()).unwrap());
         store.create("qdb").unwrap();
@@ -3181,30 +3205,41 @@ mod tests {
             });
             assert!(queued, "trial {trial}: writer never queued");
 
-            let rs = store.clone();
-            let rst = stamp.clone();
-            let rat = reader_at.clone();
-            let reader = thread::spawn(move || {
-                let Ok(guard) = rs.acquire_queue("qdb", false) else {
-                    return;
-                };
-                rat.store(rst.fetch_add(1, Seq::SeqCst), Seq::SeqCst);
-                drop(guard);
-            });
+            let mut readers = Vec::new();
+            for _ in 0..READERS_BEHIND {
+                let rs = store.clone();
+                let rst = stamp.clone();
+                let rat = Arc::new(AtomicUsize::new(usize::MAX));
+                let stamped = rat.clone();
+                readers.push((
+                    rat,
+                    thread::spawn(move || {
+                        let Ok(guard) = rs.acquire_queue("qdb", false) else {
+                            return;
+                        };
+                        stamped.store(rst.fetch_add(1, Seq::SeqCst), Seq::SeqCst);
+                        drop(guard);
+                    }),
+                ));
+            }
 
             drop(held);
             writer.join().unwrap();
-            reader.join().unwrap();
-            let (w, r) = (writer_at.load(Seq::SeqCst), reader_at.load(Seq::SeqCst));
-            if w > r {
-                losses += 1;
+            for (at, reader) in readers {
+                reader.join().unwrap();
+                // Every reader here queued AFTER the writer, so every one of
+                // them is a loss if it is stamped first.
+                if at.load(Seq::SeqCst) < writer_at.load(Seq::SeqCst) {
+                    losses += 1;
+                }
             }
         }
         assert_eq!(
             losses, 0,
             "a reader was admitted ahead of a writer that queued first, in \
-             {losses} of {TRIALS} trials: admission is being decided by \
-             scheduling instead of by queue order"
+             {losses} of {TRIALS} trials (with {READERS_BEHIND} readers \
+             queued behind it): admission is being decided by scheduling \
+             instead of by queue order"
         );
     }
 
