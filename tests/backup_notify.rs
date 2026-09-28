@@ -55,8 +55,7 @@ impl Collector {
         let notes = Arc::new(Mutex::new(Vec::new()));
         let stop = Arc::new(AtomicBool::new(false));
         let reject = Arc::new(AtomicBool::new(false));
-        let (sink_notes, sink_stop, sink_reject) =
-            (notes.clone(), stop.clone(), reject.clone());
+        let (sink_notes, sink_stop, sink_reject) = (notes.clone(), stop.clone(), reject.clone());
         let thread = std::thread::spawn(move || {
             while !sink_stop.load(Ordering::SeqCst) {
                 match listener.accept() {
@@ -346,16 +345,12 @@ fn the_digest_is_delivered_on_its_cadence_with_what_an_operator_needs() {
     }
     // A fresh database arrives with the set that proved it and an age, which
     // is what makes the digest actionable rather than decorative.
-    write_set(
-        &root,
-        "20240101T000000Z",
-        &["alpha"],
-        now_secs() + 60,
-    );
+    write_set(&root, "20240101T000000Z", &["alpha"], now_secs() + 60);
     let fresh = collector.wait_for("backup_digest", Duration::from_secs(30), |note| {
-        note["databases"]
-            .as_array()
-            .is_some_and(|dbs| dbs.iter().any(|db| db["name"] == "alpha" && db["state"] == "fresh"))
+        note["databases"].as_array().is_some_and(|dbs| {
+            dbs.iter()
+                .any(|db| db["name"] == "alpha" && db["state"] == "fresh")
+        })
     });
     let alpha = fresh["databases"]
         .as_array()
@@ -399,11 +394,19 @@ fn a_failed_attempt_is_notified_immediately_and_exactly_once() {
     assert_eq!(failure["ts"], "20240101T000000Z");
     assert_eq!(failure["step"], "manifest");
     assert!(
-        note["title"].as_str().unwrap().contains("failed at step manifest"),
+        note["title"]
+            .as_str()
+            .unwrap()
+            .contains("failed at step manifest"),
         "title must name the step: {}",
         note["title"]
     );
-    assert!(note["action"].as_str().unwrap().contains("dg backup verify"));
+    assert!(
+        note["action"]
+            .as_str()
+            .unwrap()
+            .contains("dg backup verify")
+    );
 
     // The de-duplication contract: one failure, one alert, however many
     // times the poll runs afterwards.
@@ -477,7 +480,9 @@ fn a_sink_that_rejects_does_not_stop_the_next_delivery() {
     let before = collector.count("backup_digest");
     // A 500-ing sink is reported, never retried into a storm, and never
     // allowed to wedge the loop: the next digest still goes out.
-    collector.wait_for("backup_digest", Duration::from_secs(30), |note| note["kind"] == "backup_digest");
+    collector.wait_for("backup_digest", Duration::from_secs(30), |note| {
+        note["kind"] == "backup_digest"
+    });
     std::thread::sleep(Duration::from_millis(2_000));
     assert!(
         collector.count("backup_digest") > before,

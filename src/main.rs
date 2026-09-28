@@ -784,11 +784,12 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             (Method::GET, "/v1/backups".into(), None, None)
         }
         Command::Backup {
-            command: BackupCommand::Digest {
-                data_dir,
-                backup_root,
-                json: as_json,
-            },
+            command:
+                BackupCommand::Digest {
+                    data_dir,
+                    backup_root,
+                    json: as_json,
+                },
         } => {
             // Deliberately local, not an HTTP round trip: the digest an
             // operator reads while the gateway is down or restarting is the
@@ -805,7 +806,8 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             if as_json {
                 println!(
                     "{}",
-                    serde_json::to_string(&note).map_err(|_| Application(dg::error::Error::internal()))?
+                    serde_json::to_string(&note)
+                        .map_err(|_| Application(dg::error::Error::internal()))?
                 );
             } else {
                 let mut rows: Vec<Value> = vec![json!(["state", note.title.clone()])];
@@ -830,8 +832,16 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                         "last failure",
                         format!(
                             "{} at step {}",
-                            if failure.ts.is_empty() { "?" } else { &failure.ts },
-                            if failure.step.is_empty() { "?" } else { &failure.step }
+                            if failure.ts.is_empty() {
+                                "?"
+                            } else {
+                                &failure.ts
+                            },
+                            if failure.step.is_empty() {
+                                "?"
+                            } else {
+                                &failure.step
+                            }
                         )
                     ]));
                 }

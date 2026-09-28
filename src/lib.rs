@@ -18,7 +18,6 @@ use axum::{Json, Router, routing::get};
 use serde::Serialize;
 use tokio::net::TcpListener;
 
-
 #[derive(Debug)]
 pub enum ServerError {
     NonLoopback,
@@ -112,7 +111,8 @@ impl BackupNotify {
     }
 
     pub fn enabled(&self) -> bool {
-        !self.sinks.is_empty() && (self.digest_interval > Duration::ZERO || self.failure_poll > Duration::ZERO)
+        !self.sinks.is_empty()
+            && (self.digest_interval > Duration::ZERO || self.failure_poll > Duration::ZERO)
     }
 }
 
@@ -195,7 +195,10 @@ async fn backup_notifier(store: std::sync::Arc<store::Store>, config: BackupNoti
                 Ok(health) => {
                     let note = notify::digest_note(&health);
                     if !notify::deliver_all(&config.sinks, &note).await.is_empty() {
-                        tracing::error!(code = "backup_digest_delivery_failed", "backup digest delivery failed");
+                        tracing::error!(
+                            code = "backup_digest_delivery_failed",
+                            "backup digest delivery failed"
+                        );
                     }
                 }
                 Err(error) => tracing::error!(
