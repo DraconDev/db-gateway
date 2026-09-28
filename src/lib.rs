@@ -175,12 +175,20 @@ async fn backup_notifier(store: std::sync::Arc<store::Store>, config: BackupNoti
     // reports that one attempt, and the daily digest carries the history.
     let mut delivered = notify::DeliveryState::default();
     loop {
-        let wait = digest.until_next().min(failure.until_next());
-        if wait.is_zero() {
-            // Both cadences are off but delivery is on: nothing to do, and
-            // spinning would burn a core forever.
-            return;
-        }
+        // Only enabled cadences vote. A disabled cadence contributes nothing
+        // rather than a zero: taking `min` against a zero sentinel would let
+        // an explicitly-disabled poll cancel a live digest, and the notifier
+        // would go quiet while still logged as enabled.
+        let wait = match (digest.until_next(), failure.until_next()) {
+            (Some(digest), Some(failure)) => Some(digest.min(failure)),
+            (Some(digest), None) => Some(digest),
+            (None, Some(failure)) => Some(failure),
+            (None, None) => None,
+        };
+        // Nothing scheduled: delivery is on (a sink is configured) but no
+        // cadence asks for anything. Returning ends the task rather than
+        // spinning on a core forever.
+        let Some(wait) = wait else { return };
         tokio::time::sleep(wait).await;
         if digest.due() {
             match backup_health::snapshot(&store) {
@@ -249,16 +257,17 @@ impl Cadence {
         self.period.is_zero()
     }
 
-    /// Time until the next tick. Zero for a disabled cadence, which makes
-    /// `min` skip it -- the loop then sleeps on whichever timer is live.
+    /// Time until the next tick, or `None` when this cadence is off.
     /// Saturating rather than subtracting raw, so a tick that came due while
     /// a sink was slow reads as "due now" instead of panicking.
-    fn until_next(&self) -> Duration {
+    fn until_next(&self) -> Option<Duration> {
         if self.disabled() {
-            return Duration::ZERO;
+            return None;
         }
-        self.next
-            .saturating_duration_since(tokio::time::Instant::now())
+        Some(
+            self.next
+                .saturating_duration_since(tokio::time::Instant::now()),
+        )
     }
 
     /// True once the period has elapsed, rescheduling from now. A tick that
