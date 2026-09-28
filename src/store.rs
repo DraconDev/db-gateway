@@ -3148,13 +3148,14 @@ mod tests {
     /// is a BATCH, because it re-opens the read phase to every queued reader
     /// at each batch boundary and the winner is whichever of them the
     /// scheduler runs first -- not the writer holding the older ticket. So
-    /// this queues READERS-behind-the-writer, matching the server's own
+    /// this queues READERS_BEHIND the writer, matching the server's own
     /// READ_PERMITS, and counts a trial lost if ANY of them is admitted
-    /// first. Measured against the replaced design at load1 78-80: 28, 34 and
-    /// 30 losses per 100 trials with 8 readers, 4, 7 and 6 with 3. The rate
-    /// is a race rate, so it moves with machine load; the zero on this design
-    /// is structural rather than lucky. `scripts/admission_order_probe.sh`
-    /// rebuilds both queues verbatim and reproduces those numbers.
+    /// first. Run against the replaced design (a96f261, patched into a
+    /// scratch copy of this crate) it fails every run -- 65, 135 and 67
+    /// trials lost per 100, at load1 78-80. The rate is a race rate, so it
+    /// moves with machine load; the zero on this design is structural rather
+    /// than lucky. `scripts/admission_order_probe.sh` rebuilds both queues
+    /// verbatim and reproduces the contrast without patching a crate.
     #[test]
     fn admission_follows_queue_order_not_a_race() {
         use std::sync::atomic::{AtomicUsize, Ordering as Seq};
@@ -3166,7 +3167,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(Store::open(dir.path()).unwrap());
         store.create("qdb").unwrap();
-        let mut losses = 0;
+        let mut lost_trials = 0;
+        let mut overtakings = 0;
 
         for trial in 0..TRIALS {
             // A guard already held, so both waiters queue behind it and their
@@ -3224,21 +3226,25 @@ mod tests {
 
             drop(held);
             writer.join().unwrap();
+            let writer_slot = writer_at.load(Seq::SeqCst);
+            let mut first_ahead = 0;
             for (at, reader) in readers {
                 reader.join().unwrap();
-                // Every reader here queued AFTER the writer, so every one of
-                // them is a loss if it is stamped first.
-                if at.load(Seq::SeqCst) < writer_at.load(Seq::SeqCst) {
-                    losses += 1;
+                // Every reader here queued AFTER the writer, so any of them
+                // stamped ahead of it is an overtaking.
+                if at.load(Seq::SeqCst) < writer_slot {
+                    first_ahead += 1;
                 }
             }
+            overtakings += first_ahead;
+            lost_trials += usize::from(first_ahead > 0);
         }
         assert_eq!(
-            losses, 0,
+            lost_trials, 0,
             "a reader was admitted ahead of a writer that queued first, in \
-             {losses} of {TRIALS} trials (with {READERS_BEHIND} readers \
-             queued behind it): admission is being decided by scheduling \
-             instead of by queue order"
+             {lost_trials} of {TRIALS} trials with {READERS_BEHIND} readers \
+             queued behind it ({overtakings} overtakings in total): admission \
+             is being decided by scheduling instead of by queue order"
         );
     }
 
