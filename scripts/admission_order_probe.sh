@@ -71,6 +71,7 @@ extract "$WORK/new.rs" "$WORK/new_queue.rs"
 // The two queue bodies below are extracted verbatim from git by that script;
 // everything outside `mod` blocks is the experiment.
 #![allow(dead_code, unused_imports, unused_variables)]
+use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicUsize, Ordering as Seq};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
@@ -84,14 +85,16 @@ impl Error {
     fn internal() -> Self { Error::Internal }
     fn busy() -> Self { Error::Busy }
 }
+// the crate's own alias, which the extracted code is written against
+type Result<T> = std::result::Result<T, Error>;
 
 mod old {
     use super::*;
     // harness-only shims: the design's own field names, one line each
-    pub fn admit(q: &Arc<AdmissionQueue>, write: bool) -> Result<AdmissionGuard, Error> {
+    pub fn admit(q: &Arc<AdmissionQueue>, write: bool) -> Result<AdmissionGuard> {
         AdmissionQueue::acquire(q, write)
     }
-    pub fn writer_queued(q: &AdmissionQueue) -> bool {
+    pub fn writer_queued(q: &Arc<AdmissionQueue>) -> bool {
         q.state.lock().map(|s| s.writer_serving < s.writer_next).unwrap_or(false)
     }
 HEADER
@@ -102,10 +105,10 @@ HEADER
 mod new {
     use super::*;
     // harness-only shims: the design's own field names, one line each
-    pub fn admit(q: &Arc<AdmissionQueue>, write: bool) -> Result<AdmissionGuard, Error> {
+    pub fn admit(q: &Arc<AdmissionQueue>, write: bool) -> Result<AdmissionGuard> {
         AdmissionQueue::acquire(q, write)
     }
-    pub fn writer_queued(q: &AdmissionQueue) -> bool {
+    pub fn writer_queued(q: &Arc<AdmissionQueue>) -> bool {
         q.state.lock().map(|s| !s.waiting_writers.is_empty()).unwrap_or(false)
     }
 MID
@@ -115,14 +118,14 @@ MID
 
 /// One trial, generic over the two designs. Returns the number of readers
 /// stamped before the writer.
-fn trial<Admit, Queued>(
+fn trial<Q, G, Admit, Queued>(
     admit: Admit,
     queued: Queued,
     readers_behind: usize,
     trial: usize,
 ) -> usize
 where
-    Admit: Fn(&Arc<Q>, bool) -> Result<G, Error> + Send + Sync + Copy + 'static,
+    Admit: Fn(&Arc<Q>, bool) -> Result<G> + Send + Sync + Copy + 'static,
     G: Send + 'static,
     Q: Make + Send + Sync + 'static,
     Queued: Fn(&Arc<Q>) -> bool,
@@ -176,10 +179,6 @@ impl Make for new::AdmissionQueue { fn make() -> Self { Self::default() } }
 
 const TRIALS: usize = 100;
 
-fn sweep(label: &str, readers_behind: usize, admit: impl Fn(&Arc<old::AdmissionQueue>, bool) -> Result<old::AdmissionGuard, Error>, queued: impl Fn(&Arc<old::AdmissionQueue>) -> bool) -> usize {
-    (0..TRIALS).map(|t| trial(admit, queued, readers_behind, t)).filter(|n| *n > 0).count()
-}
-
 fn main() {
     let readers_behind: usize = std::env::args().nth(2).and_then(|s| s.parse().ok()).unwrap_or(8);
     println!("# load1 at start: {}", std::fs::read_to_string("/proc/loadavg")
@@ -197,7 +196,6 @@ fn main() {
         shipped_losses += new_lost;
         println!("round {round}: old phase design {old_lost}/{TRIALS} trials lost | shipped ticket lock {new_lost}/{TRIALS}");
     }
-    let _ = sweep;
     if shipped_losses > 0 {
         eprintln!("REGRESSION: the shipped design lost {shipped_losses} trials; queue order is no longer structural");
         std::process::exit(1);
