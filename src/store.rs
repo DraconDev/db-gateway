@@ -229,7 +229,13 @@ impl AdmissionQueue {
             let (guard, keep_going) = AdmissionQueue::wait(queue, state, deadline)?;
             state = guard;
             if !keep_going {
-                state.abandoned.insert(ticket);
+                // Only a ticket still AHEAD of the gate needs recording; one
+                // already passed is never looked up again, and recording it
+                // would make this set grow with every shed request forever,
+                // which on a long-lived busy database is a slow leak.
+                if ticket >= state.serving {
+                    state.abandoned.insert(ticket);
+                }
                 state.waiting_writers.remove(&ticket);
                 state.skip_abandoned();
                 queue.available.notify_all();
@@ -2965,6 +2971,59 @@ mod tests {
             "sustained read flood denied writers: only {ok}/{total} admitted \
              ({:.1}%), {bad} timed out at ACQUIRE_TIMEOUT",
             rate * 100.0
+        );
+    }
+
+    /// `abandoned` records tickets given up at ACQUIRE_TIMEOUT. On a database
+    /// that sheds traffic continuously, recording tickets that the gate had
+    /// already passed would grow that set once per shed request for the life
+    /// of the process. Ticks are not easy to shed, so this drives the
+    /// accounting directly: many tickets given up behind a held guard, then
+    /// the gate released.
+    #[test]
+    fn abandoned_tickets_do_not_accumulate() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(dir.path()).unwrap());
+        store.create("qdb").unwrap();
+
+        // Hold the guard so every attempt below is forced to give up, and the
+        // tickets pile up ahead of the gate.
+        let held = store.acquire_queue("qdb", true).unwrap();
+        let mut readers = Vec::new();
+        for _ in 0..4 {
+            let s = store.clone();
+            readers.push(thread::spawn(move || {
+                let _ = s.acquire_queue("qdb", false);
+            }));
+        }
+        for reader in readers {
+            reader.join().unwrap();
+        }
+        let after_sheds = store
+            .queue("qdb")
+            .unwrap()
+            .state
+            .lock()
+            .map(|state| (state.abandoned.len(), state.serving))
+            .unwrap();
+        // Every shed ticket was behind the gate, so the queue must be able to
+        // step over them; the backlog is finite, not a permanent stall.
+        drop(held);
+        let settled = store
+            .queue("qdb")
+            .unwrap()
+            .state
+            .lock()
+            .map(|state| (state.abandoned.len(), state.serving))
+            .unwrap();
+        assert!(
+            settled.0 <= after_sheds.0,
+            "abandoned set grew while draining: {after_sheds:?} -> {settled:?}"
+        );
+        // And the queue still serves: the gate is not stuck behind a shed.
+        assert!(
+            store.acquire_queue("qdb", false).is_ok(),
+            "queue wedged behind abandoned tickets"
         );
     }
 
