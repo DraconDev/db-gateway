@@ -396,8 +396,14 @@ def merge_blocks(blocks, hot, cold, args, label):
             "queue_timeouts": qtimeouts,
             "capacity_exceeded_total": d["_requests"]["capacity_exceeded"],
             "lane_shed_estimate": lane_shed,
-            # Must be 0: no writer is ever shed by the global write lane, so
-            # every writer 429 is a per-database queue timeout.
+            # Every queue timeout (writer OR reader) also lands in the global
+            # capacity_exceeded counter, so this identity must hold exactly.
+            "queue_timeouts_equal_429s":
+                qtimeouts == counts["writer_429"] + counts["reader_429"],
+            # Holds only when no reader can time out, i.e. in the control arm.
+            # Under a read flood readers queue behind a writer holding the
+            # exclusive guard, so queue_timeouts exceeds writer_429 and this
+            # going false is itself evidence of the readers starving too.
             "writer_429_equals_queue_timeouts": counts["writer_429"] == qtimeouts,
         },
         "load1_mean": round(sum(loads) / len(loads), 2),
@@ -417,47 +423,84 @@ def merge_blocks(blocks, hot, cold, args, label):
 
 
 def decide(control, flood, args):
-    """Differential verdict. Absolute p99 thresholds are only consulted as a
-    secondary signal, because they are the part machine load can move."""
-    c429, f429 = control["writer_429"], flood["writer_429"]
-    cp99, fp99 = control["writer"]["p99_ms"], flood["writer"]["p99_ms"]
-    ctimeouts = control["queue_timeouts"]
-    ftimeouts = flood["queue_timeouts"]
-    # Writer wait inflation caused by the read flood alone.
-    ratio = None
-    if fp99 is not None and cp99:
-        ratio = round(fp99 / cp99, 1) if cp99 > 0 else None
-    identity = (control["attribution"]["writer_429_equals_queue_timeouts"]
-                and flood["attribution"]["writer_429_equals_queue_timeouts"])
-    starved = f429 > 0 and c429 == 0
-    marginal = (
-        not starved
-        and (f429 > c429
-             or (ratio is not None and ratio >= 3.0
-                 and fp99 is not None and fp99 >= args.writer_p99_ms))
-    )
+    """Differential verdict, driven by the writer REJECTION RATE.
+
+    Rate, not absolute count, and not an absolute p99 threshold. The two
+    arms attempt different numbers of writes (the flood arm is slower, so
+    it issues fewer), and on a contended box both arms sit near the 500ms
+    ACQUIRE_TIMEOUT ceiling where p99 saturates and stops discriminating --
+    an earlier run had p99 502ms control vs 567ms flood, a useless 1.1x, while
+    the rejection rate told the real story: 0.6% vs 9.2%.
+
+    Matched adjacent block pairs carry the most weight: equal duration and
+    near-equal load, so they isolate the read flood from everything else.
+    """
+    def rate(arm):
+        attempts = max(arm["writer"]["count"], 1)
+        rejected = arm["writer_429"] + arm["writer_other"] + arm["writer_transport"]
+        return rejected / attempts, rejected, attempts
+
+    c_rate, c_rej, c_att = rate(control)
+    f_rate, f_rej, f_att = rate(flood)
+    ratio = round(f_rate / c_rate, 1) if c_rate > 0 else None
+
+    # Adjacent control/flood block pairs: same length, load within ~15%.
+    pairs = []
+    for a, b in zip(control["block_series"], flood["block_series"]):
+        ratio_pair = (b["queue_timeouts"] / a["queue_timeouts"]
+                      if a["queue_timeouts"] else None)
+        pairs.append({
+            "control_block": a["t"],
+            "flood_block": b["t"],
+            "control_load1": a["load1"],
+            "flood_load1": b["load1"],
+            "control_queue_timeouts": a["queue_timeouts"],
+            "flood_queue_timeouts": b["queue_timeouts"],
+            "timeout_ratio": round(ratio_pair, 1) if ratio_pair else None,
+        })
+    unanimous = bool(pairs) and all(
+        p["flood_queue_timeouts"] > p["control_queue_timeouts"] for p in pairs)
+    load_matched = [p for p in pairs
+                    if min(p["control_load1"], p["flood_load1"]) > 0
+                    and abs(p["control_load1"] - p["flood_load1"])
+                    / max(p["control_load1"], p["flood_load1"]) <= 0.25]
+
+    starved = (f_rate >= max(2 * c_rate, 0.005)) and f_rate > c_rate
     if starved:
         verdict = "STARVED"
-        why = (f"read flood pushed writer rejections from {c429} to {f429} "
-               f"with no readers present in the control arm")
-    elif marginal:
+        why = (f"read flood raised the writer rejection rate from "
+               f"{100 * c_rate:.2f}% to {100 * f_rate:.2f}% (x{ratio}); "
+               f"{sum(1 for p in pairs if p['flood_queue_timeouts'] > p['control_queue_timeouts'])}"
+               f"/{len(pairs)} matched block pairs separate in the flood's "
+               f"disfavour")
+    elif f_rate > c_rate:
         verdict = "MARGINAL"
-        why = (f"writer rejections {c429}->{f429}, writer p99 {cp99}->{fp99}ms "
-               f"(x{ratio}) -- degraded but not rejected")
+        why = (f"writer rejection rate rose {100 * c_rate:.2f}% -> "
+               f"{100 * f_rate:.2f}% (x{ratio}) -- degraded, not rejected")
     else:
         verdict = "NO_STARVATION"
-        why = (f"writer rejections stayed at {f429} under the flood; "
-               f"writer p99 {cp99}->{fp99}ms (x{ratio})")
+        why = (f"writer rejection rate did not rise under the flood "
+               f"({100 * c_rate:.2f}% -> {100 * f_rate:.2f}%)")
     return {
         "verdict": verdict,
         "reason": why,
-        "writer_p99_inflation_x": ratio,
-        "control_writer_429": c429,
-        "flood_writer_429": f429,
-        "control_queue_timeouts": ctimeouts,
-        "flood_queue_timeouts": ftimeouts,
+        "control_writer_reject_rate": round(c_rate, 5),
+        "flood_writer_reject_rate": round(f_rate, 5),
+        "reject_rate_ratio": ratio,
+        "control_writer_rejected": c_rej,
+        "flood_writer_rejected": f_rej,
+        "control_writer_attempts": c_att,
+        "flood_writer_attempts": f_att,
+        "control_write_per_sec": round(c_att / max(control["seconds"], 1e-9), 1),
+        "flood_write_per_sec": round(f_att / max(flood["seconds"], 1e-9), 1),
+        "matched_block_pairs": pairs,
+        "all_pairs_separate": unanimous,
+        "load_matched_pair_count": len(load_matched),
+        "control_queue_timeouts": control["queue_timeouts"],
+        "flood_queue_timeouts": flood["queue_timeouts"],
+        "control_reader_429": control["reader_429"],
+        "flood_reader_429": flood["reader_429"],
         "absolute_p99_threshold_ms": args.writer_p99_ms,
-        "attribution_identity_held": identity,
     }
 
 
