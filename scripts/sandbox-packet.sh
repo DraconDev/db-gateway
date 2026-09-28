@@ -255,6 +255,13 @@ ROWS_BEFORE="$(row_count rehearsal ledger)"
 # `busy` or deadline failures. Recorded, not claimed -- the §6 gate proper
 # needs the bucket and a 1 GB-shaped sandbox.
 # --------------------------------------------------------------------------
+# ONE REPLICA ROOT PER DATABASE, deliberately. A file replica directory is not
+# namespaced per database: with two databases sharing one path their LTX
+# segments interleave and a restore for one returns the other's snapshot,
+# silently and with exit status 0. An S3 config must give every database its
+# own prefix for the same reason, and the first version of this rehearsal
+# sharing one directory restored a database with no `ledger` table at all.
+mkdir -p "$replica_dir/rehearsal" "$replica_dir/rehearsal_two"
 LITESTREAM_CFG="$rehearsal_root/litestream.yml"
 CONTROL_SOCK="$rehearsal_root/litestream.sock"
 cat > "$LITESTREAM_CFG" <<EOF
@@ -267,7 +274,7 @@ socket:
 dbs:
   - path: $data_dir/rehearsal.sqlite
     replica:
-      path: $replica_dir
+      path: $replica_dir/rehearsal
 EOF
 "$LITESTREAM" replicate -config "$LITESTREAM_CFG" \
     > "$rehearsal_root/litestream.log" 2>&1 &
@@ -331,7 +338,7 @@ fi
 cat >> "$LITESTREAM_CFG" <<EOF
   - path: $data_dir/rehearsal_two.sqlite
     replica:
-      path: $replica_dir
+      path: $replica_dir/rehearsal_two
 EOF
 CONFIG_EDIT_START="(not attempted)"
 "$LITESTREAM" start -socket "$CONTROL_SOCK" "$data_dir/rehearsal_two.sqlite" \
@@ -342,7 +349,7 @@ CONFIG_EDIT_START="(not attempted)"
 REGISTER_CMD="litestream register -socket <sock> -replica file://<dir> <db-path>"
 # -replica must be a URL with a scheme (file:// for a directory), not a bare
 # path; the daemon rejects a scheme-less value outright.
-"$LITESTREAM" register -socket "$CONTROL_SOCK" -replica "file://$replica_dir" \
+"$LITESTREAM" register -socket "$CONTROL_SOCK" -replica "file://$replica_dir/rehearsal_two" \
     "$data_dir/rehearsal_two.sqlite" > "$rehearsal_root/register.log" 2>&1 \
     && REGISTER_RESULT="WORKED" || REGISTER_RESULT="FAILED -- $(head -1 "$rehearsal_root/register.log" 2>/dev/null)"
 
@@ -417,7 +424,7 @@ cat > "$rehearsal_root/restore.yml" <<EOF
 dbs:
   - path: $data_dir/rehearsal.sqlite
     replica:
-      path: $replica_dir
+      path: $replica_dir/rehearsal
 EOF
 if "$LITESTREAM" restore -config "$rehearsal_root/restore.yml" \
     -o "$restore_dir/rehearsal.sqlite" "$data_dir/rehearsal.sqlite" \
@@ -507,6 +514,12 @@ done
     printf 'the CONFIG FILE, so neither can probe a database that was added with\n'
     printf '`litestream register`. For a database added at runtime the daemon log is the\n'
     printf 'only signal available.\n\n'
+    printf 'A REPLICA ROOT IS NOT NAMESPACED PER DATABASE. Two databases sharing one\n'
+    printf 'replica path interleave their LTX segments, and `litestream restore` for one\n'
+    printf 'then returns the OTHER database snapshot: exit status 0, wrong file. Every\n'
+    printf 'S3 config must therefore give each database its own prefix, e.g.\n'
+    printf 's3://<bucket>/<db-name>. The gateway holds N databases, so this is not\n'
+    printf 'optional bookkeeping; it is what makes gate 5 restore the right database.\n\n'
     printf 'A config file is read at STARTUP. Adding a database to the file while the\n'
     printf 'daemon runs does nothing; `litestream start` then answers "database not\n'
     printf 'found". Adding one at runtime requires `litestream register -socket <sock>\n'
