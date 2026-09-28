@@ -252,14 +252,20 @@ def run_arm(base, key, hot, cold, args, label, seconds, readers, server_pid):
         seq = 0
         while not stop.is_set():
             seq += 1
-            # Unique per arm+worker+seq, so no idempotent replay can mask a
-            # lost ack and inflate the write count.
-            key_id = f"starve-{label}-w{worker}-{seq}"
+            # NO Idempotency-Key here, deliberately. The key is recorded in
+            # the same transaction's _dg_replay table, which is a
+            # per-principal capacity guard (MAX_REPLAYS=256 in
+            # src/execution.rs): once 256 unexpired keys exist, EVERY further
+            # keyed write is rejected with 429 capacity_exceeded. A unique
+            # key per write therefore makes the harness reject its own
+            # writes within milliseconds and then report that as starvation.
+            # An unkeyed write is still counted client-side from its
+            # response; a lost ack simply is not counted, which understates
+            # throughput and never overstates it.
             lat, st, _ = call(
                 base, key, "POST", f"/v1/databases/{hot}/query",
                 {"sql": "INSERT INTO events(tag, score) VALUES (?, ?)",
-                 "args": [key_id, 1.0]},
-                idem=key_id,
+                 "args": [f"{label}-w{worker}-{seq}", 1.0]},
             )
             writer_lat.add(lat)
             if st == 599:
@@ -518,6 +524,21 @@ def main():
         if flood["writer"]["count"] < 10:
             raise AssertionError(
                 f"only {flood['writer']['count']} writes completed; run too short")
+
+        # Harness self-check. With NO read flood a healthy gateway rejects
+        # almost nothing, so a control arm that rejects heavily means the
+        # HARNESS is the confound (see the Idempotency-Key note in
+        # writer_thread) and its numbers say nothing about starvation.
+        # Failing loudly beats reporting a confident wrong verdict.
+        ctrl_reject = (control["writer_429"] + control["writer_other"]
+                       + control["writer_transport"])
+        ctrl_total = max(ctrl_reject + control["writer"]["count"], 1)
+        if ctrl_reject / ctrl_total > 0.02:
+            raise AssertionError(
+                f"control arm rejected {ctrl_reject}/{ctrl_total} writes with no "
+                f"read flood -- the harness is the confound, not the server "
+                f"(429={control['writer_429']} other={control['writer_other']} "
+                f"transport={control['writer_transport']})")
 
         verdict = decide(control, flood, args)
         summary = {
