@@ -115,13 +115,22 @@ impl QueueState {
     }
 
     /// Whether the reader holding `ticket` may take the shared guard.
+    ///
+    /// The bound is carried by `serving == ticket` on its own: a writer that
+    /// arrived earlier still sitting in `waiting_writers` is holding the
+    /// gate at its own smaller ticket, so `serving` cannot have reached this
+    /// reader. The third clause is therefore a REDUNDANT restatement of that,
+    /// kept because it names the property where a reader of this code looks
+    /// for it and because it would catch a future change that dropped the
+    /// ticket check. It must not be read as the mechanism: mutating it alone
+    /// changes no behaviour, which is exactly what makes it redundant.
     fn reader_may_enter(&self, ticket: u64) -> bool {
         !self.writer_active
             && self.serving == ticket
-            // A writer that arrived first closes the gate. This is the whole
-            // bound: it does not care how many readers are queued behind that
-            // writer, only that the writer got there first.
-            && self.waiting_writers.first().is_none_or(|ahead| *ahead > ticket)
+            && self
+                .waiting_writers
+                .first()
+                .is_none_or(|ahead| *ahead > ticket)
     }
 
     /// Whether the writer holding `ticket` may take the exclusive guard.
@@ -259,11 +268,11 @@ impl AdmissionQueue {
     }
 }
 
-/// Per-database admission-queue waits since boot. `acquire_queue` polls
-/// without FIFO fairness, so a continuous read flood can delay a writer;
-/// these counters are the starvation measurement that showed it and that
-/// now guards the writer-preferring bound: `timeouts` should stay flat under
-/// a read flood, and any sustained growth means the bound is not holding.
+/// Per-database admission-queue waits since boot. These counters are the
+/// starvation measurement that settled scale Phase 2, and they are also how
+/// the bound is kept honest: under a read flood on one database `timeouts`
+/// should stay flat, and sustained growth means the writer-preferring bound
+/// in `AdmissionQueue` is not holding.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DbQueue {
     pub waits: u64,
@@ -1118,11 +1127,12 @@ impl Store {
     /// capped at ACQUIRE_TIMEOUT and every wait is recorded for the
     /// starvation measurement (`DbQueue`, served by `/v1/status`).
     ///
-    /// The queue itself is phase-fair and writer-preferring; see
-    /// `AdmissionQueue` for the two designs that were measured and rejected.
-    /// In short: a read flood cannot delay a writer (a queued writer closes
-    /// the read phase at once), and a writer stream cannot starve readers
-    /// (queued readers get the next phase).
+    /// The queue is a fair, writer-preferring ticket lock; see
+    /// `AdmissionQueue` for the three designs measured here and why two were
+    /// rejected. In short: admission follows arrival order, so a read flood
+    /// cannot delay a writer (no reader arriving after a queued writer can
+    /// take the shared guard ahead of it) and a writer stream cannot starve
+    /// readers (a reader waits only on finitely many earlier tickets).
     pub fn acquire_queue(&self, name: &str, write: bool) -> Result<QueueGuard> {
         let queue = self.queue(name)?;
         let start = Instant::now();
@@ -2871,7 +2881,8 @@ mod tests {
     }
 
     /// The regression the writer-preferring FLAG caused, which is why the
-    /// queue is phase-fair rather than a flag: that flag fixed the writers
+    /// queue is a fair ticket lock rather than a flag: that flag fixed the
+    /// writers
     /// and starved the readers, 4,260 reader rejections against 5 writer
     /// rejections in one soak run. A continuous stream of writers must still
     /// let a waiting reader in.
@@ -2928,14 +2939,24 @@ mod tests {
     /// Reader count matches the server's own READ_PERMITS=8.
     #[test]
     fn sustained_read_flood_still_admits_writers() {
-        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
-        const READERS: usize = 8;
-        const WRITERS: usize = 2;
-        const HOLD: Duration = Duration::from_millis(2);
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(Store::open(dir.path()).unwrap());
         store.create("qdb").unwrap();
+        for hold in [Duration::from_millis(2), Duration::from_millis(20)] {
+            sustained_flood_case(&store, hold);
+        }
+    }
 
+    /// One sustained-flood case at a given reader hold time. 2ms is the fast
+    /// case; 20ms is the slow one, and it is the one that matters most: a
+    /// writer's wait is bounded by the batch of readers already inside, so a
+    /// longer hold is a longer wait, and 8 readers x 20ms = 160ms is still
+    /// inside ACQUIRE_TIMEOUT. A hold long enough to push a writer past the
+    /// bound would be a genuinely unreadable read, not a realistic one.
+    fn sustained_flood_case(store: &Arc<Store>, hold: Duration) {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
+        const READERS: usize = 8;
+        const WRITERS: usize = 2;
         let stop = Arc::new(AtomicBool::new(false));
         let granted = Arc::new(AtomicUsize::new(0));
         let rejected = Arc::new(AtomicUsize::new(0));
@@ -2949,7 +2970,7 @@ mod tests {
                         // A real hold, like a range scan over a few thousand
                         // rows, then straight back in with no client gap for a
                         // writer to slip through.
-                        thread::sleep(HOLD);
+                        thread::sleep(hold);
                     }
                 }
             }));
@@ -2969,7 +2990,7 @@ mod tests {
             }));
         }
 
-        thread::sleep(Duration::from_millis(1_500));
+        thread::sleep(Duration::from_millis(1_000));
         stop.store(true, AtomicOrdering::SeqCst);
         for t in threads {
             t.join().unwrap();
@@ -2980,9 +3001,113 @@ mod tests {
         let rate = ok as f64 / total as f64;
         assert!(
             rate > 0.25,
-            "sustained read flood denied writers: only {ok}/{total} admitted \
-             ({:.1}%), {bad} timed out at ACQUIRE_TIMEOUT",
+            "sustained read flood with a {hold:?} hold denied writers: only \
+             {ok}/{total} admitted ({:.1}%), {bad} timed out at ACQUIRE_TIMEOUT",
             rate * 100.0
+        );
+    }
+
+    /// The exclusive guard must actually exclude. A ticket lock is only worth
+    /// its complexity if it never lets a writer in beside a reader or beside
+    /// another writer, and nothing else in the suite asserted that directly:
+    /// `readers_still_share_the_guard_when_no_writer_waits` covers only the
+    /// reader-sharing case. The counters are bumped INSIDE the guard, so any
+    /// overlap the queue wrongly allowed shows up as a violation.
+    #[test]
+    fn the_exclusive_guard_excludes_readers_and_other_writers() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as Seq};
+        const WRITERS: usize = 4;
+        const READERS: usize = 4;
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(dir.path()).unwrap());
+        store.create("qdb").unwrap();
+
+        let active_writers = Arc::new(AtomicUsize::new(0));
+        let active_readers = Arc::new(AtomicUsize::new(0));
+        let two_writers = Arc::new(AtomicUsize::new(0));
+        let writer_beside_reader = Arc::new(AtomicUsize::new(0));
+        let writer_admits = Arc::new(AtomicUsize::new(0));
+        let reader_admits = Arc::new(AtomicUsize::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+        let mut threads = Vec::new();
+
+        for _ in 0..WRITERS {
+            let s = store.clone();
+            let aw = active_writers.clone();
+            let ar = active_readers.clone();
+            let two = two_writers.clone();
+            let beside = writer_beside_reader.clone();
+            let ok = writer_admits.clone();
+            let t = stop.clone();
+            threads.push(thread::spawn(move || {
+                while !t.load(Seq::SeqCst) {
+                    let Ok(_guard) = s.acquire_queue("qdb", true) else {
+                        continue;
+                    };
+                    ok.fetch_add(1, Seq::SeqCst);
+                    if aw.fetch_add(1, Seq::SeqCst) != 0 {
+                        two.fetch_add(1, Seq::SeqCst);
+                    }
+                    if ar.load(Seq::SeqCst) != 0 {
+                        beside.fetch_add(1, Seq::SeqCst);
+                    }
+                    for _ in 0..2_000 {
+                        std::hint::spin_loop();
+                    }
+                    aw.fetch_sub(1, Seq::SeqCst);
+                }
+            }));
+        }
+        for _ in 0..READERS {
+            let s = store.clone();
+            let aw = active_writers.clone();
+            let ar = active_readers.clone();
+            let beside = writer_beside_reader.clone();
+            let ok = reader_admits.clone();
+            let t = stop.clone();
+            threads.push(thread::spawn(move || {
+                while !t.load(Seq::SeqCst) {
+                    let Ok(_guard) = s.acquire_queue("qdb", false) else {
+                        continue;
+                    };
+                    ok.fetch_add(1, Seq::SeqCst);
+                    // Checked before this reader is counted, so the only way
+                    // to see a writer here is a genuine overlap.
+                    if aw.load(Seq::SeqCst) != 0 {
+                        beside.fetch_add(1, Seq::SeqCst);
+                    }
+                    ar.fetch_add(1, Seq::SeqCst);
+                    for _ in 0..2_000 {
+                        std::hint::spin_loop();
+                    }
+                    ar.fetch_sub(1, Seq::SeqCst);
+                }
+            }));
+        }
+
+        thread::sleep(Duration::from_millis(800));
+        stop.store(true, Seq::SeqCst);
+        for t in threads {
+            t.join().unwrap();
+        }
+        assert_eq!(
+            two_writers.load(Seq::SeqCst),
+            0,
+            "two writers held the exclusive guard at once"
+        );
+        assert_eq!(
+            writer_beside_reader.load(Seq::SeqCst),
+            0,
+            "a writer was admitted while a reader held the shared guard"
+        );
+        // Non-vacuity: both lanes have to have actually run, or the two
+        // assertions above prove nothing.
+        assert!(
+            writer_admits.load(Seq::SeqCst) > 0 && reader_admits.load(Seq::SeqCst) > 0,
+            "nothing was admitted, so the exclusion proved nothing: {} writer \
+             admissions, {} reader admissions",
+            writer_admits.load(Seq::SeqCst),
+            reader_admits.load(Seq::SeqCst)
         );
     }
 
