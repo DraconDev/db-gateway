@@ -2838,15 +2838,20 @@ mod tests {
 
         let stop = Arc::new(AtomicBool::new(false));
         let mut writers = Vec::new();
-        for _ in 0..2 {
+        // WRITE_PERMITS writers, each holding the exclusive guard long enough
+        // to keep a real backlog queued. With too few writers, or ones that
+        // release instantly, the queue drains between acquisitions and a
+        // reader slips through a gap -- which would make this test pass even
+        // when readers ARE being starved.
+        for _ in 0..4 {
             let writer_store = store.clone();
             let writer_stop = stop.clone();
             writers.push(thread::spawn(move || {
                 while !writer_stop.load(AtomicOrdering::SeqCst) {
-                    // A writer that is shed still wanted the queue; what is
-                    // under test is the reader's progress, not the writers'
-                    // throughput.
                     if let Ok(guard) = writer_store.acquire_queue("qdb", true) {
+                        for _ in 0..20_000 {
+                            std::hint::spin_loop();
+                        }
                         drop(guard);
                     }
                 }
