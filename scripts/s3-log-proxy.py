@@ -440,7 +440,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--faults", default=None)
     p.add_argument("--region", default="us-east-1")
     p.add_argument("--print-listen", action="store_true",
-                   help="write the bound port to stdout, close stdout, then serve")
+                   help="write the bound port to stdout and then serve. The caller must "
+                        "background this process; a command substitution around it waits "
+                        "for a process that never exits. Use --port-file instead")
     p.add_argument("--port-file", default=None,
                    help="write the bound port to this file, then serve. The race-free "
                         "way to learn a port chosen by the OS: wait for the file to "
@@ -482,9 +484,8 @@ def main(argv: list[str] | None = None) -> int:
         os.replace(tmp, args.port_file)
     if args.print_listen:
         print(f"127.0.0.1:{bound}", flush=True)
-        # Close stdout so a `$(...)` capture around this command returns. Logs
-        # and diagnostics belong on stderr or in --log, not on a stream a caller
-        # is waiting to drain.
+        # Nothing more is written to stdout, so a caller that does background this
+        # and redirects stdout gets a clean stream with no log noise on it.
         try:
             sys.stdout.close()
         except Exception:
