@@ -132,6 +132,7 @@ class S3Client:
         path_style: bool = True,
         bucket: str | None = None,
         timeout: float = DEFAULT_TIMEOUT,
+        ca_bundle: str | None = None,
     ) -> None:
         if not access_key_id or not secret_access_key:
             # Refused here rather than downstream: an unsigned request that
@@ -146,6 +147,18 @@ class S3Client:
         self.path_style = path_style
         self.bucket = bucket
         self.timeout = timeout
+        # A rehearsal endpoint serves TLS with a self-signed certificate, the
+        # same shape as a real S3 endpoint. Trusting it explicitly (rather than
+        # disabling verification) keeps the rehearsal's TLS behaviour identical
+        # to the real run's, so a gate cannot pass here and fail against OVH
+        # because the certificate check was switched off.
+        self.ca_bundle = ca_bundle
+        self._opener: urllib.request.OpenerDirector | None = None
+        if ca_bundle:
+            if not os.path.exists(ca_bundle):
+                raise ValueError(f"--ca-bundle {ca_bundle} does not exist")
+            ctx = ssl.create_default_context(cafile=ca_bundle)
+            self._opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx))
         # S3 SigV4 signs the host it will connect to, so the two must agree. In
         # virtual-host style the bucket is part of the signed host; in path
         # style it is part of the canonical URI instead.
@@ -237,7 +250,8 @@ class S3Client:
             req.add_header(k, v)
 
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            open_fn = self._opener.open if self._opener is not None else urllib.request.urlopen
+            with open_fn(req, timeout=self.timeout) as resp:
                 return resp.status, {k.lower(): v for k, v in resp.headers.items()}, resp.read()
         except urllib.error.HTTPError as exc:
             raw = exc.read()
@@ -499,6 +513,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--bucket", required=True)
     p.add_argument("--region", default="us-east-1")
     p.add_argument("--scheme", default="https", choices=["http", "https"])
+    p.add_argument("--ca-bundle", default=None,
+                   help="PEM of the CA to trust for https (the rehearsal endpoint's "
+                        "self-signed certificate)")
     p.add_argument("--path-style", dest="path_style", action="store_true", default=True)
     p.add_argument(
         "--virtual-host-style",
@@ -540,6 +557,7 @@ def main(argv: list[str] | None = None) -> int:
             path_style=args.path_style,
             bucket=args.bucket,
             timeout=args.timeout,
+            ca_bundle=args.ca_bundle,
         )
     except ValueError as exc:
         # A clean exit 2 with the reason, not a traceback: this is a

@@ -56,13 +56,56 @@ emit_exports() {
     cat <<EOF
 export DG_SANDBOX_BUCKET='$BUCKET'
 export DG_SANDBOX_ENDPOINT='127.0.0.1:$(cat "$STATE_DIR/proxy_port")'
-export DG_SANDBOX_SCHEME='http'
+export DG_SANDBOX_SCHEME='https'
 export DG_SANDBOX_REGION='us-east-1'
 export DG_SANDBOX_ACCESS_KEY_ID='$KEY_ID'
 export DG_SANDBOX_SECRET_KEY='$SECRET'
 export DG_SANDBOX_FAULT_FILE='$STATE_DIR/faults'
+export DG_SANDBOX_CA_BUNDLE='$STATE_DIR/tls/ca.pem'
 export DG_SANDBOX_REHEARSAL=1
 EOF
+}
+
+# A self-signed certificate for 127.0.0.1. The rehearsal endpoint serves TLS
+# because litestream always builds https:// URLs for an S3 endpoint: against a
+# plain-http endpoint it writes nothing at all and every gate fails for a
+# reason that has nothing to do with the gate. The certificate is handed to the
+# packet as a CA bundle so the rehearsal needs no skip-verify, and the
+# "minimal working replica URL" the packet reports stays exactly what OVH needs.
+make_cert() {
+    mkdir -p "$STATE_DIR/tls"
+    if command -v openssl >/dev/null 2>&1; then
+        openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
+            -keyout "$STATE_DIR/tls/key.pem" -out "$STATE_DIR/tls/ca.pem" \
+            -subj "/CN=127.0.0.1" \
+            -addext "subjectAltName=IP:127.0.0.1,DNS:localhost" >/dev/null 2>&1 && return 0
+    fi
+    python3 - "$STATE_DIR/tls" <<'PY' 2>/dev/null || return 1
+import datetime as dt, ipaddress, sys
+from pathlib import Path
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
+
+out = Path(sys.argv[1])
+key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "127.0.0.1")])
+now = dt.datetime.now(dt.timezone.utc)
+cert = (x509.CertificateBuilder()
+        .subject_name(name).issuer_name(name).public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - dt.timedelta(minutes=5))
+        .not_valid_after(now + dt.timedelta(days=2))
+        .add_extension(x509.SubjectAlternativeName([
+            x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
+            x509.DNSName("localhost")]), critical=False)
+        .sign(key, hashes.SHA256()))
+(out / "key.pem").write_bytes(key.private_bytes(
+    serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL,
+    serialization.NoEncryption()))
+(out / "ca.pem").write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+PY
 }
 
 start() {
@@ -94,6 +137,10 @@ EOF
     mkdir -p "$STATE_DIR/data" "$STATE_DIR/log"
     echo "$$" > "$STATE_DIR/owner.pid"
     audit start
+    if ! make_cert; then
+        echo "could not create a TLS certificate for the rehearsal endpoint" >&2
+        exit 1
+    fi
     S3_PORT="$(free_port)"
     PROXY_PORT="$(free_port)"
 
@@ -119,6 +166,7 @@ sys.exit(0 if s.connect_ex(('127.0.0.1',$S3_PORT))==0 else 1)" 2>/dev/null && br
         --access-key-id "$KEY_ID" --secret-access-key "$SECRET" \
         --log "$STATE_DIR/log/requests.jsonl" \
         --faults "$STATE_DIR/faults" \
+        --tls-cert "$STATE_DIR/tls/ca.pem" --tls-key "$STATE_DIR/tls/key.pem" \
         > "$STATE_DIR/log/proxy.log" 2>&1 &
     PROXY_PID=$!
     echo "$PROXY_PID" >> "$STATE_DIR/pids"
@@ -134,7 +182,9 @@ sys.exit(0 if s.connect_ex(('127.0.0.1',$PROXY_PORT))==0 else 1)" 2>/dev/null &&
 
     # The bucket is created through the proxy, so its existence is proved by the
     # same signed path litestream will use rather than by a side door.
-    python3 "$(dirname "$PROXY")/s3probe.py" --endpoint "127.0.0.1:$PROXY_PORT" --scheme http \
+    REHEARSAL_CA="$STATE_DIR/tls/ca.pem" \
+    python3 "$(dirname "$PROXY")/s3probe.py" --endpoint "127.0.0.1:$PROXY_PORT" --scheme https \
+        --ca-bundle "$STATE_DIR/tls/ca.pem" \
         --bucket "$BUCKET" --access-key-id "$KEY_ID" --secret-access-key "$SECRET" \
         create-bucket >/dev/null 2>&1 || true
 
