@@ -29,6 +29,9 @@
 # can be discovered. Gate 10 asserts this rather than trusting the comment.
 
 set -euo pipefail
+# `DG_SANDBOX_TRACE=1` turns on xtrace so a mid-gate exit that produces no
+# stderr of its own still leaves a trail in the driver log.
+[ "${DG_SANDBOX_TRACE:-0}" = "1" ] && set -x
 
 PIN_VERSION="0.5.17"
 # Resolved against the real home only if the parent has not already pinned it.
