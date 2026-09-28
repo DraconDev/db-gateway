@@ -17,6 +17,15 @@ Every 60s it samples the server's VmRSS. At the end it asserts:
 Prints a one-line JSON summary to stdout and appends per-minute
 `{"t", "rss_kb", "reqs", "errs", "p50_ms", "p99_ms"}` samples to --out.
 Exit nonzero on any failed assertion.
+
+This harness round-robins across four databases, and `Store::acquire_queue`
+takes a PER-DATABASE guard, so spreading the load that way means the
+contended lock is never contended and per-database queue waits stay at zero
+however busy the server is. That is fine for what this harness is for, and it
+is why it cannot answer a starvation question: use scripts/soak_starvation.py
+for that, which drives ONE hot database and reads the per-database
+`queue_waits` / `queue_timeouts` counters off GET /v1/status. See
+docs/soak-starvation-evidence.log.
 """
 
 import argparse
