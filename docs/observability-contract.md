@@ -1,10 +1,13 @@
-# Observability contract (M3 design; §2 freshness implemented 2026-09-23)
+# Observability contract (M3 design; §2 freshness implemented 2026-09-23, §3 alert 4 delivery implemented 2026-09-28)
 
 Status: **§1 signal classes stand; §2 backup freshness is implemented** as
 `GET /v1/backups` + `dg backup status` (set-membership freshness against
 gateway-native versioned sets; write markers are durable across restart;
 restore drill still separate), and request
-pressure as `GET /v1/status` + `dg status`. Disk/RSS/alert integrations
+pressure as `GET /v1/status` + `dg status`. **§3 alert 4 is now delivered**
+per §3a below: immediate notice on a failed backup attempt plus a daily
+per-database fresh/stale/unknown digest, off by default and enabled per
+gateway by flag. Disk/RSS/alert integrations
 remain future work. This contract defines the signals
 needed to operate DB Gateway and a future backup sidecar. The canonical first
 backup tier is **per-database consistent verified snapshots**; continuous
@@ -68,7 +71,7 @@ Minimum future alerts are:
 3. sustained request pressure or deadline failures;
 4. backup attempt failure, committed changes not represented by a verified
    copy within the owner-approved snapshot cadence (§2), missing database,
-   or missing registry;
+   or missing registry. **Delivered** — see "alert 4 delivery" below;
 5. restore verification failure or an artifact checksum mismatch;
 6. resource measurements outside the accepted host budget.
 
@@ -76,6 +79,40 @@ Alerts must identify the database (when applicable), last verified timestamp,
 current age, failure reason, and a bounded operator action. No alert should
 claim data-loss prevention, an RPO, or an RTO before the owner accepts the
 corresponding profile and the sandbox/live evidence exists.
+
+## 3a. Alert 4 delivery: sink and cadence
+
+Owner decision 2026-09-27 (docs/recovery-decisions.md §6.5): immediate notice
+on failure plus a daily digest of per-database fresh/stale/unknown. The
+exposure half is §2 above; this is the delivery half, and it is what the
+decision called the floor, because no alert stack exists in the project.
+
+| | value | where it is set |
+| --- | --- | --- |
+| Digest sink | one structured log line per notification, always on | `LogSink` (src/notify.rs); systemd captures stderr |
+| Second sink | POST the note as JSON to an owner-supplied URL: HTTPS, or plain HTTP on a literal loopback address; no proxy, no redirects | `dg serve --backup-notify-webhook URL` |
+| Digest cadence | 24h by default, first digest one full period after startup, never on boot | `dg serve --backup-digest-secs N` (0 = digest off) |
+| Immediate-failure notice | one notice per failed attempt, as soon as the producer records it; polling every 60s by default | `dg serve --backup-failure-poll-secs N` (0 = no immediate notice) |
+| Failure signal | `$BACKUP_ROOT/attempts.jsonl`, appended by `scripts/micro2-backup.sh`: outcome, step reached, set | `read_attempts` (src/backup_health.rs) |
+| Freshness rule | §2, computed once and shared by `/v1/backups`, `dg backup status`, `dg backup digest` and the digest sink | `snapshot` (src/backup_health.rs) |
+| On-demand | `dg backup digest [--json]`, reads the data directory directly, so it works with the gateway stopped; exits nonzero when any database is stale or unknown | owner-only equivalent of the delivered digest |
+
+Delivery is off unless a flag asks for it: a gateway with no notification
+flags sends nothing anywhere. The log sink is unconditional once delivery is
+enabled because structured logging is already the service's operator channel,
+and it is the sink that cannot quietly stop working — a webhook returning 500
+is a reported delivery failure, not a silent loss, and it never blocks the
+other sinks.
+
+What the delivered note carries, per §3: the database, its state, the newest
+verified set, the age, the failing attempt and the step it reached, and a
+bounded operator action. What it must never carry: an RPO, an RTO, or a
+data-loss claim. `Note` has no field for any of them, so there is nowhere to
+put one — none is accepted yet.
+
+What delivery is *not*: coverage evidence. A digest says a database is fresh
+against the cadence in §2; it is not a restore, and a passing digest does not
+close the restore-verification gate in §5.
 
 ## 4. Evidence and implementation gates
 
