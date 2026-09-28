@@ -879,7 +879,12 @@ kill "$G8_LS_PID" 2>/dev/null || true; wait "$G8_LS_PID" 2>/dev/null || true
 G8_N_SERVED=0
 for s in ${G8_SERVED[@]+"${G8_SERVED[@]}"}; do [ "$s" = "served" ] && G8_N_SERVED=$((G8_N_SERVED+1)); done
 G8_TOTAL=${#G8_SERVED[@]}
-G8_N_FAULTS=3
+G8_N_STALE_ATTEMPTED=${#G8_STALE_OK[@]}
+# The stale-check is skipped for a fault that blocks the restore's own path
+# (near-quota: the LIST it injects is exactly the restore's first call), so
+# the attempted count is what "absent from the bucket" measures, not the
+# number of phases. The daemon-log and sync-reported counts cover all phases.
+G8_N_FAULTS=$G8_N_STALE_ATTEMPTED
 G8_N_STALE_OK=0
 for s in ${G8_STALE_OK[@]+"${G8_STALE_OK[@]}"}; do [ "$s" = "yes" ] && G8_N_STALE_OK=$((G8_N_STALE_OK+1)); done
 G8_N_SURFACED=0
