@@ -339,8 +339,10 @@ CONFIG_EDIT_START="(not attempted)"
     && CONFIG_EDIT_START="config edit + litestream start: WORKED" \
     || CONFIG_EDIT_START="config edit + litestream start: FAILED -- $(head -1 "$rehearsal_root/start-after-config-edit.log" 2>/dev/null)"
 
-REGISTER_CMD="litestream register -socket <sock> -replica <url> <db-path>"
-"$LITESTREAM" register -socket "$CONTROL_SOCK" -replica "$replica_dir" \
+REGISTER_CMD="litestream register -socket <sock> -replica file://<dir> <db-path>"
+# -replica must be a URL with a scheme (file:// for a directory), not a bare
+# path; the daemon rejects a scheme-less value outright.
+"$LITESTREAM" register -socket "$CONTROL_SOCK" -replica "file://$replica_dir" \
     "$data_dir/rehearsal_two.sqlite" > "$rehearsal_root/register.log" 2>&1 \
     && REGISTER_RESULT="WORKED" || REGISTER_RESULT="FAILED -- $(head -1 "$rehearsal_root/register.log" 2>/dev/null)"
 
