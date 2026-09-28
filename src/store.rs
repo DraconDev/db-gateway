@@ -2877,6 +2877,74 @@ mod tests {
         );
     }
 
+    /// A SUSTAINED read flood must not deny writers. The reader threads here
+    /// re-acquire immediately with no client-side gap, which is the shape a
+    /// genuinely read-bound workload has and the shape the previous
+    /// `writer_phase` design failed: because `refresh_phase` handed the read
+    /// phase to any queued reader, `waiting_readers` was never zero, so a
+    /// queued writer was never preferred and timed out almost every time.
+    ///
+    /// Reader count matches the server's own READ_PERMITS=8.
+    #[test]
+    fn sustained_read_flood_still_admits_writers() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
+        const READERS: usize = 8;
+        const WRITERS: usize = 2;
+        const HOLD: Duration = Duration::from_millis(2);
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(dir.path()).unwrap());
+        store.create("qdb").unwrap();
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let granted = Arc::new(AtomicUsize::new(0));
+        let rejected = Arc::new(AtomicUsize::new(0));
+        let mut threads = Vec::new();
+        for _ in 0..READERS {
+            let s = store.clone();
+            let t = stop.clone();
+            threads.push(thread::spawn(move || {
+                while !t.load(AtomicOrdering::SeqCst) {
+                    if let Ok(_g) = s.acquire_queue("qdb", false) {
+                        // A real hold, like a range scan over a few thousand
+                        // rows, then straight back in with no client gap for a
+                        // writer to slip through.
+                        thread::sleep(HOLD);
+                    }
+                }
+            }));
+        }
+        for _ in 0..WRITERS {
+            let s = store.clone();
+            let t = stop.clone();
+            let g = granted.clone();
+            let r = rejected.clone();
+            threads.push(thread::spawn(move || {
+                while !t.load(AtomicOrdering::SeqCst) {
+                    match s.acquire_queue("qdb", true) {
+                        Ok(_g) => g.fetch_add(1, AtomicOrdering::SeqCst),
+                        Err(_) => r.fetch_add(1, AtomicOrdering::SeqCst),
+                    };
+                }
+            }));
+        }
+
+        thread::sleep(Duration::from_millis(1_500));
+        stop.store(true, AtomicOrdering::SeqCst);
+        for t in threads {
+            t.join().unwrap();
+        }
+        let ok = granted.load(AtomicOrdering::SeqCst);
+        let bad = rejected.load(AtomicOrdering::SeqCst);
+        let total = (ok + bad).max(1);
+        let rate = ok as f64 / total as f64;
+        assert!(
+            rate > 0.25,
+            "sustained read flood denied writers: only {ok}/{total} admitted \
+             ({:.1}%), {bad} timed out at ACQUIRE_TIMEOUT",
+            rate * 100.0
+        );
+    }
+
     /// The bound must not simply hand the queue to the writers: with no
     /// writer waiting, concurrent readers still admit each other at once.
     #[test]
