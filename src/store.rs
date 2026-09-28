@@ -3171,8 +3171,9 @@ mod tests {
         let mut overtakings = 0;
 
         for trial in 0..TRIALS {
-            // A guard already held, so both waiters queue behind it and their
-            // relative order is decided by when they take their tickets.
+            // A guard already held, so the writer and every reader queue
+            // behind it and their relative order is decided by when they take
+            // their tickets.
             let held = store.acquire_queue("qdb", false).unwrap();
             let stamp = Arc::new(AtomicUsize::new(0));
             let writer_at = Arc::new(AtomicUsize::new(usize::MAX));
