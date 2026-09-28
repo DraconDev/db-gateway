@@ -60,12 +60,13 @@ STATUS=0
 
 # Everything this script starts is torn down whatever happens, including on an
 # interrupt: a rehearsal that leaves a proxy bound to a port is a rehearsal that
-# made the next one fail confusingly.
-cleanup() {
+# made the next one fail confusingly. Idempotent, because the main flow calls
+# it before checking what it left.
+teardown() {
     DG_REHEARSAL_STATE="$STATE_DIR" "$ENDPOINT_SCRIPT" stop >/dev/null 2>&1 || true
     rm -rf "$SANDBOX_DIR"
 }
-trap cleanup EXIT INT TERM
+trap teardown EXIT INT TERM
 
 echo "== starting the disposable endpoint" >&2
 if ! EXPORTS="$(DG_REHEARSAL_STATE="$STATE_DIR" "$ENDPOINT_SCRIPT" start)"; then
@@ -86,7 +87,11 @@ timeout "$TIMEOUT_S" "$PACKET_SCRIPT" --out "$OUT" --rehearsal
 STATUS=$?
 echo "== packet exited $STATUS" >&2
 
-"$ENDPOINT_SCRIPT" stop >/dev/null 2>&1 || true
+# Teardown BEFORE the checks below. They assert that teardown left nothing
+# behind, so they have to run after it -- and asserting before the cleanup has
+# run reports this driver's own working directory as residue, which is how the
+# first rehearsal "failed" a run that had leaked nothing at all.
+teardown
 
 # --------------------------------------------------------------------------
 # Post-run assertions. These are the claims the packet could not make about
@@ -101,7 +106,7 @@ echo "== packet exited $STATUS" >&2
 
 post() { printf '%s\n' "$@" >> "$OUT"; }
 
-# 1. the packet's own sandbox tree is gone
+# 1. the packet's own sandbox tree and this run's endpoint state are gone
 if [ -e "$SANDBOX_DIR" ]; then post "RESIDUE: $SANDBOX_DIR still exists"; STATUS=1
 else post "sandbox tree removed: $SANDBOX_DIR"; fi
 

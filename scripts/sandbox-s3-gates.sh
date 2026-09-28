@@ -303,7 +303,9 @@ c.commit()
 PY
     timeout 25 "$LITESTREAM" replicate -config "$cfg" > "$SANDBOX/gate3-$label.log" 2>&1 || true
     sleep 1
-    pkill -f "s3-log-proxy.py --listen $pport" 2>/dev/null || true
+    # By pid, not by a --listen pattern: the cmdline always says 127.0.0.1:0.
+    [ -n "$PROXY_PID" ] && kill "$PROXY_PID" 2>/dev/null || true
+    wait "$PROXY_PID" 2>/dev/null || true
     local puts
     puts="$(grep -c '"method": "PUT"' "$log" 2>/dev/null || true)"
     puts="${puts:-0}"
@@ -623,7 +625,6 @@ if [ -x "$DG_BIN" ]; then
     "$DG_BIN" serve --listen "127.0.0.1:$G8_PORT" --data-dir "$G8_DATA" > "$G8_ROOT/serve.log" 2>&1 &
     G8_SERVE_PID=$!
     CLEANUP+=("kill \$G8_SERVE_PID 2>/dev/null || true")
-    CLEANUP+=("pkill -f 's3-log-proxy.py --listen $G8_PROXY_PORT' 2>/dev/null || true")
     for _ in $(seq 1 100); do
         "$DG_BIN" --server "http://127.0.0.1:$G8_PORT" --key-file "$G8_KEY" status >/dev/null 2>&1 && break
         sleep 0.1
