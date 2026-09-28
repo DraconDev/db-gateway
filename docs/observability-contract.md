@@ -89,20 +89,33 @@ decision called the floor, because no alert stack exists in the project.
 
 | | value | where it is set |
 | --- | --- | --- |
-| Digest sink | one structured log line per notification, always on | `LogSink` (src/notify.rs); systemd captures stderr |
+| Digest sink | one structured log line per notification, always on once delivery is enabled | `LogSink` (src/notify.rs); systemd captures stderr |
 | Second sink | POST the note as JSON to an owner-supplied URL: HTTPS, or plain HTTP on a literal loopback address; no proxy, no redirects | `dg serve --backup-notify-webhook URL` |
-| Digest cadence | 24h by default, first digest one full period after startup, never on boot | `dg serve --backup-digest-secs N` (0 = digest off) |
-| Immediate-failure notice | one notice per failed attempt, as soon as the producer records it; polling every 60s by default | `dg serve --backup-failure-poll-secs N` (0 = no immediate notice) |
+| Digest cadence | 24h; the first digest goes out one full period after startup, never on boot | `dg serve --backup-digest-secs N`, **default 0 (off)** |
+| Immediate-failure notice | one notice per failed attempt, as soon as the producer records it; polled every 60s | `dg serve --backup-failure-poll-secs N`, **default 0 (off)** |
 | Failure signal | `$BACKUP_ROOT/attempts.jsonl`, appended by `scripts/micro2-backup.sh`: outcome, step reached, set | `read_attempts` (src/backup_health.rs) |
 | Freshness rule | §2, computed once and shared by `/v1/backups`, `dg backup status`, `dg backup digest` and the digest sink | `snapshot` (src/backup_health.rs) |
-| On-demand | `dg backup digest [--json]`, reads the data directory directly, so it works with the gateway stopped; exits nonzero when any database is stale or unknown | owner-only equivalent of the delivered digest |
+| On demand | `dg backup digest [--json]`, reads the data directory directly, so it works with the gateway stopped; exits nonzero when any database is stale or unknown | owner-only equivalent of the delivered digest |
+| Delivery is opt-in | no flag, no notification anywhere: both cadences default to 0 | the decision was delivery, not a new default behaviour for every gateway |
 
-Delivery is off unless a flag asks for it: a gateway with no notification
-flags sends nothing anywhere. The log sink is unconditional once delivery is
-enabled because structured logging is already the service's operator channel,
-and it is the sink that cannot quietly stop working — a webhook returning 500
-is a reported delivery failure, not a silent loss, and it never blocks the
-other sinks.
+The owner's daily-digest decision is therefore this one flag set, with the
+cadence the decision names:
+
+```sh
+dg serve --backup-digest-secs 86400 --backup-failure-poll-secs 60 \
+         [--backup-notify-webhook https://…/hook]
+```
+
+With `--backup-digest-secs 0` only the immediate failure notice runs, and
+with `--backup-failure-poll-secs 0` only the digest runs. Either is a
+legitimate configuration; neither is a degraded one.
+
+Delivery is off unless a flag asks for it, so a gateway that nobody opted in
+sends nothing anywhere and no existing deployment changes behaviour. Once
+enabled, the log sink is unconditional because structured logging is already
+the service's operator channel, and it is the sink that cannot quietly stop
+working — a webhook returning 500 is a reported delivery failure, not a
+silent loss, and it never blocks the other sinks.
 
 What the delivered note carries, per §3: the database, its state, the newest
 verified set, the age, the failing attempt and the step it reached, and a
@@ -131,3 +144,8 @@ Before implementation or live rollout, attach:
 This contract deliberately does not choose Prometheus, journald scraping,
 email, a hosted monitor, or a particular API shape. Those are implementation
 choices after the signal semantics and authorization boundary are accepted.
+Alert 4 is the one exception, and it is bounded on purpose: §3a chooses a
+structured-log sink plus an optional HTTPS/loopback webhook for backup health
+only, because the owner's 2026-09-27 decision asked for delivery and the
+project had no alert stack to choose from. Alerts 1, 2, 3, 5 and 6 remain
+unchosen, and no monitor, pager or hosted alerting is implied by §3a.

@@ -177,7 +177,12 @@ follows in the sandbox/notification work):
    digest** of per-database fresh/stale/unknown. The exposure half already
    shipped (`GET /v1/backups`, `dg backup status`); this settles only delivery.
    No alert stack exists in the project today, so the digest is the floor the
-   notification work must clear.
+   notification work must clear. **Implemented 2026-09-28**: the sink and
+   cadence are recorded in `docs/observability-contract.md` §3a, the delivery
+   path is `dg serve --backup-digest-secs/--backup-failure-poll-secs/
+   --backup-notify-webhook`, and the on-demand equivalent is
+   `dg backup digest`. Delivery is off unless a flag asks for it, and it is
+   not coverage evidence: a passing digest is not a restore.
 6. **STILL OPEN** — whether sandbox evidence accepts continuous Profile C under
    the five-minute objective, and what measured headroom the 1 GB host must
    show. This is the question the sandbox exists to answer.
