@@ -280,16 +280,18 @@ reproducibly, and the guard now uses that shape:
 | readers queued behind the writer | phase design (trials lost / 100) | shipped ticket lock |
 |---|---|---|
 | 1 | 0, 0, 0 | 0, 0, 0 |
-| 3 | 4, 7, 6 | 0, 0, 0 |
-| 8 | 28, 34, 30 | 0, 0, 0 |
+| 3 | 2, 3, 1 | 0, 0, 0 |
+| 8 | 37, 28, 26 | 0, 0, 0 |
 
-With the old queue patched into a scratch copy of this crate, the in-repo
-test itself now fails every run: **65, 135 and 67 trials lost of 100**, at
-load1 78-80. The rate is a race rate so it moves with machine load; the zero
-on the shipped design is structural. That is the regression guard the
-admission-rate check could never have been, and the reason the rate check is
-kept as a property test only is that on the old design it passes on one run
-and fails on the next.
+Three runs of `scripts/admission_order_probe.sh 3 8` and `... 3 3` on this
+box, load1 68-81, plus an earlier 28, 34, 30 for the 8-reader shape. With the
+old queue patched into a scratch copy of this crate, the in-repo test itself
+fails every run: **65, 135 and 67 trials lost of 100**, at load1 78-80. The
+rate is a race rate so it moves with machine load; the zero on the shipped
+design is structural. That is the regression guard the admission-rate check
+could never have been, and the reason the rate check is kept as a property
+test only is that on the old design it passes on one run and fails on the
+next.
 
     scripts/admission_order_probe.sh [rounds] [readers_behind]
 
@@ -335,14 +337,51 @@ What that means for the claims in this log:
   on an idle box it would be a small fraction of that. Anyone quoting them as
   gateway performance would be wrong.
 * The fix itself does not depend on load either. The bound is a ticket
-  ordering property, and its test asserts a writer admission rate rather than a
-  latency, so `cargo test` measures the same thing on a busy box as on a quiet
-  one.
+  ordering property, and its guard asserts admission ORDER rather than a
+  latency or a rate, so `cargo test` measures the same thing on a busy box as
+  on a quiet one -- as the table above shows, the replaced design loses 26-37
+  trials per 100 at load1 68-81 rather than only when the machine is quiet.
+
+**Still waiting, at the time of writing.** A second gated run has been armed
+since 10:25 with a six-hour budget, and it is still refusing:
+
+    scripts/soak_starvation.py --blocks 6 --seconds 90 --readers 12 \
+        --writers 4 --scan-rows 12000 --max-load1 4.0 --load-patience 6 \
+        --load-poll 20 --load-timeout 21600 --out /tmp/gate6h.log
+
+    # load gate: load1=15.63 > 4.0, waiting (this box is shared; latency under
+    # contention is worthless)
+
+Load1 over those three and a half hours ran 60-84, from other agents' work on
+this shared 16-core box, and the session floor has been 14-16: the gate wants
+4.0, which is a quarter of the machine, and the box has not offered it. The
+run gives up at 16:25 rather than reporting. Whether to keep waiting for that
+window is an owner call, not a measurement, because the neighbours are not
+this process's to quiet down; the amendment the audit asked for, and the exact
+text of it, are in the goal record.
+
+## which design the pre-fix arm actually is
+
+The pre-fix arm in every A/B above is the **polled tokio RwLock** (design 1):
+writer rejection 40.279% under the flood against a 0.206% control, 840 queue
+timeouts, 12.0 writes/s. Its signature fits that design, not the phase design
+-- it is writers who lose, which is what a writer invisible to the lock's own
+fair queue produces.
+
+The **phase design (design 2) was never measured over HTTP at all.** It was
+built, found wanting on the isolated stress, and replaced before a soak ran
+it. So this log contains no HTTP-level measurement of the design that was
+actually shipped before the ticket lock, and it should not be read as if it
+does. It does not change the decision: the measurement that justifies adding
+a bound is the polled-RwLock arm, which is starved by 247x and by 40x in the
+two forms of the A/B above, and the phase design was an intermediate step
+replaced on a structural argument, not on a measurement.
 
 What is left genuinely open: a gated run with `load_gate.gated: true` on an
 actually idle machine, to put trustworthy absolute numbers on the record. The
-command is in "reproducing" below and the gate is already built to refuse
-rather than fudge it.
+command is in "reproducing" below, the gate is already built to refuse rather
+than fudge it, and one is armed and waiting. Nothing else in this log depends
+on that window.
 
 ## reproducing
 
