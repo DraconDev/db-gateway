@@ -172,6 +172,13 @@ copied verbatim and no client at all -- 8 reader threads (the server's
 READ_PERMITS) re-acquiring immediately with NO client-side gap, 4 writer
 threads, 6 seconds per case, varying only the reader's hold time.
 
+**A note on the rate check.** `sustained_read_flood_still_admits_writers`
+asserts an admission RATE, and it is a property check rather than a
+regression guard: the replaced design passes it, because a busy harness often
+lets a writer win the race. It is kept because the property is worth holding
+and the test is cheap, but the guard against a regression is the order test
+described at the end of this section.
+
 **The shipped ticket lock, and what is solid.** Zero writer timeouts at every
 hold, and zero reader timeouts: 4380, 896 and 313 writer admissions at 2ms,
 20ms and 45ms. `abandoned` drained to 0 in every case, so the give-up
@@ -209,11 +216,16 @@ admission follows queue order by construction, which is why it is 0
 timeouts at every hold and why the in-repo test asserts an ORDER rather than
 a rate.
 
-That order is asserted deterministically by
-`admission_follows_queue_order_not_a_race`, which queues a writer and then a
-reader a hundred times over and fails if the reader is ever admitted first.
-The ticket lock makes that impossible, since `serving` only advances in
-ticket order; the old design could and did lose that race.
+That order is asserted by
+`admission_follows_queue_order_not_a_race`, which queues a writer, waits for
+it to hold a ticket, then queues a reader -- a hundred times over -- and fails
+if the reader is ever admitted first. Run against the shipped queue it loses
+**0 of 100** trials, which is structural rather than lucky: `serving` only
+advances in ticket order, so the reader cannot be admitted first on any
+schedule. Run against the replaced phase design, same experiment, it loses
+**25 of 100**. That is the regression guard the admission-rate check could
+never have been: the rate swings with thread count and pacing, the order
+cannot.
 
 ## load gate
 
