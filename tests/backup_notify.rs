@@ -579,3 +579,21 @@ fn dg_backup_digest_reports_the_same_thing_the_sink_sends_and_works_stopped() {
     );
     assert_eq!(stopped.status.code(), Some(1));
 }
+
+/// The collector is a hand-rolled HTTP server; this is the assertion that it
+/// still works. Without it, every delivery test below fails for the same
+/// uninteresting reason if the harness breaks.
+#[test]
+fn the_collector_records_a_post() {
+    let collector = Collector::start();
+    let client = reqwest::blocking::Client::new();
+    let response = client
+        .post(collector.url())
+        .json(&json!({"kind": "probe", "n": 7}))
+        .timeout(Duration::from_secs(10))
+        .send()
+        .unwrap();
+    assert_eq!(response.status().as_u16(), 200);
+    let note = collector.wait_for("probe", Duration::from_secs(10), |note| note["n"] == 7);
+    assert_eq!(note["kind"], "probe");
+}
