@@ -336,44 +336,46 @@ mod tests {
     }
 
     #[test]
-    fn a_newer_unbounded_publication_never_masks_a_known_boundary() {
+    fn a_set_with_no_coverage_boundary_is_unknown_never_fresh() {
         let dir = tempfile::tempdir().unwrap();
         let store = store_with_backup_root(dir.path());
         store.create_and_note("alpha").unwrap();
         let root = dir.path().join("dg-backups");
+        // started_at absent: the manifest parses, so the set is visible, but
+        // there is no durable boundary to compare a write against.
+        write_set(&root, "20240101T000000Z", &["alpha"], 0);
+        let health = snapshot(&store).unwrap();
+        assert_eq!(
+            health.databases[0].state, "unknown",
+            "a set that cannot prove coverage must never read as fresh"
+        );
+    }
+
+    #[test]
+    fn a_newer_unbounded_set_does_not_replace_a_proven_boundary() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_with_backup_root(dir.path());
+        store.create_and_note("alpha").unwrap();
+        let root = dir.path().join("dg-backups");
+        // The older set proves coverage, past the last write.
         let boundary = std::time::SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs()
             + 60;
         write_set(&root, "20240101T000000Z", &["alpha"], boundary);
-        // A set published later but with no coverage boundary cannot prove
-        // the write is included, so it must not report fresh.
-        let unbounded = root.join("20240102T000000Z");
-        std::fs::create_dir_all(&unbounded).unwrap();
-        std::fs::write(
-            unbounded.join("manifest.json"),
-            serde_json::to_vec(&serde_json::json!({
-                "started_at": 0, "completed_at": 0, "registry_captured_at": 0,
-                "databases": [{"name": "alpha", "file": "alpha.sqlite", "size": 1, "sha256": "0".repeat(64)}],
-                "registry": {"file": "metadata.sqlite.bak", "size": 1, "sha256": "0".repeat(64)},
-            }))
-            .unwrap(),
-        )
-        .unwrap();
-        // Make the unbounded publication strictly newer by mtime.
-        let future = SystemTime::now() + Duration::from_secs(5);
-        let file = std::fs::File::options()
-            .write(true)
-            .open(unbounded.join("manifest.json"))
-            .unwrap();
-        file.set_modified(future).unwrap();
-        drop(file);
+        // The newer set is published later but proves nothing, so it cannot
+        // become the newest boundary and it cannot downgrade a proven one to
+        // a false fresh. The proven boundary still governs.
+        write_set(&root, "20240102T000000Z", &["alpha"], 0);
         let health = snapshot(&store).unwrap();
+        let alpha = &health.databases[0];
         assert_eq!(
-            health.databases[0].state, "unknown",
-            "an unbounded newer set must not overwrite a proven boundary"
+            alpha.newest_set.as_deref(),
+            Some("20240101T000000Z"),
+            "the set that carries a durable boundary is the one that counts"
         );
+        assert_eq!(alpha.state, "fresh");
     }
 
     #[test]
