@@ -545,6 +545,7 @@ def wait_for_quiet(args):
 
 
 def main():
+    global SCAN_ROWS
     ap = argparse.ArgumentParser()
     ap.add_argument("--dg-bin", default=None,
                     help="path to the dg binary (default: .cargo/target/debug/dg)")
@@ -568,6 +569,13 @@ def main():
                     help="concurrent writer threads in BOTH arms; must not "
                          "exceed WRITE_PERMITS=4 or the global write lane "
                          "sheds writers and pollutes the measurement")
+    ap.add_argument("--scan-rows", type=int, default=SCAN_ROWS,
+                    help="rows in the reader's range scan. This sets how long "
+                         "a reader holds the shared guard, so it is the knob "
+                         "that decides whether the flood is a real flood: too "
+                         "small and a writer slips in between batches no "
+                         "matter what the queue does (default 4000, about "
+                         "45ms per scan here)")
     ap.add_argument("--writer-p99-ms", type=float, default=100.0,
                     help="secondary absolute p99 signal; a starved writer is "
                          "rejected at ACQUIRE_TIMEOUT=500ms, so anything near "
@@ -594,6 +602,9 @@ def main():
                           / ".cargo" / "target" / "debug" / "dg")
     if args.writers < 1 or args.readers < 1:
         ap.error("--writers and --readers must both be >= 1")
+    if args.scan_rows < 100:
+        ap.error("--scan-rows must be >= 100 to hold the shared guard")
+    SCAN_ROWS = args.scan_rows
     if args.writers > 4:
         ap.error("--writers must be <= WRITE_PERMITS (4) or the global write "
                  "lane sheds writers and the queue measurement is void")
