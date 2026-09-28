@@ -346,9 +346,20 @@ REGISTER_CMD="litestream register -socket <sock> -replica file://<dir> <db-path>
     "$data_dir/rehearsal_two.sqlite" > "$rehearsal_root/register.log" 2>&1 \
     && REGISTER_RESULT="WORKED" || REGISTER_RESULT="FAILED -- $(head -1 "$rehearsal_root/register.log" 2>/dev/null)"
 
+# A second write after registering, so there is something to replicate: the
+# evidence that matters is the daemon making progress for THIS database, and a
+# database with no writes can look idle rather than broken.
+"${DG[@]}" query rehearsal_two "INSERT INTO t VALUES (2)" >/dev/null 2>&1 || true
+# The signal is the daemon's own log for that database. `litestream status`
+# and `litestream ltx` both refuse a database that is registered but absent
+# from the config file, so neither can be used as a liveness probe here --
+# which is itself part of the answer.
 ADDED=0
+SIGNAL_LINES=""
 for _ in $(seq 1 40); do
-    if [ -d "$replica_dir/rehearsal_two" ] || find "$replica_dir" -path '*rehearsal_two*' 2>/dev/null | grep -q .; then
+    SIGNAL_LINES="$(grep -F 'rehearsal_two.sqlite' "$rehearsal_root/litestream.log" 2>/dev/null \
+        | grep -E 'fetched latest L0|snapshot complete|replicating to|compaction complete' | head -4)"
+    if [ -n "$SIGNAL_LINES" ]; then
         ADDED=1
         break
     fi
@@ -366,10 +377,12 @@ if [ "$ADDED" -eq 1 ]; then
 fi
 
 if [ "$ADDED" -eq 1 ]; then
-    record 7 PASS "rehearsal: a new database was picked up WITHOUT restarting litestream, via the control socket" \
+    record 7 PASS "rehearsal: a new database was replicated WITHOUT restarting litestream, via the control socket" \
         "route (a) $CONFIG_EDIT_START" \
         "route (b) register over the control socket: $REGISTER_RESULT" \
         "remove side: $UNREGISTER_RESULT" \
+        "signal observed in the daemon log:" \
+        "$(printf '%s\n' "$SIGNAL_LINES" | sed 's/^/  /')" \
         "ANSWER for §6: the config FILE is read at startup only. Adding a database" \
         "to a running daemon means 'litestream register -replica <url> <db-path>'" \
         "over the control socket (or a restart). SIGHUP is not a reload signal:" \
@@ -394,10 +407,19 @@ wait "$LITESTREAM_PID" 2>/dev/null || true
 # --------------------------------------------------------------------------
 mkdir -p "$restore_dir"
 RESTORE_OK=0
-# -o is the destination; the positional argument is the SOURCE, which is
-# matched against the config's db path (a replica URL works as the source too).
-if "$LITESTREAM" restore -config "$LITESTREAM_CFG" -o "$restore_dir/rehearsal.sqlite" \
-    "$data_dir/rehearsal.sqlite" > "$rehearsal_root/restore.log" 2>&1; then
+# A dedicated single-database config for the restore. The main config has two
+# databases by now, and a source chosen out of a multi-db config restored the
+# WRONG database without complaining -- so the source is named in a config that
+# has exactly one entry rather than relied on to be picked correctly.
+cat > "$rehearsal_root/restore.yml" <<EOF
+dbs:
+  - path: $data_dir/rehearsal.sqlite
+    replica:
+      path: $replica_dir
+EOF
+if "$LITESTREAM" restore -config "$rehearsal_root/restore.yml" \
+    -o "$restore_dir/rehearsal.sqlite" "$data_dir/rehearsal.sqlite" \
+    > "$rehearsal_root/restore.log" 2>&1; then
     RESTORE_OK=1
 fi
 if [ "$RESTORE_OK" -eq 1 ] && [ -f "$restore_dir/rehearsal.sqlite" ]; then
@@ -473,7 +495,21 @@ done
     printf 'and observing that litestream starts.\n\n'
     printf 'The same applies to `force-path-style` as a query parameter: accepted\n'
     printf 'silently, no effect observed. §6 gate 3 must record the minimal WORKING\n'
-    printf 'config, which is the only way to tell a working setting from an ignored one.\n'
+    printf 'config, which is the only way to tell a working setting from an ignored one.\n\n'
+    printf '`litestream restore` can EXIT 0 AND PRODUCE A DATABASE WITH NONE OF THE\n'
+    printf 'SOURCE TABLES. Restoring from a bare replica directory ("file://<dir>")\n'
+    printf 'succeeded and wrote a 16 KiB file whose tables were all absent. A gate that\n'
+    printf 'checked only the exit code would record that as a passing restore. Every\n'
+    printf 'restore in §6 gate 5 must compare rows, not statuses.\n\n'
+    printf '`litestream status` and `litestream ltx` require the database to be present in\n'
+    printf 'the CONFIG FILE, so neither can probe a database that was added with\n'
+    printf '`litestream register`. For a database added at runtime the daemon log is the\n'
+    printf 'only signal available.\n\n'
+    printf 'A config file is read at STARTUP. Adding a database to the file while the\n'
+    printf 'daemon runs does nothing; `litestream start` then answers "database not\n'
+    printf 'found". Adding one at runtime requires `litestream register -socket <sock>\n'
+    printf '-replica <url> <db-path>`. SIGHUP is not a reload signal: it terminates the\n'
+    printf 'process.\n'
 } >> "$OUT"
 
 {
