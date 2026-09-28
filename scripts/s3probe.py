@@ -55,6 +55,7 @@ import hashlib
 import hmac
 import json
 import os
+import ssl
 import sys
 import urllib.error
 import urllib.parse

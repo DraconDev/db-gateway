@@ -97,6 +97,24 @@ LITESTREAM="$PIN_ROOT/litestream"
 [ -x "$LITESTREAM" ] || { echo "litestream ${PIN_VERSION} is not installed at $LITESTREAM" >&2; exit 2; }
 [ -x "$DG_BIN" ] || echo "warning: dg binary not built at $DG_BIN; gateway-dependent gates will report BLOCKED" >&2
 
+# TLS trust. A real S3 endpoint presents a publicly valid certificate, so a
+# rehearsal against a self-signed one has to be told to trust it -- explicitly,
+# by pinning that one CA, never by switching verification off. The AWS SDK
+# reads AWS_CA_BUNDLE for its whole TLS config, so this reaches litestream
+# without a litestream-specific option, which means the replica URL the packet
+# reports as the minimal working one is exactly the URL OVH needs.
+CA_ARGS=()
+CA_NOTE="system trust store (the endpoint's certificate chains to a public CA)"
+if [ -n "${DG_SANDBOX_CA_BUNDLE:-}" ]; then
+    if [ ! -r "$DG_SANDBOX_CA_BUNDLE" ]; then
+        echo "refusing: DG_SANDBOX_CA_BUNDLE=$DG_SANDBOX_CA_BUNDLE is not readable" >&2
+        exit 2
+    fi
+    export AWS_CA_BUNDLE="$DG_SANDBOX_CA_BUNDLE"
+    CA_ARGS=(--ca-bundle "$DG_SANDBOX_CA_BUNDLE")
+    CA_NOTE="pinned CA bundle $DG_SANDBOX_CA_BUNDLE (self-signed rehearsal endpoint); certificate verification stays ON"
+fi
+
 # --------------------------------------------------------------------------
 # Credential and discovery isolation. The AWS chain is the only mechanism
 # litestream 0.5.17 actually uses for S3, so this is the load-bearing part of
@@ -133,6 +151,11 @@ trap cleanup_all EXIT
 # the pipe open while it serves. This is a single implementation so no call site
 # can regress to the hanging form.
 PROXY_PORT=""
+# The inner proxies speak whatever the outer endpoint speaks: a gate that
+# switched from TLS to plain http between the endpoint and its own recording
+# proxy would be measuring a transport nothing else in the run uses.
+TLS_CERT="${DG_SANDBOX_TLS_CERT:-}"
+TLS_KEY="${DG_SANDBOX_TLS_KEY:-}"
 start_proxy() {
     local name="$1" reqlog="$2" faultfile="$3"
     local portfile="$SANDBOX/$name.port"
@@ -140,6 +163,7 @@ start_proxy() {
     python3 "$PROXY" --listen 127.0.0.1:0 --upstream "$ENDPOINT" \
         --access-key-id "$DG_SANDBOX_ACCESS_KEY_ID" --secret-access-key "$DG_SANDBOX_SECRET_KEY" \
         --region "$REGION" --log "$reqlog" --faults "$faultfile" --port-file "$portfile" \
+        ${CA_ARGS[*]+--tls-cert "$TLS_CERT" --tls-key "$TLS_KEY"} \
         >/dev/null 2>&1 &
     local pid=$!
     CLEANUP+=("kill $pid 2>/dev/null || true")
@@ -169,7 +193,8 @@ unset AWS_SESSION_TOKEN AWS_SECURITY_TOKEN AWS_ROLE_ARN AWS_WEB_IDENTITY_TOKEN_F
 
 S3PROBE=( python3 "$REPO/scripts/s3probe.py"
     --endpoint "$ENDPOINT" --scheme "$SCHEME" --bucket "$BUCKET" --region "$REGION"
-    --access-key-id "$DG_SANDBOX_ACCESS_KEY_ID" --secret-access-key "$DG_SANDBOX_SECRET_KEY" )
+    --access-key-id "$DG_SANDBOX_ACCESS_KEY_ID" --secret-access-key "$DG_SANDBOX_SECRET_KEY"
+    "${CA_ARGS[@]}" )
 PROXY="$REPO/scripts/s3-log-proxy.py"
 
 # record <gate> <PASS|FAIL|BLOCKED> <one-line result> [detail...]
