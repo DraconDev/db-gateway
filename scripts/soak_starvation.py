@@ -13,20 +13,21 @@ across databases means the per-database lock is never contended, so queue
 waits and timeouts stay at zero no matter how busy the server is. Its 2h run
 (1.28M requests, 0 errors) therefore proves nothing about starvation.
 
-TWO ARMS, ONE SERVER, BACK TO BACK -- this is the part that makes the
+TWO ARMS, ONE SERVER, INTERLEAVED -- this is the part that makes the
 answer trustworthy on a shared machine:
 
   control  writers only. Establishes what a writer pays with NO read
            flood, on this machine, at this moment.
   flood    the same writers plus a read flood on the SAME hot database.
 
-The verdict is driven by the DIFFERENCE between the arms, not by an absolute
-latency threshold. External CPU contention (this rig is shared) inflates BOTH
-arms roughly equally, so it cancels; only the read flood moves the writer
-numbers. A differential verdict therefore stays valid when the machine is not
-otherwise idle, while the absolute numbers are still recorded and are only
-trustworthy when the sampled load is low. The script samples /proc/loadavg
-into every status sample so the evidence log certifies its own contention.
+The run alternates short blocks (control, flood, control, flood, ...) rather
+than finishing one arm before starting the other, because this rig is shared
+and its load moves by tens of units within minutes. Alternating puts any
+drift in BOTH arms instead of loading one of them, so the verdict rests on
+the difference between the arms and not on the absolute latency, which is
+the only part machine load can move. The absolute numbers are still
+recorded, per block, and the script samples /proc/loadavg into every status
+sample so the evidence log certifies its own contention.
 
 Mechanism this is probing: `acquire_queue` polls `try_write_owned` every
 2ms and never ENQUEUES in tokio's fair writer queue. A pending writer is
@@ -513,9 +514,9 @@ def main():
                          "verdict valid on a busy box: load drift reaches both "
                          "arms equally instead of loading one of them")
     ap.add_argument("--flood-seconds", type=int, default=None,
-                    help="duration of the flood arm only (default: --seconds)")
+                    help="duration of each flood BLOCK (default: --seconds)")
     ap.add_argument("--control-seconds", type=int, default=None,
-                    help="duration of the control arm only (default: --seconds)")
+                    help="duration of each control BLOCK (default: --seconds)")
     ap.add_argument("--readers", type=int, default=10,
                     help="concurrent reader threads in the flood arm; must "
                          "exceed READ_PERMITS=8 to hold the shared guard "
@@ -637,11 +638,21 @@ def main():
             assert st == 200, body
             seeded += batch
 
-        control = run_arm(base, owner, HOT, COLD, args, "control",
-                          control_seconds, 0, server.pid)
-        time.sleep(3)  # settle between arms so the baseline is clean
-        flood = run_arm(base, owner, HOT, COLD, args, "flood",
-                        flood_seconds, args.readers, server.pid)
+        # Interleaved ABAB blocks. Running the whole control arm and then the
+        # whole flood arm would let machine load drift straight into the
+        # verdict; alternating short blocks puts any drift in both arms.
+        order = (["control", "flood"] * (args.blocks // 2))
+        control_blocks, flood_blocks, all_blocks = [], [], []
+        for i, label in enumerate(order):
+            seconds = control_seconds if label == "control" else flood_seconds
+            readers = 0 if label == "control" else args.readers
+            block = run_block(base, owner, HOT, COLD, args,
+                              f"{i + 1}:{label}", seconds, readers, server.pid)
+            all_blocks.append(block)
+            (control_blocks if label == "control" else flood_blocks).append(block)
+            time.sleep(2)  # settle so the next block's baseline is clean
+        control = merge_blocks(control_blocks, HOT, COLD, args, "control")
+        flood = merge_blocks(flood_blocks, HOT, COLD, args, "flood")
 
         assert server.poll() is None, f"server died mid-run rc={server.returncode}"
         if flood["writer"]["count"] < 10:
@@ -666,17 +677,19 @@ def main():
         verdict = decide(control, flood, args)
         summary = {
             "verdict": verdict,
-            "control": {k: v for k, v in control.items() if k != "samples"},
-            "flood": {k: v for k, v in flood.items() if k != "samples"},
+            "control": control,
+            "flood": flood,
             "admission": flood["admission"],
             "scan_rows": SCAN_ROWS,
             "load_gate": gate,
+            "block_order": order,
         }
         with open(args.out, "a") as log:
             log.write(json.dumps(summary) + "\n")
-            for arm in (control, flood):
+            for block in all_blocks:
                 log.write("# samples " + json.dumps(
-                    {"arm": arm["arm"], "samples": arm["samples"]}) + "\n")
+                    {"block": block["label"], "readers": block["readers"],
+                     "samples": block["samples"]}) + "\n")
         print(json.dumps(summary), flush=True)
         return 1 if verdict["verdict"] in ("STARVED", "MARGINAL") else 0
     finally:
