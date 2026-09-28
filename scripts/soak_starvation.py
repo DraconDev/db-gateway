@@ -403,6 +403,46 @@ def decide(control, flood, args):
     }
 
 
+def wait_for_quiet(args):
+    """Block until the machine has been quiet for --load-patience samples.
+
+    A latency soak on a contended box measures the neighbours, not the
+    gateway, so the gate is a precondition rather than a nicety. It prints
+    its progress so the evidence log shows when the run was allowed to start
+    and what the load was at that moment.
+    """
+    if args.max_load1 <= 0:
+        return {"gated": False, "load1_at_start": loadavg1()}
+    streak = 0
+    began = time.monotonic()
+    announced = False
+    while streak < args.load_patience:
+        current = loadavg1()
+        if current <= args.max_load1:
+            streak += 1
+        else:
+            streak = 0
+            if not announced:
+                print(f"# load gate: load1={current:.2f} > {args.max_load1}, "
+                      f"waiting (this box is shared; latency under contention "
+                      f"is worthless)", flush=True)
+                announced = True
+        if streak < args.load_patience:
+            if args.load_timeout > 0 and time.monotonic() - began > args.load_timeout:
+                raise AssertionError(
+                    f"load never stayed <= {args.max_load1} for "
+                    f"{args.load_patience} samples within {args.load_timeout}s "
+                    f"(load1={current:.2f}); refusing to report a latency "
+                    f"soak measured under contention")
+            time.sleep(args.load_poll)
+    print(f"# load gate open after {time.monotonic() - began:.0f}s "
+          f"(load1={loadavg1():.2f} <= {args.max_load1} for "
+          f"{args.load_patience} samples)", flush=True)
+    return {"gated": True, "load1_at_start": loadavg1(),
+            "waited_secs": round(time.monotonic() - began, 1),
+            "max_load1": args.max_load1}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dg-bin", default=None,
@@ -425,6 +465,20 @@ def main():
                     help="secondary absolute p99 signal; a starved writer is "
                          "rejected at ACQUIRE_TIMEOUT=500ms, so anything near "
                          "this is already broken (default 100)")
+    ap.add_argument("--max-load1", type=float, default=0.0,
+                    help="do not start until /proc/loadavg 1-minute load has "
+                         "stayed at or below this for --load-patience "
+                         "consecutive samples. 0 disables the gate. Latency "
+                         "measured under CPU contention is worthless, and a "
+                         "shared rig is usually busy (default 0: off)")
+    ap.add_argument("--load-patience", type=int, default=6,
+                    help="consecutive quiet samples required to open the gate "
+                         "(default 6, i.e. ~90s at the default poll)")
+    ap.add_argument("--load-poll", type=float, default=15.0,
+                    help="seconds between load samples while gated")
+    ap.add_argument("--load-timeout", type=float, default=0.0,
+                    help="give up waiting for a quiet machine after this many "
+                         "seconds (0 = wait forever)")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
@@ -449,6 +503,7 @@ def main():
         ap.error("readiness timeout must be positive")
 
     tmp = tempfile.mkdtemp(prefix="starve-")
+    gate = wait_for_quiet(args)
     init = subprocess.run([args.dg_bin, "init", "--data-dir", tmp],
                           capture_output=True, text=True)
     assert init.returncode == 0, init.stderr
@@ -547,6 +602,7 @@ def main():
             "flood": {k: v for k, v in flood.items() if k != "samples"},
             "admission": flood["admission"],
             "scan_rows": SCAN_ROWS,
+            "load_gate": gate,
         }
         with open(args.out, "a") as log:
             log.write(json.dumps(summary) + "\n")
