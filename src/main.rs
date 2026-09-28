@@ -661,8 +661,16 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             let mut sinks: Vec<std::sync::Arc<dyn dg::notify::Sink>> =
                 vec![std::sync::Arc::new(dg::notify::LogSink)];
             if let Some(url) = &backup_notify_webhook {
-                let sink = dg::notify::WebhookSink::new(url.clone())
-                    .map_err(|_| Application(dg::error::Error::invalid()))?;
+                let sink = dg::notify::WebhookSink::new(url.clone()).map_err(|error| {
+                    // A flag the operator wrote is worth a sentence back: a
+                    // bare `invalid_request` would leave them guessing
+                    // whether the URL, the scheme or the flag name was wrong.
+                    Application(dg::error::Error::new(
+                        400,
+                        "invalid_backup_webhook",
+                        &format!("--backup-notify-webhook: {}", error.reason),
+                    ))
+                })?;
                 tracing::info!(url = sink.url(), "backup notifications: webhook sink added");
                 sinks.push(std::sync::Arc::new(sink));
             }
