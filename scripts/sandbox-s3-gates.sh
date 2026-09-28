@@ -305,7 +305,7 @@ c.execute("CREATE TABLE t(a INTEGER)")
 c.execute("INSERT INTO t VALUES (1)")
 c.commit()
 PY
-    timeout 25 "$LITESTREAM" replicate -config "$cfg" > "$SANDBOX/gate3-$label.log" 2>&1 || true
+    timeout 25 env ${G3_CA_MODE:-} "$LITESTREAM" replicate -config "$cfg" > "$SANDBOX/gate3-$label.log" 2>&1 || true
     sleep 1
     # By pid, not by a --listen pattern: the cmdline always says 127.0.0.1:0.
     [ -n "$PROXY_PID" ] && kill "$PROXY_PID" 2>/dev/null || true
@@ -331,6 +331,26 @@ probe_variant "wrong-region" "$REPLICA_BASE/gate3?endpoint=$ENDPOINT&region=nowh
 probe_variant "no-region"    "$REPLICA_BASE/gate3?endpoint=$ENDPOINT"           || true
 probe_variant "path-style"   "$REPLICA_BASE/gate3?endpoint=$ENDPOINT&region=$REGION" || true
 
+# The variant that decides whether the rehearsal means anything. A local run can
+# pass for the wrong reason -- an endpoint that accepts anything, or a client
+# that stopped checking certificates. So the same URL is run with the rehearsal
+# CA REMOVED, and it must fail. If this one succeeds, the "working" result
+# above proves nothing and the gate says so.
+G3_CA_MODE=""
+G3_TRUST_HELD=0
+if [ -n "${SSL_CERT_FILE:-}" ]; then
+    G3_CA_MODE="SSL_CERT_FILE=/nonexistent/ca-bundle.pem"
+    if probe_variant "untrusted-ca" "$WORKING_URL"; then
+        G3_TRUST_HELD=0
+    else
+        G3_TRUST_HELD=1
+    fi
+    unset G3_CA_MODE
+else
+    GATE3_DETAIL+=("untrusted-ca: NOT RUN -- this endpoint's certificate chains to a public CA, so there is no rehearsal trust decision to withhold")
+    G3_TRUST_HELD=not_applicable
+fi
+
 # force-path-style and skip-verify are the two §6 explicitly names. On the
 # rehearsal they were accepted silently and did nothing, so the packet records
 # what each did rather than whether litestream started.
@@ -342,19 +362,30 @@ probe_variant "path-style"   "$REPLICA_BASE/gate3?endpoint=$ENDPOINT&region=$REG
     printf '  rehearsal with no error and no observable effect, so it is recorded as\n'
     printf '  NOT SUPPORTED rather than tested. Addressing is decided by the URL host:\n'
     printf '  a bucket in the path is path-style, a bucket in the host is virtual-host.\n'
-    printf 'skip-verify (TLS): 0.5.17 accepts an `insecure` replica option for a\n'
-    printf '  self-signed endpoint. NOT USED HERE and not usable against OVH, whose\n'
-    printf '  certificate is publicly valid; a sandbox that needs it is misconfigured.\n'
+    printf 'skip-verify (TLS): NOT USED, and the packet now proves why it does not\n'
+    printf '  need to be. 0.5.17 has a skip-verify replica option, and a rehearsal\n'
+    printf '  could use it to accept the self-signed endpoint. It is deliberately\n'
+    printf '  not used: the "untrusted-ca" variant above runs the SAME working URL\n'
+    printf '  with the rehearsal CA removed, and a gate that only passes because\n'
+    printf '  verification was switched off would then show up as a failure.\n'
+    printf '  AWS_CA_BUNDLE is the documented AWS way to add a CA and 0.5.17 ABORTS\n'
+    printf '  on it: "cannot load aws config: unable to add custom RootCAs\n'
+    printf '  HTTPClient, has no WithTransportOptions". SSL_CERT_FILE is read by\n'
+    printf '  Go instead and works. Trust in this run: %s\n' "$CA_NOTE"
     printf '\nminimal working replica URL:\n  %s\n' "$WORKING_URL"
     printf '\nNOTE: `replica.path` cannot carry a URL. `path: s3://...` fails with\n'
     printf '  "replica path cannot be a url, please use the url field instead".\n'
 } >> "$OUT"
-if [ "$GATE3_OK" -ge 1 ]; then
-    record 3 PASS "explicit endpoint/region config works; variants recorded above" \
-        "endpoint: $ENDPOINT   region: $REGION   scheme: $SCHEME"
+if [ "$GATE3_OK" -ge 1 ] && { [ "$G3_TRUST_HELD" = "1" ] || [ "$G3_TRUST_HELD" = "not_applicable" ]; }; then
+    record 3 PASS "explicit endpoint/region config works, and the same URL FAILS without the rehearsal CA, so the pass is not a disabled-verification artifact" \
+        "endpoint: $ENDPOINT   region: $REGION   scheme: $SCHEME" \
+        "TLS trust: $CA_NOTE" \
+        "certificate enforcement: $([ "$G3_TRUST_HELD" = 1 ] && echo 'proved -- the untrusted-ca variant was refused' || echo 'not applicable to this endpoint')"
 else
-    record 3 FAIL "no variant of the replica URL produced a single object write" \
-        "endpoint: $ENDPOINT   region: $REGION   scheme: $SCHEME"
+    record 3 FAIL "no variant of the replica URL produced a single object write, or the endpoint was accepted with an untrusted certificate" \
+        "endpoint: $ENDPOINT   region: $REGION   scheme: $SCHEME" \
+        "TLS trust: $CA_NOTE" \
+        "certificate enforcement: $([ "$G3_TRUST_HELD" = 1 ] && echo 'proved' || echo 'NOT PROVED -- the untrusted-ca variant was accepted, or TLS trust was not exercised')"
 fi
 
 # --------------------------------------------------------------------------
