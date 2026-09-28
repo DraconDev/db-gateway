@@ -519,6 +519,14 @@ fi
 # command recorded so the owner's go-ahead turns into one run.
 # --------------------------------------------------------------------------
 if [ -n "${DG_SANDBOX_BUCKET:-}" ] && [ -n "${DG_SANDBOX_ENDPOINT:-}" ]; then
+    # The bucket-free half has nothing left to do. Its gateway and its
+    # litestream are still running at this point -- they are only killed by the
+    # EXIT trap -- so they would be replicating to a file replica for the whole
+    # S3 half, inflating the process count the resource gate measures and
+    # making "nothing survived this run" impossible to read. Stop them here.
+    cleanup_server
+    kill "${LITESTREAM_PID:-0}" 2>/dev/null || true
+    wait "${LITESTREAM_PID:-0}" 2>/dev/null || true
     echo "bucket configured; handing off to scripts/sandbox-s3-gates.sh" >&2
     # A child, not an exec: `exec` replaces this process, the EXIT trap never
     # runs, and the sandbox holding the owner's test key, the litestream config
