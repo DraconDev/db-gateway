@@ -315,9 +315,16 @@ fi
 "${DG[@]}" create rehearsal_two >/dev/null
 "${DG[@]}" query rehearsal_two "CREATE TABLE t (a INTEGER)" >/dev/null
 "${DG[@]}" query rehearsal_two "INSERT INTO t VALUES (1)" >/dev/null
-# The config gains the database, then replication is started for it over the
-# control socket. SIGHUP is NOT the mechanism: it terminates the process, and
-# this rehearsal measured that rather than assuming it.
+# The config must GAIN the database first -- creating it in the gateway is not
+# enough -- and only then does the control socket start replicating it. That
+# two-step is the whole of gate 7: config edit plus one command, no restart.
+cat >> "$LITESTREAM_CFG" <<EOF
+  - path: $data_dir/rehearsal_two.sqlite
+    replica:
+      path: $replica_dir
+EOF
+# SIGHUP is NOT the reload mechanism: it terminates the process, and this
+# rehearsal measured that rather than assuming it.
 # `start` takes no -config: it talks to the running daemon over the control
 # socket, which is precisely why a database can be picked up without a restart.
 RELOAD_SIGNAL="control socket: litestream start -socket <sock> <db-path>"
