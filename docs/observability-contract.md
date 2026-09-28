@@ -124,6 +124,13 @@ bounded operator action. What it must never carry: an RPO, an RTO, or a
 data-loss claim. `Note` has no field for any of them, so there is nowhere to
 put one — none is accepted yet.
 
+What the note does **not** carry, so §2 is not over-read: §2 asks for
+per-database `last_attempt_at`, `last_success_at` and the restore-test date.
+Those are still not recorded. The note reports the attempt log's newest
+attempt and newest failure at the run level, plus per-database freshness from
+set membership. Closing the per-database attempt history and the restore-test
+date is remaining §2 work, not something this delivery claims.
+
 What delivery is *not*: coverage evidence. A digest says a database is fresh
 against the cadence in §2; it is not a restore, and a passing digest does not
 close the restore-verification gate in §5.
