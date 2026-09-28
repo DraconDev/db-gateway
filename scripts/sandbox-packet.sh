@@ -232,13 +232,22 @@ for _ in $(seq 1 100); do
     sleep 0.1
 done
 "${DG[@]}" create rehearsal >/dev/null
-"${DG[@]}" exec rehearsal "CREATE TABLE ledger (id INTEGER PRIMARY KEY, note TEXT, amount INTEGER)" >/dev/null
-"${DG[@]}" exec rehearsal "INSERT INTO ledger (note, amount) SELECT 'seed-' || value, value FROM generate_series(1, 200)" >/dev/null 2>&1 \
-    || "${DG[@]}" exec rehearsal "INSERT INTO ledger (note, amount) VALUES ('seed-1', 1), ('seed-2', 2)" >/dev/null
+"${DG[@]}" query rehearsal "CREATE TABLE ledger (id INTEGER PRIMARY KEY, note TEXT, amount INTEGER)" >/dev/null
+# A recursive CTE rather than generate_series: the gateway runs plain SQLite
+# with no extensions loaded, and a rehearsal that used one would be measuring
+# a different gateway than the one being adopted.
+"${DG[@]}" query rehearsal "WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n < 200) INSERT INTO ledger (note, amount) SELECT 'seed-' || n, n FROM seq" >/dev/null
 
-ROWS_BEFORE="$("${DG[@]}" exec --json rehearsal "SELECT count(*) AS n FROM ledger" 2>/dev/null | python3 -c 'import json,sys
-try: print(json.load(sys.stdin).get("rows",[{}])[0].get("n", 0))
-except Exception: print(0)' 2>/dev/null || echo 0)"
+# `dg query --json` answers {"columns":[...],"rows":[[...]]}; the row count is
+# rows[0][0]. Parsed here so a shape change fails the rehearsal loudly instead
+# of quietly reporting zero rows.
+row_count() {
+    "${DG[@]}" --json query "$1" "SELECT count(*) AS n FROM $2" 2>/dev/null \
+        | python3 -c 'import json,sys
+try: print(json.load(sys.stdin)["rows"][0][0])
+except Exception: print(0)' 2>/dev/null || echo 0
+}
+ROWS_BEFORE="$(row_count rehearsal ledger)"
 
 # --------------------------------------------------------------------------
 # Gate 2 rehearsal: replication running against live gateway writes. The
@@ -263,7 +272,7 @@ sleep 2
 
 STATUS_BEFORE="$("${DG[@]}" status --json 2>/dev/null || echo '{}')"
 for i in $(seq 1 60); do
-    "${DG[@]}" exec --json rehearsal \
+    "${DG[@]}" query rehearsal \
         "INSERT INTO ledger (note, amount) VALUES ('live-$i', $i)" >/dev/null 2>&1 || true
     sleep 0.05
 done
@@ -300,8 +309,8 @@ fi
 # restart, which is the signal §6 asks to be recorded.
 # --------------------------------------------------------------------------
 "${DG[@]}" create rehearsal_two >/dev/null
-"${DG[@]}" exec rehearsal_two "CREATE TABLE t (a INTEGER)" >/dev/null
-"${DG[@]}" exec rehearsal_two "INSERT INTO t VALUES (1)" >/dev/null
+"${DG[@]}" query rehearsal_two "CREATE TABLE t (a INTEGER)" >/dev/null
+"${DG[@]}" query rehearsal_two "INSERT INTO t VALUES (1)" >/dev/null
 kill -HUP "$LITESTREAM_PID" 2>/dev/null || true
 ADDED=0
 for _ in $(seq 1 40); do
@@ -347,9 +356,7 @@ except Exception as exc:
     print(f"error: {exc}")
 PY
 )"
-    ROWS_SOURCE="$("${DG[@]}" exec --json rehearsal "SELECT count(*) AS n FROM ledger" 2>/dev/null | python3 -c 'import json,sys
-try: print(json.load(sys.stdin).get("rows",[{}])[0].get("n",0))
-except Exception: print(0)' 2>/dev/null || echo 0)"
+    ROWS_SOURCE="$(row_count rehearsal ledger)"
     if [ "$ROWS_RESTORED" = "$ROWS_SOURCE" ] && [ "${ROWS_RESTORED:-0}" -gt 0 ] 2>/dev/null; then
         record 5 PASS "rehearsal: restored to a separate path, row count matches the source exactly" \
             "restore target: $restore_dir/rehearsal.sqlite (separate directory, not the data dir)" \
