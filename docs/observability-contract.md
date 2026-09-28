@@ -94,6 +94,7 @@ decision called the floor, because no alert stack exists in the project.
 | Digest cadence | 24h; the first digest goes out one full period after startup, never on boot | `dg serve --backup-digest-secs N`, **default 0 (off)** |
 | Immediate-failure notice | one notice per failed attempt, as soon as the producer records it; polled every 60s | `dg serve --backup-failure-poll-secs N`, **default 0 (off)** |
 | Failure signal | `$BACKUP_ROOT/attempts.jsonl`, appended by `scripts/micro2-backup.sh`: outcome, step reached, set | `read_attempts` (src/backup_health.rs) |
+| Notice scope | the newest failed attempt not yet reported, once. Two failures inside one poll window produce one notice naming the newer; the complete history stays in `attempts.jsonl` and the next failure always alerts again | `DeliveryState` (src/notify.rs) |
 | Freshness rule | §2, computed once and shared by `/v1/backups`, `dg backup status`, `dg backup digest` and the digest sink | `snapshot` (src/backup_health.rs) |
 | On demand | `dg backup digest [--json]`, reads the data directory directly, so it works with the gateway stopped; exits nonzero when any database is stale or unknown | owner-only equivalent of the delivered digest |
 | Delivery is opt-in | no flag, no notification anywhere: both cadences default to 0 | the decision was delivery, not a new default behaviour for every gateway |

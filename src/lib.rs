@@ -191,7 +191,12 @@ async fn backup_notifier(store: std::sync::Arc<store::Store>, config: BackupNoti
         let Some(wait) = wait else { return };
         tokio::time::sleep(wait).await;
         if digest.due() {
-            match backup_health::snapshot(&store) {
+            // Every step that touches the store runs on the blocking pool.
+            // A freshness snapshot reads the registry and walks the backup
+            // root, and doing that inline on the runtime would stall request
+            // handling for as long as it took -- an alerting feature that
+            // degrades the service it watches is a net loss.
+            match health_off_thread(&store).await {
                 Ok(health) => {
                     let note = notify::digest_note(&health);
                     if !notify::deliver_all(&config.sinks, &note).await.is_empty() {
@@ -208,19 +213,53 @@ async fn backup_notifier(store: std::sync::Arc<store::Store>, config: BackupNoti
                 ),
             }
         }
-        if failure.due()
-            && let Some(attempt) = last_failed_attempt(&store)
-            && delivered.should_report(&attempt)
-            && let Ok(health) = backup_health::snapshot(&store)
-        {
-            let note = notify::failure_note(&health, &attempt);
-            if !notify::deliver_all(&config.sinks, &note).await.is_empty() {
-                tracing::error!(
-                    code = "backup_failure_delivery_failed",
-                    attempt = %attempt.ts,
-                    "backup failure notice delivery failed"
-                );
+        if failure.due() {
+            let store_for_poll = store.clone();
+            let newest =
+                tokio::task::spawn_blocking(move || last_failed_attempt(&store_for_poll)).await;
+            let attempt = match newest {
+                Ok(Some(attempt)) => Some(attempt),
+                Ok(None) => None,
+                Err(_) => {
+                    tracing::error!(
+                        code = "backup_failure_poll_failed",
+                        "attempt-log poll worker failed"
+                    );
+                    None
+                }
+            };
+            if let Some(attempt) = attempt
+                && delivered.should_report(&attempt)
+                && let Ok(health) = health_off_thread(&store).await
+            {
+                let note = notify::failure_note(&health, &attempt);
+                if !notify::deliver_all(&config.sinks, &note).await.is_empty() {
+                    tracing::error!(
+                        code = "backup_failure_delivery_failed",
+                        attempt = %attempt.ts,
+                        "backup failure notice delivery failed"
+                    );
+                }
             }
+        }
+    }
+}
+
+/// The freshness snapshot on the blocking pool, with the two ways it can go
+/// wrong reported as log lines rather than as a panicked task.
+async fn health_off_thread(
+    store: &std::sync::Arc<store::Store>,
+) -> Result<backup_health::BackupHealth, &'static str> {
+    let owned = store.clone();
+    match tokio::task::spawn_blocking(move || backup_health::snapshot(&owned)).await {
+        Ok(Ok(health)) => Ok(health),
+        Ok(Err(_)) => Err("backup health snapshot failed"),
+        Err(_) => {
+            tracing::error!(
+                code = "backup_health_worker_failed",
+                "backup health worker failed"
+            );
+            Err("backup health worker failed")
         }
     }
 }

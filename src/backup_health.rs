@@ -224,18 +224,52 @@ pub fn snapshot(store: &Store) -> Result<BackupHealth, crate::error::Error> {
     })
 }
 
-/// Read the producer's attempt log. Tolerant by construction: the file is
-/// appended to by a separate process while a backup runs, so a torn final
-/// line is normal, not corruption, and a digest must not fail to render
-/// because the newest line is half-written. Unparseable lines are skipped,
-/// and a missing log is an empty log -- "no attempts recorded yet" is a
-/// reportable state, not an error.
+/// How much of the attempt log a read considers. The log is append-only and
+/// never pruned, so at a five-minute cadence it grows by one line every five
+/// minutes forever; re-reading all of it on every failure poll would spend
+/// the notifier's whole budget on I/O it does not need. Every consumer wants
+/// the newest records -- `last_attempt` and `last_failure` are both in the
+/// tail -- so the read is bounded at the end.
+const ATTEMPT_TAIL_BYTES: u64 = 64 * 1024;
+
+/// Read the producer's attempt log, newest end. Tolerant by construction:
+/// the file is appended to by a separate process while a backup runs, so a
+/// torn final line is normal, not corruption, and a digest must not fail to
+/// render because the newest line is half-written. Unparseable lines are
+/// skipped, and a missing log is an empty log -- "no attempts recorded yet"
+/// is a reportable state, not an error. Records older than the tail window
+/// are not returned; the file itself remains the complete history.
 pub fn read_attempts(root: &std::path::Path) -> Vec<AttemptRecord> {
     let path = root.join("attempts.jsonl");
-    let Ok(text) = std::fs::read_to_string(&path) else {
+    let Ok(mut file) = std::fs::File::open(&path) else {
         return Vec::new();
     };
-    text.lines()
+    let Ok(len) = file.metadata().map(|meta| meta.len()) else {
+        return Vec::new();
+    };
+    let start = len.saturating_sub(ATTEMPT_TAIL_BYTES);
+    if start > 0 {
+        // The first line in the window is almost certainly a partial record,
+        // so it is dropped rather than parsed.
+        if std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(start)).is_err() {
+            return Vec::new();
+        }
+    }
+    let mut text = String::new();
+    if std::io::Read::read_to_string(&mut file, &mut text).is_err() {
+        return Vec::new();
+    }
+    let body = if start == 0 {
+        text.as_str()
+    } else {
+        match text.split_once('\n') {
+            Some((_, rest)) => rest,
+            // A window with no newline at all is one enormous line; there is
+            // nothing complete to read in it.
+            None => "",
+        }
+    };
+    body.lines()
         .filter(|line| !line.trim().is_empty())
         .filter_map(|line| serde_json::from_str::<AttemptRecord>(line).ok())
         .collect()
@@ -415,6 +449,36 @@ mod tests {
     fn a_missing_attempt_log_is_an_empty_log() {
         let dir = tempfile::tempdir().unwrap();
         assert!(read_attempts(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn a_log_longer_than_the_tail_window_still_reports_the_newest_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        // Far more than the read window, so the oldest records are genuinely
+        // outside it rather than merely many.
+        let mut log = String::new();
+        for index in 0..20_000 {
+            log.push_str(&format!(
+                r#"{{"ts":"t{index}","outcome":"error","set":null,"databases":0,"step":"export","filler":"{index}"}}"# 
+            ));
+            log.push('\n');
+        }
+        std::fs::write(root.join("attempts.jsonl"), &log).unwrap();
+        let attempts = read_attempts(root);
+        assert!(
+            !attempts.is_empty(),
+            "the tail window must not read as empty"
+        );
+        assert_eq!(
+            attempts.last().unwrap().ts,
+            "t19999",
+            "the newest attempt must always be in the window"
+        );
+        assert!(
+            attempts.len() < 20_000,
+            "the read is supposed to be bounded, not a full scan"
+        );
     }
 
     #[test]
