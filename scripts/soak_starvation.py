@@ -167,6 +167,15 @@ class Latency:
             "max_ms": round(self.max_ms, 2),
         }
 
+    def merge(self, other):
+        """Exact union of two histograms. Averaging percentiles across blocks
+        would be wrong; summing buckets is not."""
+        with self.lock:
+            for idx, n in other.buckets.items():
+                self.buckets[idx] = self.buckets.get(idx, 0) + n
+            self.count += other.count
+            self.max_ms = max(self.max_ms, other.max_ms)
+
 
 class Stopper:
     def __init__(self):
@@ -216,9 +225,13 @@ def delta_map(first, last, names):
     return out
 
 
-def run_arm(base, key, hot, cold, args, label, seconds, readers, server_pid):
-    """Run one arm and return its summary. Writers always run; readers only
-    in the flood arm."""
+def run_block(base, key, hot, cold, args, label, seconds, readers, server_pid):
+    """Run one block and return its RAW result (histograms + counters).
+
+    Kept raw rather than summarised so blocks of the same arm can be merged
+    into one arm total; percentiles cannot be averaged across blocks, but
+    histograms can be summed exactly.
+    """
     stop = Stopper()
     writer_lat, reader_lat = Latency(), Latency()
     counts = {"writer_429": 0, "writer_other": 0, "writer_transport": 0,
@@ -309,23 +322,60 @@ def run_arm(base, key, hot, cold, args, label, seconds, readers, server_pid):
 
     last = status_of(base, key, hot, cold)
     if last is None:
-        raise AssertionError("could not read /v1/status after the arm")
+        raise AssertionError("could not read /v1/status after the block")
     if not samples:
         raise AssertionError(f"{label}: never sampled /v1/status")
-    elapsed = max(samples[-1]["t"] - samples[0]["t"], 1e-9)
-    d = delta_map(first, last, (hot, cold))
+    return {
+        "label": label,
+        "readers": readers,
+        "elapsed": max(samples[-1]["t"] - samples[0]["t"], 1e-9),
+        "admission": first["admission"],
+        "writer_lat": writer_lat,
+        "reader_lat": reader_lat,
+        "counts": dict(counts),
+        "delta": delta_map(first, last, (hot, cold)),
+        "samples": samples,
+        "rss_start_kb": rss_start,
+        "rss_end_kb": samples[-1]["rss_kb"],
+    }
+
+
+def merge_blocks(blocks, hot, cold, args, label):
+    """Fold the blocks of one arm into the single arm summary the verdict
+    reads. Sums histograms and counter deltas; never averages percentiles."""
+    writer_lat, reader_lat = Latency(), Latency()
+    for block in blocks:
+        writer_lat.merge(block["writer_lat"])
+        reader_lat.merge(block["reader_lat"])
+    counts = {"writer_429": 0, "writer_other": 0, "writer_transport": 0,
+              "reader_429": 0, "reader_other": 0, "reader_transport": 0}
+    d = {hot: {k: 0 for k in ("queue_waits", "queue_wait_ms", "queue_timeouts",
+                               "rows_read", "rows_written")},
+         cold: {k: 0 for k in ("queue_waits", "queue_wait_ms", "queue_timeouts",
+                               "rows_read", "rows_written")},
+         "_requests": {}}
+    for block in blocks:
+        for k in counts:
+            counts[k] += block["counts"][k]
+        for name in (hot, cold):
+            for k, v in block["delta"][name].items():
+                d[name][k] += v
+        for k, v in block["delta"]["_requests"].items():
+            d["_requests"][k] = d["_requests"].get(k, 0) + v
+    elapsed = sum(b["elapsed"] for b in blocks)
     qtimeouts = d[hot]["queue_timeouts"]
     waits = d[hot]["queue_waits"]
-    loads = [s["load1"] for s in samples]
+    loads = [s["load1"] for b in blocks for s in b["samples"]]
 
-    # Attribution: queue timeouts also land in the global capacity_exceeded
-    # counter, so the lane-shed remainder is what is left over.
+    # Attribution: a per-database queue timeout ALSO lands in the global
+    # capacity_exceeded counter, so whatever is left over was lane-shed.
     lane_shed = d["_requests"]["capacity_exceeded"] - qtimeouts
     return {
         "arm": label,
+        "blocks": len(blocks),
         "seconds": round(elapsed, 1),
-        "admission": first["admission"],
-        "readers": readers,
+        "admission": blocks[0]["admission"],
+        "readers": blocks[0]["readers"],
         "writers": args.writers,
         "writer": writer_lat.snapshot(),
         "reader": reader_lat.snapshot(),
@@ -338,7 +388,7 @@ def run_arm(base, key, hot, cold, args, label, seconds, readers, server_pid):
         "per_database": {hot: d[hot], cold: d[cold]},
         "queue_timeouts": qtimeouts,
         "queue_waits": waits,
-        "waits_per_sec": round(waits / elapsed, 2),
+        "waits_per_sec": round(waits / elapsed, 2) if elapsed else 0.0,
         "mean_wait_ms": round(d[hot]["queue_wait_ms"] / waits, 2) if waits else 0.0,
         "requests": d["_requests"],
         "attribution": {
@@ -347,14 +397,21 @@ def run_arm(base, key, hot, cold, args, label, seconds, readers, server_pid):
             "lane_shed_estimate": lane_shed,
             # Must be 0: no writer is ever shed by the global write lane, so
             # every writer 429 is a per-database queue timeout.
-            "writer_429_equals_queue_timeouts":
-                counts["writer_429"] == qtimeouts,
+            "writer_429_equals_queue_timeouts": counts["writer_429"] == qtimeouts,
         },
         "load1_mean": round(sum(loads) / len(loads), 2),
         "load1_max": round(max(loads), 2),
-        "rss_start_kb": rss_start,
-        "rss_end_kb": samples[-1]["rss_kb"],
-        "samples": samples,
+        "rss_start_kb": blocks[0]["rss_start_kb"],
+        "rss_end_kb": blocks[-1]["rss_end_kb"],
+        "block_series": [
+            {"t": b["label"],
+             "writer_p99_ms": b["writer_lat"].percentile(0.99),
+             "writer_429": b["counts"]["writer_429"],
+             "queue_timeouts": b["delta"][hot]["queue_timeouts"],
+             "load1": round(sum(s["load1"] for s in b["samples"])
+                            / len(b["samples"]), 2)}
+            for b in blocks
+        ],
     }
 
 
@@ -447,8 +504,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dg-bin", default=None,
                     help="path to the dg binary (default: .cargo/target/debug/dg)")
-    ap.add_argument("--seconds", type=int, default=300,
-                    help="duration of EACH arm (default 300)")
+    ap.add_argument("--seconds", type=int, default=120,
+                    help="duration of EACH block (default 120)")
+    ap.add_argument("--blocks", type=int, default=6,
+                    help="number of blocks; arms are INTERLEAVED "
+                         "control/flood/control/flood..., half each (default "
+                         "6, so 3 per arm). Interleaving is what keeps the "
+                         "verdict valid on a busy box: load drift reaches both "
+                         "arms equally instead of loading one of them")
     ap.add_argument("--flood-seconds", type=int, default=None,
                     help="duration of the flood arm only (default: --seconds)")
     ap.add_argument("--control-seconds", type=int, default=None,
@@ -492,10 +555,15 @@ def main():
                  "lane sheds writers and the queue measurement is void")
     if args.seconds < 30:
         ap.error("--seconds must be >= 30 to mean anything")
+    if args.blocks < 2 or args.blocks % 2:
+        ap.error("--blocks must be even and >= 2, so both arms get equal time")
+    if args.blocks > 40:
+        ap.error("--blocks above 40 outlasts the stall watchdog; run several "
+                 "invocations instead")
     flood_seconds = args.flood_seconds or args.seconds
     control_seconds = args.control_seconds or args.seconds
     if flood_seconds < 30 or control_seconds < 30:
-        ap.error("each arm must be >= 30 seconds")
+        ap.error("each block must be >= 30 seconds")
 
     readiness_timeout = float(os.environ.get(
         "SOAK_READINESS_TIMEOUT", str(READINESS_TIMEOUT)))
