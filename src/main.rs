@@ -665,10 +665,18 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                     // A flag the operator wrote is worth a sentence back: a
                     // bare `invalid_request` would leave them guessing
                     // whether the URL, the scheme or the flag name was wrong.
+                    // `Error` carries a `&'static str`, so the reason is
+                    // logged in full here rather than truncated into the
+                    // response; the response names the flag that is wrong.
+                    tracing::error!(
+                        code = "invalid_backup_webhook",
+                        reason = %error.reason,
+                        "--backup-notify-webhook was refused at startup"
+                    );
                     Application(dg::error::Error::new(
                         400,
                         "invalid_backup_webhook",
-                        &format!("--backup-notify-webhook: {}", error.reason),
+                        "--backup-notify-webhook must be https, or http on a literal loopback address",
                     ))
                 })?;
                 tracing::info!(url = sink.url(), "backup notifications: webhook sink added");
