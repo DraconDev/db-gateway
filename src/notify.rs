@@ -32,6 +32,8 @@
 //! types here make that structural rather than a writing discipline: a [`Note`]
 //! has no field for an RPO, so there is nowhere to put one.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -207,13 +209,21 @@ impl Severity {
     }
 }
 
-/// Where a notification goes. `deliver` is synchronous and blocking on
-/// purpose: the scheduler calls it from `spawn_blocking`, so a sink that
-/// takes seconds to answer cannot stall the request path or the event loop.
+/// Where a notification goes.
+///
+/// Async and dyn-safe, because the only HTTP client this project trusts is
+/// the async `reqwest` one the CLI already uses (same no-proxy,
+/// no-redirect, bounded-timeout transport discipline), and a sink trait that
+/// forced a second, weaker HTTP stack into the binary would be a worse
+/// trade than one boxed future. The notifier runs in its own task, so a sink
+/// that takes seconds to answer delays the next digest, never a request.
 pub trait Sink: Send + Sync + std::fmt::Debug {
     /// A short identifier for logs, e.g. `log` or `webhook`.
     fn name(&self) -> &'static str;
-    fn deliver(&self, note: &Note) -> Result<(), SinkError>;
+    fn deliver<'a>(
+        &'a self,
+        note: &'a Note,
+    ) -> Pin<Box<dyn Future<Output = Result<(), SinkError>> + Send + 'a>>;
 }
 
 #[derive(Debug)]
@@ -248,7 +258,11 @@ impl Sink for LogSink {
         "log"
     }
 
-    fn deliver(&self, note: &Note) -> Result<(), SinkError> {
+    fn deliver<'a>(
+        &'a self,
+        note: &'a Note,
+    ) -> Pin<Box<dyn Future<Output = Result<(), SinkError>> + Send + 'a>> {
+        Box::pin(async move {
         let databases = note
             .databases
             .iter()
@@ -296,6 +310,7 @@ impl Sink for LogSink {
             );
         }
         Ok(())
+        })
     }
 }
 
@@ -305,24 +320,54 @@ impl Sink for LogSink {
 /// operator believing they are covered by a sink that stopped working.
 #[derive(Debug, Clone)]
 pub struct WebhookSink {
-    client: reqwest::blocking::Client,
+    client: reqwest::Client,
     url: String,
     timeout: Duration,
 }
 
 impl WebhookSink {
+    /// Build a webhook sink for an owner-configured URL.
+    ///
+    /// The same transport rule the CLI applies to `--server`: HTTPS, or
+    /// plain HTTP on a literal loopback address. A digest carries database
+    /// names and backup state, so allowing it onto the network in cleartext
+    /// would be a leak the flag should never be able to cause; loopback is
+    /// exempt because a local collector is the realistic first deployment.
+    /// No ambient proxy, no redirects: a notification that silently detoured
+    /// through a proxy or a redirect would be delivered somewhere nobody
+    /// reviewed.
     pub fn new(url: impl Into<String>) -> Result<Self, SinkError> {
         Self::with_timeout(url, Duration::from_secs(10))
     }
 
     pub fn with_timeout(url: impl Into<String>, timeout: Duration) -> Result<Self, SinkError> {
-        let client = reqwest::blocking::Client::builder()
+        let url = url.into();
+        let parsed = reqwest::Url::parse(&url)
+            .map_err(|error| SinkError::new("webhook", format!("unparseable url: {error}")))?;
+        let loopback = parsed
+            .host_str()
+            .map(|host| {
+                host.trim_matches(['[', ']'])
+                    .parse::<std::net::IpAddr>()
+                    .map(|ip| ip.is_loopback())
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
+        if !(parsed.scheme() == "https" || (parsed.scheme() == "http" && loopback)) {
+            return Err(SinkError::new(
+                "webhook",
+                "use an https url, or plain http on a literal loopback address",
+            ));
+        }
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
             .timeout(timeout)
             .build()
             .map_err(|error| SinkError::new("webhook", error.to_string()))?;
         Ok(Self {
             client,
-            url: url.into(),
+            url,
             timeout,
         })
     }
@@ -341,28 +386,34 @@ impl Sink for WebhookSink {
         "webhook"
     }
 
-    fn deliver(&self, note: &Note) -> Result<(), SinkError> {
-        let response = self
-            .client
-            .post(&self.url)
-            .json(note)
-            .send()
-            .map_err(|error| SinkError::new("webhook", error.to_string()))?;
-        let status = response.status();
-        if !status.is_success() {
-            return Err(SinkError::new("webhook", format!("status {status}")));
-        }
-        Ok(())
+    fn deliver<'a>(
+        &'a self,
+        note: &'a Note,
+    ) -> Pin<Box<dyn Future<Output = Result<(), SinkError>> + Send + 'a>> {
+        Box::pin(async move {
+            let response = self
+                .client
+                .post(&self.url)
+                .json(note)
+                .send()
+                .await
+                .map_err(|error| SinkError::new("webhook", error.to_string()))?;
+            let status = response.status();
+            if !status.is_success() {
+                return Err(SinkError::new("webhook", format!("status {status}")));
+            }
+            Ok(())
+        })
     }
 }
 
 /// Deliver to every sink, reporting each failure without letting one sink
 /// starve the others: a webhook outage must not cost the operator the log
 /// line, which is the sink that always works.
-pub fn deliver_all(sinks: &[Arc<dyn Sink>], note: &Note) -> Vec<SinkError> {
+pub async fn deliver_all(sinks: &[Arc<dyn Sink>], note: &Note) -> Vec<SinkError> {
     let mut errors = Vec::new();
     for sink in sinks {
-        if let Err(error) = sink.deliver(note) {
+        if let Err(error) = sink.deliver(note).await {
             tracing::error!(
                 code = "notification_sink_failed",
                 sink = error.sink,
@@ -475,9 +526,14 @@ mod tests {
             "recorder"
         }
 
-        fn deliver(&self, note: &Note) -> Result<(), SinkError> {
-            self.notes.lock().unwrap().push(note.clone());
-            Ok(())
+        fn deliver<'a>(
+            &'a self,
+            note: &'a Note,
+        ) -> Pin<Box<dyn Future<Output = Result<(), SinkError>> + Send + 'a>> {
+            Box::pin(async move {
+                self.notes.lock().unwrap().push(note.clone());
+                Ok(())
+            })
         }
     }
 
@@ -489,8 +545,11 @@ mod tests {
             "failing"
         }
 
-        fn deliver(&self, _note: &Note) -> Result<(), SinkError> {
-            Err(SinkError::new("failing", "deliberate"))
+        fn deliver<'a>(
+            &'a self,
+            _note: &'a Note,
+        ) -> Pin<Box<dyn Future<Output = Result<(), SinkError>> + Send + 'a>> {
+            Box::pin(async { Err(SinkError::new("failing", "deliberate")) })
         }
     }
 
@@ -550,11 +609,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn one_sink_failing_never_starves_the_others() {
+    #[tokio::test]
+    async fn one_sink_failing_never_starves_the_others() {
         let recorder = Arc::new(Recorder::default());
         let sinks: Vec<Arc<dyn Sink>> = vec![Arc::new(Failing), recorder.clone()];
-        let errors = deliver_all(&sinks, &digest_note(&health()));
+        let errors = deliver_all(&sinks, &digest_note(&health())).await;
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].sink, "failing");
         assert_eq!(recorder.notes().len(), 1, "the healthy sink still delivered");
@@ -587,10 +646,27 @@ mod tests {
         assert!(!state.should_report(&attempt("", "error", "init")));
     }
 
-    #[test]
-    fn the_log_sink_always_accepts() {
+    #[tokio::test]
+    async fn the_log_sink_always_accepts() {
         let note = digest_note(&health());
-        assert!(LogSink.deliver(&note).is_ok());
-        assert!(LogSink.deliver(&failure_note(&health(), &attempt("a", "error", "x"))).is_ok());
+        assert!(LogSink.deliver(&note).await.is_ok());
+        assert!(LogSink
+            .deliver(&failure_note(&health(), &attempt("a", "error", "x")))
+            .await
+            .is_ok());
+    }
+
+    #[test]
+    fn a_webhook_sink_refuses_a_cleartext_non_loopback_url() {
+        // A digest carries database names and backup state, so the flag must
+        // not be able to put it on the wire in the clear.
+        for url in ["http://example.com/hook", "ftp://127.0.0.1/hook", "not a url"] {
+            assert!(
+                WebhookSink::new(url).is_err(),
+                "{url} must not be accepted as a notification sink"
+            );
+        }
+        assert!(WebhookSink::new("http://127.0.0.1:9/hook").is_ok());
+        assert!(WebhookSink::new("https://hooks.example.com/dg").is_ok());
     }
 }
