@@ -615,3 +615,40 @@ fn the_collector_records_a_post() {
     let note = collector.wait_for("probe", Duration::from_secs(10), |note| note["n"] == 7);
     assert_eq!(note["kind"], "probe");
 }
+
+#[test]
+fn a_webhook_the_operator_cannot_mean_is_refused_at_startup() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let _ = init(&data);
+    // A digest carries database names and backup state, so a cleartext
+    // non-loopback sink is refused rather than quietly accepted, and refused
+    // BEFORE the listener opens -- an operator who sees this exit code has
+    // not half-enabled delivery they think they have.
+    for url in ["http://example.com/hook", "not a url", "ftp://127.0.0.1/hook"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_dg"))
+            .args([
+                "serve",
+                "--listen",
+                "127.0.0.1:0",
+                "--data-dir",
+                data.to_str().unwrap(),
+                "--backup-digest-secs",
+                "60",
+                "--backup-notify-webhook",
+                url,
+            ])
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{url} was accepted");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("invalid_backup_webhook"),
+            "{url} failed without naming the flag: {stderr}"
+        );
+        assert!(
+            !stderr.contains("liveness server listening"),
+            "{url} started a listener anyway: {stderr}"
+        );
+    }
+}
