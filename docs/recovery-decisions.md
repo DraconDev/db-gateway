@@ -166,6 +166,15 @@ follows in the sandbox/notification work):
    region/endpoint, credential scope, and encryption. These need real bucket
    facts and pricing, so they are deliberately deferred to the sandbox step
    rather than guessed here.
+   *Measured inputs now available* (`docs/backup-compatibility.md` §6a, from
+   the litestream 0.5.17 rehearsal, 2026-09-28): `endpoint` and `region` are
+   honoured as replica URL query parameters and need no other setting; a
+   replica root is **not** namespaced per database, so the bucket layout must
+   be one prefix per gateway database; **unknown replica keys are silently
+   ignored**, so an encryption setting written into the config would replicate
+   in plaintext while appearing to work — the encryption half of this decision
+   is therefore a bucket or explicit-mechanism decision, not a config key.
+   Budget, exclusions, region choice and pricing still need real facts.
 3. **STILL OPEN** — same inputs as 2, plus what headroom the 1 GB host must
    show. Deferred with 2.
 4. **DECIDED** — restore policy: a restore always lands on a **separate**
@@ -186,6 +195,11 @@ follows in the sandbox/notification work):
 6. **STILL OPEN** — whether sandbox evidence accepts continuous Profile C under
    the five-minute objective, and what measured headroom the 1 GB host must
    show. This is the question the sandbox exists to answer.
+   *Status 2026-09-28*: the gate program is built and runs
+   (`scripts/sandbox-packet.sh`); gate 1 is satisfied and gates 2, 5, 7 have
+   passed in file-replica rehearsal only. The question cannot be answered
+   without a test bucket and the owner's go-ahead, which is the objective's
+   own BLOCKER.
 
 ## Sources (public, accessed 2026-09-18)
 
