@@ -939,6 +939,11 @@ G9_LIMIT="${DG_SANDBOX_MEMORY_LIMIT:-1G}"
 G9_SRC="$G9_ROOT/heavy.sqlite"
 G9_BUDGET="$REPO/docs/resource-budget.md"
 G9_HAS_CGROUP=0
+# `set -u` is on and this is an OPTIONAL caller-supplied path into the cgroup
+# tree; an unset variable here aborted the packet mid-gate, after gates 3, 4, 6
+# and 8 had already run. Every optional knob is defaulted at the top of its
+# gate, not read straight from the environment.
+USER_CGROUP_PATH="${USER_CGROUP_PATH:-}"
 [ -f /sys/fs/cgroup/cgroup.controllers ] && [ -w /sys/fs/cgroup/cgroup.procs ] && G9_HAS_CGROUP=1
 
 rss_of() { # $1 = pid
