@@ -193,18 +193,8 @@ fn start(data_dir: &std::path::Path, extra: &[&str]) -> Server {
         data_dir.to_str().unwrap(),
     ]);
     cmd.args(extra);
-    let mut child = cmd.stderr(Stdio::piped()).spawn().unwrap();
-    let stderr = child.stderr.take().unwrap();
-    let mut address = None;
-    for line in BufReader::new(stderr).lines() {
-        let line = line.unwrap();
-        if let Ok(log) = serde_json::from_str::<Value>(&line)
-            && let Some(addr) = log["fields"]["address"].as_str()
-        {
-            address = Some(addr.to_string());
-            break;
-        }
-    }
+    let mut child = cmd.stderr(Stdio::inherit()).spawn().unwrap();
+    let address = String::new();
     Server {
         child,
         address: address.expect("server logged its listen address"),
