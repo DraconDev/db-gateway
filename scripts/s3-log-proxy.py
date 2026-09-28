@@ -47,6 +47,7 @@ import json
 import os
 import re
 import socketserver
+import ssl
 import sys
 import threading
 import time
@@ -368,6 +369,31 @@ class Server(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
 
 
+class TLSServer(Server):
+    """The same server behind TLS.
+
+    OVH's endpoint is https with a publicly valid certificate, so a rehearsal
+    that speaks plain http tests a transport litestream will never use -- and
+    it fails in a way that looks like a config bug. litestream always builds
+    https:// URLs for an S3 endpoint, so a plain-http rehearsal endpoint
+    produces exactly zero recorded requests and a baffling gate failure. This
+    exists so the rehearsal drives the same transport as the real run.
+    """
+
+    daemon_threads = True
+    allow_reuse_address = True
+
+    def __init__(self, addr, handler, certfile, keyfile):
+        self.certfile = certfile
+        self.keyfile = keyfile
+        super().__init__(addr, handler)
+
+    def server_bind(self):
+        self.socket = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        self.socket.load_cert_chain(self.certfile, self.keyfile)
+        super().server_bind()
+
+
 def summarize(path: str) -> int:
     """Print the operation matrix the packet's gate 4 reports.
 
@@ -447,6 +473,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="write the bound port to this file, then serve. The race-free "
                         "way to learn a port chosen by the OS: wait for the file to "
                         "be non-empty instead of capturing a command substitution")
+    p.add_argument("--tls-cert", default=None, help="serve https with this certificate")
+    p.add_argument("--tls-key", default=None, help="the key for --tls-cert")
     p.add_argument("--summarize", default=None, help="print the operation matrix for a log and exit")
     args = p.parse_args(argv)
 
@@ -466,7 +494,13 @@ def main(argv: list[str] | None = None) -> int:
     FAULT_PATH = args.faults
     REGION = args.region
 
-    server = Server((host or "127.0.0.1", int(port)), Handler)
+    if bool(args.tls_cert) != bool(args.tls_key):
+        print("s3-log-proxy: --tls-cert and --tls-key go together", file=sys.stderr)
+        return 2
+    if args.tls_cert:
+        server = TLSServer((host or "127.0.0.1", int(port)), Handler, args.tls_cert, args.tls_key)
+    else:
+        server = Server((host or "127.0.0.1", int(port)), Handler)
     bound = server.server_address[1]
     # Announce the port BEFORE serving, through a channel that does not depend
     # on the caller's pipe lifetime. `pport="$(proxy --print-listen | head -1)"`
