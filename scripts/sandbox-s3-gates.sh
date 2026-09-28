@@ -706,15 +706,23 @@ G8_FAULTS="$G8_ROOT/faults"
 : > "$G8_FAULTS"
 start_proxy "gate8" "$G8_REQLOG" "$G8_FAULTS"
 G8_PORT_P="$PROXY_PORT"
-G8_SRC="$G8_ROOT/sbfail.sqlite"
-[ -f "$G8_SRC" ] || { python3 - "$G8_SRC" <<'PY'
+G8_SRC=""
+if [ "$G8_HAVE_DG" = "1" ]; then
+    # The database litestream replicates must be the gateway's LIVE one. The
+    # previous version of this gate replicated a sibling file in the sandbox
+    # while measuring writes through the gateway, so it proved that two
+    # unrelated databases each did their own thing.
+    G8_SRC="$G8_DATA/sbfail.sqlite"
+else
+    G8_SRC="$G8_ROOT/sbfail.sqlite"
+    [ -f "$G8_SRC" ] || python3 - "$G8_SRC" <<'PY'
 import sqlite3, sys
 c = sqlite3.connect(sys.argv[1]); c.execute("PRAGMA journal_mode=WAL")
 c.execute("CREATE TABLE ledger(id INTEGER PRIMARY KEY, note TEXT)")
 c.executemany("INSERT INTO ledger(note) VALUES (?)", [(f"pre-{i}",) for i in range(20)])
 c.commit()
 PY
-}
+fi
 cat > "$G8_ROOT/litestream.yml" <<EOF
 logging:
   level: info
