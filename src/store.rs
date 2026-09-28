@@ -116,6 +116,11 @@ impl QueueState {
 ///   starved instead, 4,260 reader rejections against 5 writer rejections in
 ///   the same run. A bound that moves the queue sideways is not a bound.
 ///
+/// After this queue: the flood arm's writer rejection rate fell to 0.066%,
+/// BELOW its own 0.335% control arm, and total flood-arm rejections fell from
+/// 91 to 44. Verdict NO_STARVATION. Full runs in
+/// docs/soak-starvation-evidence.log.
+///
 /// So: fair, phase-fair, and writer-preferring, with no polling. Writers
 /// take a ticket, so they are served in arrival order. A queued writer
 /// closes the read phase immediately, so readers already inside drain but

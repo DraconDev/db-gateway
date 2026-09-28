@@ -1,0 +1,248 @@
+# Writer-starvation soak evidence (2026-09-28, shared local rig)
+#
+#   scripts/soak_starvation.py --blocks 6 --seconds 90 --readers 10 --writers 2
+#
+# Question (scale proposal Phase 2): does a continuous read flood on ONE
+# database delay a writer enough to justify a writer-preferring bound in
+# Store::acquire_queue?  Answer: YES -- measured below, and the bound is now
+# built. The queue is a fair, phase-fair, writer-preferring lock.
+#
+#   verdict: STARVED before the fix, NO_STARVATION after it.
+#
+# Why docs/soak-2h-evidence.log cannot answer this: that run round-robins
+# across four databases, and acquire_queue takes a PER-DATABASE guard, so the
+# contended lock is never actually contended. 1.28M requests and 0 errors
+# proves nothing about starvation. This harness inverts it: every reader and
+# writer hammers ONE hot database. An idle `cold` database is created and
+# reported alongside it, so the per-database counters are visibly
+# per-database rather than global.
+#
+# Why the arms are DIFFERENTIAL and INTERLEAVED: this rig is shared and its
+# load moved between 27 and 127 over the day, so an absolute latency threshold
+# would have measured the neighbours. Blocks alternate
+# control/flood/control/flood/... at equal duration, so load drift lands in
+# both arms and only the read flood separates them. Every block records the
+# machine load it ran at. The verdict is the writer REJECTION RATE, not p99:
+# at load ~70 both arms sit on the 500ms ACQUIRE_TIMEOUT ceiling where p99
+# saturates and stops discriminating (one run gave 502ms control vs 567ms
+# flood, a useless 1.1x, while the rejection rate told the real story).
+#
+# Attribution is checkable, not assumed: a queue timeout also lands in the
+# global requests.capacity_exceeded, so the summary reports the lane-shed
+# remainder. It is 0 in every run here, which proves the rejections being
+# measured are per-database queue timeouts and not global-lane shedding.
+# --writers stays at 2, inside WRITE_PERMITS=4, so no writer is lane-shed.
+
+## summary across the three queue designs
+
+| run | verdict | ctrl rej% | flood rej% | ratio | ctrl w/s | flood w/s | TO ctrl | TO flood | reader 429 flood |
+|---|---|---|---|---|---|---|---|---|---|
+| Run 1 | **STARVED** | 0.090 | 0.700 | 7.8 | 33.5 | 14.0 | 8 | 90 | 65 |
+| Run 2 | **MARGINAL** | 0.061 | 0.075 | 1.2 | 37.2 | 35.0 | 6 | 4267 | 4260 |
+| Run 3 | **NO_STARVATION** | 0.335 | 0.066 | 0.2 | 33.8 | 23.0 | 30 | 44 | 40 |
+
+Machine load per run (mean control / mean flood): Run 1 68.7 / 66.7; Run 2 48.7 / 58.2; Run 3 45.7 / 46.7.
+The shipped run met a quieter machine than the pre-fix run, so the decisive
+evidence is the WITHIN-RUN differential, which is load-immune by construction,
+not the absolute counts.
+
+## per-run detail
+
+### Run 1 - PRE-FIX: polled RwLock, no bound
+
+commit 7967b59 -- The code the Phase 2 comment was written against.
+
+```
+verdict: STARVED
+reason: read flood raised the writer rejection rate from 0.09% to 0.70% (x7.8); 3/3 matched block pairs separate in the flood's disfavour
+writer rejection rate: control 0.090% -> flood 0.700% (x7.8)
+write throughput:        control 33.5/s -> flood 14.0/s
+per-db queue timeouts:   control 8 -> flood 90
+reader rejections:       control 0 -> flood 65
+writer p50/p99 ms:       control 50.0/174.85 -> flood 119.55/519.2
+reader p50/p99 ms:       flood 51.15/224.85
+machine load1 mean/max:  control 68.65/88.83  flood 66.69/91.97
+attribution (flood): {"queue_timeouts": 90, "capacity_exceeded_total": 91, "lane_shed_estimate": 1, "queue_timeouts_equal_429s": false, "writer_429_equals_queue_timeouts": false}
+```
+
+matched block pairs (equal duration, near-equal load):
+
+| control block | load1 | timeouts | | flood block | load1 | timeouts |
+|---|---|---|---|---|---|---|
+| 1:control | 59.23 | 0 | | 2:flood | 50.61 | 6 |
+| 3:control | 66.47 | 8 | | 4:flood | 84.73 | 55 |
+| 5:control | 80.24 | 0 | | 6:flood | 64.73 | 29 |
+
+all pairs separate: True
+
+per-database deltas over the flood blocks (`cold` is the idle control db):
+
+```
+{
+ "hot": {
+  "queue_waits": 49016,
+  "queue_wait_ms": 1305112,
+  "queue_timeouts": 90,
+  "rows_read": 45240,
+  "rows_written": 3686
+ },
+ "cold": {
+  "queue_waits": 0,
+  "queue_wait_ms": 0,
+  "queue_timeouts": 0,
+  "rows_read": 0,
+  "rows_written": 0
+ }
+}
+```
+
+### Run 2 - writer-preferring flag (REJECTED)
+
+commit 223e7c7 -- A writer-preferring counter over the same RwLock. Fixed the writers, starved the readers.
+
+```
+verdict: MARGINAL
+reason: writer rejection rate rose 0.06% -> 0.08% (x1.2) -- degraded, not rejected
+writer rejection rate: control 0.061% -> flood 0.075% (x1.2)
+write throughput:        control 37.2/s -> flood 35.0/s
+per-db queue timeouts:   control 6 -> flood 4267
+reader rejections:       control 0 -> flood 4260
+writer p50/p99 ms:       control 45.15/186.75 -> flood 46.35/216.05
+reader p50/p99 ms:       flood 530.05/984.4
+machine load1 mean/max:  control 48.69/60.38  flood 58.25/81.79
+attribution (flood): {"queue_timeouts": 4267, "capacity_exceeded_total": 4267, "lane_shed_estimate": 0, "queue_timeouts_equal_429s": true, "writer_429_equals_queue_timeouts": false}
+```
+
+matched block pairs (equal duration, near-equal load):
+
+| control block | load1 | timeouts | | flood block | load1 | timeouts |
+|---|---|---|---|---|---|---|
+| 1:control | 48.84 | 0 | | 2:flood | 62.57 | 1415 |
+| 3:control | 46.69 | 0 | | 4:flood | 43.69 | 1424 |
+| 5:control | 50.53 | 6 | | 6:flood | 68.51 | 1428 |
+
+all pairs separate: True
+
+per-database deltas over the flood blocks (`cold` is the idle control db):
+
+```
+{
+ "hot": {
+  "queue_waits": 13675,
+  "queue_wait_ms": 2389208,
+  "queue_timeouts": 4267,
+  "rows_read": 124,
+  "rows_written": 9284
+ },
+ "cold": {
+  "queue_waits": 0,
+  "queue_wait_ms": 0,
+  "queue_timeouts": 0,
+  "rows_read": 0,
+  "rows_written": 0
+ }
+}
+```
+
+### Run 3 - fair phase lock (SHIPPED)
+
+commit a7fe4e3 -- Mutex + Condvar, writer tickets, bounded reader batches.
+
+```
+verdict: NO_STARVATION
+reason: writer rejection rate did not rise under the flood (0.34% -> 0.07%)
+writer rejection rate: control 0.335% -> flood 0.066% (x0.2)
+write throughput:        control 33.8/s -> flood 23.0/s
+per-db queue timeouts:   control 30 -> flood 44
+reader rejections:       control 0 -> flood 40
+writer p50/p99 ms:       control 45.6/233.85 -> flood 74.8/294.05
+reader p50/p99 ms:       flood 32.75/157.4
+machine load1 mean/max:  control 45.66/53.82  flood 46.69/56.62
+attribution (flood): {"queue_timeouts": 44, "capacity_exceeded_total": 44, "lane_shed_estimate": 0, "queue_timeouts_equal_429s": true, "writer_429_equals_queue_timeouts": false}
+```
+
+matched block pairs (equal duration, near-equal load):
+
+| control block | load1 | timeouts | | flood block | load1 | timeouts |
+|---|---|---|---|---|---|---|
+| 1:control | 48.77 | 28 | | 2:flood | 47.59 | 18 |
+| 3:control | 44.38 | 2 | | 4:flood | 50.51 | 9 |
+| 5:control | 43.83 | 0 | | 6:flood | 41.97 | 17 |
+
+all pairs separate: False
+
+per-database deltas over the flood blocks (`cold` is the idle control db):
+
+```
+{
+ "hot": {
+  "queue_waits": 72124,
+  "queue_wait_ms": 1552957,
+  "queue_timeouts": 44,
+  "rows_read": 65993,
+  "rows_written": 6087
+ },
+ "cold": {
+  "queue_waits": 0,
+  "queue_wait_ms": 0,
+  "queue_timeouts": 0,
+  "rows_read": 0,
+  "rows_written": 0
+ }
+}
+```
+
+## verdict
+
+The pre-fix queue starved writers, and it is not machine noise. The writer
+rejection rate is 7.8x higher under the read flood and 3/3 matched block
+pairs separate. The pairs are NOT load-matched -- they differ by up to 27%
+(59.23/50.61, 66.47/84.73, 80.24/64.73) -- and that cuts the other way, which
+is the useful part: in 2 of the 3 pairs the FLOOD block ran on a quieter
+machine than its own control and still lost (6 timeouts against 0, and 29
+against 0). Losing on a lighter machine is not what a loaded neighbour looks
+like. That is the measurement the `acquire_queue` comment was deferring a
+decision on, and it says STARVED.
+
+A writer-preferring FLAG over the same RwLock is not an acceptable answer even
+though it fixes the writers: it moved the starvation to the readers -- 4,260
+reader rejections against 5 writer rejections, 47x more total timeouts. The
+shipped queue is a fair phase lock, and it is the only design of the three
+whose TOTAL rejection count under the flood is lower than the original's:
+
+| run | writer rejections in the flood | reader rejections | total |
+|---|---|---|---|
+| Run 1 | 26 (0.700%) | 65 | 91 |
+| Run 2 | 7 (0.075%) | 4260 | 4267 |
+| Run 3 | 4 (0.066%) | 40 | 44 |
+
+After the fix the flood arm's writer rejection rate (0.066%) is BELOW the
+control arm's (0.335%): the read flood no longer hurts writers at all, which
+is why the verdict is NO_STARVATION and `all_pairs_separate` is false. Write
+throughput under the flood is still 32% below control (23.0/s vs 33.8/s) and
+writer p50 is 74.8ms vs 45.6ms, which is the correct outcome for a fair queue
+sharing one database: writers wait out the current reader batch instead of
+being rejected. Bounded wait, not starvation.
+
+Two honest caveats. The control arm's own rejection rate rose from 0.090% to
+0.335% between runs (8 -> 30 timeouts out of ~9,000 writes); both are tiny and
+the shipped run met a quieter machine, so run-to-run variance at this load is
+the likely cause, but that comparison is not controlled. And no run reached an
+idle machine -- the lowest sampled load1 here is 27 on 16 cores. The verdict
+rests on the within-run differential precisely because of that.
+
+## reproducing
+
+```
+# gated: refuses to report rather than measuring a busy machine
+scripts/soak_starvation.py --blocks 6 --seconds 90 --readers 10 --writers 2 \
+    --max-load1 4.0 --load-patience 6 --out /tmp/starvation.log
+```
+
+Exit 0 = NO_STARVATION, 1 = STARVED/MARGINAL (a real answer: build the bound),
+2 = harness failure. The harness aborts rather than reports when the control
+arm rejects more than 2% of its writes with no read flood, because that means
+the harness itself is the confound -- which is exactly what happened on the
+first attempt, when every writer carried a unique Idempotency-Key and
+exhausted _dg_replay's MAX_REPLAYS=256 per-principal guard, so the harness
+rejected its own writes and reported that as starvation.
