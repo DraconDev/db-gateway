@@ -138,7 +138,11 @@ async fn work_in<T: Send + 'static>(
 /// Staleness reference for `/v1/backups` (observability contract §2): committed
 /// changes unrepresented by a verified copy for longer than this deserve an
 /// operator look. An objective, not an accepted RPO.
-pub const STALE_AFTER_SECS: u64 = 300;
+///
+/// The rule itself lives in [`crate::backup_health`], which the notification
+/// delivery (observability contract §3 alert 4) also calls; re-exported here
+/// because this is where operators and existing callers already look for it.
+pub use crate::backup_health::STALE_AFTER_SECS;
 
 /// Owner-only service status: version, uptime, admission config, and
 /// request-pressure counters. The machine-readable counterpart to the
@@ -199,8 +203,6 @@ async fn status(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<J
 async fn backups(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<Json<Value>> {
     work_read(store, headers, |s, p| {
         p.owner()?;
-        let live: Vec<String> = s.list(&p)?;
-        let now = std::time::SystemTime::now();
         let sets = s.backup_sets();
         let mut set_json = Vec::new();
         if let Some(ref sets) = sets {
@@ -218,75 +220,18 @@ async fn backups(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<
                 }));
             }
         }
+        // Freshness is computed by the shared rule, not re-derived here, so
+        // this endpoint and the notification digest cannot disagree.
+        let health = crate::backup_health::snapshot(s);
         let mut per_database = serde_json::Map::new();
-        let mut names: Vec<String> = live;
-        if let Some(ref sets) = sets {
-            for set in sets {
-                for db in &set.databases {
-                    if !names.contains(db) {
-                        names.push(db.clone());
-                    }
-                }
-            }
-        }
-        for name in &names {
-            // Publication mtime is presentation metadata, not proof of
-            // coverage. Prefer the containing set with the latest durable
-            // coverage boundary; an unverified/newer publication remains
-            // unknown rather than masking a known boundary with a false
-            // fresh result.
-            let newest = sets.as_ref().and_then(|sets| {
-                let mut candidates = sets.iter().filter(|set| set.databases.contains(name));
-                let newest = candidates.next()?;
-                let mut selected = newest;
-                for candidate in candidates {
-                    let replace = match (selected.coverage_start, candidate.coverage_start) {
-                        (Some(current), Some(next)) => next > current,
-                        (Some(_), None) => false,
-                        (None, Some(_)) => true,
-                        (None, None) => candidate.mtime > selected.mtime,
-                    };
-                    if replace {
-                        selected = candidate;
-                    }
-                }
-                if selected.coverage_start.is_none()
-                    && sets
-                        .iter()
-                        .filter(|set| set.databases.contains(name))
-                        .any(|set| set.mtime > selected.mtime)
-                {
-                    return None;
-                }
-                Some(selected)
-            });
-            let (state, newest_set, age_secs) = match newest {
-                None => ("unknown", Value::Null, Value::Null),
-                Some(set) => {
-                    let age = now
-                        .duration_since(set.mtime)
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0);
-                    let state = match (s.last_write(name), set.coverage_start) {
-                        // The boundary is captured before any export. A write
-                        // at/after it cannot be proven included, even when the
-                        // set directory is published later.
-                        (Some(wrote), Some(started)) if wrote >= started => "stale",
-                        (Some(_), Some(_)) => "fresh",
-                        // Missing durable boundary or write marker is unknown,
-                        // never falsely fresh after restart or an older script.
-                        _ => "unknown",
-                    };
-                    (
-                        state,
-                        Value::String(set.timestamp.clone()),
-                        Value::from(age),
-                    )
-                }
-            };
+        for db in &health.databases {
             per_database.insert(
-                name.clone(),
-                json!({"state": state, "newest_set": newest_set, "age_secs": age_secs}),
+                db.name.clone(),
+                json!({
+                    "state": db.state,
+                    "newest_set": db.newest_set,
+                    "age_secs": db.age_secs,
+                }),
             );
         }
         Ok(Json(json!({
