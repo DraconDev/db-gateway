@@ -151,6 +151,7 @@ trap cleanup_all EXIT
 # the pipe open while it serves. This is a single implementation so no call site
 # can regress to the hanging form.
 PROXY_PORT=""
+PROXY_PID=""
 # The inner proxies speak whatever the outer endpoint speaks: a gate that
 # switched from TLS to plain http between the endpoint and its own recording
 # proxy would be measuring a transport nothing else in the run uses.
@@ -163,7 +164,7 @@ start_proxy() {
     python3 "$PROXY" --listen 127.0.0.1:0 --upstream "$ENDPOINT" \
         --access-key-id "$DG_SANDBOX_ACCESS_KEY_ID" --secret-access-key "$DG_SANDBOX_SECRET_KEY" \
         --region "$REGION" --log "$reqlog" --faults "$faultfile" --port-file "$portfile" \
-        ${CA_ARGS[*]+--tls-cert "$TLS_CERT" --tls-key "$TLS_KEY"} \
+        ${TLS_CERT:+--tls-cert "$TLS_CERT" --tls-key "$TLS_KEY"} \
         >/dev/null 2>&1 &
     local pid=$!
     CLEANUP+=("kill $pid 2>/dev/null || true")
@@ -175,6 +176,7 @@ start_proxy() {
         waited=$((waited + 1))
     done
     PROXY_PORT="$(cat "$portfile" 2>/dev/null || true)"
+    PROXY_PID="$pid"
 }
 mkdir -p "$SANDBOX/home"
 : > "$SANDBOX/home/.aws-empty"
@@ -363,11 +365,12 @@ G4_FAULTS="$G4_ROOT/faults"
 : > "$G4_FAULTS"
 start_proxy "gate4" "$G4_LOG" "$G4_FAULTS"
 G4_PROXY_PORT="$PROXY_PORT"
+G4_PROXY_PID="$PROXY_PID"
 if [ -z "$G4_PROXY_PORT" ]; then
     record 4 FAIL "could not start the recording proxy in front of the endpoint"
     G4_PROXY_PORT="$ENDPOINT"
 else
-    CLEANUP+=("pkill -f 's3-log-proxy.py --listen $G4_PROXY_PORT' 2>/dev/null || true")
+    CLEANUP+=("kill $G4_PROXY_PID 2>/dev/null || true")
 fi
 G4_ENDPOINT="$G4_PROXY_PORT"
 
@@ -447,7 +450,11 @@ PY
 kill "$G4_PID" 2>/dev/null || true
 wait "$G4_PID" 2>/dev/null || true
 sleep 1
-pkill -f "s3-log-proxy.py --listen $G4_PROXY_PORT" 2>/dev/null || true
+# Kill the recording proxy by the pid start_proxy captured. The cmdline always
+# says --listen 127.0.0.1:0 because the OS picks the port, so every
+# pkill -f "…--listen <port>" pattern in this file was dead code that silently
+# matched nothing and leaked a proxy per gate.
+[ -n "${G4_PROXY_PID:-}" ] && { kill "$G4_PROXY_PID" 2>/dev/null || true; wait "$G4_PROXY_PID" 2>/dev/null || true; }
 
 G4_SUMMARY="$(python3 "$PROXY" --listen x --upstream y --access-key-id k --secret-access-key s \
     --log "$G4_LOG" --summarize "$G4_LOG" 2>&1 || true)"
@@ -466,8 +473,16 @@ for line in open(sys.argv[1], encoding="utf-8"):
     if e.get("method") == "PUT":
         uploaded += int(e.get("request_bytes") or 0)
     q = e.get("query") or ""
-    kind = "list-type=2 (ListObjectsV2)" if "list-type=2" in q else (
-        "versionId" if "versionId" in q else ("lifecycle" if "lifecycle" in q else ("(none)" if not q else q.split("=")[0]))
+    if "list-type=2" in q:
+        kind = "list-type=2 (ListObjectsV2)"
+    elif "versionId" in q:
+        kind = "versionId"
+    elif "lifecycle" in q:
+        kind = "lifecycle"
+    elif not q:
+        kind = "(no query)"
+    else:
+        kind = q.split("=")[0]
     ops[f"{e.get('method')} {kind}"] += 1
     for part in q.split("&"):
         if part.startswith("prefix="):
