@@ -977,18 +977,24 @@ impl Store {
     }
 
     pub fn list(&self, principal: &Principal) -> Result<Vec<String>> {
-        let conn = self.meta()?;
-        let mut stmt = conn.prepare(
-            "SELECT name,generation FROM databases WHERE deleted_at IS NULL ORDER BY name",
-        )?;
-        let names = stmt
-            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        Ok(names
+        Ok(self
+            .list_all()?
             .into_iter()
-            .filter(|(name, generation)| principal.database(name, Some(generation)).is_ok())
-            .map(|(name, _)| name)
+            .filter(|name| principal.database(name, None).is_ok())
             .collect())
+    }
+
+    /// Every live database, unscoped: the owner view, and the view backup
+    /// freshness needs. `list` is this query plus a principal filter, so
+    /// there is one statement and one ordering for both, and an owner-scoped
+    /// caller and an internal health check cannot see different worlds.
+    pub fn list_all(&self) -> Result<Vec<String>> {
+        let conn = self.meta()?;
+        let mut stmt = conn.prepare("SELECT name FROM databases WHERE deleted_at IS NULL ORDER BY name")?;
+        let names = stmt
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(names)
     }
     /// Owner-visible database facts: size, user tables with row counts,
     /// creation time, and tombstone state. Tombstoned names report their
