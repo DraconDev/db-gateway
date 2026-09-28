@@ -3,9 +3,11 @@
 
 pub mod api;
 pub mod backup;
+pub mod backup_health;
 pub mod client;
 pub mod error;
 pub mod execution;
+pub mod notify;
 pub mod shell;
 pub mod store;
 pub mod values;

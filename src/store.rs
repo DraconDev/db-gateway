@@ -977,20 +977,30 @@ impl Store {
     }
 
     pub fn list(&self, principal: &Principal) -> Result<Vec<String>> {
-        Ok(self
-            .list_all()?
+        let conn = self.meta()?;
+        let mut stmt = conn.prepare(
+            "SELECT name,generation FROM databases WHERE deleted_at IS NULL ORDER BY name",
+        )?;
+        let names = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(names
             .into_iter()
-            .filter(|name| principal.database(name, None).is_ok())
+            .filter(|(name, generation)| principal.database(name, Some(generation)).is_ok())
+            .map(|(name, _)| name)
             .collect())
     }
 
     /// Every live database, unscoped: the owner view, and the view backup
-    /// freshness needs. `list` is this query plus a principal filter, so
-    /// there is one statement and one ordering for both, and an owner-scoped
-    /// caller and an internal health check cannot see different worlds.
+    /// freshness needs. Deliberately a separate statement from `list` rather
+    /// than a shared one with the filter applied later -- `list` has to carry
+    /// the generation column to keep a key bound to one generation of a
+    /// name from seeing its successor, and folding that away to share code
+    /// would quietly widen what an app key can read.
     pub fn list_all(&self) -> Result<Vec<String>> {
         let conn = self.meta()?;
-        let mut stmt = conn.prepare("SELECT name FROM databases WHERE deleted_at IS NULL ORDER BY name")?;
+        let mut stmt =
+            conn.prepare("SELECT name FROM databases WHERE deleted_at IS NULL ORDER BY name")?;
         let names = stmt
             .query_map([], |row| row.get::<_, String>(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
