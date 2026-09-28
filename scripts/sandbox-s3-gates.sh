@@ -124,6 +124,34 @@ else
     SANDBOX_OWNER_TEXT="created by sandbox-packet.sh, which removes it on its own exit; this script does not"
 fi
 trap cleanup_all EXIT
+
+# start_proxy <name> <request-log> <fault-file>
+# Starts a validating logging proxy on an OS-chosen loopback port and sets
+# PROXY_PORT to "host:port". The port is learned from a file the proxy writes
+# after it binds, never from a command substitution around a process that then
+# serves forever: `x="$(proxy | head -1)"` hangs forever, because the proxy keeps
+# the pipe open while it serves. This is a single implementation so no call site
+# can regress to the hanging form.
+PROXY_PORT=""
+start_proxy() {
+    local name="$1" reqlog="$2" faultfile="$3"
+    local portfile="$SANDBOX/$name.port"
+    rm -f "$portfile"
+    python3 "$PROXY" --listen 127.0.0.1:0 --upstream "$ENDPOINT" \
+        --access-key-id "$DG_SANDBOX_ACCESS_KEY_ID" --secret-access-key "$DG_SANDBOX_SECRET_KEY" \
+        --region "$REGION" --log "$reqlog" --faults "$faultfile" --port-file "$portfile" \
+        >/dev/null 2>&1 &
+    local pid=$!
+    CLEANUP+=("kill $pid 2>/dev/null || true")
+    local waited=0
+    while [ "$waited" -lt 100 ]; do
+        if [ -s "$portfile" ]; then break; fi
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 0.05
+        waited=$((waited + 1))
+    done
+    PROXY_PORT="$(cat "$portfile" 2>/dev/null || true)"
+}
 mkdir -p "$SANDBOX/home"
 : > "$SANDBOX/home/.aws-empty"
 export HOME="$SANDBOX/home"
@@ -221,13 +249,13 @@ probe_variant() {
     local faultfile="$SANDBOX/gate3-$label.faults"
     : > "$faultfile"
     local pport
-    pport="$(python3 "$PROXY" --listen 127.0.0.1:0 --upstream "$ENDPOINT" \
-        --access-key-id "$DG_SANDBOX_ACCESS_KEY_ID" --secret-access-key "$DG_SANDBOX_SECRET_KEY" \
-        --region "$REGION" --log "$log" --faults "$faultfile" --print-listen 2>/dev/null | head -1)"
+    start_proxy "gate3-$label" "$log" "$faultfile"
+    pport="$PROXY_PORT"
     if [ -z "$pport" ]; then
         GATE3_DETAIL+=("$label: could not start the recording proxy")
         return 1
     fi
+    pport="${pport#*:}"
     local cfg="$SANDBOX/gate3-$label.yml"
     cat > "$cfg" <<EOF
 logging:
@@ -308,11 +336,15 @@ G4_SOCK="$G4_ROOT/litestream.sock"
 G4_LOG="$G4_ROOT/requests.jsonl"
 G4_FAULTS="$G4_ROOT/faults"
 : > "$G4_FAULTS"
-G4_PROXY_PORT="$(python3 "$PROXY" --listen 127.0.0.1:0 --upstream "$ENDPOINT" \
-    --access-key-id "$DG_SANDBOX_ACCESS_KEY_ID" --secret-access-key "$DG_SANDBOX_SECRET_KEY" \
-    --region "$REGION" --log "$G4_LOG" --faults "$G4_FAULTS" --print-listen 2>/dev/null | head -1)"
+start_proxy "gate4" "$G4_LOG" "$G4_FAULTS"
+G4_PROXY_PORT="$PROXY_PORT"
+if [ -z "$G4_PROXY_PORT" ]; then
+    record 4 FAIL "could not start the recording proxy in front of the endpoint"
+    G4_PROXY_PORT="$ENDPOINT"
+else
+    CLEANUP+=("pkill -f 's3-log-proxy.py --listen $G4_PROXY_PORT' 2>/dev/null || true")
+fi
 G4_ENDPOINT="$G4_PROXY_PORT"
-CLEANUP+=("pkill -f 's3-log-proxy.py --listen $G4_PROXY_PORT' 2>/dev/null || true")
 
 # Two databases, each with its own prefix. A shared prefix is not tidiness: with
 # one root the two databases' segments interleave and a restore returns the
@@ -568,9 +600,8 @@ G8_SOCK="$G8_ROOT/litestream.sock"
 G8_REQLOG="$G8_ROOT/requests.jsonl"
 G8_FAULTS="$G8_ROOT/faults"
 : > "$G8_FAULTS"
-G8_PORT_P="$(python3 "$PROXY" --listen 127.0.0.1:0 --upstream "$ENDPOINT" \
-    --access-key-id "$DG_SANDBOX_ACCESS_KEY_ID" --secret-access-key "$DG_SANDBOX_SECRET_KEY" \
-    --region "$REGION" --log "$G8_REQLOG" --faults "$G8_FAULTS" --print-listen 2>/dev/null | head -1)"
+start_proxy "gate8" "$G8_REQLOG" "$G8_FAULTS"
+G8_PORT_P="$PROXY_PORT"
 G8_SRC="$G8_ROOT/sbfail.sqlite"
 [ -f "$G8_SRC" ] || { python3 - "$G8_SRC" <<'PY'
 import sqlite3, sys

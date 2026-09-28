@@ -439,7 +439,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--log", required=True)
     p.add_argument("--faults", default=None)
     p.add_argument("--region", default="us-east-1")
-    p.add_argument("--print-listen", action="store_true", help="write the bound port to stdout and wait")
+    p.add_argument("--print-listen", action="store_true",
+                   help="write the bound port to stdout, close stdout, then serve")
+    p.add_argument("--port-file", default=None,
+                   help="write the bound port to this file, then serve. The race-free "
+                        "way to learn a port chosen by the OS: wait for the file to "
+                        "be non-empty instead of capturing a command substitution")
     p.add_argument("--summarize", default=None, help="print the operation matrix for a log and exit")
     args = p.parse_args(argv)
 
@@ -461,8 +466,29 @@ def main(argv: list[str] | None = None) -> int:
 
     server = Server((host or "127.0.0.1", int(port)), Handler)
     bound = server.server_address[1]
+    # Announce the port BEFORE serving, through a channel that does not depend
+    # on the caller's pipe lifetime. `pport="$(proxy --print-listen | head -1)"`
+    # deadlocks: head exits after one line, but the proxy keeps the pipe's write
+    # end open while it serves, so the substitution waits forever. This is not a
+    # theoretical hazard -- it is what the first two rehearsal runs hung on, and
+    # it would have hung the real OVH run identically.
+    if args.port_file:
+        # Write-then-rename so a reader never sees a half-written port.
+        tmp = f"{args.port_file}.tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(f"127.0.0.1:{bound}\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, args.port_file)
     if args.print_listen:
         print(f"127.0.0.1:{bound}", flush=True)
+        # Close stdout so a `$(...)` capture around this command returns. Logs
+        # and diagnostics belong on stderr or in --log, not on a stream a caller
+        # is waiting to drain.
+        try:
+            sys.stdout.close()
+        except Exception:
+            pass
     try:
         server.serve_forever()
     except KeyboardInterrupt:
