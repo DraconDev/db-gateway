@@ -256,10 +256,14 @@ ROWS_BEFORE="$(row_count rehearsal ledger)"
 # needs the bucket and a 1 GB-shaped sandbox.
 # --------------------------------------------------------------------------
 LITESTREAM_CFG="$rehearsal_root/litestream.yml"
+CONTROL_SOCK="$rehearsal_root/litestream.sock"
 cat > "$LITESTREAM_CFG" <<EOF
 logging:
   level: info
   type: json
+socket:
+  enabled: true
+  path: $CONTROL_SOCK
 dbs:
   - path: $data_dir/rehearsal.sqlite
     replica:
@@ -311,7 +315,12 @@ fi
 "${DG[@]}" create rehearsal_two >/dev/null
 "${DG[@]}" query rehearsal_two "CREATE TABLE t (a INTEGER)" >/dev/null
 "${DG[@]}" query rehearsal_two "INSERT INTO t VALUES (1)" >/dev/null
-kill -HUP "$LITESTREAM_PID" 2>/dev/null || true
+# The config gains the database, then replication is started for it over the
+# control socket. SIGHUP is NOT the mechanism: it terminates the process, and
+# this rehearsal measured that rather than assuming it.
+RELOAD_SIGNAL="control socket: litestream start <db>"
+"$LITESTREAM" start -config "$LITESTREAM_CFG" "$data_dir/rehearsal_two.sqlite" \
+    > "$rehearsal_root/reload.log" 2>&1 || RELOAD_SIGNAL="control socket: FAILED ($(head -1 "$rehearsal_root/reload.log" 2>/dev/null))"
 ADDED=0
 for _ in $(seq 1 40); do
     if [ -d "$replica_dir/rehearsal_two" ] || find "$replica_dir" -path '*rehearsal_two*' 2>/dev/null | grep -q .; then
@@ -321,14 +330,15 @@ for _ in $(seq 1 40); do
     sleep 0.25
 done
 if [ "$ADDED" -eq 1 ]; then
-    record 7 PASS "rehearsal: a database added to the config was picked up without restarting litestream (SIGHUP)" \
-        "signal used: SIGHUP to the litestream pid" \
+    record 7 PASS "rehearsal: a database added to the config was replicated WITHOUT restarting litestream" \
+        "signal/command used: $RELOAD_SIGNAL" \
+        "SIGHUP was tried first and terminated the process, so it is not a reload signal here" \
         "second database appeared in the replica tree: yes" \
-        "NOT §6 GATE 7: file replica, and the reload signal for the deployed" \
-        "service must be confirmed against the sandbox's own unit file."
+        "NOT §6 GATE 7: file replica. The sandbox must repeat this against the" \
+        "bucket and against the deployed unit file's own reload path."
 else
-    record 7 FAIL "rehearsal: adding a database to the config did not start replication for it" \
-        "signal used: SIGHUP" \
+    record 7 FAIL "rehearsal: a database added to the config did not start replicating" \
+        "signal/command used: $RELOAD_SIGNAL" \
         "litestream log tail:" \
         "$(tail -5 "$rehearsal_root/litestream.log" 2>/dev/null | sed 's/^/  /')"
 fi
@@ -343,7 +353,10 @@ wait "$LITESTREAM_PID" 2>/dev/null || true
 # --------------------------------------------------------------------------
 mkdir -p "$restore_dir"
 RESTORE_OK=0
-if "$LITESTREAM" restore -config "$LITESTREAM_CFG" -o "$restore_dir/rehearsal.sqlite" "$replica_dir" >/dev/null 2>&1; then
+# `litestream restore` takes the DESTINATION as its positional argument and
+# reads the replica location from the config, so the source never appears here.
+if "$LITESTREAM" restore -config "$LITESTREAM_CFG" "$restore_dir/rehearsal.sqlite" \
+    > "$rehearsal_root/restore.log" 2>&1; then
     RESTORE_OK=1
 fi
 if [ "$RESTORE_OK" -eq 1 ] && [ -f "$restore_dir/rehearsal.sqlite" ]; then
@@ -371,7 +384,9 @@ PY
     fi
 else
     record 5 FAIL "rehearsal: litestream restore produced no database" \
-        "restore target: $restore_dir/rehearsal.sqlite"
+        "restore target: $restore_dir/rehearsal.sqlite" \
+        "restore log tail:" \
+        "$(tail -5 "$rehearsal_root/restore.log" 2>/dev/null | sed 's/^/  /')"
 fi
 
 # --------------------------------------------------------------------------
