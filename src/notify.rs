@@ -521,7 +521,7 @@ mod tests {
         }
     }
 
-    impl Sink for Arc<Recorder> {
+    impl Sink for Recorder {
         fn name(&self) -> &'static str {
             "recorder"
         }
@@ -612,11 +612,12 @@ mod tests {
     #[tokio::test]
     async fn one_sink_failing_never_starves_the_others() {
         let recorder = Arc::new(Recorder::default());
-        let sinks: Vec<Arc<dyn Sink>> = vec![Arc::new(Failing), recorder.clone()];
+        let handle = recorder.clone();
+        let sinks: Vec<Arc<dyn Sink>> = vec![Arc::new(Failing), recorder];
         let errors = deliver_all(&sinks, &digest_note(&health())).await;
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].sink, "failing");
-        assert_eq!(recorder.notes().len(), 1, "the healthy sink still delivered");
+        assert_eq!(handle.notes().len(), 1, "the healthy sink still delivered");
     }
 
     #[test]
