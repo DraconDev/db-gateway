@@ -97,10 +97,10 @@ pub struct Note {
 /// because "the attempt failed" and "which databases are affected" are the
 /// two things an operator needs together at 03:00.
 pub fn failure_note(health: &BackupHealth, attempt: &AttemptRecord) -> Note {
-    let reason = if attempt.step.is_empty() {
+    let step = if attempt.step.is_empty() {
         "unknown step".to_string()
     } else {
-        format!("failed at step {}", attempt.step)
+        format!("step {}", attempt.step)
     };
     let databases = if attempt.databases > 0 {
         format!(" after capturing {} database(s)", attempt.databases)
@@ -111,7 +111,7 @@ pub fn failure_note(health: &BackupHealth, attempt: &AttemptRecord) -> Note {
         kind: NoteKind::BackupFailure,
         severity: Severity::Alert,
         title: format!(
-            "backup attempt {} failed{reason}{databases}",
+            "backup attempt {} failed at {step}{databases}",
             if attempt.ts.is_empty() {
                 "?"
             } else {
@@ -619,8 +619,16 @@ mod tests {
         let note = failure_note(&health(), &attempt("20240102T000000Z", "error", "manifest"));
         assert_eq!(note.kind, NoteKind::BackupFailure);
         assert_eq!(note.severity, Severity::Alert);
-        assert!(note.title.contains("20240102T000000Z"));
-        assert!(note.title.contains("failed at step manifest"));
+        // The exact title, not a substring: an earlier build read
+        // "failedfailed at step" and a `contains` assertion was happy with
+        // it.
+        assert_eq!(
+            note.title,
+            "backup attempt 20240102T000000Z failed at step manifest",
+        );
+        // No step recorded is still a sentence an operator can act on.
+        let bare = failure_note(&health(), &attempt("t", "error", ""));
+        assert_eq!(bare.title, "backup attempt t failed at unknown step");
         let text = render_text(&note);
         assert!(
             text.contains("failed attempt 20240102T000000Z at step manifest"),
