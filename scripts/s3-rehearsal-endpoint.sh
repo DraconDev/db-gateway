@@ -208,12 +208,19 @@ sys.exit(0 if s.connect_ex(('127.0.0.1',$PROXY_PORT))==0 else 1)" 2>/dev/null &&
     fi
 
     # The bucket is created through the proxy, so its existence is proved by the
-    # same signed path litestream will use rather than by a side door.
-    REHEARSAL_CA="$STATE_DIR/tls/bundle.pem" \
-    python3 "$(dirname "$PROXY")/s3probe.py" --endpoint "127.0.0.1:$PROXY_PORT" --scheme https \
+    # same signed path litestream will use rather than by a side door -- and its
+    # REACHABILITY is proved here too. A proxy that is up but answering nothing
+    # (a TLS handshake that never completes, a signer that rejects everything)
+    # looks exactly like an endpoint that refuses to work, and every gate then
+    # fails for a reason that is not about the gate.
+    if ! python3 "$(dirname "$PROXY")/s3probe.py" --endpoint "127.0.0.1:$PROXY_PORT" --scheme https \
         --ca-bundle "$STATE_DIR/tls/bundle.pem" \
         --bucket "$BUCKET" --access-key-id "$KEY_ID" --secret-access-key "$SECRET" \
-        create-bucket >/dev/null 2>&1 || true
+        create-bucket > "$STATE_DIR/log/create.log" 2>&1; then
+        echo "the rehearsal endpoint did not accept a signed request through its proxy" >&2
+        cat "$STATE_DIR/log/create.log" "$STATE_DIR/log/proxy.log" >&2 2>/dev/null || true
+        exit 1
+    fi
 
     cat <<EOF
 DG_SANDBOX_BUCKET=$BUCKET

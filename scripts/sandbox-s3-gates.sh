@@ -333,12 +333,21 @@ PY
     return 1
 }
 
-WORKING_URL="$REPLICA_BASE/gate3?endpoint={{EP}}&region=$REGION"
+# The scheme is part of the endpoint, not an assumption. Measured on
+# 2026-09-28 against this pin: `endpoint=<host>:<port>` with no scheme makes
+# litestream 0.5.17 fall back to PLAINTEXT http, so its SigV4-signed requests
+# arrive as cleartext HTTP on an https port and the TLS server rejects them
+# before the signature is ever checked -- zero objects written, and nothing in
+# litestream's own log that names the cause. `endpoint=https://<host>:<port>`
+# works. §6's endpoint is https, so the scheme is mandatory there and the
+# minimal URL is not the one the docs suggest.
+WORKING_URL="$REPLICA_BASE/gate3?endpoint=$SCHEME://{{EP}}&region=$REGION"
 probe_variant "working"      "$WORKING_URL"                                   && GATE3_OK=$((GATE3_OK+1))
+probe_variant "no-scheme"    "$REPLICA_BASE/gate3?endpoint={{EP}}&region=$REGION" || true
 probe_variant "no-endpoint"  "$REPLICA_BASE/gate3?region=$REGION"              || true
-probe_variant "wrong-region" "$REPLICA_BASE/gate3?endpoint={{EP}}&region=nowhere-1" || true
-probe_variant "no-region"    "$REPLICA_BASE/gate3?endpoint={{EP}}"             || true
-probe_variant "path-style"   "$REPLICA_BASE/gate3?endpoint={{EP}}&region=$REGION" || true
+probe_variant "wrong-region" "$REPLICA_BASE/gate3?endpoint=$SCHEME://{{EP}}&region=nowhere-1" || true
+probe_variant "no-region"    "$REPLICA_BASE/gate3?endpoint=$SCHEME://{{EP}}"    || true
+probe_variant "path-style"   "$REPLICA_BASE/gate3?endpoint=$SCHEME://{{EP}}&region=$REGION" || true
 
 # The variant that decides whether the rehearsal means anything. A local run can
 # pass for the wrong reason -- an endpoint that accepts anything, or a client
@@ -371,6 +380,13 @@ fi
     printf '  rehearsal with no error and no observable effect, so it is recorded as\n'
     printf '  NOT SUPPORTED rather than tested. Addressing is decided by the URL host:\n'
     printf '  a bucket in the path is path-style, a bucket in the host is virtual-host.\n'
+    printf 'THE SCHEME IN endpoint= IS MANDATORY, and getting it wrong is silent.\n'
+    printf '  Measured here: endpoint=%s://<host>:<port> works; endpoint=<host>:<port>\n' "$SCHEME"
+    printf '  with no scheme makes 0.5.17 speak PLAINTEXT http, so against an https\n'
+    printf '  endpoint the request is rejected as a TLS error before the signature is\n'
+    printf '  checked: 0 objects written, no rejected request, and nothing in\n'
+    printf '  litestream'"'"'s log naming the cause. Every SigV4-signed request in that\n'
+    printf '  mode would also have carried the request signature in cleartext.\n'
     printf 'skip-verify (TLS): NOT USED, and the packet now proves why it does not\n'
     printf '  need to be. 0.5.17 has a skip-verify replica option, and a rehearsal\n'
     printf '  could use it to accept the self-signed endpoint. It is deliberately\n'
@@ -382,18 +398,20 @@ fi
     printf '  HTTPClient, has no WithTransportOptions". SSL_CERT_FILE is read by\n'
     printf '  Go instead and works. Trust in this run: %s\n' "$CA_NOTE"
     printf '\nminimal working replica URL (against the configured endpoint):\n'
-    printf '  s3://%s/gate3?endpoint=%s&region=%s\n' "$BUCKET" "$ENDPOINT" "$REGION"
+    printf '  s3://%s/gate3?endpoint=%s://%s&region=%s\n' "$BUCKET" "$SCHEME" "$ENDPOINT" "$REGION"
+    printf '  i.e. the endpoint parameter carries the scheme. Without it, this URL\n'
+    printf '  replicates nothing and says nothing about why.\n'
     printf '\nNOTE: `replica.path` cannot carry a URL. `path: s3://...` fails with\n'
     printf '  "replica path cannot be a url, please use the url field instead".\n'
 } >> "$OUT"
 if [ "$GATE3_OK" -ge 1 ] && { [ "$G3_TRUST_HELD" = "1" ] || [ "$G3_TRUST_HELD" = "not_applicable" ]; }; then
-    record 3 PASS "explicit endpoint/region config works, and the same URL FAILS without the rehearsal CA, so the pass is not a disabled-verification artifact" \
-        "endpoint: $ENDPOINT   region: $REGION   scheme: $SCHEME" \
+    record 3 PASS "explicit endpoint/region config works, and the same URL FAILS both without its scheme and without the rehearsal CA, so the pass is neither a transport artifact nor a disabled-verification artifact" \
+        "endpoint: $SCHEME://$ENDPOINT   region: $REGION" \
         "TLS trust: $CA_NOTE" \
         "certificate enforcement: $([ "$G3_TRUST_HELD" = 1 ] && echo 'proved -- the untrusted-ca variant was refused' || echo 'not applicable to this endpoint')"
 else
     record 3 FAIL "no variant of the replica URL produced a single object write, or the endpoint was accepted with an untrusted certificate" \
-        "endpoint: $ENDPOINT   region: $REGION   scheme: $SCHEME" \
+        "endpoint: $SCHEME://$ENDPOINT   region: $REGION" \
         "TLS trust: $CA_NOTE" \
         "certificate enforcement: $([ "$G3_TRUST_HELD" = 1 ] && echo 'proved' || echo 'NOT PROVED -- the untrusted-ca variant was accepted, or TLS trust was not exercised')"
 fi
@@ -435,10 +453,10 @@ socket:
 dbs:
   - path: $G4_ROOT/alice.sqlite
     replica:
-      url: s3://$BUCKET/sbx/alice?endpoint=$G4_ENDPOINT&region=$REGION
+      url: s3://$BUCKET/sbx/alice?endpoint=$SCHEME://$G4_ENDPOINT&region=$REGION
   - path: $G4_ROOT/bob.sqlite
     replica:
-      url: s3://$BUCKET/sbx/bob?endpoint=$G4_ENDPOINT&region=$REGION
+      url: s3://$BUCKET/sbx/bob?endpoint=$SCHEME://$G4_ENDPOINT&region=$REGION
 EOF
 "$LITESTREAM" replicate -config "$G4_ROOT/litestream.yml" > "$G4_ROOT/litestream.log" 2>&1 &
 G4_PID=$!
@@ -472,7 +490,7 @@ for pair in "alice:$G4_ROOT/alice.sqlite" "bob:$G4_ROOT/bob.sqlite"; do
 dbs:
   - path: $src
     replica:
-      url: s3://$BUCKET/sbx/$name?endpoint=$G4_ENDPOINT&region=$REGION
+      url: s3://$BUCKET/sbx/$name?endpoint=$SCHEME://$G4_ENDPOINT&region=$REGION
 EOF
     rm -f "$G4_ROOT/out-$name.sqlite"
     timeout 60 "$LITESTREAM" restore -config "$G4_ROOT/restore-$name.yml" \
@@ -635,13 +653,13 @@ if [ "${G6_STORED:-0}" -ge 2 ] 2>/dev/null; then
     record 6 PASS "candidate 7/30-day lifecycle policy stored and read back: $G6_STORED rules" \
         "stored: $G6_STORED rules" \
         "object versions under the test prefix: ${G6_VERSION_COUNT:-unknown}" \
-        "WARNING: the 7-day/30-day arithmetic is NOT proven by storing a rule. It needs a"
+        "WARNING: the 7-day/30-day arithmetic is NOT proven by storing a rule. It needs a" \
         "week-aged bucket on OVH; the age simulation cannot be faked by writing a rule."
 elif [ -n "$G6_VERSION_ERR" ]; then
     record 6 BLOCKED "this endpoint does not implement the bucket APIs retention needs" \
         "get-lifecycle / list-versions answered: $G6_VERSION_ERR" \
         "put-lifecycle: $G6_PUT" \
-        "NOT A PASS and not a failure of the packet: the rehearsal endpoint cannot"
+        "NOT A PASS and not a failure of the packet: the rehearsal endpoint cannot" \
         "answer this question. Run unchanged against the OVH test bucket."
 else
     record 6 FAIL "the lifecycle policy was not stored" \
@@ -707,7 +725,7 @@ socket:
 dbs:
   - path: $G8_SRC
     replica:
-      url: s3://$BUCKET/sbx/g8?endpoint=$G8_PORT_P&region=$REGION
+      url: s3://$BUCKET/sbx/g8?endpoint=$SCHEME://$G8_PORT_P&region=$REGION
 EOF
 "$LITESTREAM" replicate -config "$G8_ROOT/litestream.yml" > "$G8_ROOT/litestream.log" 2>&1 &
 G8_LS_PID=$!
@@ -851,7 +869,7 @@ logging:
 dbs:
   - path: $G9_SRC
     replica:
-      url: s3://$BUCKET/sbx/g9?endpoint=$ENDPOINT&region=$REGION
+      url: s3://$BUCKET/sbx/g9?endpoint=$SCHEME://$ENDPOINT&region=$REGION
 EOF
 
 G9_CGROUP_RAN=0
@@ -993,7 +1011,7 @@ logging:
 dbs:
   - path: $G10_SRC
     replica:
-      url: s3://$BUCKET/$G10_PREFIX?endpoint=$ENDPOINT&region=$REGION
+      url: s3://$BUCKET/$G10_PREFIX?endpoint=$SCHEME://$ENDPOINT&region=$REGION
 EOF
 # The setting §6 asks to be exercised, written in exactly the form an operator
 # would try first. Writing it and watching litestream start is exactly the
@@ -1002,7 +1020,7 @@ cat > "$G10_ROOT/with-customer-key.yml" <<EOF
 dbs:
   - path: $G10_SRC
     replica:
-      url: s3://$BUCKET/$G10_PREFIX?endpoint=$ENDPOINT&region=$REGION
+      url: s3://$BUCKET/$G10_PREFIX?endpoint=$SCHEME://$ENDPOINT&region=$REGION
       sse-customer-key: $(head -c 32 /dev/urandom | base64)
 EOF
 timeout 20 "$LITESTREAM" replicate -config "$G10_ROOT/with-customer-key.yml" > "$G10_ROOT/with-key.log" 2>&1 || true
@@ -1167,7 +1185,7 @@ fi
     for d in "${G11_DBS[@]}"; do
         echo "  - path: $d"
         echo "    replica:"
-        echo "      url: s3://$BUCKET/sbx/reg$i?endpoint=$ENDPOINT&region=$REGION"
+        echo "      url: s3://$BUCKET/sbx/reg$i?endpoint=$SCHEME://$ENDPOINT&region=$REGION"
         i=$((i+1))
     done
 } > "$G11_ROOT/litestream.yml"
@@ -1188,7 +1206,7 @@ for d in "${G11_DBS[@]}"; do
 dbs:
   - path: $G11_RECOVER/data/$(basename "$d")
     replica:
-      url: s3://$BUCKET/sbx/reg$i?endpoint=$ENDPOINT&region=$REGION
+      url: s3://$BUCKET/sbx/reg$i?endpoint=$SCHEME://$ENDPOINT&region=$REGION
 EOF
     timeout 120 "$LITESTREAM" restore -config "$G11_ROOT/restore-$i.yml" \
         -o "$G11_RECOVER/data/$(basename "$d")" "$d" >> "$G11_ROOT/restore.log" 2>&1 \

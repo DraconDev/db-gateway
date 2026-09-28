@@ -392,6 +392,17 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     # -- the one code path every method shares ----------------------------
+    def setup(self) -> None:
+        # Per-connection TLS, in this worker thread. See Server's docstring for
+        # why this is not done on the listening socket.
+        context = getattr(self.server, "tls_context", None)
+        if context is not None:
+            self.request = context.wrap_socket(self.request, server_side=True)
+        super().setup()
+        # A client that opens a connection and then stalls must not hold a
+        # worker forever; the packet's own timeouts are what report the failure.
+        self.connection.settimeout(60)
+
     def _handle(self) -> None:
         started = time.time()
         with LOCK:
@@ -477,39 +488,36 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class Server(socketserver.ThreadingTCPServer):
-    daemon_threads = True
-    allow_reuse_address = True
+    """A plain server that can hand each connection a TLS handshake to do.
 
-
-class TLSServer(Server):
-    """The same server behind TLS.
-
-    OVH's endpoint is https with a publicly valid certificate, so a rehearsal
-    that speaks plain http tests a transport litestream will never use -- and
-    it fails in a way that looks like a config bug. litestream always builds
-    https:// URLs for an S3 endpoint, so a plain-http rehearsal endpoint
-    produces exactly zero recorded requests and a baffling gate failure. This
-    exists so the rehearsal drives the same transport as the real run.
+    The handshake is done by the worker thread, not on the listening socket.
+    Wrapping the LISTENING socket makes accept() perform the handshake, which
+    means one connection that opens and sends nothing -- which litestream does,
+    and which every connection pool does -- blocks the accept loop, so the real
+    request behind it is never served. The symptom is a client that connects,
+    sits there, and never gets a byte, with nothing logged anywhere.
     """
 
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, addr, handler, certfile, keyfile):
+    def __init__(self, addr, handler, certfile: str | None = None, keyfile: str | None = None):
+        # Set before super().__init__, which calls server_bind: the context has
+        # to exist by the time the socket is bound, or the workers find TLS off.
         self.certfile = certfile
         self.keyfile = keyfile
         super().__init__(addr, handler)
 
     def server_bind(self):
-        # socketserver's recipe: bind the real socket first, then wrap it. The
-        # obvious-looking `self.socket = ssl.SSLContext(...)` replaces the
-        # listening socket with a context object, and the process dies on the
-        # first connection -- or at construction, with an error that says
-        # nothing about TLS.
         super().server_bind()
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        context.load_cert_chain(self.certfile, self.keyfile)
-        self.socket = context.wrap_socket(self.socket, server_side=True)
+        if self.certfile:
+            # Per-SERVER, not per-process: a worker thread reads it back through
+            # self.server, so two servers in one process (or a module loaded
+            # twice) cannot hand a connection the wrong context.
+            self.tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            self.tls_context.load_cert_chain(self.certfile, self.keyfile)
+        else:
+            self.tls_context = None
 
 
 def summarize(path: str) -> int:
@@ -623,10 +631,12 @@ def main(argv: list[str] | None = None) -> int:
     if bool(args.tls_cert) != bool(args.tls_key):
         print("s3-log-proxy: --tls-cert and --tls-key go together", file=sys.stderr)
         return 2
-    if args.tls_cert:
-        server = TLSServer((host or "127.0.0.1", int(port)), Handler, args.tls_cert, args.tls_key)
-    else:
-        server = Server((host or "127.0.0.1", int(port)), Handler)
+    server = Server(
+        (host or "127.0.0.1", int(port)),
+        Handler,
+        args.tls_cert,
+        args.tls_key,
+    )
     bound = server.server_address[1]
     # Announce the port BEFORE serving, through a channel that does not depend
     # on the caller's pipe lifetime. `pport="$(proxy --print-listen | head -1)"`
