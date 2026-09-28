@@ -64,8 +64,12 @@ lines = text.splitlines()
 problems = 0
 
 # ---- (1) a quoted argument that ends a line with no backslash --------------
-# Only a `case` arm legitimately puts a quoted word at the start of a line with
-# nothing joining it to the line above, and those lines end in `)` or `;;`.
+# The signature of the bug is precise: the next line is NOTHING BUT quoted
+# strings -- a bare argument continuation whose backslash is missing. A line
+# that starts with a quoted path and then has command words on it is an
+# ordinary new command and is fine. `case` arms are excluded by shape.
+BARE_ARGS = re.compile(r'^(?:"(?:[^"\\]|\\.)*"\s*)+$')
+
 def is_case_boundary(line: str) -> bool:
     s = line.rstrip()
     return s.endswith(";;") or s.endswith(")") or s.endswith("esac")
@@ -77,17 +81,18 @@ for i, line in enumerate(lines[:-1]):
     if stripped.count('"') % 2:          # genuinely unterminated: bash -n's business
         continue
     nxt = lines[i + 1]
-    lead = nxt.lstrip()
-    if lead.startswith('"') and not lead.startswith('"""') and not is_case_boundary(nxt.rstrip()):
-        print(f"  {rel}:{i + 1}: this line ends a quoted argument with no backslash,")
-        print(f"    so the next line runs as its own command: {lead[:70]}")
-        problems += 1
+    if not BARE_ARGS.match(nxt.strip()) or is_case_boundary(nxt.rstrip()):
+        continue
+    print(f"  {rel}:{i + 1}: this line ends a command with no backslash, so the")
+    print(f"    next line runs as a command of its own: {nxt.strip()[:70]}")
+    problems += 1
 
 # ---- (2) environment reads with no assignment and no default ---------------
-assigned = set()
-# NAME=, export NAME=, local NAME=, declare -x NAME=, and bare `local NAME`
-for m in re.finditer(r"^\s*(?:export\s+|local\s+|declare\s+(?:-\w+\s+)?|readonly\s+)?([A-Za-z_]\w*)\s*=", text, re.M):
-    assigned.add(m.group(1))
+# A name assigned ANYWHERE in the file is not an unguarded environment read.
+# Collecting every assignment (including the second and third name on a
+# `local a=1 b=2` line) is what keeps this from drowning in false positives.
+assigned = set(re.findall(r"(?<![=!<>])((?:^|\s)(?:export\s+|local\s+|declare\s+(?:-\w+\s+)?|readonly\s+)?)(\w+)\s*=(?!=)", text, re.M))
+assigned = {m[1] for m in assigned}
 for m in re.finditer(r"^\s*local\s+((?:[A-Za-z_]\w*\s+)+)$", text, re.M):
     assigned.update(m.group(1).split())
 for m in re.finditer(r"^\s*read\s+(?:-[a-zA-Z]+\s+)*((?:[A-Za-z_]\w*\s+)+)", text, re.M):
