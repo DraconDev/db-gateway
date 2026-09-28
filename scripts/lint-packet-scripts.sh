@@ -70,14 +70,35 @@ problems = 0
 # ordinary new command and is fine. `case` arms are excluded by shape.
 BARE_ARGS = re.compile(r'^(?:"(?:[^"\\]|\\.)*"\s*)+$')
 
+
+def array_literal_lines() -> set:
+    """Line numbers inside a multi-line `NAME=( ... )` array literal.
+
+    A bare quoted string is a legitimate element of one of these, which is the
+    only other place the shape appears. The state has to be tracked: the opener
+    is the line BEFORE the first element.
+    """
+    inside: set = set()
+    open_at = None
+    for i, line in enumerate(lines, 1):
+        s = line.rstrip()
+        if open_at is None:
+            if re.search(r"=\($", s) or s == "(":
+                open_at = i
+                inside.add(i)
+        else:
+            inside.add(i)
+            if s == ")":
+                open_at = None
+    return inside
+
+
+ARRAY_LINES = array_literal_lines()
+
+
 def is_case_boundary(line: str) -> bool:
     s = line.rstrip()
     return s.endswith(";;") or s.endswith(")") or s.endswith("esac")
-
-
-def in_array_literal(line: str) -> bool:
-    """`NAME=(` on this line opens an array literal that is still open."""
-    return bool(re.search(r"=\($", line.rstrip())) or line.rstrip() == "("
 
 
 def in_heredoc(lineno: int) -> bool:
@@ -111,7 +132,7 @@ for i, line in enumerate(lines[:-1]):
     # (`ARR=( "a" "b" )` written one per line), which is the only other place
     # this shape appears. The state has to be tracked, not inferred from the
     # line at hand: the opener is the line BEFORE the first element.
-    if in_array_literal(stripped):
+    if (i + 1) in ARRAY_LINES or (i + 2) in ARRAY_LINES:
         continue
     if in_heredoc(i + 1):
         continue

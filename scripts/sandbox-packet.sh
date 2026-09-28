@@ -112,6 +112,34 @@ EOF
 fi
 
 # --------------------------------------------------------------------------
+# Preflight: refuse to run a harness that is known to be broken. Two defects
+# shipped in this file and both passed `bash -n`: a quoted argument whose line
+# ended without a backslash (so the next line ran as a command, killing the
+# packet with exit 127 in the middle of gate 10), and an optional environment
+# variable read under `set -u` (which aborted the packet after gates 3, 4, 6 and
+# 8 had already been recorded). Neither is visible by reading the script, and
+# both were found by running it, so the check is mechanical now.
+# --------------------------------------------------------------------------
+if [ "${DG_SANDBOX_SKIP_LINT:-0}" != "1" ] && [ -x "$REPO/scripts/lint-packet-scripts.sh" ]; then
+    if ! lint_out="$("$REPO/scripts/lint-packet-scripts.sh" 2>&1)"; then
+        cat > "$OUT" <<EOF
+# Sandbox adoption packet -- REFUSED BEFORE RUNNING
+
+The packet scripts do not pass their own lint, so running them would produce a
+packet that dies partway through with a shell error instead of gate results:
+
+$lint_out
+
+Fix the reported lines, or set DG_SANDBOX_SKIP_LINT=1 if you are deliberately
+exercising a broken harness.
+EOF
+        echo "refused: scripts/lint-packet-scripts.sh failed" >&2
+        printf '%s\n' "$lint_out" >&2
+        exit 2
+    fi
+fi
+
+# --------------------------------------------------------------------------
 # Isolated credential and data environment. Everything below inherits these.
 # --------------------------------------------------------------------------
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/dg-sandbox-XXXXXX")"
