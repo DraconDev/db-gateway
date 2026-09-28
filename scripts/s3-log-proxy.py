@@ -48,6 +48,11 @@ import os
 import re
 import socketserver
 import ssl
+# http.client is used by a module-level helper now (_upstream_conn), so it has
+# to be imported at module scope. Left function-local, the helper raised
+# NameError inside the request handler and every client saw "remote end closed
+# the connection without response" -- which looks exactly like a broken endpoint.
+import http.client
 import sys
 import threading
 import time
@@ -64,6 +69,7 @@ LOG_PATH: str | None = None
 UPSTREAM: tuple[str, int] = ("", 0)
 UPSTREAM_TLS = False
 UPSTREAM_CA: str | None = None
+EXPECTED_REGION = "us-east-1"
 
 
 def _upstream_conn():
@@ -78,8 +84,6 @@ def _upstream_conn():
     """
     if not UPSTREAM_TLS:
         return http.client.HTTPConnection(UPSTREAM[0], UPSTREAM[1], timeout=120)
-    import ssl
-
     ctx = ssl.create_default_context(cafile=UPSTREAM_CA) if UPSTREAM_CA else ssl.create_default_context()
     return http.client.HTTPSConnection(UPSTREAM[0], UPSTREAM[1], timeout=120, context=ctx)
 EXPECTED_KEY: str = ""
@@ -124,6 +128,92 @@ def _fault_for(method: str, bucket: str, key: str) -> dict[str, str] | None:
             continue
         return rule
     return None
+
+
+def resign_for_upstream(
+    method: str, path: str, query: str, headers: dict[str, str], body: bytes
+) -> str:
+    """Return an Authorization header valid for the upstream, using our key.
+
+    A proxy that rewrites `host` MUST re-sign. SigV4 covers the host header, so
+    forwarding the client's signature verbatim to an endpoint that sees a
+    different host produces 403 SignatureDoesNotMatch -- which is what happens
+    when this proxy fronts the rehearsal endpoint, which validates signatures
+    too. Chaining two validating proxies is only sound if the inner one
+    re-signs, and the inner one may: it has just verified the caller holds this
+    key, so nothing is being asserted that the client did not already prove.
+
+    The same code path serves a real endpoint, where the rewritten host is
+    exactly what the service expects to have been signed.
+    """
+    host = f"{UPSTREAM[0]}:{UPSTREAM[1]}"
+    amz_date = headers.get("x-amz-date") or dt.datetime.now(dt.timezone.utc).strftime(
+        "%Y%m%dT%H%M%SZ"
+    )
+    payload_hash = headers.get("x-amz-content-sha256") or hashlib.sha256(body).hexdigest()
+    scoped = dict(headers)
+    scoped["host"] = host
+    scoped["x-amz-date"] = amz_date
+    scoped["x-amz-content-sha256"] = payload_hash
+
+    # Keep the client's region: the upstream validates against the region the
+    # client believes it is talking to, and changing it would be inventing a
+    # fact rather than re-expressing one.
+    region = EXPECTED_REGION
+    cred = headers.get("authorization", "")
+    parts = dict(
+        piece.strip().split("=", 1)
+        for piece in cred[len("AWS4-HMAC-SHA256 "):].split(",")
+        if "=" in piece
+    )
+    credential_parts = parts.get("Credential", "").split("/")
+    if len(credential_parts) == 5:
+        region = credential_parts[2]
+
+    signed_headers = ["host", "x-amz-content-sha256", "x-amz-date"]
+    canonical_headers = "".join(
+        f"{h}:{' '.join(scoped[h].split())}\n" for h in signed_headers
+    )
+    pairs: list[tuple[str, str]] = []
+    for part in query.split("&"):
+        if not part:
+            continue
+        name, sep, value = part.partition("=")
+        pairs.append(
+            (
+                urllib.parse.unquote(name.replace("+", " ")),
+                urllib.parse.unquote(value.replace("+", " ")) if sep else "",
+            )
+        )
+    canonical_request = "\n".join(
+        [
+            method,
+            canonical_uri(path),
+            canonical_query(pairs),
+            canonical_headers,
+            ";".join(signed_headers),
+            payload_hash,
+        ]
+    )
+    date_stamp = amz_date[:8]
+    scope = f"{date_stamp}/{region}/s3/aws4_request"
+    string_to_sign = "\n".join(
+        [
+            "AWS4-HMAC-SHA256",
+            amz_date,
+            scope,
+            hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
+        ]
+    )
+    signature = hmac.new(
+        signing_key(EXPECTED_SECRET, date_stamp, region, "s3"),
+        string_to_sign.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return (
+        f"AWS4-HMAC-SHA256 Credential={EXPECTED_KEY}/{scope}, "
+        f"SignedHeaders={';'.join(signed_headers)}, Signature={signature}"
+    )
 
 
 def verify_signature(
@@ -344,12 +434,14 @@ class Handler(BaseHTTPRequestHandler):
         # Forward upstream over a fresh connection, with the Host rewritten to
         # the upstream. The client signed the host it dialed, which is this
         # proxy; the upstream sees its own name, which is what it expects.
-        import http.client
-
         conn = _upstream_conn()
         up_headers = {k: v for k, v in headers.items() if k not in ("host", "authorization", "accept-encoding")}
         up_headers["host"] = f"{UPSTREAM[0]}:{UPSTREAM[1]}"
         up_headers["content-length"] = str(len(body))
+        if headers.get("authorization"):
+            up_headers["authorization"] = resign_for_upstream(
+                self.command, path, query, headers, body
+            )
         if fault and fault.get("status"):
             status = int(fault["status"])
             payload = _s3_error(
@@ -482,7 +574,7 @@ def summarize(path: str) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    global LOG_PATH, UPSTREAM, EXPECTED_KEY, EXPECTED_SECRET, FAULT_PATH, UPSTREAM_TLS, UPSTREAM_CA
+    global LOG_PATH, UPSTREAM, EXPECTED_KEY, EXPECTED_SECRET, FAULT_PATH, UPSTREAM_TLS, UPSTREAM_CA, EXPECTED_REGION
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--listen", default="127.0.0.1:0")
     p.add_argument("--upstream", required=True)
@@ -526,6 +618,7 @@ def main(argv: list[str] | None = None) -> int:
     LOG_PATH = args.log
     FAULT_PATH = args.faults
     REGION = args.region
+    EXPECTED_REGION = args.region
 
     if bool(args.tls_cert) != bool(args.tls_key):
         print("s3-log-proxy: --tls-cert and --tls-key go together", file=sys.stderr)
