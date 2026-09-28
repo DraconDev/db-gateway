@@ -31,7 +31,15 @@
 set -euo pipefail
 
 PIN_VERSION="0.5.17"
-PIN_ROOT="${DG_SANDBOX_PIN_ROOT:-$HOME/.local/dg-sandbox/litestream-${PIN_VERSION}}"
+# Resolved against the real home only if the parent has not already pinned it.
+# sandbox-packet.sh exports DG_SANDBOX_PIN_ROOT before it repoints HOME at the
+# sandbox; without that, this script looks for the pin inside the sandbox home
+# and reports it missing, which is what the first rehearsal run did.
+if [ -z "${DG_SANDBOX_PIN_ROOT:-}" ]; then
+    PIN_ROOT="${DG_REAL_HOME:-$HOME}/.local/dg-sandbox/litestream-${PIN_VERSION}"
+else
+    PIN_ROOT="$DG_SANDBOX_PIN_ROOT"
+fi
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT=""
 FROM_S3=0
@@ -95,6 +103,27 @@ LITESTREAM="$PIN_ROOT/litestream"
 # the isolation, not a belt-and-braces extra.
 # --------------------------------------------------------------------------
 SANDBOX="${DG_SANDBOX_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/dg-sandbox-s3-XXXXXX")}"
+# One trap, one stack. A later `trap ... EXIT` REPLACES an earlier one, so four
+# gates that each registered their own cleanup meant only the last one ever ran
+# and the earlier proxies and gateway processes survived the packet. Cleanup is
+# registered here once and appended to by every gate.
+CLEANUP=()
+cleanup_all() {
+    local i
+    for (( i=${#CLEANUP[@]}-1; i>=0; i-- )); do
+        eval "${CLEANUP[$i]}" >/dev/null 2>&1 || true
+    done
+}
+# If this script created the sandbox it owns the sandbox; if the parent
+# sandbox-packet.sh created it (DG_SANDBOX_DIR), the parent's trap removes it
+# and a second removal here would race that trap on the same directory.
+if [ -z "${DG_SANDBOX_DIR:-}" ]; then
+    CLEANUP+=("rm -rf '$SANDBOX'")
+    SANDBOX_OWNER_TEXT="created and removed by this script's exit trap"
+else
+    SANDBOX_OWNER_TEXT="created by sandbox-packet.sh, which removes it on its own exit; this script does not"
+fi
+trap cleanup_all EXIT
 mkdir -p "$SANDBOX/home"
 : > "$SANDBOX/home/.aws-empty"
 export HOME="$SANDBOX/home"
@@ -283,7 +312,7 @@ G4_PROXY_PORT="$(python3 "$PROXY" --listen 127.0.0.1:0 --upstream "$ENDPOINT" \
     --access-key-id "$DG_SANDBOX_ACCESS_KEY_ID" --secret-access-key "$DG_SANDBOX_SECRET_KEY" \
     --region "$REGION" --log "$G4_LOG" --faults "$G4_FAULTS" --print-listen 2>/dev/null | head -1)"
 G4_ENDPOINT="$G4_PROXY_PORT"
-trap 'pkill -f "s3-log-proxy.py --listen $G4_PROXY_PORT" 2>/dev/null || true' EXIT
+CLEANUP+=("pkill -f 's3-log-proxy.py --listen $G4_PROXY_PORT' 2>/dev/null || true")
 
 # Two databases, each with its own prefix. A shared prefix is not tidiness: with
 # one root the two databases' segments interleave and a restore returns the
@@ -521,7 +550,8 @@ if [ -x "$DG_BIN" ]; then
     G8_PORT="$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')"
     "$DG_BIN" serve --listen "127.0.0.1:$G8_PORT" --data-dir "$G8_DATA" > "$G8_ROOT/serve.log" 2>&1 &
     G8_SERVE_PID=$!
-    trap 'kill $G8_SERVE_PID 2>/dev/null || true; pkill -f "s3-log-proxy.py --listen $G8_PROXY_PORT" 2>/dev/null || true' EXIT
+    CLEANUP+=("kill \$G8_SERVE_PID 2>/dev/null || true")
+    CLEANUP+=("pkill -f 's3-log-proxy.py --listen $G8_PROXY_PORT' 2>/dev/null || true")
     for _ in $(seq 1 100); do
         "$DG_BIN" --server "http://127.0.0.1:$G8_PORT" --key-file "$G8_KEY" status >/dev/null 2>&1 && break
         sleep 0.1
@@ -985,7 +1015,7 @@ if [ -x "$DG_BIN" ]; then
     G11_PORT="$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')"
     "$DG_BIN" serve --listen "127.0.0.1:$G11_PORT" --data-dir "$G11_DATA" > "$G11_ROOT/serve.log" 2>&1 &
     G11_SERVE_PID=$!
-    trap 'kill $G11_SERVE_PID 2>/dev/null || true' EXIT
+    CLEANUP+=("kill \$G11_SERVE_PID 2>/dev/null || true")
     for _ in $(seq 1 100); do
         "$DG_BIN" --server "http://127.0.0.1:$G11_PORT" --key-file "$G11_KEYFILE" status >/dev/null 2>&1 && break
         sleep 0.1
@@ -1080,7 +1110,7 @@ print(len(keys) if isinstance(keys, list) else 0)' 2>/dev/null || echo 0)"
     "$DG_BIN" serve --listen "127.0.0.1:$G11_RECOVER_PORT" --data-dir "$G11_RECOVER/data" \
         > "$G11_ROOT/serve-recovered.log" 2>&1 &
     G11_RECOVER_PID=$!
-    trap 'kill $G11_RECOVER_PID 2>/dev/null || true' EXIT
+    CLEANUP+=("kill \$G11_RECOVER_PID 2>/dev/null || true")
     for _ in $(seq 1 100); do
         "$DG_BIN" --server "http://127.0.0.1:$G11_RECOVER_PORT" --key-file "$G11_KEYFILE" status >/dev/null 2>&1 && break
         sleep 0.1
@@ -1169,7 +1199,7 @@ print("yes" if st in (404, "404") else ("unknown" if st is None else f"no (HTTP 
         echo "independent re-check -- does the bucket still answer: $G12_ABSENT"
         echo
         echo "local residue:"
-        echo "  sandbox tree: $SANDBOX (removed by the packet's exit trap)"
+        echo "  sandbox tree: $SANDBOX (${SANDBOX_OWNER_TEXT})"
         echo "  litestream config, keys and logs all lived inside it"
         echo "  no credential was written outside $SANDBOX"
     } >> "$OUT"
@@ -1178,7 +1208,7 @@ print("yes" if st in (404, "404") else ("unknown" if st is None else f"no (HTTP 
             "delete: $G12_DEL" \
             "delete-bucket: $G12_BUCKET_DEL" \
             "independent re-check: $G12_RECHECK" \
-            "local sandbox $SANDBOX is removed by the packet's exit trap"
+            "local sandbox $SANDBOX is ${SANDBOX_OWNER_TEXT}"
     else
         record 12 FAIL "residue remains after cleanup" \
             "remaining versions: ${G12_REMAIN:-?}" \

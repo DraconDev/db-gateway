@@ -38,14 +38,19 @@ PIN_ROOT="${DG_SANDBOX_PIN_ROOT:-$HOME/.local/dg-sandbox/litestream-${PIN_VERSIO
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT=""
 GO_AHEAD=0
+REHEARSAL=0
 DG_BIN="${DG_BIN:-$REPO/.cargo/target/debug/dg}"
 
 usage() {
     cat <<'USAGE'
-usage: scripts/sandbox-packet.sh --out FILE [--i-have-owner-go-ahead]
+usage: scripts/sandbox-packet.sh --out FILE [--i-have-owner-go-ahead | --rehearsal]
 
   --out FILE                where to write the packet
   --i-have-owner-go-ahead   required; the owner's authorization for §6
+  --rehearsal               run the S3 gates against a LOOPBACK endpoint with
+                            disposable local data, without owner authorization.
+                            Refuses if DG_SANDBOX_ENDPOINT is not loopback, and
+                            its result is a rehearsal, never §6 evidence.
   DG_SANDBOX_BUCKET         test bucket name; unset marks S3 gates BLOCKED
   DG_SANDBOX_ENDPOINT       e.g. s3.gra.io.cloud.ovh.net
   DG_SANDBOX_REGION         e.g. gra
@@ -58,6 +63,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --out) OUT="${2:?--out needs a value}"; shift 2;;
         --i-have-owner-go-ahead) GO_AHEAD=1; shift;;
+        --rehearsal) REHEARSAL=1; shift;;
         -h|--help) usage; exit 0;;
         *) echo "unknown flag: $1" >&2; usage; exit 2;;
     esac
@@ -68,7 +74,30 @@ done
 # Fail closed before touching anything: no owner authorization, no run. This is
 # the objective's own BLOCKER, so it is a precondition and not a warning.
 # --------------------------------------------------------------------------
-if [ "$GO_AHEAD" -ne 1 ]; then
+if [ "$REHEARSAL" = "1" ]; then
+    # A rehearsal is authorized by nothing and needs nothing from the owner: it
+    # touches a loopback endpoint this script starts state for itself, on
+    # disposable data, with keys the operator supplies. The one thing that would
+    # need the owner is a NON-loopback endpoint -- that is someone else's
+    # account -- so this check is the whole of the rehearsal's safety story and
+    # it fails closed.
+    case "${DG_SANDBOX_ENDPOINT:-}" in
+        127.0.0.1:*|localhost:*|\[::1\]:*|127.0.0.1|localhost) ;;
+        *)  cat > "$OUT" <<EOF
+# Sandbox adoption packet -- REFUSED BEFORE RUNNING
+
+--rehearsal requires DG_SANDBOX_ENDPOINT to be a LOOPBACK address; it is
+'${DG_SANDBOX_ENDPOINT:-<unset>}'. A rehearsal is only safe because it cannot
+reach the owner's account, and any other endpoint is a different account.
+
+To run against a real bucket, the owner's authorization is required instead:
+  scripts/sandbox-packet.sh --out $OUT --i-have-owner-go-ahead
+EOF
+            echo "refused: --rehearsal with a non-loopback endpoint ($DG_SANDBOX_ENDPOINT)" >&2
+            exit 3
+            ;;
+    esac
+elif [ "$GO_AHEAD" -ne 1 ]; then
     cat > "$OUT" <<EOF
 # Sandbox adoption packet -- REFUSED BEFORE RUNNING
 
@@ -95,6 +124,12 @@ trap cleanup EXIT
 
 export HOME="$SANDBOX/home"
 mkdir -p "$HOME"
+# The litestream pin lives in the operator's real home, but HOME now points
+# inside the sandbox. Anything resolved against $HOME after this line looks for
+# the pin in a directory that never had it, which is how the first rehearsal run
+# died with "litestream 0.5.17 is not installed" four gates in. Pin the path
+# once, against the real home, and hand it to the child.
+export DG_SANDBOX_PIN_ROOT="$PIN_ROOT"
 : > "$HOME/.aws-credentials"
 export AWS_CONFIG_FILE="$HOME/.aws-credentials"
 export AWS_SHARED_CREDENTIALS_FILE="$HOME/.aws-credentials"
@@ -148,10 +183,24 @@ record() {
     echo "bucket: ${DG_SANDBOX_BUCKET:-<unset>}"
     echo "endpoint: ${DG_SANDBOX_ENDPOINT:-<unset>}"
     echo "region: ${DG_SANDBOX_REGION:-<unset>}"
+    if [ "$REHEARSAL" = "1" ]; then
+        echo "mode: REHEARSAL against a loopback endpoint (--rehearsal)"
+    else
+        echo "mode: owner-authorized run against a real endpoint"
+    fi
     echo
     echo "Gates are PASS, FAIL or BLOCKED. BLOCKED means not executed and not"
     echo "evidence of anything; it is never a pass. A packet with a BLOCKED"
     echo "gate is not an adoption packet."
+    if [ "$REHEARSAL" = "1" ]; then
+        echo
+        echo "THIS IS A REHEARSAL. It proves the packet drives correct S3 requests,"
+        echo "reads the answers, restores the right database and cleans up after"
+        echo "itself. It proves nothing about the OVH test region, class, pricing,"
+        echo "lifecycle implementation or TLS. Re-run the same script with"
+        echo "--i-have-owner-go-ahead and DG_SANDBOX_ENDPOINT pointing at the OVH"
+        echo "endpoint to produce §6 evidence."
+    fi
 } > "$OUT"
 
 # --------------------------------------------------------------------------
@@ -470,8 +519,18 @@ fi
 # command recorded so the owner's go-ahead turns into one run.
 # --------------------------------------------------------------------------
 if [ -n "${DG_SANDBOX_BUCKET:-}" ] && [ -n "${DG_SANDBOX_ENDPOINT:-}" ]; then
-    echo "bucket configured; running the S3 gates is implemented in scripts/sandbox-s3-gates.sh" >&2
-    exec "$REPO/scripts/sandbox-s3-gates.sh" --out "$OUT" --from-s3
+    echo "bucket configured; handing off to scripts/sandbox-s3-gates.sh" >&2
+    # A child, not an exec: `exec` replaces this process, the EXIT trap never
+    # runs, and the sandbox holding the owner's test key, the litestream config
+    # and every log survives the run. The child deliberately does not delete
+    # DG_SANDBOX_DIR -- this process owns it and this trap is what removes it.
+    # The child's exit status is this packet's exit status.
+    set +e
+    DG_SANDBOX_REHEARSAL="$REHEARSAL" "$REPO/scripts/sandbox-s3-gates.sh" --out "$OUT" --from-s3
+    S3_STATUS=$?
+    set -e
+    echo "S3 gates exited $S3_STATUS" >&2
+    exit "$S3_STATUS"
 fi
 
 BLOCKED_DETAIL="needs DG_SANDBOX_BUCKET + DG_SANDBOX_ENDPOINT (+ DG_SANDBOX_REGION, DG_SANDBOX_ACCESS_KEY_ID, DG_SANDBOX_SECRET_KEY) and a bucket the owner confirms is disposable"
