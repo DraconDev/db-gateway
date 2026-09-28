@@ -162,6 +162,11 @@ impl Drop for Collector {
 struct Server {
     child: Child,
     address: String,
+    /// The stderr drain. Held so it outlives the handshake, and kept running
+    /// for the life of the server: a digest cadence of one second fills a
+    /// stderr pipe nobody reads within a minute, and a server blocked writing
+    /// a log line looks exactly like a notifier that never fires.
+    _stderr: std::thread::JoinHandle<()>,
 }
 
 impl Drop for Server {
@@ -193,11 +198,29 @@ fn start(data_dir: &std::path::Path, extra: &[&str]) -> Server {
         data_dir.to_str().unwrap(),
     ]);
     cmd.args(extra);
-    let mut child = cmd.stderr(Stdio::inherit()).spawn().unwrap();
-    let address = String::new();
+    let mut child = cmd.stderr(Stdio::piped()).spawn().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    // Drain continuously in the background. Reading only the first line and
+    // dropping the reader would leave a live server writing into a pipe
+    // nobody drains: at a one-second digest cadence that pipe fills within a
+    // minute and the server blocks mid-notification.
+    let (tx, rx) = std::sync::mpsc::channel();
+    let drain = std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            if let Ok(log) = serde_json::from_str::<Value>(&line)
+                && let Some(address) = log.pointer("/fields/address").and_then(|v| v.as_str())
+            {
+                let _ = tx.send(address.to_string());
+            }
+        }
+    });
+    let address = rx
+        .recv_timeout(Duration::from_secs(30))
+        .expect("server logged its listen address");
     Server {
         child,
-        address: address.expect("server logged its listen address"),
+        address,
+        _stderr: drain,
     }
 }
 
