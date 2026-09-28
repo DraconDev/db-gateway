@@ -259,7 +259,7 @@ mod tests {
         std::fs::create_dir_all(&set).unwrap();
         std::fs::write(
             set.join("manifest.json"),
-            serde_json::json!({
+            serde_json::to_vec(&serde_json::json!({
                 "started_at": coverage_start,
                 "completed_at": coverage_start + 1,
                 "registry_captured_at": coverage_start + 1,
@@ -271,7 +271,8 @@ mod tests {
                     }))
                     .collect::<Vec<_>>(),
                 "registry": {"file": "metadata.sqlite.bak", "size": 1, "sha256": "0".repeat(64)},
-            }),
+            }))
+            .unwrap(),
         )
         .unwrap();
     }
@@ -352,11 +353,12 @@ mod tests {
         std::fs::create_dir_all(&unbounded).unwrap();
         std::fs::write(
             unbounded.join("manifest.json"),
-            serde_json::json!({
+            serde_json::to_vec(&serde_json::json!({
                 "started_at": 0, "completed_at": 0, "registry_captured_at": 0,
                 "databases": [{"name": "alpha", "file": "alpha.sqlite", "size": 1, "sha256": "0".repeat(64)}],
                 "registry": {"file": "metadata.sqlite.bak", "size": 1, "sha256": "0".repeat(64)},
-            }),
+            }))
+            .unwrap(),
         )
         .unwrap();
         // Make the unbounded publication strictly newer by mtime.
@@ -426,7 +428,7 @@ mod tests {
         // A failure that has since been followed by a success is history, not
         // a current condition: the digest reports both and the immediate
         // notice has already fired.
-        assert!(health.last_attempt.as_ref().unwrap().ts > "b");
+        assert!(health.last_attempt.as_ref().unwrap().ts.as_str() > "b");
     }
 
     #[test]
