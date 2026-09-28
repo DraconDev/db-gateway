@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
     path::{Path, PathBuf},
     sync::{
         Arc, Condvar, Mutex, RwLock, RwLockReadGuard,
@@ -72,62 +72,89 @@ pub struct DbUsage {
     pub rows_written: u64,
 }
 
-/// A per-database admission queue: the shared/exclusive guard plus the
-/// writer-preference counter that bounds how long a read flood can delay a
-/// writer. See `Store::acquire_queue`, which is the only writer of
-/// `waiting_writers` and the only acquirer of `guard`.
+/// Per-database admission queue state.
+///
+/// A ticket lock, not a phase flag. `serving` names the only ticket allowed
+/// to look at the queue next, so admission is decided by ARRIVAL ORDER and
+/// not by which thread happens to win the state mutex. The two properties
+/// that make it work:
+///
+/// * `serving` only ever advances, and a ticket whose owner gave up is
+///   recorded in `abandoned` so the tickets behind it can step over it.
+/// * A reader may enter only while no writer holds a SMALLER ticket. Since
+///   tickets are handed out on arrival, the readers already inside plus the
+///   readers arriving before the writer form one finite batch, and no reader
+///   arriving after the writer can get in ahead of it. That is the
+///   writer-preferring bound, and it holds no matter how hard the read flood
+///   pushes or how fast the client re-issues.
 #[derive(Debug, Default)]
 struct QueueState {
-    /// Readers currently holding the shared guard, as one batch.
+    /// Readers currently holding the shared guard. Any number may hold it at
+    /// once; the queue bounds the WRITER, not reader concurrency.
     readers_active: usize,
     writer_active: bool,
-    waiting_readers: usize,
-    /// Writer tickets: `writer_serving` is the only writer allowed in, so
-    /// writers are served in arrival order rather than in wake order.
-    writer_next: u64,
-    writer_serving: u64,
-    /// A writer is queued, so the read phase is closed and new readers wait.
-    writer_phase: bool,
+    /// Next ticket to hand out, and the ticket allowed to proceed next.
+    next_ticket: u64,
+    serving: u64,
+    /// Tickets held by writers not yet admitted. A reader is held back by
+    /// the earliest of these.
+    waiting_writers: BTreeSet<u64>,
+    /// Tickets whose owner hit ACQUIRE_TIMEOUT and left. Stepped over so one
+    /// give-up cannot wedge every ticket behind it.
+    abandoned: BTreeSet<u64>,
 }
 
 impl QueueState {
-    /// Decide which phase the queue serves next. Readers win whenever any are
-    /// queued -- that is what stops a writer stream from starving them -- and
-    /// otherwise a writer still holding a ticket keeps the queue. Centralised
-    /// because getting it backwards strands waiters: a phase left closed with
-    /// a reader queued never re-opens, since nothing else runs to refresh it.
-    fn refresh_phase(&mut self) {
-        self.writer_phase = self.waiting_readers == 0 && self.writer_serving < self.writer_next;
+    /// Step `serving` over tickets that were given up. Without this a single
+    /// abandoned ticket would stall the queue permanently, which is the
+    /// wedge this design exists to avoid.
+    fn skip_abandoned(&mut self) {
+        while self.abandoned.remove(&self.serving) {
+            self.serving += 1;
+        }
+    }
+
+    /// Whether the reader holding `ticket` may take the shared guard.
+    fn reader_may_enter(&self, ticket: u64) -> bool {
+        !self.writer_active
+            && self.serving == ticket
+            // A writer that arrived first closes the gate. This is the whole
+            // bound: it does not care how many readers are queued behind that
+            // writer, only that the writer got there first.
+            && self.waiting_writers.first().is_none_or(|ahead| *ahead > ticket)
+    }
+
+    /// Whether the writer holding `ticket` may take the exclusive guard.
+    fn writer_may_enter(&self, ticket: u64) -> bool {
+        !self.writer_active && self.readers_active == 0 && self.serving == ticket
     }
 }
 
 /// A per-database admission queue.
 ///
-/// Both cheaper designs were implemented and measured to be wrong, which is
-/// why this is a lock and not a flag:
+/// Three designs were implemented and measured here, and the two cheap ones
+/// were both wrong, which is why this is a ticket lock:
 ///
 /// * The original polled `tokio::sync::RwLock` every 2ms. A writer that
 ///   loses `try_write_owned` is NOT enqueued in the lock's own fair queue,
 ///   so it is invisible to the lock and readers released by the global read
 ///   lane keep taking the shared guard before its next poll. Measured at a
 ///   7.8x writer rejection rate under a read flood (0.09% -> 0.70%).
-/// * A writer-preferring counter over that same RwLock: writers were fixed
-///   (0.70% -> 0.075%, write throughput 14.0/s -> 35.0/s) and the readers
-///   starved instead, 4,260 reader rejections against 5 writer rejections in
-///   the same run. A bound that moves the queue sideways is not a bound.
+/// * A writer-preferring flag over that same RwLock fixed the writers
+///   (0.70% -> 0.075%) and starved the readers: 4,260 reader rejections
+///   against 5 writer rejections in one run. A bound that moves the queue
+///   sideways is not a bound.
+/// * A phase-fair lock that closed the read phase for a queued writer was
+///   right about who wins a phase and wrong about when a phase ends: it
+///   handed the read phase to any queued reader, so under a continuous read
+///   flood a writer was admitted 0 times in 6 attempts. Its safety depended
+///   on client pacing rather than on the queue, which is the failure a
+///   benchmark on a paced client cannot see.
 ///
-/// After this queue: the flood arm's writer rejection rate fell to 0.066%,
-/// BELOW its own 0.335% control arm, and total flood-arm rejections fell from
-/// 91 to 44. Verdict NO_STARVATION. Full runs in
+/// This one has no phases to race. Admission is decided by ticket order, a
+/// queued writer is admitted at the next reader batch boundary, and neither
+/// side can starve the other. Full runs in
 /// docs/soak-starvation-evidence.log.
-///
-/// So: fair, phase-fair, and writer-preferring, with no polling. Writers
-/// take a ticket, so they are served in arrival order. A queued writer
-/// closes the read phase immediately, so readers already inside drain but
-/// none cuts in front of it. When that writer releases, queued READERS get
-/// the next phase, so a continuous stream of writers cannot starve readers.
-/// Readers inside a phase are a bounded batch: when the last one leaves, a
-/// waiting writer takes the queue.
 #[derive(Debug, Default)]
 pub struct AdmissionQueue {
     state: Mutex<QueueState>,
@@ -135,7 +162,7 @@ pub struct AdmissionQueue {
 }
 
 /// Held for the duration of one admitted request. Releases the read or write
-/// slot on drop, and re-opens the right phase for whoever is queued.
+/// slot on drop and wakes whoever the ticket order now favours.
 pub struct AdmissionGuard {
     queue: Arc<AdmissionQueue>,
     write: bool,
@@ -151,17 +178,8 @@ impl Drop for AdmissionGuard {
         };
         if self.write {
             state.writer_active = false;
-            // Queued readers get the next phase, so a continuous stream of
-            // writers cannot starve them.
-            state.refresh_phase();
         } else {
             state.readers_active = state.readers_active.saturating_sub(1);
-            if state.readers_active == 0 {
-                // The reader batch is finished: a queued writer goes next,
-                // so a continuous read flood cannot repeat forever in front
-                // of it. This is the bound the read flood needs.
-                state.refresh_phase();
-            }
         }
         self.queue.available.notify_all();
     }
@@ -170,46 +188,39 @@ impl Drop for AdmissionGuard {
 impl AdmissionQueue {
     /// Admit one reader or writer, or give up at ACQUIRE_TIMEOUT.
     fn acquire(queue: &Arc<Self>, write: bool) -> Result<AdmissionGuard> {
-        let deadline = Instant::now() + ACQUIRE_TIMEOUT;
+        // Ticket and deadline are taken under ONE lock acquisition. Taking
+        // the deadline first and the ticket second would let the two orders
+        // invert, and a writer that abandoned a ticket above `serving` would
+        // stall every ticket behind it.
         let mut state = queue.state.lock().map_err(|_| Error::internal())?;
+        let deadline = Instant::now() + ACQUIRE_TIMEOUT;
+        let ticket = state.next_ticket;
+        state.next_ticket += 1;
         if write {
-            let ticket = state.writer_next;
-            state.writer_next += 1;
-            // Close the read phase now: readers already inside drain, but no
-            // new one gets in ahead of this writer.
-            state.writer_phase = true;
-            loop {
-                if !state.writer_active
-                    && state.readers_active == 0
-                    && ticket == state.writer_serving
-                {
-                    state.writer_active = true;
-                    state.writer_serving += 1;
-                    queue.available.notify_all();
-                    return Ok(AdmissionGuard {
-                        queue: queue.clone(),
-                        write,
-                    });
-                }
-                let (guard, keep_going) = AdmissionQueue::wait(queue, state, deadline)?;
-                state = guard;
-                if !keep_going {
-                    // Give the ticket up, or writer_serving would stall
-                    // behind a writer that already left.
-                    if ticket == state.writer_serving {
-                        state.writer_serving += 1;
-                    }
-                    state.refresh_phase();
-                    queue.available.notify_all();
-                    return Err(Error::busy());
-                }
-            }
+            state.waiting_writers.insert(ticket);
         }
-        state.waiting_readers += 1;
         loop {
-            if !state.writer_active && !state.writer_phase {
-                state.waiting_readers -= 1;
+            state.skip_abandoned();
+            let admitted = if write {
+                if state.writer_may_enter(ticket) {
+                    state.writer_active = true;
+                    state.waiting_writers.remove(&ticket);
+                    state.serving = ticket + 1;
+                    true
+                } else {
+                    false
+                }
+            } else if state.reader_may_enter(ticket) {
                 state.readers_active += 1;
+                // Hand the gate on so the next reader in the batch joins
+                // immediately instead of one mutex round trip per reader.
+                state.serving = ticket + 1;
+                true
+            } else {
+                false
+            };
+            if admitted {
+                queue.available.notify_all();
                 return Ok(AdmissionGuard {
                     queue: queue.clone(),
                     write,
@@ -218,10 +229,9 @@ impl AdmissionQueue {
             let (guard, keep_going) = AdmissionQueue::wait(queue, state, deadline)?;
             state = guard;
             if !keep_going {
-                state.waiting_readers -= 1;
-                if state.readers_active == 0 {
-                    state.refresh_phase();
-                }
+                state.abandoned.insert(ticket);
+                state.waiting_writers.remove(&ticket);
+                state.skip_abandoned();
                 queue.available.notify_all();
                 return Err(Error::busy());
             }
@@ -2785,15 +2795,16 @@ mod tests {
             drop(guard);
         });
 
-        // Wait for the writer to actually be queued rather than assuming a
-        // delay, but stay well inside ACQUIRE_TIMEOUT so it has not given up.
+        // Wait for the writer to actually hold a ticket rather than assuming
+        // a delay, but stay well inside ACQUIRE_TIMEOUT so it has not given
+        // up.
         let queued = (0..200).any(|_| {
             if store
                 .queue("qdb")
                 .unwrap()
                 .state
                 .lock()
-                .map(|state| state.writer_serving < state.writer_next)
+                .map(|state| !state.waiting_writers.is_empty())
                 .unwrap_or(false)
             {
                 true
@@ -2821,11 +2832,23 @@ mod tests {
             "a reader jumped in front of a queued writer"
         );
 
-        // Releasing hands the queue over: the writer gets in, then the reader.
+        // Now the part that actually matters, and the part the previous
+        // version of this test never reached: it dropped the guard and then
+        // only asserted that BOTH threads eventually got in, which holds in
+        // either order. The reader is already queued, so the batch boundary
+        // is the only thing standing between it and the exclusive guard.
+        // Ordering across that boundary is the whole claim.
         drop(held);
         writer.join().unwrap();
+        assert!(
+            writer_in.load(AtomicOrdering::SeqCst),
+            "the queued writer never got in"
+        );
+        assert!(
+            !reader_in.load(AtomicOrdering::SeqCst),
+            "a reader arriving after the writer took the batch boundary"
+        );
         reader.join().unwrap();
-        assert!(writer_in.load(AtomicOrdering::SeqCst));
         assert!(reader_in.load(AtomicOrdering::SeqCst));
     }
 
