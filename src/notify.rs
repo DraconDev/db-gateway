@@ -106,7 +106,11 @@ pub fn failure_note(health: &BackupHealth, attempt: &AttemptRecord) -> Note {
         severity: Severity::Alert,
         title: format!(
             "backup attempt {} failed{reason}{databases}",
-            if attempt.ts.is_empty() { "?" } else { &attempt.ts }
+            if attempt.ts.is_empty() {
+                "?"
+            } else {
+                &attempt.ts
+            }
         ),
         databases: health.databases.clone(),
         last_attempt: health.last_attempt.clone(),
@@ -167,11 +171,7 @@ pub fn digest_note(health: &BackupHealth) -> Note {
 pub fn render_text(note: &Note) -> String {
     let mut out = format!("[{}] {}", note.kind.as_str(), note.title);
     for db in &note.databases {
-        out.push_str(&format!(
-            "\n  {} {}",
-            db.state,
-            db.name
-        ));
+        out.push_str(&format!("\n  {} {}", db.state, db.name));
         if let Some(set) = &db.newest_set {
             out.push_str(&format!(" (newest {set}"));
             if let Some(age) = db.age_secs {
@@ -183,8 +183,16 @@ pub fn render_text(note: &Note) -> String {
     if let Some(failure) = &note.failure {
         out.push_str(&format!(
             "\n  failed attempt {} at step {}",
-            if failure.ts.is_empty() { "?" } else { &failure.ts },
-            if failure.step.is_empty() { "?" } else { &failure.step }
+            if failure.ts.is_empty() {
+                "?"
+            } else {
+                &failure.ts
+            },
+            if failure.step.is_empty() {
+                "?"
+            } else {
+                &failure.step
+            }
         ));
     }
     out.push_str(&format!("\n  action: {}", note.action));
@@ -263,53 +271,56 @@ impl Sink for LogSink {
         note: &'a Note,
     ) -> Pin<Box<dyn Future<Output = Result<(), SinkError>> + Send + 'a>> {
         Box::pin(async move {
-        let databases = note
-            .databases
-            .iter()
-            .map(|db| db.name.as_str())
-            .collect::<Vec<_>>()
-            .join(",");
-        // Fields, not prose, so an operator's log pipeline can alert on
-        // `kind=backup_failure` without parsing English. The rendered text
-        // rides along because most operators read logs, not JSON.
-        if note.kind == NoteKind::BackupFailure {
-            tracing::error!(
-                kind = note.kind.as_str(),
-                severity = note.severity.as_str(),
-                databases,
-                attempt = note
-                    .failure
-                    .as_ref()
-                    .map(|f| f.ts.as_str())
-                    .unwrap_or_default(),
-                step = note
-                    .failure
-                    .as_ref()
-                    .map(|f| f.step.as_str())
-                    .unwrap_or_default(),
-                action = %note.action,
-                summary = %render_text(note),
-                "backup attempt failed"
-            );
-        } else {
-            let (fresh, stale, unknown) = (
-                note.databases.iter().filter(|d| d.state == "fresh").count(),
-                note.databases.iter().filter(|d| d.state == "stale").count(),
-                note.databases.iter().filter(|d| d.state == "unknown").count(),
-            );
-            tracing::info!(
-                kind = note.kind.as_str(),
-                severity = note.severity.as_str(),
-                databases,
-                fresh,
-                stale,
-                unknown,
-                action = %note.action,
-                summary = %render_text(note),
-                "backup digest"
-            );
-        }
-        Ok(())
+            let databases = note
+                .databases
+                .iter()
+                .map(|db| db.name.as_str())
+                .collect::<Vec<_>>()
+                .join(",");
+            // Fields, not prose, so an operator's log pipeline can alert on
+            // `kind=backup_failure` without parsing English. The rendered text
+            // rides along because most operators read logs, not JSON.
+            if note.kind == NoteKind::BackupFailure {
+                tracing::error!(
+                    kind = note.kind.as_str(),
+                    severity = note.severity.as_str(),
+                    databases,
+                    attempt = note
+                        .failure
+                        .as_ref()
+                        .map(|f| f.ts.as_str())
+                        .unwrap_or_default(),
+                    step = note
+                        .failure
+                        .as_ref()
+                        .map(|f| f.step.as_str())
+                        .unwrap_or_default(),
+                    action = %note.action,
+                    summary = %render_text(note),
+                    "backup attempt failed"
+                );
+            } else {
+                let (fresh, stale, unknown) = (
+                    note.databases.iter().filter(|d| d.state == "fresh").count(),
+                    note.databases.iter().filter(|d| d.state == "stale").count(),
+                    note.databases
+                        .iter()
+                        .filter(|d| d.state == "unknown")
+                        .count(),
+                );
+                tracing::info!(
+                    kind = note.kind.as_str(),
+                    severity = note.severity.as_str(),
+                    databases,
+                    fresh,
+                    stale,
+                    unknown,
+                    action = %note.action,
+                    summary = %render_text(note),
+                    "backup digest"
+                );
+            }
+            Ok(())
         })
     }
 }
@@ -557,13 +568,23 @@ mod tests {
     fn digest_carries_every_database_its_state_and_its_age() {
         let note = digest_note(&health());
         assert_eq!(note.kind, NoteKind::BackupDigest);
-        assert_eq!(note.severity, Severity::Alert, "a stale database is an alert");
+        assert_eq!(
+            note.severity,
+            Severity::Alert,
+            "a stale database is an alert"
+        );
         assert_eq!(note.databases.len(), 3);
         assert!(note.title.contains("1 fresh"));
         assert!(note.title.contains("1 stale"));
         assert!(note.title.contains("1 unknown"));
         let text = render_text(&note);
-        for needle in ["fresh alpha", "stale beta", "unknown gamma", "60s ago", "9000s ago"] {
+        for needle in [
+            "fresh alpha",
+            "stale beta",
+            "unknown gamma",
+            "60s ago",
+            "9000s ago",
+        ] {
             assert!(text.contains(needle), "{needle} missing from:\n{text}");
         }
         // Contract section 3: a bounded operator action, every time.
@@ -590,7 +611,10 @@ mod tests {
         assert!(note.title.contains("20240102T000000Z"));
         assert!(note.title.contains("failed at step manifest"));
         let text = render_text(&note);
-        assert!(text.contains("failed attempt 20240102T000000Z at step manifest"), "{text}");
+        assert!(
+            text.contains("failed attempt 20240102T000000Z at step manifest"),
+            "{text}"
+        );
         assert!(text.contains("dg backup verify"), "{text}");
         // The failure record travels with the note, so a sink can route on
         // it instead of parsing the title.
@@ -627,7 +651,10 @@ mod tests {
         let again = attempt("a", "error", "export");
         let second = attempt("b", "error", "publish");
         assert!(state.should_report(&first));
-        assert!(!state.should_report(&again), "the same attempt must not re-alert");
+        assert!(
+            !state.should_report(&again),
+            "the same attempt must not re-alert"
+        );
         assert!(state.should_report(&second), "a new failure must alert");
         assert_eq!(state.reported(), Some("b"));
     }
@@ -651,17 +678,23 @@ mod tests {
     async fn the_log_sink_always_accepts() {
         let note = digest_note(&health());
         assert!(LogSink.deliver(&note).await.is_ok());
-        assert!(LogSink
-            .deliver(&failure_note(&health(), &attempt("a", "error", "x")))
-            .await
-            .is_ok());
+        assert!(
+            LogSink
+                .deliver(&failure_note(&health(), &attempt("a", "error", "x")))
+                .await
+                .is_ok()
+        );
     }
 
     #[test]
     fn a_webhook_sink_refuses_a_cleartext_non_loopback_url() {
         // A digest carries database names and backup state, so the flag must
         // not be able to put it on the wire in the clear.
-        for url in ["http://example.com/hook", "ftp://127.0.0.1/hook", "not a url"] {
+        for url in [
+            "http://example.com/hook",
+            "ftp://127.0.0.1/hook",
+            "not a url",
+        ] {
             assert!(
                 WebhookSink::new(url).is_err(),
                 "{url} must not be accepted as a notification sink"

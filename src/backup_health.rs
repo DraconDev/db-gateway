@@ -106,7 +106,10 @@ pub struct BackupHealth {
 impl BackupHealth {
     /// Databases an operator must act on: everything that is not `fresh`.
     pub fn attention(&self) -> Vec<&DatabaseHealth> {
-        self.databases.iter().filter(|db| db.is_attention()).collect()
+        self.databases
+            .iter()
+            .filter(|db| db.is_attention())
+            .collect()
     }
 
     /// Count per state, for a digest header that stays readable when the
@@ -188,11 +191,7 @@ pub fn snapshot(store: &Store) -> Result<BackupHealth, crate::error::Error> {
                     (Some(_), Some(_)) => "fresh",
                     _ => "unknown",
                 };
-                (
-                    state,
-                    Some(set.timestamp.clone()),
-                    Some(age),
-                )
+                (state, Some(set.timestamp.clone()), Some(age))
             }
         };
         databases.push(DatabaseHealth {
@@ -325,7 +324,10 @@ mod tests {
         write_set(&root, "20240101T000000Z", &["alpha"], Some(boundary));
         let health = snapshot(&store).unwrap();
         assert_eq!(health.databases[0].state, "fresh");
-        assert_eq!(health.databases[0].newest_set.as_deref(), Some("20240101T000000Z"));
+        assert_eq!(
+            health.databases[0].newest_set.as_deref(),
+            Some("20240101T000000Z")
+        );
         assert!(health.attention().is_empty());
     }
 
@@ -407,7 +409,11 @@ mod tests {
         )
         .unwrap();
         let attempts = read_attempts(root);
-        assert_eq!(attempts.len(), 2, "the torn line must be skipped, not fatal");
+        assert_eq!(
+            attempts.len(),
+            2,
+            "the torn line must be skipped, not fatal"
+        );
         assert!(!attempts[0].failed());
         assert!(attempts[1].failed());
         assert_eq!(attempts[1].step, "manifest");
