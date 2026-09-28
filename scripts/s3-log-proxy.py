@@ -90,7 +90,7 @@ EXPECTED_KEY: str = ""
 EXPECTED_SECRET: str = ""
 FAULT_PATH: str | None = None
 REGION: str = "us-east-1"
-COUNTERS = {"requests": 0, "rejected": 0, "faulted": 0}
+COUNTERS = {"requests": 0, "rejected": 0, "faulted": 0, "emulated": 0}
 
 
 def _read_faults() -> list[dict[str, str]]:
@@ -214,6 +214,131 @@ def resign_for_upstream(
         f"AWS4-HMAC-SHA256 Credential={EXPECTED_KEY}/{scope}, "
         f"SignedHeaders={';'.join(signed_headers)}, Signature={signature}"
     )
+
+
+LIST_PARAMS = {
+    "list-type",
+    "prefix",
+    "delimiter",
+    "continuation-token",
+    "start-after",
+    "marker",
+    "max-keys",
+}
+
+
+def _query_params(query: str) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for part in query.split("&"):
+        if not part:
+            continue
+        name, sep, value = part.partition("=")
+        out[urllib.parse.unquote(name)] = urllib.parse.unquote(value) if sep else ""
+    return out
+
+
+def _needs_empty_listing_emulation(method: str, query: str, payload: bytes, bucket: str) -> bool:
+    """True when the upstream's 404 is a store bug and S3 would answer 200.
+
+    gofakes3 answers `404 NoSuchBucket` to a DELIMITER listing of a prefix that
+    does not exist, while answering 200-with-no-keys to the same listing without
+    a delimiter, and while answering 200 for a missing prefix generally. Real S3
+    answers 200 with an empty result in all of those cases.
+
+    It matters because litestream 0.5.17's restore lists
+    `<prefix>/generations/` with a delimiter to establish v0.3.x time bounds.
+    Against the rehearsal store that 404 is fatal and the restore aborts with
+    "get v0.3.x time bounds ... NoSuchBucket" -- so a rehearsal would report that
+    restore-from-S3 does not work when it is the store lying, not litestream.
+
+    The translation is deliberately narrow: only a 404, only for a GET that is
+    itself a listing, only when the error code is NoSuchBucket, and only after
+    the upstream confirms the bucket DOES exist. A real NoSuchBucket is passed
+    through untouched, because that is a genuine error the packet must see.
+    """
+    if method != "GET":
+        return False
+    params = _query_params(query)
+    if not (params.keys() & LIST_PARAMS):
+        return False
+    text = payload.decode("utf-8", "replace")
+    if "<Code>NoSuchBucket</Code>" not in text:
+        return False
+    if not _bucket_exists(bucket):
+        return False
+    return True
+
+
+def _bucket_exists(bucket: str) -> bool:
+    """Ask the upstream whether the bucket itself is there, not the prefix."""
+    try:
+        conn = _upstream_conn()
+        try:
+            import datetime as _dt
+
+            now = _dt.datetime.now(_dt.timezone.utc)
+            amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+            date_stamp = now.strftime("%Y%m%d")
+            path = f"/{bucket}"
+            signed = "host;x-amz-content-sha256;x-amz-date"
+            canonical_headers = (
+                f"host:{UPSTREAM[0]}:{UPSTREAM[1]}\n"
+                f"x-amz-content-sha256:UNSIGNED-PAYLOAD\n"
+                f"x-amz-date:{amz_date}\n"
+            )
+            payload_hash = "UNSIGNED-PAYLOAD"
+            canonical_request = "\n".join(
+                ["GET", canonical_uri(path), "", canonical_headers, signed, payload_hash]
+            )
+            scope = f"{date_stamp}/{EXPECTED_REGION}/s3/aws4_request"
+            sts = "\n".join(
+                [
+                    "AWS4-HMAC-SHA256",
+                    amz_date,
+                    scope,
+                    hashlib.sha256(canonical_request.encode()).hexdigest(),
+                ]
+            )
+            sig = hmac.new(
+                signing_key(EXPECTED_SECRET, date_stamp, EXPECTED_REGION, "s3"),
+                sts.encode(),
+                hashlib.sha256,
+            ).hexdigest()
+            conn.request(
+                "GET",
+                path,
+                headers={
+                    "host": f"{UPSTREAM[0]}:{UPSTREAM[1]}",
+                    "x-amz-date": amz_date,
+                    "x-amz-content-sha256": payload_hash,
+                    "authorization": (
+                        f"AWS4-HMAC-SHA256 Credential={EXPECTED_KEY}/{scope}, "
+                        f"SignedHeaders={signed}, Signature={sig}"
+                    ),
+                },
+            )
+            return conn.getresponse().status == 200
+        finally:
+            conn.close()
+    except (OSError, http.client.HTTPException):
+        return False
+
+
+def _empty_listing(bucket: str, query: str) -> bytes:
+    params = _query_params(query)
+    parts = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">',
+        f"<Name>{bucket}</Name>",
+        f"<Prefix>{params.get('prefix', '')}</Prefix>",
+        "<KeyCount>0</KeyCount>",
+        "<MaxKeys>1000</MaxKeys>",
+    ]
+    if params.get("delimiter"):
+        parts.append(f"<Delimiter>{params['delimiter']}</Delimiter>")
+    parts.append("<IsTruncated>false</IsTruncated>")
+    parts.append("</ListBucketResult>")
+    return "".join(parts).encode("utf-8")
 
 
 def verify_signature(
@@ -473,6 +598,13 @@ class Handler(BaseHTTPRequestHandler):
             payload = resp.read()
             status = resp.status
             out_headers = {k: v for k, v in resp.getheaders() if k.lower() not in ("content-length", "transfer-encoding")}
+            if status == 404 and _needs_empty_listing_emulation(self.command, query, payload, bucket):
+                payload = _empty_listing(bucket, query)
+                status = 200
+                out_headers = {"Content-Type": "application/xml"}
+                note = "emulated:missing-prefix-listing"
+                with LOCK:
+                    COUNTERS["emulated"] += 1
             self._send(status, payload, out_headers)
         except (OSError, http.client.HTTPException) as exc:
             payload = _s3_error(502, "BadGateway", f"upstream {UPSTREAM[0]}:{UPSTREAM[1]} failed: {exc}")
