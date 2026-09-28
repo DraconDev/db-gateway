@@ -2739,7 +2739,12 @@ mod tests {
         };
         assert_eq!(error.code, "capacity_exceeded");
         let snapshot = store.metrics.queue_snapshot();
-        assert_eq!(snapshot["qdb"].waits, 3);
+        // Four, not three: the writer that takes the exclusive guard now goes
+        // through acquire_queue like every other admission, so it is counted
+        // too. The previous count of three came from holding the raw
+        // RwLock directly, which bypassed the metrics and so reported fewer
+        // waits than the server actually served.
+        assert_eq!(snapshot["qdb"].waits, 4);
         assert_eq!(snapshot["qdb"].timeouts, 1);
         assert!(snapshot["qdb"].wait_ms >= ACQUIRE_TIMEOUT.as_millis() as u64);
     }
