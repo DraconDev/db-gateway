@@ -1009,10 +1009,19 @@ EOF
 }
 # The refusal has to be a NAMED refusal: a nonzero exit with no reason in the
 # log is indistinguishable from a crash, and the operational consequence above
-# rests on the restore failing loudly rather than quietly.
+# rests on the restore failing loudly rather than quietly. The reason is taken
+# as the line the tool itself marked Error -- matching on a fixed vocabulary of
+# words ("checksum", "corrupt", ...) would silently print nothing for any
+# wording it had not been told about, which is how this line first came out
+# blank on a run that had in fact refused with "no matching backup files
+# available".
 g5_damage_reason() { # <case> -- the restore's own words about why it stopped
-    grep -ohE '(checksum|not valid|invalid|failed|error|no such file|unexpected|corrupt)[^"]{0,90}' \
-        "$G5_ROOT/dmg-$1.log" 2>/dev/null | head -2 | sed 's/^/      /' || true
+    local log="$G5_ROOT/dmg-$1.log" line=""
+    [ -f "$log" ] || return 0
+    line="$(grep -m1 -E '^[[:space:]]*(Error|error|FATAL|fatal)' "$log" 2>/dev/null || true)"
+    [ -n "$line" ] || line="$(grep -v '^[[:space:]]*$' "$log" 2>/dev/null | tail -1 || true)"
+    [ -n "$line" ] && printf '      %s\n' "$(printf '%s' "$line" | cut -c1-160)"
+    return 0
 }
 # Keep a pristine copy of what the bucket returned, because every damage mode
 # starts from it and re-downloading per case would double the request count
