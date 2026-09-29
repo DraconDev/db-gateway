@@ -142,9 +142,10 @@ nothing else.**
 `scripts/rehearse-sandbox-packet.sh` runs the whole packet against a local
 disposable S3-compatible endpoint (gofakes3 in a SigV4-validating proxy), then
 checks six post-conditions the packet cannot check about itself: no temp tree
-left, no surviving proxy/store process, no end-point state directory, the
-packet declares `mode: REHEARSAL`, and every gate that needs a bucket
-actually ran. The endpoint is named in each gate's output
+left, no stray `dg-sandbox*` tree newer than the packet, no surviving
+proxy/store process, no end-point state directory, the packet declares
+`mode: REHEARSAL`, and every gate that needs a bucket actually ran. The
+endpoint is named in each gate's output
 (`service behind it:` line, below), so a rehearsal can never be read as OVH
 evidence by accident.
 
