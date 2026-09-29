@@ -53,6 +53,7 @@ EXIT CODES
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import hashlib
 import hmac
@@ -654,6 +655,131 @@ CAPABILITY_PROBES: dict[str, tuple[str, list[tuple[str, str]]]] = {
     "get-bucket-location": ("GET", [("location", "")]),
     "get-tagging": ("GET", [("tagging", "")]),
 }
+
+
+def op_sse_canary(c: S3Client, key_prefix: str) -> dict[str, Any]:
+    """Prove whether the service actually honours SSE-C, or only acknowledges it.
+
+    WHY THIS EXISTS. Gate 10 read `x-amz-server-side-encryption` off a HEAD and
+    called the stored data encrypted. That is the SERVICE'S CLAIM ABOUT ITSELF,
+    and it is not evidence: the rehearsal store answers a HEAD with the
+    `x-amz-server-side-encryption-customer-algorithm` the client sent, and a
+    direct check showed it storing the object body in PLAINTEXT while echoing
+    that header. A gate that reads the echo and passes has proved nothing, and
+    it would have passed on OVH too if OVH's behaviour were ever wrong.
+
+    The only client-side observation that separates the two is a READ-BACK
+    WITHOUT THE KEY:
+
+    * the GET is refused, naming the encryption -> the bytes at rest are
+      ciphertext. This is a proof, and it is what AWS and OVH do for SSE-C.
+    * the GET succeeds and returns the exact canary -> the service stored
+      plaintext and merely recorded the metadata. A FAIL, not a limitation of
+      the test.
+    * the GET is refused for an unrelated reason -> INDETERMINATE, and reported
+      as such rather than folded into success.
+
+    The same key is then used to read it back, because "the service enforces
+    encryption" and "an operator can still restore" are separate properties and
+    the second is the one a restore depends on.
+
+    Note the limit of what this can settle. It settles SSE-C. It says nothing
+    about SSE-S3/SSE-OMK, where the service decrypts transparently and a
+    round-trip succeeds whatever is stored at rest; for those modes the header
+    is the only client-visible evidence, and it remains a claim.
+    """
+    key_b64 = base64.b64encode(os.urandom(32)).decode()
+    canary = b"DG-SSE-CANARY-" + os.urandom(16).hex().encode() + b"-PLAINTEXT-MARKER"
+    key = f"{key_prefix.rstrip('/')}/{os.urandom(6).hex()}.canary"
+    sse_headers = {
+        "x-amz-server-side-encryption-customer-algorithm": "AES256",
+        "x-amz-server-side-encryption-customer-key": key_b64,
+        "x-amz-server-side-encryption-customer-key-md5": base64.b64encode(
+            hashlib.md5(base64.b64decode(key_b64)).digest()
+        ).decode(),
+    }
+    out: dict[str, Any] = {"key": key, "canary_bytes": len(canary)}
+
+    try:
+        put_status, _, _ = c.request(
+            "PUT", path=f"/{c.bucket}/{urllib.parse.quote(key)}", body=canary, headers=sse_headers
+        )
+        out["put_status"] = put_status
+    except S3Error as exc:
+        out.update(
+            {
+                "verdict": "indeterminate",
+                "reason": f"the service refused the SSE-C PUT ({exc.code}), so nothing can be said",
+            }
+        )
+        return out
+
+    # 1. read it back with NO key. This is the observation that decides.
+    try:
+        get_status, _, body = c.request("GET", path=f"/{c.bucket}/{urllib.parse.quote(key)}")
+        if canary in body:
+            out.update(
+                {
+                    "verdict": "NOT-ENCRYPTED",
+                    "reason": (
+                        "the object was read back WITHOUT the customer key and the exact "
+                        "plaintext canary came back: the service stored the body in the "
+                        "clear while echoing the SSE-C algorithm on HEAD"
+                    ),
+                    "readback_without_key_status": get_status,
+                    "canary_returned_in_clear": True,
+                }
+            )
+            return out
+        out.update(
+            {
+                "verdict": "indeterminate",
+                "reason": (
+                    f"the read without a key returned {get_status} and {len(body)} bytes that "
+                    "do not contain the canary, but the answer is not an encryption refusal, "
+                    "so it is not evidence of encryption"
+                ),
+                "readback_without_key_status": get_status,
+            }
+        )
+    except S3Error as exc:
+        code = (exc.code or "").lower()
+        message = (exc.message or "").lower()
+        if code in ("invalidargument", "accessdenied", "kmsaccessdenied", "invalidrequest",
+                    "invalidobjectstate") or "encrypt" in message:
+            out.update(
+                {
+                    "verdict": "ENFORCED",
+                    "reason": (
+                        "the read without the customer key was refused for an encryption "
+                        f"reason ({exc.code}), which is the proof that the stored bytes are "
+                        "ciphertext rather than the service merely recording the header"
+                    ),
+                    "readback_without_key_status": exc.status,
+                }
+            )
+        else:
+            out.update(
+                {
+                    "verdict": "indeterminate",
+                    "reason": f"the read without a key failed for an unrelated reason ({exc.code})",
+                }
+            )
+        return out
+
+    # 2. and read it back WITH the key: enforcement and restorability are
+    #    separate properties, and a restore depends on the second one.
+    try:
+        key_status, _, key_body = c.request(
+            "GET", path=f"/{c.bucket}/{urllib.parse.quote(key)}", headers=sse_headers
+        )
+        out["readback_with_key_status"] = key_status
+        out["canary_returned_with_key"] = canary in key_body
+    except S3Error as exc:
+        out["readback_with_key_status"] = exc.status
+        out["canary_returned_with_key"] = False
+        out["readback_with_key_error"] = f"{exc.code}: {exc.message}"
+    return out
 
 
 def op_probe_capabilities(c: S3Client) -> dict[str, Any]:
