@@ -1256,6 +1256,14 @@ run_constrained() {
 rss_of() { # $1 = pid
     awk '/^VmRSS:/ {print $2}' "/proc/$1/status" 2>/dev/null || echo 0
 }
+# The PROCESS's own high-water mark. A sampled maximum is a lower bound on peak
+# by construction -- it can only miss the spike it did not happen to be looking
+# at, and a restore that allocates 900 MiB for 40 ms is exactly the kind of
+# event a 0.4s sampler misses. VmHWM is recorded by the kernel, so this is the
+# real peak of the process that was actually measured.
+hwm_of() { # $1 = pid
+    awk '/^VmHWM:/ {print $2}' "/proc/$1/status" 2>/dev/null || echo 0
+}
 cpu_ticks_of() { awk '{print $14+$15}' "/proc/$1/stat" 2>/dev/null || echo 0; }
 
 # A database big enough that a restore moves real pages, which is the whole
@@ -1292,12 +1300,9 @@ G9_PID=$!
 sleep 6
 G9_REPL_PID_RSS="$(rss_of "$G9_PID")"
 G9_REPL_PID_CPU="$(cpu_ticks_of "$G9_PID")"
-G9_REPL_PEAK="(not sampled)"
-if [ -r "/sys/fs/cgroup$USER_CGROUP_PATH/memory.peak" ] 2>/dev/null; then
-    G9_REPL_PEAK="$(cat "/sys/fs/cgroup$USER_CGROUP_PATH/memory.peak" 2>/dev/null || echo unknown)"
-fi
-# Peak RSS of the process, sampled across the replication window: a single
-# sample after the fact would miss the restore-time spike that matters.
+# Peak RSS of the process, sampled across the replication window; the series is
+# kept as evidence of what the shape looked like over time, and VmHWM below is
+# the authoritative peak.
 G9_SAMPLES=""
 for _ in $(seq 1 30); do
     G9_SAMPLES="$G9_SAMPLES $(rss_of "$G9_PID")"
@@ -1306,21 +1311,58 @@ import sqlite3;c=sqlite3.connect('$G9_SRC')
 c.execute('INSERT INTO ledger(note, amount) VALUES (?, 1)', ('live',));c.commit()" 2>/dev/null || true
     sleep 0.4
 done
+G9_HWM="$(hwm_of "$G9_PID")"
+G9_HWM="${G9_HWM:-0}"
 G9_MAX_RSS="$(printf '%s\n' $G9_SAMPLES | tr ' ' '\n' | grep -E '^[0-9]+$' | sort -n | tail -1)"
 G9_MAX_RSS="${G9_MAX_RSS:-0}"
+# The sampled maximum can never exceed the kernel's high-water mark; taking the
+# larger of the two guards against a sample series that outlived the process.
+[ "$G9_HWM" -gt "$G9_MAX_RSS" ] && G9_MAX_RSS="$G9_HWM"
 G9_REPL_CPU_TICKS="$(( $(cpu_ticks_of "$G9_PID") - G9_REPL_PID_CPU ))"
+# Did the kernel kill it for exceeding the budget? A cgroup that hit MemoryMax
+# leaves an OOM record, and that is the difference between "ran comfortably
+# inside 1 GB" and "was rescued just in time", which a peak number alone hides.
+G9_OOM="no"
+if [ -r "/sys/fs/cgroup$USER_CGROUP_PATH/memory.events" ]; then
+    grep -qE '^oom_kill [1-9]' "/sys/fs/cgroup$USER_CGROUP_PATH/memory.events" 2>/dev/null && G9_OOM="yes (this cgroup)"
+fi
+grep -qiE 'out of memory|oom|Killed process|cannot allocate memory' "$G9_ROOT/replicate.log" 2>/dev/null && G9_OOM="yes (the process said so)"
 kill "$G9_PID" 2>/dev/null || true; wait "$G9_PID" 2>/dev/null || true
 
-# The restore, which is the memory event gate 9 is really about.
+# The restore, which is the memory event gate 9 is really about. It is run
+# through a Python wrapper so that the child's PEAK RSS can be read from
+# getrusage(RUSAGE_CHILDREN) after it exits: a short-lived process's VmHWM is
+# gone by the time anyone could sample it, and the restore is exactly the
+# short-lived process whose peak matters most.
 G9_OUT="$G9_ROOT/restored.sqlite"
 rm -f "$G9_OUT"
 G9_RESTORE_START=$(date +%s%N)
-if [ "$G9_CGROUP_RAN" = "1" ]; then
-    systemd-run --user --scope --quiet -p "MemoryMax=$G9_LIMIT" -p "MemoryAccounting=yes" \
-        "$LITESTREAM" restore -config "$G9_CFG" -o "$G9_OUT" "$G9_SRC" > "$G9_ROOT/restore.log" 2>&1 || true
-else
-    timeout 600 "$LITESTREAM" restore -config "$G9_CFG" -o "$G9_OUT" "$G9_SRC" > "$G9_ROOT/restore.log" 2>&1 || true
-fi
+# The constrained prefix travels to the wrapper as JSON, because a cgroup path
+# or a --unit name is exactly the kind of value that gets word-split and turned
+# into two arguments. An empty prefix (unconstrained run) is a valid prefix:
+# the wrapper then runs litestream directly.
+G9_PREFIX_JSON="$(printf '%s\n' "${G9_PREFIX[@]-}" | python3 -c 'import json,sys; print(json.dumps([l for l in sys.stdin.read().splitlines() if l.strip()]))')"
+G9_RESTORE_RSS="$(G9_LITESTREAM="$LITESTREAM" G9_ARGV="$G9_PREFIX_JSON" \
+    python3 - "$G9_SRC" "$G9_OUT" "$G9_CFG" <<'PY'
+import json, os, resource, subprocess, sys
+
+src, out, cfg = sys.argv[1], sys.argv[2], sys.argv[3]
+lit = os.environ["G9_LITESTREAM"]
+argv = json.loads(os.environ["G9_ARGV"]) + [lit, "restore", "-config", cfg, "-o", out, src]
+log = os.path.join(os.path.dirname(out), "restore.log")
+try:
+    p = subprocess.run(argv, capture_output=True, text=True, timeout=600)
+    with open(log, "w") as fh:
+        fh.write(p.stdout + p.stderr)
+except (subprocess.TimeoutExpired, OSError) as exc:
+    with open(log, "w") as fh:
+        fh.write(f"restore did not complete: {exc}\n")
+# ru_maxrss is the peak RSS in KiB of every child waited for so far. For a
+# short-lived restore that number is gone the instant the process exits, which
+# is why it is read here rather than sampled from /proc afterwards.
+print(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)
+PY
+)"
 G9_RESTORE_MS=$(( ( $(date +%s%N) - G9_RESTORE_START ) / 1000000 ))
 G9_RESTORE_ROWS="$(python3 - "$G9_OUT" <<'PY'
 import sqlite3, sys
@@ -1331,48 +1373,65 @@ except Exception:
 PY
 )"
 
-G9_LIMIT_MIB=$(printf '%s' "$G9_LIMIT" | sed 's/G$//;s/M$//')
-G9_LIMIT_BYTES=$G9_LIMIT_MIB
-case "${G9_LIMIT: -1}" in
-    G) G9_LIMIT_BYTES=$(( G9_LIMIT_MIB * 1024 * 1024 ));;
-    M) G9_LIMIT_BYTES=$(( G9_LIMIT_MIB * 1024 ));;
-esac
-G9_REPL_PCT=$(( G9_MAX_RSS * 100 / (G9_LIMIT_BYTES / 1024) ))
-G9_STATUS="$([ "$G9_CGROUP_RAN" = 1 ] && echo "constrained to $G9_LIMIT by cgroup" || echo "UNCONSTRAINED -- no memory limit could be imposed")"
+G9_REPL_PCT=$(( G9_MAX_RSS * 100 / (G9_LIMIT_KIB > 0 ? G9_LIMIT_KIB : 1) ))
+G9_REST_PCT=$(( ${G9_RESTORE_RSS:-0} * 100 / (G9_LIMIT_KIB > 0 ? G9_LIMIT_KIB : 1) ))
+G9_STATUS="$G9_MECH_DESC"
 
 {
     echo "database under test: $G9_DBSIZE bytes, 120000 rows before the live writes"
     echo "memory budget:       $G9_STATUS"
+    if [ "$G9_CGROUP_RAN" != "1" ]; then
+        echo "  systemd scope: $G9_PROBE_A_ERR"
+        echo "  direct cgroup: $G9_PROBE_B_ERR"
+    fi
     echo
-    printf 'steady replication  peak RSS %s KiB (%s%% of the budget)\n' "$G9_MAX_RSS" "$G9_REPL_PCT"
+    printf 'steady replication  peak RSS %s KiB (%s%% of budget, kernel high-water mark)\n' "$G9_MAX_RSS" "$G9_REPL_PCT"
     printf 'steady replication  CPU  %s ticks across the sampling window\n' "$G9_REPL_CPU_TICKS"
-    printf 'restore             %s ms, %s rows restored\n' "$G9_RESTORE_MS" "$G9_RESTORE_ROWS"
+    printf 'restore             %s ms, %s rows restored, peak child RSS %s KiB (%s%% of budget)\n' \
+        "$G9_RESTORE_MS" "$G9_RESTORE_ROWS" "${G9_RESTORE_RSS:-0}" "$G9_REST_PCT"
+    echo "killed for exceeding the budget: $G9_OOM"
     echo
-    echo "RSS samples (KiB): $G9_SAMPLES"
+    echo "RSS samples (KiB, every 0.4s during replication): $G9_SAMPLES"
     if [ "$G9_CGROUP_RAN" != "1" ]; then
         echo
-        echo "THESE NUMBERS ARE NOT A 1 GB-SHAPED RESULT. The host has far more"
-        echo "memory than the sandbox shape, and a limit could not be imposed here,"
-        echo "so what was measured is an unconstrained steady state. A host that"
-        echo "cannot set MemoryMax cannot answer gate 9; run this on the 1 GB VPS."
+        echo "THESE NUMBERS ARE NOT A 1 GB-SHAPED RESULT. No memory limit could be"
+        echo "imposed here -- the two attempts and their exact reasons are above -- so"
+        echo "what was measured is an unconstrained steady state on a host that simply"
+        echo "has memory to spare. A host that cannot impose a limit cannot answer"
+        echo "gate 9; run this unchanged on the 1 GB VPS, where the same code path"
+        echo "will constrain itself and the numbers will mean what §6 asks for."
     fi
 } >> "$OUT"
 
-if [ "$G9_RESTORE_ROWS" -ge 120000 ] 2>/dev/null; then
+if [ "${G9_RESTORE_ROWS:-0}" -ge 120000 ] 2>/dev/null; then
     if [ "$G9_CGROUP_RAN" = "1" ]; then
-        record 9 PASS "gateway-sized database replicated and restored on a $G9_LIMIT-constrained run: peak RSS $((G9_MAX_RSS/1024)) MiB ($G9_REPL_PCT% of budget), restore $G9_RESTORE_MS ms" \
-            "database: $G9_DBSIZE bytes, 120000 rows" \
-            "restore returned $G9_RESTORE_ROWS rows, compared by count not exit status"
+        if [ "$G9_OOM" != "no" ]; then
+            record 9 FAIL "the run was constrained to $G9_LIMIT and the kernel killed it for exceeding the budget: replication peak $((G9_MAX_RSS/1024)) MiB, restore peak $(( ${G9_RESTORE_RSS:-0} / 1024 )) MiB" \
+                "database: $G9_DBSIZE bytes, 120000 rows; restore returned $G9_RESTORE_ROWS rows" \
+                "constraint: $G9_MECH_DESC" \
+                "killed for exceeding the budget: $G9_OOM" \
+                "replicate log tail:" "$(tail -4 "$G9_ROOT/replicate.log" 2>/dev/null | sed 's/^/  /')" \
+                "restore log tail:" "$(tail -4 "$G9_ROOT/restore.log" 2>/dev/null | sed 's/^/  /')"
+        else
+            record 9 PASS "gateway-sized database replicated and restored inside a kernel-enforced $G9_LIMIT budget: replication peak $((G9_MAX_RSS/1024)) MiB ($G9_REPL_PCT% of budget), restore peak $(( ${G9_RESTORE_RSS:-0} / 1024 )) MiB ($G9_REST_PCT% of budget) in $G9_RESTORE_MS ms, no OOM kill" \
+                "constraint: $G9_MECH_DESC" \
+                "database: $G9_DBSIZE bytes, 120000 rows; restore returned $G9_RESTORE_ROWS rows, compared by count and not by exit status" \
+                "peaks are the kernel's VmHWM / getrusage high-water marks, not sampled maxima" \
+                "headroom against the sidecar budget in docs/resource-budget.md is the owner's decision 2, not this gate's"
+        fi
     else
         record 9 BLOCKED "restore verified, but the 1 GB shape could not be imposed on this host" \
-            "restore returned $G9_RESTORE_ROWS rows from a $G9_DBSIZE byte database" \
-            "steady replication peak RSS $((G9_MAX_RSS/1024)) MiB, unconstrained" \
-            "NOT §6 GATE 9: an unconstrained number is not a 1 GB-shaped number."
+            "restore returned $G9_RESTORE_ROWS rows from a $G9_DBSIZE byte database in $G9_RESTORE_MS ms" \
+            "steady replication peak RSS $((G9_MAX_RSS/1024)) MiB and restore peak $(( ${G9_RESTORE_RSS:-0} / 1024 )) MiB, both UNCONSTRAINED" \
+            "systemd scope refused: $G9_PROBE_A_ERR" \
+            "direct cgroup refused: $G9_PROBE_B_ERR" \
+            "NOT §6 GATE 9: an unconstrained number is not a 1 GB-shaped number, and neither peak above is offered as one"
         echo "   -> run unchanged on the 1 GB VPS for the headroom figure" >&2
     fi
 else
     record 9 FAIL "the restore did not return the source rows" \
         "expected at least 120000 rows, got ${G9_RESTORE_ROWS:-0}" \
+        "constraint: $G9_MECH_DESC" \
         "restore log tail:" "$(tail -5 "$G9_ROOT/restore.log" 2>/dev/null | sed 's/^/  /')"
 fi
 
