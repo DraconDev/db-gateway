@@ -1337,12 +1337,13 @@ kill "$G9_PID" 2>/dev/null || true; wait "$G9_PID" 2>/dev/null || true
 G9_OUT="$G9_ROOT/restored.sqlite"
 rm -f "$G9_OUT"
 G9_RESTORE_START=$(date +%s%N)
+G9_RESTORE_RAW=""
 # The constrained prefix travels to the wrapper as JSON, because a cgroup path
 # or a --unit name is exactly the kind of value that gets word-split and turned
 # into two arguments. An empty prefix (unconstrained run) is a valid prefix:
 # the wrapper then runs litestream directly.
 G9_PREFIX_JSON="$(printf '%s\n' "${G9_PREFIX[@]-}" | python3 -c 'import json,sys; print(json.dumps([l for l in sys.stdin.read().splitlines() if l.strip()]))')"
-G9_RESTORE_RSS="$(G9_LITESTREAM="$LITESTREAM" G9_ARGV="$G9_PREFIX_JSON" \
+G9_RESTORE_RAW="$(G9_LITESTREAM="$LITESTREAM" G9_ARGV="$G9_PREFIX_JSON" \
     python3 - "$G9_SRC" "$G9_OUT" "$G9_CFG" <<'PY'
 import json, os, resource, subprocess, sys
 
@@ -1352,17 +1353,23 @@ argv = json.loads(os.environ["G9_ARGV"]) + [lit, "restore", "-config", cfg, "-o"
 log = os.path.join(os.path.dirname(out), "restore.log")
 try:
     p = subprocess.run(argv, capture_output=True, text=True, timeout=600)
+    rc = p.returncode
     with open(log, "w") as fh:
         fh.write(p.stdout + p.stderr)
 except (subprocess.TimeoutExpired, OSError) as exc:
+    rc = -1
     with open(log, "w") as fh:
         fh.write(f"restore did not complete: {exc}\n")
 # ru_maxrss is the peak RSS in KiB of every child waited for so far. For a
 # short-lived restore that number is gone the instant the process exits, which
-# is why it is read here rather than sampled from /proc afterwards.
-print(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)
+# is why it is read here rather than sampled from /proc afterwards. The exit
+# code travels with it: a cgroup that enforces its limit reports the death as a
+# signal, and the gate needs that to tell "it fit" from "it was killed".
+print(f"{resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss} {rc}")
 PY
 )"
+G9_RESTORE_RSS="$(printf '%s' "$G9_RESTORE_RAW" | cut -d' ' -f1)"
+G9_RESTORE_RC="$(printf '%s' "$G9_RESTORE_RAW" | cut -s -d' ' -f2)"
 G9_RESTORE_MS=$(( ( $(date +%s%N) - G9_RESTORE_START ) / 1000000 ))
 G9_RESTORE_ROWS="$(python3 - "$G9_OUT" <<'PY'
 import sqlite3, sys
