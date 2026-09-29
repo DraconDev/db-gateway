@@ -154,17 +154,21 @@ evidence by accident.
 | 2 WAL contention | rehearsal PASS | replication advanced under 60 live gateway writes with 0 busy/deadline failures; **no** p50/p99 comparison and no 1 GB-shaped sandbox yet |
 | 3 explicit OVH endpoint | rehearsal PASS | explicit `endpoint`/`region` are honoured and the minimal working replica URL is `s3://<bucket>/<prefix>?endpoint=<scheme://host>&region=<r>`; the same URL FAILS without the scheme and without the rehearsal CA, so the pass is neither a transport artifact nor a disabled-verification artifact |
 | 4 operation coverage | rehearsal PASS | the operation matrix below is MEASURED, not assumed, and both databases restored with exact row counts |
-| 5 restore drill | rehearsal PASS | restored to a separate path, 260 rows matching the source exactly; **no** gateway import validation, mid-history point, or corrupt-artifact case yet |
-| 6 retention drill | rehearsal PASS | candidate 7/30-day lifecycle policy stored and read back: 27 rules |
+| 5 restore drill | rehearsal PASS | latest restore is exact (70/2485/70), and BOTH a mid-history `-txid` and a point-in-time `-timestamp` name the same committed position (30/465/30) and return the same bytes; four corrupt-artifact cases over the bucket's own objects, all four REFUSED loudly (nonzero exit, no output file, a named reason), none produced a database that was not the source. Gateway import validation of the restored file is gate 11. |
+| 6 retention drill | **BLOCKED** (rehearsal endpoint) | the rehearsal store does not implement `?lifecycle`: `PutBucketLifecycleConfiguration` answers **409** and `GetLifecycleConfiguration` answers **200 with a `ListBucketResult`**. The gate reports the capability as unimplemented rather than counting the children of a document that is not a lifecycle configuration. The arithmetic half still measured: 15 versions enumerated, 15 kept as-is, 0 kept if every age were 31 days older, and a restore after the retention step returns the exact source. **OVH's bucket must answer the storage half.** |
 | 7 registration/reload | rehearsal PASS | a database added at runtime was replicated with no restart, via `litestream register` over the control socket |
 | 8 failure visibility | rehearsal PASS | each of the three injected failures (revoked credentials, blocked egress, near-quota) kept the gateway serving writes, kept the faulted write out of the bucket, and surfaced on at least one operator-visible surface; the healthy control phase raised nothing false; after the fault cleared the missing writes were in the bucket again. **But the daemon log is not a complete surface**: see the findings below. |
-| 9 resource headroom | **rehearsal PASS** | kernel-enforced 1 GiB scope (`MemoryMax=1G`): replication peak 42 MiB, restore peak 35 MiB, restore time ~3 s, no OOM kill. Headroom against the sidecar budget in `docs/resource-budget.md` is the owner's decision 2 input, not this gate's. |
-| 10 encryption | BLOCKED | decision 3 cannot be settled without the bucket; see the encryption finding below |
-| 11 registry coverage | BLOCKED | needs the real bucket + gateway combination |
+| 9 resource headroom | **rehearsal PASS** | kernel-enforced 1 GiB scope: replication peak 44 MiB (4% of budget), restore peak 35 MiB (3% of budget) in 3211 ms, no OOM kill. Headroom against the sidecar budget in `docs/resource-budget.md` is the owner's decision 2 input, not this gate's. |
+| 10 encryption | BLOCKED | decision 3 cannot be settled without the bucket; see the encryption finding below. The rehearsal endpoint reports no server-side encryption on any object, so the stored-data half cannot be answered there. The other half -- restore with no ambient credential -- measured clean and returned all 100 rows. |
+| 11 registry coverage | rehearsal PASS | the registry and the data file were both restored out of the bucket into an empty directory, and a scoped key minted BEFORE the loss authenticated against the recovered registry, read the exact row count, and was still refused for a database it was never scoped to. The `metadata.sqlite` round-trip and scoped-key resolution both hold; only the OVH service's own behaviour is unanswered. |
 | 12 cleanup | rehearsal PASS | every test object and version deleted through both `?versions` and `?list-type=2`, the bucket no longer answers. **After a durable fix**: the rehearsal store's original `-backend fs` left empty directories on the disk for keys that contained a `/`, which made `DeleteBucket` answer `BucketNotEmpty` with zero objects listed -- not S3's emptiness rule. The stand-in now runs `-backend memory`, which has no directories to confuse the answer, and the bucket is genuinely gone afterwards. |
 
-Post-conditions of the rehearsal run: all five hold; nothing left on disk,
-nothing running.
+Post-conditions of the rehearsal run: all six hold; nothing left on disk,
+nothing running. The packet for this run is
+`docs/sandbox-packet-2026-09-29-rehearsal.log` (910 endpoint requests folded
+in at the end of the full packet, of which the per-record JSONL is elided from
+the committed copy for size; `scripts/rehearse-sandbox-packet.sh` regenerates
+it).
 
 ### What the rehearsal found, measured on 0.5.17
 
@@ -192,6 +196,35 @@ one would otherwise have been discovered by a gate recording a false PASS.
    (encryption) therefore cannot be settled by writing a key into the config
    and observing that Litestream starts; it must be settled at the bucket or by
    a mechanism this packet verifies end to end.
+5. **The first row of `litestream ltx` is the base snapshot, and restoring it
+   is a correct restore of an EMPTY database.** Its `max_txid` is the very
+   start of history, so `-txid` against it succeeds with exit 0 and 0 rows.
+   The packet read that row as the "mid-history point" and reported a broken
+   drill for a replica where `-txid 0000000000000002` restored the full first
+   batch. A mid-history drill that takes its selector from the newest artifact
+   is not a mid-history drill; it is a restore of the beginning, wearing a
+   mid-history label. The packet now takes the second segment and requires the
+   `-txid` and `-timestamp` restores of that one position to agree byte for
+   byte, since they are the same point named two ways.
+6. **A `200` from `GetBucketLifecycleConfiguration` is not a lifecycle
+   configuration.** The rehearsal store answers `GET ?lifecycle` with a plain
+   object listing, so a parser that walked the response's children reported
+   "30 rules" -- while the `PUT` that was supposed to have stored the policy
+   had failed with **409**. The count was a bucket listing, and the packet
+   published it as a stored, read-back policy. Rules are now compared to the
+   rules sent (id, status, and both day counts), and a document whose root
+   element is not `<LifecycleConfiguration>` is reported as the capability
+   being unimplemented, never as zero rules.
+7. **A restore is all-or-nothing: damage to a REDUNDANT artifact still fails
+   the restore.** With every artifact but the newest byte-flipped, the newest
+   artifact was intact and sufficient on its own, and `litestream restore`
+   still refused -- nonzero exit, no output file, `Error: no matching backup
+   files available`. So corruption anywhere in a replica takes a restore with
+   it, and a partial replica is not a partial restore. The practical
+   consequence: keep a second copy rather than trusting redundancy inside one,
+   and never read a restore's exit status as proof of a good copy -- gate 5
+   compares `(rows, sum, distinct)` of the restored file, because a 200 and a
+   file on disk is exactly what a silently-wrong restore looks like.
 
 ### What the rehearsal run FIXED before it PASSED gates 8 and 12
 
@@ -227,26 +260,37 @@ would have been wrong.
 
 ### Operation matrix litestream 0.5.17 + this packet actually issue
 
-Measured on the rehearsal run, in counts of requests the bucket's proxy saw:
+Measured on the 2026-09-29 rehearsal run, in counts of requests the bucket's
+proxy saw (910 requests in total; the per-record log is folded into the full
+packet and elided from the committed copy):
 
-| method | query-prefix | count | purpose |
-| --- | --- | --- | --- |
-| `GET` | `list-type=2` | 425 | enumerate objects; paginated with `prefix` and `continuation-token` |
-| `GET` | `x-id=GetObject` | 35 | download LTX; `Range: bytes=...` for resumable reads |
-| `GET` | `versions` | 4 | enumerate versions (target must implement; the rehearsal store now does, the original `-backend fs` did not) |
-| `GET` | `delimiter=...` | 7 | list with delimiter for prefix discovery |
-| `GET` | `lifecycle` | 1 | gate 6 reads the stored lifecycle policy back |
-| `HEAD` | `/<bucket>` | 6 | bucket existence probes (including gate 12's independent re-check) |
-| `PUT` | `x-id=PutObject` | 48 | upload LTX; sets `x-amz-meta-litestream-timestamp` |
-| `PUT` | `lifecycle` | 1 | gate 6 stores the candidate 7/30-day policy |
-| `PUT` | `/<bucket>` | 2 | bucket create (idempotent; one is the rehearsal's first-create, the second is OVH-shaped) |
-| `DELETE` | `versionId` | 48 | gate 12 deletes by key+versionId (noncurrent versions + delete markers) |
-| `DELETE` | `/<bucket>` | 1 | gate 12 deletes the bucket |
+| method | query-prefix | count | purpose | issued by |
+| --- | --- | --- | --- | --- |
+| `GET` | `list-type=2` | 696 | enumerate objects; paginated with `prefix` and `continuation-token` | litestream |
+| `GET` | `x-id=GetObject` | 51 | download LTX; `Range: bytes=...` for resumable reads | litestream |
+| `PUT` | `x-id=PutObject` | 66 | upload LTX; sets `x-amz-meta-litestream-timestamp` | litestream (3 of these carry an SSE-C header, from gate 10's own probe -- litestream sent none) |
+| `GET` | `versions` | 4 | enumerate versions for the retention arithmetic and the residue check | packet |
+| `GET` | `lifecycle` | 1 | gate 6 reads the stored lifecycle policy back | packet |
+| `PUT` | `lifecycle` | 1 | gate 6 stores the candidate 7/30-day policy | packet |
+| `HEAD` | object key | 16 | gate 10's SSE check and gate 5's artifact inspection | packet |
+| `GET` | object key, no `x-id` | 5 | gate 5 downloads the bucket's own artifacts to damage them | packet |
+| `HEAD` | `/<bucket>` | 1 | bucket existence probe | packet |
+| `PUT` | `/<bucket>` | 2 | bucket create (idempotent: one first-create, one OVH-shaped re-create) | packet |
+| `DELETE` | `versionId` | 66 | gate 12 deletes by key+versionId (noncurrent versions + delete markers) | packet |
+| `DELETE` | `/<bucket>` | 1 | gate 12 deletes the bucket | packet |
 
-Three non-2xx responses in 578 requests: one `HEAD 404` (gate 12's "does the
-bucket still answer" probe, which is the answer the gate is for) and two
-`409` (idempotent re-create of the bucket and a put-lifecycle on a bucket
-that already had one). None is an operation the packet should not have made.
+Three non-2xx responses in 910 requests, and all three are named: one `HEAD 404`
+(gate 12's "does the bucket still answer" probe, which is the answer the gate
+is for), one `409` from the idempotent re-create, and one `409` from
+`put-lifecycle` on the store that does not implement it. None is an operation
+the packet should not have made.
+
+**The litestream-only half is what a credential policy has to allow**: `GET`
+and `PUT` object, plus `GET` bucket (the 696 `list-type=2` calls), scoped to the
+per-database prefix. Everything else in that table is the packet driving the
+bucket, and `CreateBucket`/`DeleteBucket`/`PutLifecycleConfiguration` are
+optional -- they exist so the packet can manage a disposable test bucket, and
+none of them is needed on a steady-state retention run.
 
 This is the input to a least-privilege IAM policy for the OVH test bucket.
 Scoping is the OWNER's call; the rehearsal evidence says these are the only
@@ -261,9 +305,18 @@ and a HEAD on the resulting objects reported no
 that is not visible from the service is not in effect. Decision 3 therefore
 reduces to a bucket or object-storage-side choice (SSE-OMK on OVH, or
 client-side encryption before the PUT) -- not to a Litestream config knob.
-Gate 10 BLOCKS on the rehearsal endpoint because the TLS layer + the rehearsal
-CA confounds the "no ambient credentials" test in isolation, and it must be
-re-answered on OVH.
+
+**The other half of gate 10 has been measured and is clean.** With every
+ambient credential removed (empty `AWS_*` config files, the real ones
+unreadable, `AWS_EC2_METADATA_DISABLED`, and a verification that no profile is
+discoverable), a restore from the bucket returned all 100 rows. So a bucket
+that enforces encryption at rest does not depend on the client holding
+credentials, and an operator can prove the property from a cold start. What
+BLOCKS the gate is narrower than the 2026-09-28 note said: the rehearsal
+endpoint reports no server-side encryption on any object, so "is the stored
+data encrypted" has no answer there. The TLS layer and the rehearsal CA are no
+longer the reason -- the credential-isolation test now runs and passes
+against them. Re-answered on OVH, with the same command unchanged.
 
 ### Failure visibility finding, ready for decision 6
 
@@ -298,9 +351,10 @@ proactive surface for the full failure set.
   bucket was named to be obviously disposable.
 
 Full rehearsal packet, including the per-request log the proxy captured:
-`docs/sandbox-packet-2026-09-28-rehearsal.log` (header) and the most recent
-run's full packet is preserved under `/tmp/reh/` for the auditor's review
-(the OVH run will write a similarly full packet under `docs/`).
+`docs/sandbox-packet-2026-09-28-rehearsal.log` (the earlier header) and
+`docs/sandbox-packet-2026-09-29-rehearsal.log` (the current run, 12 gates,
+10 pass / 2 blocked / 0 fail, all six post-conditions holding). The OVH run
+will write a similarly full packet under `docs/`.
 
 
 ## 6. Sandbox checks required before adoption

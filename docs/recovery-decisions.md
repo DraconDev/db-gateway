@@ -179,28 +179,38 @@ follows in the sandbox/notification work):
    - **Unknown replica keys are silently ignored.** A config carrying
      `sse-customer-key` replicated with no error and no encryption.
    - **Credential scope, MEASURED** -- the operation matrix the packet issues
-     against a bucket in a passing run (578 requests on the rehearsal run,
-     three non-2xx answers all named, no others):
+     against a bucket in a passing run (910 requests on the 2026-09-29
+     rehearsal, three non-2xx answers all named, no others):
 
-     | method | query-prefix | count | IAM action |
-     | --- | --- | --- | --- |
-     | `GET` | `list-type=2` | 425 | `s3:ListBucket` |
-     | `GET` | `x-id=GetObject` | 35 | `s3:GetObject` |
-     | `GET` | `versions` | 4 | `s3:ListBucketVersions` |
-     | `GET` | `delimiter=...` | 7 | `s3:ListBucket` |
-     | `GET` | `lifecycle` | 1 | `s3:GetLifecycleConfiguration` |
-     | `HEAD` | `/<bucket>` | 6 | `s3:ListBucket` |
-     | `PUT` | `x-id=PutObject` | 48 | `s3:PutObject` |
-     | `PUT` | `lifecycle` | 1 | `s3:PutLifecycleConfiguration` |
-     | `PUT` | `/<bucket>` | 2 | `s3:CreateBucket` |
-     | `DELETE` | `versionId` | 48 | `s3:DeleteObjectVersion` |
-     | `DELETE` | `/<bucket>` | 1 | `s3:DeleteBucket` |
+     | method | query-prefix | count | IAM action | issued by |
+     | --- | --- | --- | --- | --- |
+     | `GET` | `list-type=2` | 696 | `s3:ListBucket` | litestream |
+     | `GET` | `x-id=GetObject` | 51 | `s3:GetObject` | litestream |
+     | `PUT` | `x-id=PutObject` | 66 | `s3:PutObject` | litestream |
+     | `GET` | `versions` | 4 | `s3:ListBucketVersions` | packet (retention arithmetic, residue check) |
+     | `GET` | `lifecycle` | 1 | `s3:GetLifecycleConfiguration` | packet |
+     | `PUT` | `lifecycle` | 1 | `s3:PutLifecycleConfiguration` | packet |
+     | `HEAD` | object key | 16 | `s3:GetObject` | packet (SSE check, artifact inspection) |
+     | `GET` | object key, no `x-id` | 5 | `s3:GetObject` | packet (gate 5 damage cases) |
+     | `HEAD` | `/<bucket>` | 1 | `s3:ListBucket` | packet |
+     | `PUT` | `/<bucket>` | 2 | `s3:CreateBucket` | packet (idempotent) |
+     | `DELETE` | `versionId` | 66 | `s3:DeleteObjectVersion` | packet (gate 12) |
+     | `DELETE` | `/<bucket>` | 1 | `s3:DeleteBucket` | packet (gate 12) |
 
-     The minimum scoping is `arn:...:bucket=<test-bucket>` plus a
-     `Condition` on the key prefix (e.g. `sbx/*`). `s3:CreateBucket` and
-     `s3:DeleteBucket` are only needed if the owner wants this packet to
-     manage the bucket itself; both are not exercised on a steady-state
-     retention run. The OVH account-level cap (1 Gbps/connection, 300
+     **The litestream-only half is the minimum a steady-state policy needs**:
+     `s3:ListBucket`, `s3:GetObject`, `s3:PutObject`, scoped to the
+     per-database prefix (e.g. `sbx/*`). Everything else in that table is the
+     packet driving the bucket rather than replication, and
+     `s3:CreateBucket` / `s3:DeleteBucket` / `s3:PutLifecycleConfiguration`
+     exist only so a disposable test bucket can be managed by the packet
+     itself -- none of them is exercised by a steady-state retention run, and
+     `litestream` never issues a delete at all, so retention is entirely the
+     bucket's lifecycle job (which is what gate 6 measures, and what the
+     rehearsal endpoint could not answer: it answers
+     `PutBucketLifecycleConfiguration` with 409 and
+     `GetBucketLifecycleConfiguration` with a plain object listing). The
+     minimum scoping is `arn:...:bucket=<test-bucket>` plus a `Condition` on
+     the key prefix. The OVH account-level cap (1 Gbps/connection, 300
      PUT/s + 900 GET/s soft limits) is the owner-decision input that no
      rehearsal can answer.
    - **Encryption** -- `sse-customer-key` is silently ignored by 0.5.17;
@@ -217,21 +227,25 @@ follows in the sandbox/notification work):
    key cannot be the answer. The decision is now strictly a bucket / storage-
    class one: SSE-OMK (OVH-managed, transparent to the client), SSE-C (the
    client supplies a key per PUT), or client-side encryption before the PUT.
-   Gate 10 BLOCKS on the rehearsal endpoint because the TLS layer + the
-   rehearsal CA confounds the "no ambient credentials" test in isolation, and
-   it must be re-answered on OVH -- the restore-without-ambient-credentials
-   measurement is the operator-visible confirmation that the bucket, not the
-   client, is enforcing encryption at rest.
+   Gate 10 BLOCKS on the rehearsal endpoint because the endpoint reports no
+   server-side encryption on any object, so the stored-data half has no answer
+   there -- and must be re-answered on OVH. The credential-isolation half is
+   no longer confounded and has been **measured clean**: with every ambient
+   credential removed, a restore from the bucket returned all 100 rows, so the
+   restore-without-ambient-credentials property holds and the TLS layer is not
+   what is blocking the gate.
    *Status 2026-09-29*: **sidecar headroom has been MEASURED, locally**.
    `sandbox-s3-gates.sh` gate 9 ran the litestream 0.5.17 sidecar inside a
-   kernel-enforced 1 GiB transient scope (`MemoryMax=1G`): replication peak
-   ~42 MiB, restore peak ~35 MiB, no OOM kill. Headroom against the 1 GB
-   budget is roughly 95% at steady state and restore; the OVH 1 GB VPS run
-   will confirm on different hardware, and the `docs/backup-compatibility.md`
-   §6a row for gate 9 carries the constraint mechanism and the OOM-kill
-   observation so the owner can compare. Budget cap, region pricing, and the
-   exact decision are still the owner's; the input they were waiting on is
-   now on the page.
+   kernel-enforced 1 GiB transient scope: replication peak ~44 MiB, restore
+   peak ~35 MiB, no OOM kill. The enforcement is proved, not assumed -- the
+   probe allocates 8x the cap and requires the child to be killed, and a
+   mechanism that lets it survive is rejected. Headroom against the 1 GB
+   budget is roughly 95% at steady state and restore **at this database size**;
+   the OVH 1 GB VPS run will confirm on different hardware, and
+   `docs/backup-compatibility.md` §6a row for gate 9 carries the constraint
+   mechanism and the OOM-kill observation so the owner can compare. Budget cap,
+   region pricing, and the exact decision are still the owner's; the input they
+   were waiting on is now on the page.
 4. **DECIDED** — restore policy: a restore always lands on a **separate**
    database/target; overwriting an existing name requires **explicit owner
    authorization** (never an unattended or key-scoped path); rollback artifacts
@@ -251,10 +265,13 @@ follows in the sandbox/notification work):
    the five-minute objective, and what measured headroom the 1 GB host must
    show. This is the question the sandbox exists to answer.
    *Status 2026-09-29*: the gate program is built and rehearsed end to end
-   (`scripts/rehearse-sandbox-packet.sh`); nine of twelve gates PASS in
-   rehearsal (`docs/backup-compatibility.md` §6a), the remaining three are
-   blocked on the owner's test bucket and on a host that can enforce a
-   1 GB-shaped memory limit. **The alerting half of decision 6 is partly
+   (`scripts/rehearse-sandbox-packet.sh`); **ten of twelve gates PASS in
+   rehearsal** (`docs/backup-compatibility.md` §6a), and the two that do not
+   are BLOCKED for a reason no rehearsal can remove: gate 6 needs a service
+   that implements `?lifecycle` and gate 10 needs a service that reports
+   server-side encryption. Both are OVH's to answer, with the commands
+   unchanged. The rehearsal packet for that run is
+   `docs/sandbox-packet-2026-09-29-rehearsal.log`. **The alerting half of decision 6 is partly
    settled by the gate-8 measurement**: litestream 0.5.17 does not surface
    every failure mode in the daemon log or in `litestream status`. Blocked-
    egress was visible only via the `litestream sync` CLI, and the restore

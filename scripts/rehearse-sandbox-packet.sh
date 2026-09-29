@@ -175,9 +175,21 @@ else post "PACKET DOES NOT DECLARE A REHEARSAL MODE -- fix the header before tru
 
 # 6. the gates that need a bucket actually RAN. A packet can satisfy every
 #    post-condition above by having executed no gates at all.
-GATES_RUN="$(grep -cE '^## gate [0-9]+: ' "$OUT" 2>/dev/null || true)"
-if [ "${GATES_RUN:-0}" -ge 12 ]; then post "gates executed: $GATES_RUN/12"
-else post "ONLY $GATES_RUN/12 GATES EXECUTED -- a leak-free run that ran no gates proves nothing"; POST_STATUS=1; fi
+#
+#    DISTINCT gate numbers, not gate sections. Gate 5 is recorded twice by
+#    design -- the file-replica rehearsal first, then the bucket-backed drill
+#    that supersedes it -- so counting sections printed "13/12" on a run that
+#    had executed exactly twelve gates. A summary that reads as an overflow is
+#    a summary nobody can use, and a driver whose own reporting is wrong is the
+#    last place to tolerate it.
+GATES_RUN="$(grep -oE '^## gate [0-9]+: ' "$OUT" 2>/dev/null | grep -oE '[0-9]+' \
+    | sort -un | wc -l | tr -d ' ')"
+GATE_SECTIONS="$(grep -cE '^## gate [0-9]+: ' "$OUT" 2>/dev/null || true)"
+if [ "${GATES_RUN:-0}" -ge 12 ]; then
+    post "gates executed: $GATES_RUN/12 distinct ($GATE_SECTIONS gate sections; a gate recorded twice is the later section superseding the earlier, by design)"
+else
+    post "ONLY $GATES_RUN/12 DISTINCT GATES EXECUTED -- a leak-free run that ran no gates proves nothing"; POST_STATUS=1
+fi
 
 if [ "$POST_STATUS" -eq 0 ]; then
     post ""
