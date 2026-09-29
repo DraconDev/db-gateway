@@ -2540,8 +2540,25 @@ print(f"packet {path}: {len(gates)} gates, {counts['PASS']} pass, {counts['BLOCK
 PY
 
 # Nonzero while anything is blocked or failed, so a wrapper cannot read this
-# as a completed adoption run.
-PASSED="$(grep -cE '^## gate [0-9]+: PASS' "$OUT" || true)"
-BLOCKED_N="$(grep -cE '^## gate [0-9]+: BLOCKED' "$OUT" || true)"
-FAILED_N="$(grep -cE '^## gate [0-9]+: FAIL' "$OUT" || true)"
-[ "${BLOCKED_N:-0}" -eq 0 ] && [ "${FAILED_N:-0}" -eq 0 ] || exit 1
+# as a completed adoption run. The counts come from the same parsed view the
+# summary above prints, NOT from grep -c on the gate lines: a gate that is
+# recorded twice (gate 5 runs as a file-replica rehearsal in the first half of
+# the packet and as a bucket-backed drill here) is counted twice by a line grep
+# and once by the summary, and the two answers disagreeing is how a packet ends
+# up reporting a gate as both PASS and BLOCKED in its own footer.
+GATE_TALLY="$(python3 - "$OUT" <<'PY'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+gates = {}
+for m in re.finditer(r"^## gate (\d+): (PASS|FAIL|BLOCKED) -- ", text, re.M):
+    gates[int(m.group(1))] = m.group(2)   # last occurrence wins, same as the summary
+blocked = sorted(g for g, s in gates.items() if s == "BLOCKED")
+failed = sorted(g for g, s in gates.items() if s == "FAIL")
+print(f"{len(blocked)} {len(failed)} {','.join(map(str, blocked + failed)) or '-'}")
+PY
+)"
+GATE_BLOCKED_N="$(printf '%s' "$GATE_TALLY" | cut -d' ' -f1)"
+GATE_FAILED_N="$(printf '%s' "$GATE_TALLY" | cut -d' ' -f2)"
+GATE_OPEN="$(printf '%s' "$GATE_TALLY" | cut -d' ' -f3)"
+echo "gates open (blocked or failed): ${GATE_OPEN}" >&2
+[ "${GATE_BLOCKED_N:-0}" -eq 0 ] && [ "${GATE_FAILED_N:-0}" -eq 0 ] || exit 1
