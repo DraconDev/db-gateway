@@ -2607,15 +2607,31 @@ if [ "$G10_ROWS" = "100" ]; then
             "withdrawn-credential restore (litestream-level): exit $G10_NOKEY_RC, ${G10_NOKEY_MSG:-(silent)}"
     elif [ "${G10_CANARY_VERDICT:-}" = "NOT-ENCRYPTED" ]; then
         # The dangerous case, and the one this gate exists to catch: the service
-        # advertises encryption and hands the plaintext back anyway. Reporting
-        # the header as a pass here is how a rehearsal endpoint would have
-        # "proven" encryption that does not exist -- and the same logic would
-        # have passed a real bucket with the same defect.
-        record 10 FAIL "the service reported an SSE-C algorithm on its objects AND returned the canary in the clear when read back with no key: it advertises encryption it is not applying" \
-            "canary test: $G10_CANARY" \
-            "reported headers: sse='${G10_SSE:-}' sse-c-algorithm='${G10_SSE_C_ECHO:-}'" \
-            "a header is a claim, and this one is false: do not configure SSE-C against this endpoint expecting encrypted storage" \
-            "restore half was measured and clean: $G10_ROWS/100 rows, withdrawn-credential restore exit $G10_NOKEY_RC"
+        # advertises encryption and hands the plaintext back anyway. Reading the
+        # header as a pass is how the rehearsal endpoint would have "proven"
+        # encryption that does not exist -- and the same logic would have passed
+        # a real bucket carrying the same defect.
+        #
+        # WHO the endpoint is decides what the verdict MEANS, and the packet must
+        # not lose that. A stand-in that implements neither encryption mode is
+        # not the service being adopted, so a canary finding against it is a
+        # statement about the mock -- and a valuable one, because it proves the
+        # harness can tell an echo from an enforcement. Against the OWNER's
+        # bucket the identical observation is a real defect and stays a FAIL.
+        if [ "${DG_SANDBOX_REHEARSAL:-0}" = "1" ]; then
+            record 10 BLOCKED "the rehearsal endpoint advertises SSE-C on its objects and stores the body in plaintext -- the canary reads it back with no key. That is a property of the local stand-in, which implements neither encryption mode, and it is reported rather than passed: the point of measuring it here is that the harness can tell an echo from an enforcement. OVH's bucket is the service that has to be proven" \
+                "canary test (the proof, refused as a claim): $G10_CANARY" \
+                "reported headers, shown for the record: sse='${G10_SSE:-}' sse-c-algorithm='${G10_SSE_C_ECHO:-}'" \
+                "if the same answer came back from the owner's bucket this line is a FAIL, not a blocker, and the run would say so" \
+                "the restore half WAS measured here and is clean: $G10_ROWS/100 rows with the environment stripped, withdrawn-credential restore exit $G10_NOKEY_RC" \
+                "WHAT OVH MUST PROVE: the same canary reading back REFUSED without the customer key (SSE-C), or the bucket's own default-encryption documentation for SSE-S3/OMK -- a transparent decrypt cannot be observed from outside"
+        else
+            record 10 FAIL "the service reported an SSE-C algorithm on its objects AND returned the canary in the clear when read back with no key: it advertises encryption it is not applying" \
+                "canary test: $G10_CANARY" \
+                "reported headers: sse='${G10_SSE:-}' sse-c-algorithm='${G10_SSE_C_ECHO:-}'" \
+                "a header is a claim, and this one is false: do not configure SSE-C against this endpoint expecting encrypted storage" \
+                "restore half was measured and clean: $G10_ROWS/100 rows, withdrawn-credential restore exit $G10_NOKEY_RC"
+        fi
     elif [ "$G10_SSE_SEEN" = "1" ]; then
         # The service claims encryption and the proof is unavailable -- because
         # the mode decrypts transparently (SSE-S3/OMK) or the canary could not
