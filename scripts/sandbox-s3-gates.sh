@@ -1469,6 +1469,7 @@ G9_STATUS="$G9_MECH_DESC"
         echo "  systemd scope: ${G9_PROBE_A_ERR:-no session bus or systemd-run missing}"
         echo "  direct cgroup: ${G9_PROBE_B_ERR:-no child cgroup with a writable memory.max}"
         echo "  enforcement probe: a 512 MiB allocator under a 64 MiB cap was run on each mechanism that could set memory.max. A mechanism that survives is rejected, because memory.max that the kernel does not OOM-enforce is a property, not a constraint. The OVH 1 GB VPS is where this gate is meant to run; the dev host is where this probe says it cannot."
+    fi
     echo
     printf 'steady replication  peak RSS %s KiB (%s%% of budget, kernel high-water mark)\n' "$G9_MAX_RSS" "$G9_REPL_PCT"
     printf 'steady replication  CPU  %s ticks across the sampling window\n' "$G9_REPL_CPU_TICKS"
