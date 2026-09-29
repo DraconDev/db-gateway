@@ -432,6 +432,10 @@ def op_put_lifecycle(c: S3Client, rules_path: str) -> dict[str, Any]:
 
     The packet expresses rules as JSON so the policy under test is readable and
     diffable in the log; this is the only place the shape is decided.
+
+    The sent rules are echoed back by id. A read-back has to be compared against
+    what was sent, and a comparison needs the sent side; keeping it here means
+    the packet never has to re-parse its own input file to make the check.
     """
     with open(rules_path, "r", encoding="utf-8") as fh:
         spec = json.load(fh)
@@ -453,14 +457,78 @@ def op_put_lifecycle(c: S3Client, rules_path: str) -> dict[str, Any]:
             ET.SubElement(e, "NoncurrentDays").text = str(rule["noncurrent_expiration_days"])
     body = ET.tostring(root, encoding="utf-8", xml_declaration=True)
     status, _, _ = c.request("PUT", path=f"/{c.bucket}", query=[("lifecycle", "")], body=body)
-    return {"status": status, "rules": len(spec.get("rules", []))}
+    return {
+        "status": status,
+        "rules": len(spec.get("rules", [])),
+        "sent": [
+            {
+                "id": str(rule.get("id", "rule")),
+                "status": str(rule.get("status", "Enabled")),
+                "expiration_days": str(rule.get("expiration_days", "")),
+                "noncurrent_expiration_days": str(rule.get("noncurrent_expiration_days", "")),
+            }
+            for rule in spec.get("rules", [])
+        ],
+    }
 
 
 def op_get_lifecycle(c: S3Client) -> dict[str, Any]:
-    _, _, body = c.request("GET", path=f"/{c.bucket}", query=[("lifecycle", "")])
-    root = ET.fromstring(body)
+    """Read the stored lifecycle configuration back, strictly.
+
+    STRICTNESS IS THE WHOLE POINT. A service that does not implement
+    ?lifecycle may answer a GET with something else entirely -- the rehearsal
+    store answers GET ?lifecycle with a ListBucketResult, i.e. a plain object
+    listing, and it answers 200. A parser that walks the children of whatever
+    came back and reads ID/Status/Days out of them finds nothing, and reports
+    "N rules" where N is the number of <Contents> elements. That is how the
+    first rehearsal run reported "policy stored and read back (30 rules)" and
+    "30 rules" was a bucket listing: the PUT had failed with 409
+    BucketAlreadyExists and the read-back "confirmed" it against nothing.
+
+    So the root element is checked against the one document this API is
+    defined to return. Anything else is reported as an UNIMPLEMENTED
+    capability with the element name that actually came back -- never as zero
+    rules, which would read as "the policy is gone" and never as "this service
+    cannot store one".
+    """
+    status, _, body = c.request("GET", path=f"/{c.bucket}", query=[("lifecycle", "")])
+    try:
+        root = ET.fromstring(body)
+    except ET.ParseError as exc:
+        return {
+            "ok": False,
+            "status": status,
+            "error": {"code": "UnparseableLifecycleResponse", "message": str(exc)},
+            "supported": False,
+            "count": 0,
+            "rules": [],
+        }
+    name = root.tag.split("}")[-1]
+    if name != "LifecycleConfiguration":
+        keys = [
+            k.text
+            for k in root.findall(f"{{{S3_NS}}}Key") + root.findall("Key")
+            if k.text
+        ]
+        return {
+            "ok": False,
+            "status": status,
+            "error": {
+                "code": "NotALifecycleConfiguration",
+                "message": (
+                    f"GET ?lifecycle answered 200 with <{name}>, not a "
+                    f"<LifecycleConfiguration>; this service does not implement it"
+                    + (f". The document listed {len(keys)} object key(s)." if keys else ".")
+                ),
+            },
+            "supported": False,
+            "count": 0,
+            "rules": [],
+        }
     rules = []
     for r in list(root):
+        if r.tag.split("}")[-1] != "Rule":
+            continue
         rules.append(
             {
                 "id": _text(r, "ID"),
@@ -473,7 +541,7 @@ def op_get_lifecycle(c: S3Client) -> dict[str, Any]:
                 else "",
             }
         )
-    return {"rules": rules, "count": len(rules)}
+    return {"ok": True, "status": status, "supported": True, "rules": rules, "count": len(rules)}
 
 
 def op_delete_everything(c: S3Client) -> dict[str, Any]:

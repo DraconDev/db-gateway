@@ -773,6 +773,26 @@ sleep 2
 kill "$G5_PID" 2>/dev/null || true
 wait "$G5_PID" 2>/dev/null || true
 
+# WHICH POINT IS "MID-HISTORY". `litestream ltx` prints
+#   level  min_txid  max_txid  size  created
+# and the FIRST data row is the base snapshot, whose max_txid is the very
+# beginning of the database's history. Selecting that as the mid-history point
+# is selecting the empty database, and litestream answers it correctly: the
+# restore succeeds and returns 0 rows. So the packet read "0 rows restored"
+# as a broken mid-history drill on a replica where -txid 0000000000000002
+# restores the full first batch. This took the SECOND row instead -- a
+# committed position after the first batch and strictly before the last, which
+# is the point an operator would have asked for at the time.
+G5_LTX_ALL="$("$LITESTREAM" ltx -config "$G5_ROOT/litestream.yml" "$G5_SRC" 2>/dev/null || true)"
+g5_ltx_field() { # <2=min_txid 3=max_txid 5=created> <row index, 1-based over data rows>
+    printf '%s\n' "$G5_LTX_ALL" \
+        | awk -v col="$1" -v want="$2" \
+              'NR>1 && $2 ~ /^[0-9a-f]+$/ {i++; if (i == want) {print $col; exit}}'
+}
+G5_SEGMENTS="$(printf '%s\n' "$G5_LTX_ALL" | awk 'NR>1 && $2 ~ /^[0-9a-f]+$/ {n++} END {print n+0}')"
+G5_LTX_MID="$(g5_ltx_field 3 2)"
+G5_MID_TS="$(g5_ltx_field 5 2)"
+
 G5_SRC_DIGEST="$(g5_digest "$G5_SRC")"
 G5_LATEST_RC="$(g5_restore latest)"
 G5_LATEST_DIGEST="$(g5_digest "$G5_ROOT/out-latest.sqlite")"
@@ -785,7 +805,14 @@ G5_LATEST_OK=0
 G5_MID_RC="skipped"
 G5_MID_DIGEST="(no mid-history txid was reported)"
 G5_MID_OK=0
-if [ -n "${G5_LTX_MID:-}" ]; then
+# Fewer than three segments means there is no position strictly between the
+# beginning and the end, and a drill that reports one anyway is inventing it.
+if [ "${G5_SEGMENTS:-0}" -lt 3 ] 2>/dev/null; then
+    G5_MID_RC="only-${G5_SEGMENTS:-0}-segments"
+    G5_MID_DIGEST="(the replica held ${G5_SEGMENTS:-0} segment(s); a mid-history point needs at least 3)"
+elif [ -z "${G5_LTX_MID:-}" ]; then
+    G5_MID_RC="no-txid"
+else
     G5_MID_RC="$(g5_restore mid -txid "$G5_LTX_MID")"
     G5_MID_DIGEST="$(g5_digest "$G5_ROOT/out-mid.sqlite")"
     G5_MID_ROWS="${G5_MID_DIGEST%%|*}"
@@ -807,7 +834,10 @@ G5_PIT_RC="skipped"
 G5_PIT_DIGEST="(no segment timestamp was reported)"
 G5_PIT_OK=0
 G5_PIT_TARGET=""
-if [ -n "${G5_MID_TS:-}" ]; then
+if [ "${G5_MID_RC}" = "no-txid" ] || [ "${G5_MID_RC%%-*}" = "only" ]; then
+    G5_PIT_RC="$G5_MID_RC"
+    G5_PIT_DIGEST="(not attempted: no mid-history point to name)"
+elif [ -n "${G5_MID_TS:-}" ]; then
     G5_PIT_TARGET="$(python3 -c "
 import sys, datetime
 ts = sys.argv[1].strip().replace('Z', '+00:00')
@@ -821,12 +851,27 @@ if [ -n "$G5_PIT_TARGET" ]; then
     G5_PIT_RC="$(g5_restore pit -timestamp "$G5_PIT_TARGET")"
     G5_PIT_DIGEST="$(g5_digest "$G5_ROOT/out-pit.sqlite")"
     G5_PIT_ROWS="${G5_PIT_DIGEST%%|*}"
-    if [ "$G5_PIT_RC" = "0" ] && [ "${G5_PIT_ROWS:-0}" -ge 30 ] 2>/dev/null \
-       && [ "${G5_PIT_ROWS:-0}" -le 70 ] 2>/dev/null; then
+    # The same invariants as -txid: a real, non-empty, strictly-earlier state.
+    # The 30/70 bounds that used to stand here encoded this run's batch sizes,
+    # which is the wrong kind of check: a different-sized database would fail a
+    # correct restore. "Non-empty, and fewer rows than the source" is the
+    # property, and it is checked by arithmetic rather than by a constant.
+    if [ "$G5_PIT_RC" = "0" ] && [ "${G5_PIT_ROWS:-0}" -gt 0 ] 2>/dev/null \
+       && [ "${G5_PIT_ROWS:-0}" -lt "${G5_SRC_DIGEST%%|*}" ] 2>/dev/null; then
         G5_PIT_OK=1
     fi
 else
     G5_PIT_RC="no-timestamp"
+fi
+
+# 2c. The two selectors name ONE point, so they must return the same bytes.
+# This is the cross-check that catches a selector pointing somewhere nobody
+# asked for, and it needs no knowledge of the batch sizes: -txid <txid> and
+# -timestamp <that segment's created time + 1s> are the same position, and any
+# difference between them is a real disagreement about history.
+G5_SELECTORS_AGREE=0
+if [ "$G5_MID_OK" = "1" ] && [ "$G5_PIT_OK" = "1" ] && [ "$G5_MID_DIGEST" = "$G5_PIT_DIGEST" ]; then
+    G5_SELECTORS_AGREE=1
 fi
 
 # 3. corrupt-artifact rejection. The artifacts are the BUCKET'S OWN objects,
@@ -957,9 +1002,17 @@ G5_REJECTED_N="$(printf '%s\n%s\n%s\n' "$G5_FLIP" "$G5_TRUNC" "$G5_DESTROY" \
     echo "restore that returns the right number of wrong rows."
     echo
     echo "  source:                      $G5_SRC_DIGEST   (30 rows, then 40 more)"
+    echo "  segments in the replica:      $G5_SEGMENTS"
     echo "  1. latest restore, exit $G5_LATEST_RC:     $G5_LATEST_DIGEST"
     echo "  2. mid-history -txid ${G5_LTX_MID:-none}, exit $G5_MID_RC: $G5_MID_DIGEST"
     echo "     point-in-time -timestamp $G5_PIT_TARGET, exit $G5_PIT_RC: $G5_PIT_DIGEST"
+    echo "     both selectors name the SAME position, and they returned the same"
+    echo "     bytes: $G5_SELECTORS_AGREE (1 = the restored content agrees)."
+    echo "     the point is the SECOND segment, not the first. The first row of"
+    echo "     \`litestream ltx\` is the base snapshot, whose max_txid is the very start"
+    echo "     of history: -txid against it restores an EMPTY database (0 rows) with"
+    echo "     exit 0. That is a correct restore of the wrong point, and reading it as"
+    echo "     a broken drill is what a first pass here did."
     echo "     the boundary: -timestamp equal to a segment's own created time answers"
     echo "     \"no matching backup files available\". Measured, and it is not an empty"
     echo "     replica -- the same replica restores fully one second later."
@@ -983,14 +1036,19 @@ G5_REJECTED_N="$(printf '%s\n%s\n%s\n' "$G5_FLIP" "$G5_TRUNC" "$G5_DESTROY" \
     echo "     what (rows, sum, distinct) plus PRAGMA integrity_check is for."
 } >> "$OUT"
 
-if [ "$G5_LATEST_OK" = "1" ] && [ "$G5_MID_OK" = "1" ] && [ "$G5_PIT_OK" = "1" ] && [ "${G5_DAMAGE_BAD:-1}" = "0" ]; then
-    record 5 PASS "bucket-backed restore drill: latest restore is exact, a mid-history point and a point-in-time target both restore real earlier states, and no damaged-artifact case produced a wrong database" \
-        "source $G5_SRC_DIGEST; latest $G5_LATEST_DIGEST (exit $G5_LATEST_RC)" \
+if [ "$G5_LATEST_OK" = "1" ] && [ "$G5_MID_OK" = "1" ] && [ "$G5_PIT_OK" = "1" ] \
+   && [ "$G5_SELECTORS_AGREE" = "1" ] && [ "${G5_DAMAGE_BAD:-1}" = "0" ]; then
+    record 5 PASS "bucket-backed restore drill: latest restore is exact, a mid-history point and a point-in-time target both restore real earlier states and agree byte for byte, and no damaged-artifact case produced a wrong database" \
+        "source $G5_SRC_DIGEST over $G5_SEGMENTS segments; latest $G5_LATEST_DIGEST (exit $G5_LATEST_RC)" \
         "mid-history -txid ${G5_LTX_MID:-none} -> $G5_MID_DIGEST (exit $G5_MID_RC)" \
-        "point-in-time -timestamp ${G5_PIT_TARGET:-none} -> $G5_PIT_DIGEST (exit $G5_PIT_RC)" \
+        "point-in-time -timestamp ${G5_PIT_TARGET:-none} -> $G5_PIT_DIGEST (exit $G5_PIT_RC); same point, same bytes" \
         "corrupt artifacts: $G5_FLIP | $G5_TRUNC | $G5_DESTROY" \
         "supersedes the earlier file-replica gate 5 line above, which could not answer mid-history or corruption" \
         "gateway import validation of the restored file is gate 11"
+elif [ "$G5_MID_OK" = "1" ] && [ "$G5_PIT_OK" = "1" ] && [ "$G5_SELECTORS_AGREE" != "1" ]; then
+    record 5 FAIL "-txid ${G5_LTX_MID:-none} and -timestamp ${G5_PIT_TARGET:-none} name the same point but restored different content; the two selectors disagree about history" \
+        "by txid:    $G5_MID_DIGEST (exit $G5_MID_RC)" \
+        "by time:    $G5_PIT_DIGEST (exit $G5_PIT_RC)"
 elif [ "${G5_DAMAGE_BAD:-1}" != "0" ]; then
     record 5 FAIL "a damaged-artifact restore produced a database that is not the source; a restore that can do that cannot be detected by exit status" \
         "source $G5_SRC_DIGEST" \
@@ -1005,7 +1063,9 @@ else
     record 5 BLOCKED "the restore drill did not complete every sub-case" \
         "latest exact: $G5_LATEST_OK   mid-history: $G5_MID_OK ($G5_MID_DIGEST, exit $G5_MID_RC)" \
         "point-in-time: $G5_PIT_OK ($G5_PIT_DIGEST, exit $G5_PIT_RC, target ${G5_PIT_TARGET:-none})" \
-        "mid-history txid reported by litestream: ${G5_LTX_MID:-none}"
+        "selectors agree: $G5_SELECTORS_AGREE   segments: $G5_SEGMENTS" \
+        "mid-history txid reported by litestream: ${G5_LTX_MID:-none}" \
+        "restore log tails:" "$(cat "$G5_ROOT"/restore-*.log 2>/dev/null | tail -8 | sed 's/^/  /')"
 fi
 
 # --------------------------------------------------------------------------
@@ -1028,7 +1088,42 @@ cat > "$G6_RULES" <<'JSON'
 JSON
 G6_PUT="$("${S3PROBE[@]}" put-lifecycle "$G6_RULES" 2>&1 || true)"
 G6_GET="$("${S3PROBE[@]}" get-lifecycle 2>&1 || true)"
-G6_STORED="$(printf '%s' "$G6_GET" | jfield count)"
+# A read-back is only evidence if it is COMPARED with what was sent. A count
+# alone is not a comparison: the rehearsal store answers GET ?lifecycle with
+# a plain object listing and a 200, and counting its <Contents> elements turned
+# a PUT that had failed with 409 into "policy stored and read back (30 rules)".
+# So each rule sent is matched against a rule read back, by id, and the rules
+# that match on id, status and both day counts are the only ones counted.
+G6_VERIFY="$SANDBOX/gate6-verify.json"
+printf '%s\n%s' "$G6_PUT" "$G6_GET" > "$G6_VERIFY"
+G6_STORED="$(
+    python3 - "$G6_VERIFY" <<'PY'
+import json, sys
+try:
+    put_raw, get_raw = open(sys.argv[1], encoding="utf-8").read().split("\n", 1)
+    put = json.loads(put_raw) if put_raw.strip() else {}
+    got = json.loads(get_raw) if get_raw.strip() else {}
+except Exception:
+    print(0)
+    raise SystemExit(0)
+if put.get("error") or not got.get("supported"):
+    print(0)
+    raise SystemExit(0)
+back = {r.get("id"): r for r in got.get("rules", [])}
+matched = 0
+for sent in put.get("sent", []):
+    r = back.get(sent.get("id"))
+    if r is None:
+        continue
+    if (str(r.get("status", "")).lower() == str(sent.get("status", "")).lower()
+            and str(r.get("expiration_days", "")) == sent.get("expiration_days", "")
+            and str(r.get("noncurrent_expiration_days", ""))
+                == sent.get("noncurrent_expiration_days", "")):
+        matched += 1
+print(matched)
+PY
+)"
+G6_CAPABILITY_NOTE="get-lifecycle: $(printf '%s' "$G6_GET" | jfield error.message)"
 G6_VERSIONS="$("${S3PROBE[@]}" list-versions --prefix 'sbx/' 2>&1 || true)"
 G6_VERSION_COUNT="$(printf '%s' "$G6_VERSIONS" | jfield count)"
 G6_VERSION_ERR="$(printf '%s' "$G6_VERSIONS" | jfield error.code)"
@@ -1169,6 +1264,14 @@ fi
     echo "put-lifecycle: $G6_PUT"
     echo "get-lifecycle: $G6_GET"
     echo
+    echo "rules read back that MATCH what was sent, on id + status + both day counts:"
+    echo "  $G6_STORED of 2"
+    echo "  a read-back is compared, never counted. A service that does not implement"
+    echo "  ?lifecycle can answer a GET with 200 and a document that is not a lifecycle"
+    echo "  configuration -- the rehearsal store answers with a plain object listing --"
+    echo "  and counting the children of that document is how a PUT that failed with"
+    echo "  409 was once reported as a policy stored and read back."
+    echo
     echo "the policy's arithmetic against the ages the service reports:"
     echo "  $G6_PROJECTION"
     echo
@@ -1190,19 +1293,33 @@ fi
 
 if [ "${G6_STORED:-0}" -ge 2 ] 2>/dev/null; then
     if [ "$G6_AFTER_OK" = "1" ]; then
-        record 6 PASS "candidate 7/30-day lifecycle policy stored and read back ($G6_STORED rules), its arithmetic measured against the service's own object ages ($G6_KEPT_TOTAL versions now, $G6_KEPT_NOW kept as-is, $G6_KEPT_OLD kept if they were 31 days older), and a restore from the bucket after the retention step still returns the exact source" \
-            "stored: $G6_STORED rules" \
+        record 6 PASS "candidate 7/30-day lifecycle policy stored and read back MATCHING ($G6_STORED of 2 rules matched on id, status and day counts), its arithmetic measured against the service's own object ages ($G6_KEPT_TOTAL versions now, $G6_KEPT_NOW kept as-is, $G6_KEPT_OLD kept if they were 31 days older), and a restore from the bucket after the retention step still returns the exact source" \
+            "put: $G6_PUT" \
+            "get: $G6_GET" \
             "object versions under the test prefix: ${G6_VERSION_COUNT:-unknown}, ages ${G6_NEWEST}-${G6_OLDEST} days" \
             "projection: $G6_PROJECTION" \
             "restore after retention: $G6_AFTER_DIGEST (exit $G6_AFTER_RC) vs source $G5_SRC_DIGEST" \
             "STILL OVH'S TO ANSWER: whether the service EXECUTES the expiry on its own schedule, and against whose clock. Storing a rule and doing arithmetic about it is not the same observation as watching a week-old object disappear."
     else
-        record 6 BLOCKED "the policy was stored, but the post-retention restore did not verify ($G6_AFTER_DIGEST, exit $G6_AFTER_RC), so 'retention without breaking restore' is not established" \
-            "stored: $G6_STORED rules" \
+        record 6 BLOCKED "the policy was stored and read back matching, but the post-retention restore did not verify ($G6_AFTER_DIGEST, exit $G6_AFTER_RC), so 'retention without breaking restore' is not established" \
+            "stored: $G6_STORED of 2 rules matched" \
             "object versions under the test prefix: ${G6_VERSION_COUNT:-unknown}" \
             "projection: $G6_PROJECTION" \
             "restore log tail:" "$(tail -5 "$SANDBOX/gate6-restore.log" 2>/dev/null | sed 's/^/  /')"
     fi
+elif printf '%s' "$G6_PUT" | jfield error.code | grep -qE '.' \
+  || [ "$(printf '%s' "$G6_GET" | jfield supported)" = "False" ]; then
+    # A service that cannot store a lifecycle policy has not failed this gate.
+    # Saying FAIL here would put a defect in the packet's own book next to a
+    # capability the rehearsal endpoint simply does not have -- and the
+    # capability is the whole reason §6 wants the OWNER's bucket.
+    record 6 BLOCKED "this endpoint does not implement the bucket API retention needs, so no retention policy can be stored or read back here" \
+        "put-lifecycle: $G6_PUT" \
+        "$G6_CAPABILITY_NOTE" \
+        "list-versions (the other half of retention): $G6_VERSION_COUNT version(s) enumerated${G6_VERSION_ERR:+, error $G6_VERSION_ERR}" \
+        "NOT A PASS and not a failure of the packet: the rehearsal endpoint cannot" \
+        "answer this question. Run unchanged against the OVH test bucket, which does" \
+        "implement PutBucketLifecycleConfiguration."
 elif [ -n "$G6_VERSION_ERR" ]; then
     record 6 BLOCKED "this endpoint does not implement the bucket APIs retention needs" \
         "get-lifecycle / list-versions answered: $G6_VERSION_ERR" \
