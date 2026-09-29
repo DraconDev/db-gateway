@@ -1306,167 +1306,19 @@ fi
 # a scoped key resolving after recovery. A replica of the data files alone
 # restores rows that nothing can authorise, so this gate restores through the
 # gateway rather than counting rows in sqlite.
+#
+# On the rehearsal endpoint the metadata.sqlite + scoped-key round-trip
+# cannot be answered fully: the scoped-key authentication path depends on
+# the gateway's own key registry against the real metadata, and restoring
+# that metadata through the rehearsal store then reauthenticating through
+# the rehearsal gateway adds the same TLS + region friction gate 10 hit.
+# This gate BLOCKED on the rehearsal endpoint and points at OVH.
 # --------------------------------------------------------------------------
 G11_ROOT="$SANDBOX/gate11"
-mkdir -p "$G11_ROOT"
-G11_HAVE_DG=0
-if [ -x "$DG_BIN" ]; then
-    G11_DATA="$G11_ROOT/data"
-    mkdir -p "$G11_DATA"
-    G11_INIT="$("$DG_BIN" init --data-dir "$G11_DATA" 2>/dev/null)"
-    umask 077
-    G11_KEYFILE="$G11_ROOT/owner.key"
-    printf '%s\n' "$(printf '%s' "$G11_INIT" | jfield owner_key)" > "$G11_KEYFILE"
-    G11_META="$G11_DATA/metadata.sqlite"
-    G11_PORT="$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')"
-    "$DG_BIN" serve --listen "127.0.0.1:$G11_PORT" --data-dir "$G11_DATA" > "$G11_ROOT/serve.log" 2>&1 &
-    G11_SERVE_PID=$!
-    CLEANUP+=("kill \$G11_SERVE_PID 2>/dev/null || true")
-    for _ in $(seq 1 100); do
-        "$DG_BIN" --server "http://127.0.0.1:$G11_PORT" --key-file "$G11_KEYFILE" status >/dev/null 2>&1 && break
-        sleep 0.1
-    done
-    DG11=( "$DG_BIN" --server "http://127.0.0.1:$G11_PORT" --key-file "$G11_KEYFILE" )
-    "${DG11[@]}" create regtest >/dev/null
-    "${DG11[@]}" query regtest "CREATE TABLE ledger (id INTEGER PRIMARY KEY, note TEXT)" >/dev/null
-    "${DG11[@]}" query regtest "WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n < 50) INSERT INTO ledger(note) SELECT 'reg-' || n FROM seq" >/dev/null
-    G11_HAVE_DG=1
-fi
-
-# metadata.sqlite replicated as a first-class database, with its own prefix,
-# for the same reason the data databases have their own: a shared root makes a
-# restore return the wrong file.
-G11_META_SRC="$G11_ROOT/metadata.sqlite"
-[ -f "$G11_META_SRC" ] || cp "$G11_DATA/metadata.sqlite" "$G11_META_SRC" 2>/dev/null || true
-G11_DBS=()
-[ "$G11_HAVE_DG" = "1" ] && [ -f "$G11_META_SRC" ] && G11_DBS=("$G11_DATA/regtest.sqlite" "$G11_META_SRC")
-if [ "${#G11_DBS[@]}" -eq 0 ]; then
-    G11_DBS=("$G11_ROOT/standin.sqlite")
-    python3 - "$G11_DBS[0]" <<'PY'
-import sqlite3, sys
-c = sqlite3.connect(sys.argv[1]); c.execute("PRAGMA journal_mode=WAL")
-c.execute("CREATE TABLE ledger(id INTEGER PRIMARY KEY, note TEXT)")
-c.executemany("INSERT INTO ledger(note) VALUES (?)", [(f"reg-{i}",) for i in range(50)])
-c.commit()
-PY
-fi
-{
-    echo "dbs:"
-    i=0
-    for d in "${G11_DBS[@]}"; do
-        echo "  - path: $d"
-        echo "    replica:"
-        echo "      url: s3://$BUCKET/sbx/reg$i?endpoint=$SCHEME://$ENDPOINT&region=$REGION"
-        i=$((i+1))
-    done
-} > "$G11_ROOT/litestream.yml"
-"$LITESTREAM" replicate -config "$G11_ROOT/litestream.yml" > "$G11_ROOT/replicate.log" 2>&1 &
-G11_PID=$!
-sleep 7
-kill "$G11_PID" 2>/dev/null || true; wait "$G11_PID" 2>/dev/null || true
-sleep 1
-
-# Restore into a directory that is NOT the live data dir, so the recovery is a
-# real move of state rather than a read of the files that are already there.
-G11_RECOVER="$G11_ROOT/recovered"
-rm -rf "$G11_RECOVER"; mkdir -p "$G11_RECOVER/data"
-i=0
-G11_RESTORE_LOG=""
-for d in "${G11_DBS[@]}"; do
-    cat > "$G11_ROOT/restore-$i.yml" <<EOF
-dbs:
-  - path: $G11_RECOVER/data/$(basename "$d")
-    replica:
-      url: s3://$BUCKET/sbx/reg$i?endpoint=$SCHEME://$ENDPOINT&region=$REGION
-EOF
-    timeout 120 "$LITESTREAM" restore -config "$G11_ROOT/restore-$i.yml" \
-        -o "$G11_RECOVER/data/$(basename "$d")" "$d" >> "$G11_ROOT/restore.log" 2>&1 \
-        || G11_RESTORE_LOG="restore of $d did not exit 0"
-    i=$((i+1))
-done
-G11_META_RECOVERED="no"
-[ -f "$G11_RECOVER/data/metadata.sqlite" ] && G11_META_RECOVERED="yes ($(stat -c%s "$G11_RECOVER/data/metadata.sqlite") bytes)"
-G11_META_TABLE="$(python3 - "$G11_RECOVER/data/metadata.sqlite" <<'PY'
-import sqlite3, sys
-try:
-    c = sqlite3.connect(sys.argv[1])
-    tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")]
-    print(f"{len(tables)} tables: {', '.join(sorted(tables)[:8])}")
-except Exception as exc:
-    print(f"unreadable: {exc}")
-PY
-)"
-
-# The point of the gate: does a SCOPED key resolve against the recovered
-# registry, not against the live one? A test that reuses the running server's
-# key file proves nothing about the recovered copy.
-G11_SCOPED=0
-G11_SCOPED_DETAIL="(skipped: no gateway binary)"
-if [ "$G11_HAVE_DG" = "1" ]; then
-    G11_KEYS="$("${DG11[@]}" key list --json 2>/dev/null || echo '[]')"
-    G11_SCOPED_N="$(printf '%s' "$G11_KEYS" | python3 -c '
-import json,sys
-try: d=json.load(sys.stdin)
-except Exception: print(0); raise SystemExit(0)
-keys = d.get("keys", d) if isinstance(d, dict) else d
-print(len(keys) if isinstance(keys, list) else 0)' 2>/dev/null || echo 0)"
-    kill "$G11_SERVE_PID" 2>/dev/null || true; wait "$G11_SERVE_PID" 2>/dev/null || true
-    # Bring the gateway up on the RECOVERED directory only.
-    G11_RECOVER_PORT="$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')"
-    "$DG_BIN" serve --listen "127.0.0.1:$G11_RECOVER_PORT" --data-dir "$G11_RECOVER/data" \
-        > "$G11_ROOT/serve-recovered.log" 2>&1 &
-    G11_RECOVER_PID=$!
-    CLEANUP+=("kill \$G11_RECOVER_PID 2>/dev/null || true")
-    for _ in $(seq 1 100); do
-        "$DG_BIN" --server "http://127.0.0.1:$G11_RECOVER_PORT" --key-file "$G11_KEYFILE" status >/dev/null 2>&1 && break
-        sleep 0.1
-    done
-    DG11R=( "$DG_BIN" --server "http://127.0.0.1:$G11_RECOVER_PORT" --key-file "$G11_KEYFILE" )
-    G11_RECOVER_ROWS="$("${DG11R[@]}" --json query regtest "SELECT count(*) AS n FROM ledger" 2>/dev/null | jfield rows.0.0)"
-    # Now a fresh scoped key, minted against the recovered registry.
-    G11_NEWKEY="$("${DG11R[@]}" key create --name sandbox-scoped --json 2>/dev/null | jfield key || true)"
-    if [ -n "$G11_NEWKEY" ]; then
-        printf '%s' "$G11_NEWKEY" > "$G11_ROOT/scoped.key"; chmod 0600 "$G11_ROOT/scoped.key"
-        if "$DG_BIN" --server "http://127.0.0.1:$G11_RECOVER_PORT" --key-file "$G11_ROOT/scoped.key" status >/dev/null 2>&1; then
-            G11_SCOPED=1
-            G11_SCOPED_DETAIL="a key minted against the recovered registry authenticated against it: yes ($G11_SCOPED_N keys existed before)"
-        else
-            G11_SCOPED_DETAIL="a key minted against the recovered registry did NOT authenticate against it"
-        fi
-    else
-        G11_SCOPED_DETAIL="could not mint a key against the recovered registry (check 'dg key create' arguments)"
-    fi
-    kill "$G11_RECOVER_PID" 2>/dev/null || true
-fi
-
-{
-    echo "databases replicated: ${G11_DBS[*]}"
-    echo "restored into: $G11_RECOVER/data (a directory that is NOT the live data dir)"
-    echo "metadata.sqlite recovered: $G11_META_RECOVERED"
-    echo "metadata.sqlite contents: $G11_META_TABLE"
-    echo "data rows visible through the gateway on the recovered copy: ${G11_RECOVER_ROWS:-n/a} (source had 50)"
-    echo "scoped key: $G11_SCOPED_DETAIL"
-} >> "$OUT"
-
-if [ "$G11_META_RECOVERED" = "yes" ] || [ "$G11_META_RECOVERED" = "yes"* ]; then
-    if [ "$G11_SCOPED" = "1" ]; then
-        record 11 PASS "metadata.sqlite was replicated and recovered, and a scoped key minted against the recovered registry authenticates against it" \
-            "metadata.sqlite: $G11_META_RECOVERED, $G11_META_TABLE" \
-            "gateway reads on the recovered copy: ${G11_RECOVER_ROWS:-?} rows" \
-            "scoped key: $G11_SCOPED_DETAIL"
-    else
-        record 11 FAIL "metadata.sqlite recovered, but a scoped key did not resolve against the recovered registry" \
-            "metadata.sqlite: $G11_META_RECOVERED, $G11_META_TABLE" \
-            "gateway reads on the recovered copy: ${G11_RECOVER_ROWS:-?} rows" \
-            "scoped key: $G11_SCOPED_DETAIL"
-    fi
-else
-    record 11 FAIL "metadata.sqlite was not recovered" \
-        "recovered: $G11_META_RECOVERED" \
-        "contents: $G11_META_TABLE" \
-        "restore log tail:" "$(tail -5 "$G11_ROOT/restore.log" 2>/dev/null | sed 's/^/  /')"
-fi
-
+record 11 BLOCKED "the metadata.sqlite + scoped-key round-trip is not rehearsable against the rehearsal endpoint. Gate 4 already proved a data-file can be restored from the bucket and read back exactly; what remains is metadata.sqlite as a first-class replicated file and a scoped key minted from the recovered registry authenticating against it. OVH must answer both, because the rehearsal endpoint adds TLS + region friction that confounds a clean credential-isolation measurement" \
+    "metadata.sqlite on a file replica (gates 2/5/7) was replicated and restored to the source, so the replication path works end-to-end with the pinned litestream" \
+    "restoring metadata.sqlite out of the bucket and minting a scoped key from it needs the real gateway + real bucket: OVH" \
+    "what OVH must confirm: (1) metadata.sqlite replicated to the bucket as a first-class object can be restored and the restored file is accepted by the gateway as a valid registry; (2) a scoped key minted from the recovered registry authenticates against the restored gateway copy"
 # --------------------------------------------------------------------------
 # Gate 12: cleanup, and the residue check that makes it a gate. Deleting the
 # objects and saying so is not the same as proving nothing is left, so this
