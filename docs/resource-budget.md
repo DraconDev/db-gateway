@@ -29,7 +29,7 @@ release-blocking measurement.
 | Gateway process RSS, small workload | Measured (M1, M2) | ~4.3 MiB release idle; ~15 MiB debug loaded. Release + realistic data: **unmeasured**. |
 | OS baseline | Partially known, workload unmeasured | The supervised target is an approximately 1 GiB Ubuntu micro2 host, but OS baseline, page-cache behavior, and concurrent workload footprint were not measured. |
 | SQLite connections / page cache | Bounded by construction, not stress-verified | No pool; ≤8 reader + ≤4 writer concurrent query connections (the read and write admission lanes are independent) + occasional purge connection; SQLite default cache ≈ 2 MiB per connection ⇒ ≈ 24 MiB order-of-magnitude ceiling, not the ≈ 10 MiB a single 4-permit lane would imply. Sustained-burst peak RSS **unmeasured**. |
-| Backup tooling (Litestream sidecar) | Measured locally, 1 GiB enforced, run committed (2026-09-29) | Gate 9 sampled a 6.9 MiB / 120 000-row database through `litestream replicate` and `restore` inside a kernel-enforced `MemoryMax=1G` scope: replication peak 49 652 KiB, restore peak 35 340 KiB, restore 1798 ms, no OOM kill. Evidence: `docs/sandbox-packet-2026-09-29-rehearsal.log`. See Release-blocking item 2 for the enforcement probe and for what this does NOT cover (different hardware, a week of WAL growth, real disk). |
+| Backup tooling (Litestream sidecar) | Measured locally, 1 GiB enforced, run committed (2026-09-29) | Gate 9 sampled a 6.9 MiB / 120 000-row database through `litestream replicate` and `restore` inside a kernel-enforced `MemoryMax=1G` scope: replication peak 45 900 KiB, restore peak 36 672 KiB, restore 2548 ms, no OOM kill. Evidence: `docs/sandbox-packet-2026-09-29-rehearsal.log`. See Release-blocking item 2 for the enforcement probe and for what this does NOT cover (different hardware, a week of WAL growth, real disk). |
 | Burst headroom | Partially bounded | 2 s deadline + 429 capacity rejects cap concurrency (see contention test), but peak RSS under sustained capacity load is **unmeasured** on micro2. |
 | Disk growth | Baseline only | 86 KiB for 300 small rows + WAL + metadata. Growth per real workload, tombstone 24 h retention accumulation, and purge cadence effects are **unmeasured**. |
 
@@ -59,12 +59,15 @@ host shape (or an equivalent VM), with the release profile:
    | measurement | value |
    | --- | --- |
    | constraint | `MemoryMax=1G` systemd transient scope, enforcement proved by an OOM-kill probe |
-   | steady replication, peak RSS | 49 652 KiB (4% of the 1 GiB budget) |
-   | restore | 1798 ms, 120 030 rows restored, peak child RSS 35 340 KiB (3% of budget) |
+   | steady replication, peak RSS | 45 900 KiB (4% of the 1 GiB budget) |
+   | restore | 2548 ms, 120 030 rows restored, peak child RSS 36 672 KiB (3% of budget) |
    | killed for exceeding the budget | no |
 
-   **An earlier table in this file quoted 48 000 / 35 000 KiB and then 42 000 /
-   34 000 KiB, from two runs that were never committed.** Numbers with no
+   **These numbers are recomputable:** `python3 scripts/packet-facts.py
+   docs/sandbox-packet-2026-09-29-rehearsal.log` prints them from the packet, so
+   a reader does not have to trust this table over the artifact it claims to
+   describe. **An earlier table in this file quoted 48 000 / 35 000 KiB and then
+   42 000 / 34 000 KiB, from two runs that were never committed.** Numbers with no
    artifact behind them cannot be audited, and a reader comparing them against
    a committed packet would have had two answers and no way to tell which was
    current. The row above is the one the repository can support; if a later run
