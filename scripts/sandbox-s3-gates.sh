@@ -1319,14 +1319,21 @@ G9_MAX_RSS="${G9_MAX_RSS:-0}"
 # larger of the two guards against a sample series that outlived the process.
 [ "$G9_HWM" -gt "$G9_MAX_RSS" ] && G9_MAX_RSS="$G9_HWM"
 G9_REPL_CPU_TICKS="$(( $(cpu_ticks_of "$G9_PID") - G9_REPL_PID_CPU ))"
-# Did the kernel kill it for exceeding the budget? A cgroup that hit MemoryMax
-# leaves an OOM record, and that is the difference between "ran comfortably
-# inside 1 GB" and "was rescued just in time", which a peak number alone hides.
+# Did the kernel kill it for exceeding the budget? A cgroup that hits MemoryMax
+# leaves an oom_kill count, and that is the difference between "ran comfortably
+# inside 1 GB" and "was rescued just in time" -- which a peak number alone hides.
+# Two sources, because the two mechanisms report differently: the direct child
+# cgroup has a counter to read, while a transient systemd scope is gone by the
+# time the gate looks, so there the process output is the evidence. Neither
+# source is read on a path that does not exist, which is exactly what the
+# previous version's unset USER_CGROUP_PATH did under `set -u`.
 G9_OOM="no"
-if [ -r "/sys/fs/cgroup$USER_CGROUP_PATH/memory.events" ]; then
-    grep -qE '^oom_kill [1-9]' "/sys/fs/cgroup$USER_CGROUP_PATH/memory.events" 2>/dev/null && G9_OOM="yes (this cgroup)"
+if [ "$G9_MECH" = "cgroup" ] && [ -r "$G9_OWN_CGROUP/$G9_CG_NAME/memory.events" ]; then
+    grep -qE '^oom_kill [1-9]' "$G9_OWN_CGROUP/$G9_CG_NAME/memory.events" 2>/dev/null \
+        && G9_OOM="yes (cgroup memory.events shows oom_kill > 0)"
 fi
-grep -qiE 'out of memory|oom|Killed process|cannot allocate memory' "$G9_ROOT/replicate.log" 2>/dev/null && G9_OOM="yes (the process said so)"
+grep -qiE 'out of memory|oom-kill|cannot allocate memory|Killed process|MemoryMax' "$G9_ROOT/replicate.log" 2>/dev/null \
+    && G9_OOM="yes (the replicate log said so)"
 kill "$G9_PID" 2>/dev/null || true; wait "$G9_PID" 2>/dev/null || true
 
 # The restore, which is the memory event gate 9 is really about. It is run
