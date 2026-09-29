@@ -185,22 +185,22 @@ follows in the sandbox/notification work):
      refuted it. Whether the stored bytes are encrypted is the SERVICE's
      answer, not litestream's -- see decision 3.
    - **Credential scope, MEASURED** -- the operation matrix the packet issues
-     against a bucket in a passing run (910 requests on the 2026-09-29
+     against a bucket in a passing run (938 requests on the 2026-09-29
      rehearsal, three non-2xx answers all named, no others):
 
      | method | query-prefix | count | IAM action | issued by |
      | --- | --- | --- | --- | --- |
-     | `GET` | `list-type=2` | 696 | `s3:ListBucket` | litestream |
-     | `GET` | `x-id=GetObject` | 51 | `s3:GetObject` | litestream |
-     | `PUT` | `x-id=PutObject` | 66 | `s3:PutObject` | litestream |
+     | `GET` | `list-type=2` | 722 | `s3:ListBucket` | litestream |
+     | `GET` | `x-id=GetObject` | 41 | `s3:GetObject` | litestream |
+     | `PUT` | `x-id=PutObject` | 71 | `s3:PutObject` | litestream |
      | `GET` | `versions` | 4 | `s3:ListBucketVersions` | packet (retention arithmetic, residue check) |
      | `GET` | `lifecycle` | 1 | `s3:GetLifecycleConfiguration` | packet |
      | `PUT` | `lifecycle` | 1 | `s3:PutLifecycleConfiguration` | packet |
-     | `HEAD` | object key | 16 | `s3:GetObject` | packet (SSE check, artifact inspection) |
-     | `GET` | object key, no `x-id` | 5 | `s3:GetObject` | packet (gate 5 damage cases) |
+     | `HEAD` | object key | 15 | `s3:GetObject` | packet (SSE check, artifact inspection) |
+     | `GET` | object key, no `x-id` | 6 | `s3:GetObject` | packet (gate 5 damage cases, SSE canary) |
      | `HEAD` | `/<bucket>` | 1 | `s3:ListBucket` | packet |
      | `PUT` | `/<bucket>` | 2 | `s3:CreateBucket` | packet (idempotent) |
-     | `DELETE` | `versionId` | 66 | `s3:DeleteObjectVersion` | packet (gate 12) |
+     | `DELETE` | `versionId` | 72 | `s3:DeleteObjectVersion` | packet (gate 12) |
      | `DELETE` | `/<bucket>` | 1 | `s3:DeleteBucket` | packet (gate 12) |
 
      **The litestream-only half is the minimum a steady-state policy needs**:
@@ -264,8 +264,8 @@ follows in the sandbox/notification work):
    relying on OVH's documentation plus the reported header.
    *Status 2026-09-29*: **sidecar headroom has been MEASURED, locally**.
    `sandbox-s3-gates.sh` gate 9 ran the litestream 0.5.17 sidecar inside a
-   kernel-enforced 1 GiB transient scope: replication peak ~44 MiB, restore
-   peak ~35 MiB, no OOM kill. The enforcement is proved, not assumed -- the
+   kernel-enforced 1 GiB transient scope: replication peak 48 MiB, restore
+   peak 34 MiB, no OOM kill. The enforcement is proved, not assumed -- the
    probe allocates 8x the cap and requires the child to be killed, and a
    mechanism that lets it survive is rejected. Headroom against the 1 GB
    budget is roughly 95% at steady state and restore **at this database size**;
