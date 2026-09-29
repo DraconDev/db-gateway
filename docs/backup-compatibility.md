@@ -141,7 +141,7 @@ nothing else.**
 
 `scripts/rehearse-sandbox-packet.sh` runs the whole packet against a local
 disposable S3-compatible endpoint (gofakes3 in a SigV4-validating proxy), then
-checks five post-conditions the packet cannot check about itself: no temp tree
+checks six post-conditions the packet cannot check about itself: no temp tree
 left, no surviving proxy/store process, no end-point state directory, the
 packet declares `mode: REHEARSAL`, and every gate that needs a bucket
 actually ran. The endpoint is named in each gate's output
@@ -191,11 +191,17 @@ one would otherwise have been discovered by a gate recording a false PASS.
    terminates the process rather than reloading it. `litestream status` and
    `litestream ltx` also require the database to be in the config, so the
    daemon log is the only signal for a runtime-added database.
-4. **Unknown replica keys are silently ignored.** A config carrying
-   `sse-customer-key` replicated with no error and no encryption. Decision 3
-   (encryption) therefore cannot be settled by writing a key into the config
-   and observing that Litestream starts; it must be settled at the bucket or by
-   a mechanism this packet verifies end to end.
+4. **Starting cleanly is not evidence that a config key did anything.** A
+   first pass wrote `sse-customer-key` into the replica config, watched the
+   daemon start without an error, and recorded that litestream 0.5.17
+   "replicated in the clear" -- which the run's own request log then refuted:
+   all three uploads carried `x-amz-server-side-encryption-customer-algorithm`,
+   `-key` and `-key-md5` inside the signature. litestream SENDS SSE-C; the
+   rehearsal store simply neither enforces nor echoes it. Both halves have to
+   be observed separately -- what the client put on the wire, and what the
+   service reports about what it stored -- because only the second one says
+   whether the bytes at rest are encrypted. Decision 3 must be settled at the
+   bucket, and gate 10 now checks both halves rather than either.
 5. **The first row of `litestream ltx` is the base snapshot, and restoring it
    is a correct restore of an EMPTY database.** Its `max_txid` is the very
    start of history, so `-txid` against it succeeds with exit 0 and 0 rows.
@@ -268,7 +274,7 @@ packet and elided from the committed copy):
 | --- | --- | --- | --- | --- |
 | `GET` | `list-type=2` | 696 | enumerate objects; paginated with `prefix` and `continuation-token` | litestream |
 | `GET` | `x-id=GetObject` | 51 | download LTX; `Range: bytes=...` for resumable reads | litestream |
-| `PUT` | `x-id=PutObject` | 66 | upload LTX; sets `x-amz-meta-litestream-timestamp` | litestream (3 of these carry an SSE-C header, from gate 10's own probe -- litestream sent none) |
+| `PUT` | `x-id=PutObject` | 66 | upload LTX; sets `x-amz-meta-litestream-timestamp`. The 3 under `sbx/g10/` are gate 10's SSE-C probe, and they **did** carry `x-amz-server-side-encryption-customer-algorithm/-key/-key-md5` | litestream |
 | `GET` | `versions` | 4 | enumerate versions for the retention arithmetic and the residue check | packet |
 | `GET` | `lifecycle` | 1 | gate 6 reads the stored lifecycle policy back | packet |
 | `PUT` | `lifecycle` | 1 | gate 6 stores the candidate 7/30-day policy | packet |
@@ -298,13 +304,32 @@ calls a passing run makes.
 
 ### Encryption finding, ready for decision 3
 
-Litestream 0.5.17 IGNORES `replica.sse-customer-key`. Writing it into the
-replica config produced no error, the daemon started, replication proceeded,
-and a HEAD on the resulting objects reported no
-`x-amz-server-side-encryption` header from the service. A encryption setting
-that is not visible from the service is not in effect. Decision 3 therefore
-reduces to a bucket or object-storage-side choice (SSE-OMK on OVH, or
-client-side encryption before the PUT) -- not to a Litestream config knob.
+**What litestream does, measured on the wire.** With
+`replica.sse-customer-key` set, litestream 0.5.17 starts without an error and
+**signs SSE-C on every upload**: the packet's validating proxy recorded
+`x-amz-server-side-encryption-customer-algorithm`, `-key` and `-key-md5` in
+`SignedHeaders` of every PUT under that prefix. This corrects an earlier
+finding in this document, which claimed 0.5.17 ignores the key and replicates
+in the clear; that claim was inferred from a clean start and the request log
+refuted it. The client-side lever exists -- the owner is not forced into
+SSE-OMK because SSE-C is unavailable.
+
+**What the service does, which is the part that decides the question.** A HEAD
+on the stored objects reported neither `x-amz-server-side-encryption` nor an
+SSE-C `customer-algorithm` echo, because the rehearsal store implements
+neither mode. Both headers are read by gate 10, and they are different
+observations: a service that correctly applies SSE-C echoes the
+customer-algorithm and may report no `sse` at all, so reading only `sse` would
+label it plaintext -- a false negative that would have been carried straight
+onto OVH. The unresolved question, which no rehearsal can answer:
+
+> does the OVH bucket report an encryption header on what it stored under the
+> chosen mode -- and, for SSE-C specifically, does a restore work with the
+> customer key present, and fail cleanly without it?
+
+The key-loss half is the operational consequence of choosing SSE-C, and it
+cannot be exercised until the service actually applies SSE-C. That is a reason
+to decide the mode deliberately, not a reason to avoid SSE-C.
 
 **The other half of gate 10 has been measured and is clean.** With every
 ambient credential removed (empty `AWS_*` config files, the real ones

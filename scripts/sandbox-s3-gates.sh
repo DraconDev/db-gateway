@@ -1143,18 +1143,32 @@ fi
     echo "     THE OPERATIONAL CONSEQUENCE, which is why this is a gate and not a note:"
     echo "     a restore's success cannot be read off litestream's exit status, in either"
     echo "     direction. It has to be read off the CONTENT of the restored file, which is"
-    echo "     what (rows, sum, distinct) plus PRAGMA integrity_check is for."
+    echo "     what (rows, sum, distinct) plus PRAGMA integrity_check is for -- and this"
+    echo "     gate runs both, on the source and on every restored file, instead of"
+    echo "     naming them in prose."
 } >> "$OUT"
 
+# A gate that requires a corrupt-artifact case must not PASS without one. With
+# nothing under the prefix to download, every damage verdict is "not attempted",
+# the count of bad outcomes is 0, and the old condition passed the gate having
+# run no corruption case at all -- printing "0 of 4 were REJECTED, 0 returned
+# the exact source, and 0 produced a database that was not the source", which
+# reads as four clean results. §6 gate 5 asks for the rejection case, so its
+# absence is BLOCKED, never a pass.
 if [ "$G5_LATEST_OK" = "1" ] && [ "$G5_MID_OK" = "1" ] && [ "$G5_PIT_OK" = "1" ] \
-   && [ "$G5_SELECTORS_AGREE" = "1" ] && [ "${G5_DAMAGE_BAD:-1}" = "0" ]; then
-    record 5 PASS "bucket-backed restore drill: latest restore is exact, a mid-history point and a point-in-time target both restore real earlier states and agree byte for byte, and no damaged-artifact case produced a wrong database" \
-        "source $G5_SRC_DIGEST over $G5_SEGMENTS segments; latest $G5_LATEST_DIGEST (exit $G5_LATEST_RC)" \
-        "mid-history -txid ${G5_LTX_MID:-none} -> $G5_MID_DIGEST (exit $G5_MID_RC)" \
-        "point-in-time -timestamp ${G5_PIT_TARGET:-none} -> $G5_PIT_DIGEST (exit $G5_PIT_RC); same point, same bytes" \
-        "corrupt artifacts: $G5_FLIP | $G5_TRUNC | $G5_DESTROY | $G5_STALE" \
+   && [ "$G5_SELECTORS_AGREE" = "1" ] && [ "${G5_DAMAGE_BAD:-1}" = "0" ] \
+   && [ "${G5_FETCHED:-0}" -gt 0 ]; then
+    record 5 PASS "bucket-backed restore drill: the latest restore is exact, a mid-history point and a point-in-time target both restore the content that position actually held (not merely the same as each other), and all $G5_FETCHED corrupt-artifact cases either matched the source or were refused, with none producing a database that was not the source" \
+        "source $G5_SRC_DIGEST (integrity $G5_SRC_INTEGRITY) over $G5_SEGMENTS segments; latest $G5_LATEST_DIGEST (integrity $G5_LATEST_INTEGRITY, exit $G5_LATEST_RC)" \
+        "mid-history -txid ${G5_LTX_MID:-none} -> $G5_MID_DIGEST (exit $G5_MID_RC), matching the content captured at that position: $G5_MID_EXPECTED" \
+        "point-in-time -timestamp ${G5_PIT_TARGET:-none} -> $G5_PIT_DIGEST (exit $G5_PIT_RC), same captured content" \
+        "corrupt artifacts ($G5_FETCHED downloaded through the signed API): $G5_FLIP | $G5_TRUNC | $G5_DESTROY | $G5_STALE" \
         "supersedes the earlier file-replica gate 5 line above, which could not answer mid-history or corruption" \
         "gateway import validation of the restored file is gate 11"
+elif [ "${G5_FETCHED:-0}" -le 0 ]; then
+    record 5 BLOCKED "no artifact was returned under $G5_PREFIX/, so the corrupt-artifact cases could not run; §6 gate 5 requires them and a gate that skips them is not a pass" \
+        "objects listed under the prefix: 0" \
+        "the restore sub-cases that did run: latest $G5_LATEST_OK, mid-history $G5_MID_OK, point-in-time $G5_PIT_OK"
 elif [ "$G5_MID_OK" = "1" ] && [ "$G5_PIT_OK" = "1" ] && [ "$G5_SELECTORS_AGREE" != "1" ]; then
     record 5 FAIL "-txid ${G5_LTX_MID:-none} and -timestamp ${G5_PIT_TARGET:-none} name the same point but restored different content; the two selectors disagree about history" \
         "by txid:    $G5_MID_DIGEST (exit $G5_MID_RC)" \

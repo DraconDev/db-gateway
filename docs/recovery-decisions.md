@@ -176,8 +176,14 @@ follows in the sandbox/notification work):
    - A replica root is **not** namespaced per database, so the bucket layout
      must be one prefix per gateway database (`s3://<bucket>/<db-name>/...`).
      The gateway holds N databases, so this is load-bearing, not tidy.
-   - **Unknown replica keys are silently ignored.** A config carrying
-     `sse-customer-key` replicated with no error and no encryption.
+   - **Encryption client-side, MEASURED** -- litestream 0.5.17 **sends
+     SSE-C**: with `sse-customer-key` set, the validating proxy recorded
+     `x-amz-server-side-encryption-customer-algorithm`, `-key` and `-key-md5`
+     inside `SignedHeaders` of every PUT under that prefix. An earlier finding
+     in this file said the key was ignored and the data replicated in the
+     clear; that was inferred from a clean daemon start and the request log
+     refuted it. Whether the stored bytes are encrypted is the SERVICE's
+     answer, not litestream's -- see decision 3.
    - **Credential scope, MEASURED** -- the operation matrix the packet issues
      against a bucket in a passing run (910 requests on the 2026-09-29
      rehearsal, three non-2xx answers all named, no others):
@@ -213,27 +219,44 @@ follows in the sandbox/notification work):
      the key prefix. The OVH account-level cap (1 Gbps/connection, 300
      PUT/s + 900 GET/s soft limits) is the owner-decision input that no
      rehearsal can answer.
-   - **Encryption** -- `sse-customer-key` is silently ignored by 0.5.17;
-     see decision 3.
+   - **Encryption** -- `sse-customer-key` IS sent by 0.5.17 (measured on the
+     wire); whether it is honoured is the service's answer. See decision 3.
    - Budget, exclusions, region choice and pricing still need real facts.
 3. **STILL OPEN** — same inputs as 2, plus what headroom the 1 GB host must
    show. Deferred with 2.
-   *Status 2026-09-29*: **encryption has been MEASURED, not decided**. The
-   rehearsal proved `litestream 0.5.17` ignores `replica.sse-customer-key`:
-   the daemon started with the key in the config, replication proceeded with
-   no error, and a HEAD on the resulting objects returned no
-   `x-amz-server-side-encryption` header from the service. The setting that
-   is not visible from the service is not in effect, so a Litestream config
-   key cannot be the answer. The decision is now strictly a bucket / storage-
-   class one: SSE-OMK (OVH-managed, transparent to the client), SSE-C (the
-   client supplies a key per PUT), or client-side encryption before the PUT.
-   Gate 10 BLOCKS on the rehearsal endpoint because the endpoint reports no
-   server-side encryption on any object, so the stored-data half has no answer
-   there -- and must be re-answered on OVH. The credential-isolation half is
-   no longer confounded and has been **measured clean**: with every ambient
-   credential removed, a restore from the bucket returned all 100 rows, so the
-   restore-without-ambient-credentials property holds and the TLS layer is not
-   what is blocking the gate.
+   *Status 2026-09-29 (corrected the same day by the run's own request log)*:
+   **encryption has been MEASURED on the client side, and is still OPEN on the
+   service side.** What the rehearsal measured, in two parts that must not be
+   confused:
+
+   - **The client sends SSE-C.** With `replica.sse-customer-key` set,
+     litestream 0.5.17 signs `x-amz-server-side-encryption-customer-algorithm`,
+     `-key` and `-key-md5` on every upload; the packet's validating proxy
+     recorded all three inside `SignedHeaders`. An earlier note here said
+     0.5.17 "ignores the key and replicates in the clear", inferred from the
+     daemon starting without an error. The request log refuted it, and the
+     note is withdrawn. **SSE-C is available to the owner as a client-side
+     lever** -- this is the correction that matters, because the withdrawn
+     claim implied the only choice was OVH-managed SSE.
+   - **The service's answer is still missing.** The rehearsal store implements
+     neither SSE-OMK nor SSE-C, so a HEAD on the stored objects reported
+     neither `x-amz-server-side-encryption` nor an SSE-C customer-algorithm
+     echo. That is a property of the stand-in, not of litestream and not of
+     OVH. Gate 10 now reads both headers, because a service that correctly
+     applies SSE-C echoes the customer-algorithm and may report no `sse` at
+     all -- reading only `sse` would have called such a service plaintext on
+     OVH.
+
+   So decision 3 is a real choice between SSE-OMK (OVH-managed, transparent),
+   SSE-C (client-supplied per PUT, and litestream already sends it), or
+   client-side encryption before the PUT, and the packet states which
+   observation each requires rather than guessing. Gate 10 BLOCKS here on the
+   missing service-side answer, not on the client half. The credential-isolation
+   half is no longer confounded and has been **measured clean**: with every
+   ambient credential removed, a restore from the bucket returned all 100 rows.
+   Two things only OVH can answer: the encryption header on the objects it
+   stored under the chosen mode, and, for SSE-C, that a restore succeeds with
+   the customer key and fails cleanly without it.
    *Status 2026-09-29*: **sidecar headroom has been MEASURED, locally**.
    `sandbox-s3-gates.sh` gate 9 ran the litestream 0.5.17 sidecar inside a
    kernel-enforced 1 GiB transient scope: replication peak ~44 MiB, restore
