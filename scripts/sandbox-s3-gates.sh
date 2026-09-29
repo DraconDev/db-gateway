@@ -759,13 +759,24 @@ g5_write 1 30
 sleep 5
 "${TIMEOUT_ARGV[@]}" "$LITESTREAM" sync -socket "$G5_SOCK" "$G5_SRC" >/dev/null 2>&1 || true
 sleep 2
-# `litestream ltx` prints: level min_txid max_txid size created  (fields 1-5).
-# The lowest level is the base snapshot, so the FIRST such row's max_txid is the
-# newest position as of the moment it was listed.
-G5_LTX_MID="$("$LITESTREAM" ltx -config "$G5_ROOT/litestream.yml" "$G5_SRC" 2>/dev/null \
-    | awk 'NR>1 && $2 ~ /^[0-9a-f]+$/ {print $3; exit}')"
-G5_MID_TS="$("$LITESTREAM" ltx -config "$G5_ROOT/litestream.yml" "$G5_SRC" 2>/dev/null \
-    | awk 'NR>1 && $2 ~ /^[0-9a-f]+$/ {print $5; exit}')"
+# The content the mid-history point MUST restore, captured HERE, while this
+# position is the live one and before the next batch exists. Everything after
+# this point writes more rows, so this is the only moment at which "what the
+# mid-history restore ought to contain" is knowable. Without it, the two
+# selectors can only be compared with each other, and two selectors that agreed
+# on the same wrong earlier position would pass.
+G5_MID_EXPECTED="$(g5_digest "$G5_SRC")"
+G5_MID_EXPECTED_INTEGRITY="$(python3 - "$G5_SRC" <<'PY'
+import sqlite3, sys
+try:
+    print(sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+          .execute("PRAGMA integrity_check").fetchone()[0])
+except Exception as exc:
+    print(f"unreadable:{exc}")
+PY
+)"
+echo "mid-history position captured at $(date -u +%FT%TZ): $G5_MID_EXPECTED (integrity: $G5_MID_EXPECTED_INTEGRITY)" \
+    > "$G5_ROOT/mid-position.txt"
 g5_write 31 40
 sleep 5
 "${TIMEOUT_ARGV[@]}" "$LITESTREAM" sync -socket "$G5_SOCK" "$G5_SRC" >/dev/null 2>&1 || true
@@ -817,14 +828,17 @@ G5_SRC_DIGEST="$(g5_digest "$G5_SRC")"
 G5_SRC_INTEGRITY="$(G5_INTEGRITY "$G5_SRC")"
 G5_LATEST_RC="$(g5_restore latest)"
 G5_LATEST_DIGEST="$(g5_digest "$G5_ROOT/out-latest.sqlite")"
+G5_LATEST_INTEGRITY="$(G5_INTEGRITY "$G5_ROOT/out-latest.sqlite")"
 G5_LATEST_OK=0
-[ "$G5_LATEST_RC" = "0" ] && [ "$G5_LATEST_DIGEST" = "$G5_SRC_DIGEST" ] && G5_LATEST_OK=1
+[ "$G5_LATEST_RC" = "0" ] && [ "$G5_LATEST_DIGEST" = "$G5_SRC_DIGEST" ] \
+    && [ "$G5_LATEST_INTEGRITY" = "ok" ] && G5_LATEST_OK=1
 
 # 2. mid-history, by transaction id. -txid is the deterministic selector; a
 # point-in-time restore is measured too because it is what an operator
 # actually types, and it behaves differently at the boundary.
 G5_MID_RC="skipped"
 G5_MID_DIGEST="(no mid-history txid was reported)"
+G5_MID_INTEGRITY="(not read)"
 G5_MID_OK=0
 # Fewer than three segments means there is no position strictly between the
 # beginning and the end, and a drill that reports one anyway is inventing it.
@@ -836,12 +850,18 @@ elif [ -z "${G5_LTX_MID:-}" ]; then
 else
     G5_MID_RC="$(g5_restore mid -txid "$G5_LTX_MID")"
     G5_MID_DIGEST="$(g5_digest "$G5_ROOT/out-mid.sqlite")"
+    G5_MID_INTEGRITY="$(G5_INTEGRITY "$G5_ROOT/out-mid.sqlite")"
     G5_MID_ROWS="${G5_MID_DIGEST%%|*}"
-    # Strictly fewer rows than the source, and every id a prefix of the
-    # source's: a point-in-time restore that returned everything would mean the
-    # -txid was ignored, which is the failure this is here to catch.
-    if [ "$G5_MID_RC" = "0" ] && [ "${G5_MID_ROWS:-0}" -gt 0 ] 2>/dev/null \
-       && [ "${G5_MID_ROWS:-0}" -lt "${G5_SRC_DIGEST%%|*}" ] 2>/dev/null; then
+    # Three things, not one. A restore that returned everything would mean the
+    # -txid was ignored. A restore that returned nothing would mean the point
+    # was the empty database. And a restore that returned SOME earlier state
+    # which is not the state that position held would be indistinguishable
+    # from success by row count alone -- so it is compared with the content
+    # captured at that position while it was live, before the next batch was
+    # written. `ok` on integrity_check is also required: a database can be
+    # well-formed and still not be the one you asked for.
+    if [ "$G5_MID_RC" = "0" ] && [ "$G5_MID_DIGEST" = "$G5_MID_EXPECTED" ] \
+       && [ "$G5_MID_INTEGRITY" = "ok" ]; then
         G5_MID_OK=1
     fi
 fi
@@ -869,25 +889,25 @@ fi
 if [ -n "$G5_PIT_TARGET" ]; then
     G5_PIT_RC="$(g5_restore pit -timestamp "$G5_PIT_TARGET")"
     G5_PIT_DIGEST="$(g5_digest "$G5_ROOT/out-pit.sqlite")"
+    G5_PIT_INTEGRITY="$(G5_INTEGRITY "$G5_ROOT/out-pit.sqlite")"
     G5_PIT_ROWS="${G5_PIT_DIGEST%%|*}"
-    # The same invariants as -txid: a real, non-empty, strictly-earlier state.
+    # The same three things as -txid, and against the same captured content.
     # The 30/70 bounds that used to stand here encoded this run's batch sizes,
     # which is the wrong kind of check: a different-sized database would fail a
-    # correct restore. "Non-empty, and fewer rows than the source" is the
-    # property, and it is checked by arithmetic rather than by a constant.
-    if [ "$G5_PIT_RC" = "0" ] && [ "${G5_PIT_ROWS:-0}" -gt 0 ] 2>/dev/null \
-       && [ "${G5_PIT_ROWS:-0}" -lt "${G5_SRC_DIGEST%%|*}" ] 2>/dev/null; then
+    # correct restore. "Exactly the content that position held, and integrity ok"
+    # is the property, and it is measured rather than assumed.
+    if [ "$G5_PIT_RC" = "0" ] && [ "$G5_PIT_DIGEST" = "$G5_MID_EXPECTED" ] \
+       && [ "$G5_PIT_INTEGRITY" = "ok" ]; then
         G5_PIT_OK=1
     fi
 else
     G5_PIT_RC="no-timestamp"
 fi
 
-# 2c. The two selectors name ONE point, so they must return the same bytes.
-# This is the cross-check that catches a selector pointing somewhere nobody
-# asked for, and it needs no knowledge of the batch sizes: -txid <txid> and
-# -timestamp <that segment's created time + 1s> are the same position, and any
-# difference between them is a real disagreement about history.
+# 2c. The two selectors name ONE point, so they must return the same content.
+# This cross-check needs no knowledge of the batch sizes, and it is NOT a
+# substitute for the content anchor above: two selectors can agree on the same
+# wrong earlier position, and only the captured digest rules that out.
 G5_SELECTORS_AGREE=0
 if [ "$G5_MID_OK" = "1" ] && [ "$G5_PIT_OK" = "1" ] && [ "$G5_MID_DIGEST" = "$G5_PIT_DIGEST" ]; then
     G5_SELECTORS_AGREE=1
