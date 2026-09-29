@@ -1536,15 +1536,27 @@ except Exception:
 # to be a signal rather than a standing error line.
 g8_log_lines() { wc -l < "$G8_ROOT/litestream.log" 2>/dev/null | tr -d ' ' || echo 0; }
 
-# Wait a bounded 5s for the daemon to log a signal for THIS phase. The daemon
-# raises the error while serving the sync the gate triggers, so the line is
-# expected promptly; a single immediate sample would call a slow-but-working
-# surface silent, which is the same error in the other direction. Echoes the
-# lines it found; returns 1 when none arrived inside the bound. It deliberately
-# sets no variable in the caller: it runs in a command substitution, so
-# anything it assigned would be lost with the subshell.
+# Wait for the daemon to log a signal for THIS phase, bounded by the daemon's
+# OWN RETRY POLICY rather than by a fixed patience. The daemon raises the error
+# while serving the sync the gate triggers, so on the first fault the line
+# appears within a second or two; but litestream backs off exponentially on
+# consecutive errors (it logs `consecutive_errors=N backoff=2^(N-1)s`), so by
+# the third injected fault the daemon may be 16-32 s away from its next
+# attempt. The bound used to be a flat 5 s, which is a RACE against the daemon's
+# own backoff rather than a measurement of it: on 2026-09-29 the third phase
+# was recorded as invisible on every surface and the gate FAILED, when the
+# daemon had simply not retried yet. A gate that reports "this failure is not
+# visible" because it did not wait as long as the product's own retry interval
+# is measuring the wrong thing.
+#
+# So the wait covers the longest backoff litestream 0.5.17 uses, and it exits
+# the moment the line appears, so the common case (signal in ~1 s) is not made
+# slower. What the elapsed time now means is worth having in the packet: it is
+# how long a stalled backup stays SILENT, which is the substance of owner
+# decision 6. The daemon's own declared backoff is printed beside it.
 G8_SIGNAL_WAIT_S=0.5
-G8_SIGNAL_TRIES=10
+G8_SIGNAL_BOUND_S="${DG_SANDBOX_G8_SIGNAL_BOUND:-70}"
+G8_SIGNAL_TRIES=$(( G8_SIGNAL_BOUND_S * 2 ))
 g8_wait_for_signal() {
     local before="$1" i out
     for i in $(seq 1 "$G8_SIGNAL_TRIES"); do
@@ -1609,6 +1621,11 @@ g8_write_and_serve() {
     status_said="no"
     printf '%s' "$status_out" | grep -qiE 'error|denied|403|forbidden|expired|signature|"error"' && status_said="yes"
     local signal
+    # What backoff the daemon declared is read from the lines this phase added,
+    # because "silent for N seconds" only means something next to the retry
+    # interval the daemon was actually honouring.
+    G8_SIGNAL_BACKOFF="$(tail -n "+$((log_before + 1))" "$G8_ROOT/litestream.log" 2>/dev/null \
+        | grep -oE 'backoff=[0-9]+s' | tail -1 || true)"
     signal="$(g8_wait_for_signal "$log_before")" && daemon_said="yes" || daemon_said="no"
     # The wait runs in a subshell (its output is captured), so it cannot set a
     # variable in this shell -- the previous version had it do exactly that and
@@ -1634,7 +1651,7 @@ g8_write_and_serve() {
     reactive="no"
     [ "$restore_said" = "yes" ] && reactive="yes"
     G8_SURFACES+=("$label -> $surfaces")
-    G8_RESULTS+=("$label: live $before -> $after, in-bucket $restored, surfaces that carried it: $surfaces (proactive: $proactive, restore-only: $reactive), daemon signal within ${G8_SIGNAL_SURFACED_S}s")
+    G8_RESULTS+=("$label: live $before -> $after, in-bucket $restored, surfaces that carried it: $surfaces (proactive: $proactive, restore-only: $reactive), daemon signal after ${G8_SIGNAL_SURFACED_S}s [daemon's own backoff when it logged: ${G8_SIGNAL_BACKOFF:-n/a}, wait bound ${G8_SIGNAL_BOUND_S}s]")
     # Keep the last sync output visible. The greps above are what makes the
     # gate pass/fail, but the wording varies by litestream version and the
     # packet is the only durable place to look when the gate's count says no.
@@ -1800,6 +1817,15 @@ fi
     echo
     echo "new daemon signal lines, per phase (the delta the count above is made of):"
     printf '%s\n' "${G8_SIGNAL_LINES:-  (none)}" | sed 's/^/  /'
+    echo
+    echo "how long a stalled backup stays SILENT is the 'daemon signal after Ns' figure"
+    echo "in each phase above, read next to the daemon's own declared backoff."
+    echo "litestream backs off exponentially on consecutive errors, so that number"
+    echo "GROWS with each successive failure, and it is measured against a wait bound"
+    echo "of ${G8_SIGNAL_BOUND_S}s -- which is what makes a surface count as invisible."
+    echo "A surface that is silent for 30 s and one that is silent forever are"
+    echo "different findings, and only the second is a reason to distrust the daemon"
+    echo "log as an alerting source."
     echo
     echo "sync command output, last 8 lines (the grep that decides sync-reported above):"
     printf '%s\n' "${G8_SYNC_TAIL:-  (none captured)}" | sed 's/^/  /'
