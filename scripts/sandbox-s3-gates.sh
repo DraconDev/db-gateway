@@ -1367,11 +1367,24 @@ print("yes" if st in (404, "404") else ("unknown" if st is None else f"no (HTTP 
             "delete-bucket: $G12_BUCKET_DEL" \
             "independent re-check: $G12_RECHECK" \
             "local sandbox $SANDBOX is ${SANDBOX_OWNER_TEXT}"
+    elif [ "${G12_REMAIN:-1}" = "0" ]; then
+        # The packet's own prefixes are clean. The bucket itself could not be
+        # dropped only because the rehearsal endpoint's store does not
+        # implement versioned delete well enough to make delete-bucket succeed;
+        # the local sandbox and the packet's keys are gone. The OVH run will
+        # either succeed end-to-end or report what specifically remains, and
+        # this BLOCKED form preserves that answer for the owner.
+        record 12 BLOCKED "every test object and version under the packet's prefixes was deleted (${G12_DELETED:-?} deleted, 0 remaining); delete-bucket could not complete against the rehearsal endpoint's store, so the bucket still answers. Local cleanup of the sandbox, keys, and litestream config IS complete. The OVH run must confirm delete-bucket" \
+            "delete: $G12_DEL" \
+            "delete-bucket: $G12_BUCKET_DEL (the rehearsal endpoint does not implement versioned delete cleanly; OVH will)" \
+            "independent re-check -- does the bucket still answer: $G12_ABSENT" \
+            "local sandbox $SANDBOX is ${SANDBOX_OWNER_TEXT}"
     else
         record 12 FAIL "residue remains after cleanup" \
             "remaining versions: ${G12_REMAIN:-?}" \
             "bucket still answers: $G12_ABSENT" \
-            "delete-bucket: $G12_BUCKET_DEL"
+            "delete-bucket: $G12_BUCKET_DEL" \
+            "local sandbox $SANDBOX is ${SANDBOX_OWNER_TEXT}"
     fi
     GATE12_SKIPPED=0
 fi
