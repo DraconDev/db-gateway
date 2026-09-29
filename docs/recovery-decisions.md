@@ -189,28 +189,28 @@ follows in the sandbox/notification work):
      refuted it. Whether the stored bytes are encrypted is the SERVICE's
      answer, not litestream's -- see decision 3.
    - **Credential scope, MEASURED** -- the operation matrix the packet issues
-     against a bucket in a passing run (945 requests; re-derivable with
+     against a bucket in a passing run (933 requests; re-derivable with
      `scripts/packet-facts.py` from the committed packet and its matrix sidecar) on the 2026-09-29
-     rehearsal, 270+22+10+71 = 373 of them litestream's, three non-2xx answers all named, no others):
+     rehearsal, 270+26+8+70 = 374 of them litestream's, three non-2xx answers all named, no others):
 
      | method | query-prefix | count | IAM action | issued by |
      | --- | --- | --- | --- | --- |
      | `GET` | `list-type=2` | 270 | `s3:ListBucket` | litestream |
-     | `GET` | `list-type=2` | 450 | `s3:ListBucket` | packet (versions, retention, residue) |
-     | `GET` | `x-id=GetObject` | 22 | `s3:GetObject` | litestream |
-     | `GET` | `x-id=GetObject` | 29 | `s3:GetObject` | packet (gate 5 damage cases) |
-     | `GET` | object key, no `x-id` | 6 | `s3:GetObject` | packet (gate 5, gate 10 canary) |
+     | `GET` | `list-type=2` | 442 | `s3:ListBucket` | packet (versions, retention, residue) |
+     | `GET` | `x-id=GetObject` | 26 | `s3:GetObject` | litestream |
+     | `GET` | `x-id=GetObject` | 26 | `s3:GetObject` | packet (gate 5 damage cases) |
+     | `GET` | `(object key)` | 5 | `s3:GetObject` | packet (gate 5, gate 10 canary) |
      | `GET` | `versions` | 4 | `s3:ListBucketVersions` | packet |
      | `GET` | `lifecycle` | 1 | `s3:GetLifecycleConfiguration` | packet |
-     | `HEAD` | object key | 10 | `s3:GetObject` | litestream |
-     | `HEAD` | object key | 4 | `s3:GetObject` | packet (SSE check, artifact inspection) |
+     | `HEAD` | `(object key)` | 8 | `s3:GetObject` | litestream |
+     | `HEAD` | `(object key)` | 4 | `s3:GetObject` | packet (SSE check, artifact inspection) |
      | `HEAD` | `/<bucket>` | 1 | `s3:ListBucket` | packet (gate 12) |
-     | `PUT` | `x-id=PutObject` | 71 | `s3:PutObject` | litestream (3 carry SSE-C on the wire) |
-     | `PUT` | object key, no `x-id` | 1 | `s3:PutObject` | packet (SSE canary) |
-     | `PUT` | `/<bucket>` | 2 | `s3:CreateBucket` | packet (idempotent) |
+     | `PUT` | `(object key)` | 1 | `s3:PutObject` | packet (SSE canary) |
      | `PUT` | `lifecycle` | 1 | `s3:PutLifecycleConfiguration` | packet |
-     | `DELETE` | `versionId` | 72 | `s3:DeleteObjectVersion` | packet (gate 12) |
+     | `PUT` | `/<bucket>` | 2 | `s3:CreateBucket` | packet (idempotent) |
+     | `PUT` | `x-id=PutObject` | 70 | `s3:PutObject` | litestream (3 carry SSE-C on the wire) |
      | `DELETE` | `/<bucket>` | 1 | `s3:DeleteBucket` | packet (gate 12) |
+     | `DELETE` | `versionId` | 71 | `s3:DeleteObjectVersion` | packet (gate 12) |
 
      **The litestream-only half is the minimum a steady-state policy needs**:
      `s3:ListBucket`, `s3:GetObject`, `s3:PutObject`, scoped to the
@@ -276,8 +276,8 @@ follows in the sandbox/notification work):
    relying on OVH's documentation plus the reported header.
    *Status 2026-09-29*: **sidecar headroom has been MEASURED, locally**.
    `sandbox-s3-gates.sh` gate 9 ran the litestream 0.5.17 sidecar inside a
-   kernel-enforced 1 GiB transient scope: replication peak 44 MiB (45 900 KiB), restore
-   peak 35 MiB (36 672 KiB), restore 2548 ms, no OOM kill. The enforcement is proved, not assumed -- the
+   kernel-enforced 1 GiB transient scope: replication peak 44 MiB (45,632 KiB), restore
+   peak 35 MiB (34,576 KiB), restore 2740 ms, no OOM kill. The enforcement is proved, not assumed -- the
    probe allocates 8x the cap and requires the child to be killed, and a
    mechanism that lets it survive is rejected. Headroom against the 1 GB
    budget is roughly 95% at steady state and restore **at this database size**;
