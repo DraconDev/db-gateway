@@ -1007,6 +1007,13 @@ EOF
     esac
     printf '%s|%s|%s' "$verdict" "$rc" "$digest"
 }
+# The refusal has to be a NAMED refusal: a nonzero exit with no reason in the
+# log is indistinguishable from a crash, and the operational consequence above
+# rests on the restore failing loudly rather than quietly.
+g5_damage_reason() { # <case> -- the restore's own words about why it stopped
+    grep -ohE '(checksum|not valid|invalid|failed|error|no such file|unexpected|corrupt)[^"]{0,90}' \
+        "$G5_ROOT/dmg-$1.log" 2>/dev/null | head -2 | sed 's/^/      /' || true
+}
 # Keep a pristine copy of what the bucket returned, because every damage mode
 # starts from it and re-downloading per case would double the request count
 # the packet reports.
@@ -1072,6 +1079,9 @@ fi
     echo
     echo "     $G5_REJECTED_N of 4 were REJECTED, $G5_CORRECT_N returned the exact source, and"
     echo "     $G5_DAMAGE_BAD produced a database that was not the source."
+    echo "     what a refusal actually said, from the restore's own log:"
+    g5_damage_reason stale
+    g5_damage_reason flip
     echo "     $G5_DAMAGE_VERDICT"
     echo "     The three newest-artifact cases measure whether damage is DETECTED; the"
     echo "     fourth measures what a surviving restore is worth. The distinction"
