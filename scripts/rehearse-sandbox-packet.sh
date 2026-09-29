@@ -195,8 +195,8 @@ post ""
 if [ "$PACKET_STATUS" -eq 0 ]; then
     post "packet exit: 0 (no gate is blocked or failed)."
 else
-    BLOCKED_LIST="$(grep -oE '^## gate [0-9]+: BLOCKED' "$OUT" | grep -oE '[0-9]+' | tr '\n' ',' | sed 's/,$//' || true)"
-    FAILED_LIST="$(grep -oE '^## gate [0-9]+: FAIL' "$OUT" | grep -oE '[0-9]+' | tr '\n' ',' | sed 's/,$//' || true)"
+    BLOCKED_LIST="$(grep -oE '^## gate [0-9]+: BLOCKED' "$OUT" | grep -oE '[0-9]+' | sort -un | tr '\n' ',' | sed 's/,$//' || true)"
+    FAILED_LIST="$(grep -oE '^## gate [0-9]+: FAIL' "$OUT" | grep -oE '[0-9]+' | sort -un | tr '\n' ',' | sed 's/,$//' || true)"
     post "packet exit: $PACKET_STATUS, by §6's own rule (blocked or failed gates are not passes)."
     post "  blocked: ${BLOCKED_LIST:-none}   failed: ${FAILED_LIST:-none}"
     post "  that is the packet answering honestly, not this driver reporting a fault:"

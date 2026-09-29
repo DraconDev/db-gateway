@@ -699,7 +699,6 @@ if not os.path.exists(p):
 else:
     try:
         c = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
-        c.execute("SELECT count(*), coalesce(sum(id),0), count(DISTINCT note) FROM ledger").fetchone()
         n, s, d = c.execute("SELECT count(*), coalesce(sum(id),0), count(DISTINCT note) FROM ledger").fetchone()
         print(f"{n}|{s}|{d}")
     except Exception as exc:
@@ -760,10 +759,13 @@ g5_write 1 30
 sleep 5
 "${TIMEOUT_ARGV[@]}" "$LITESTREAM" sync -socket "$G5_SOCK" "$G5_SRC" >/dev/null 2>&1 || true
 sleep 2
+# `litestream ltx` prints: level min_txid max_txid size created  (fields 1-5).
+# The lowest level is the base snapshot, so the FIRST such row's max_txid is the
+# newest position as of the moment it was listed.
 G5_LTX_MID="$("$LITESTREAM" ltx -config "$G5_ROOT/litestream.yml" "$G5_SRC" 2>/dev/null \
     | awk 'NR>1 && $2 ~ /^[0-9a-f]+$/ {print $3; exit}')"
 G5_MID_TS="$("$LITESTREAM" ltx -config "$G5_ROOT/litestream.yml" "$G5_SRC" 2>/dev/null \
-    | awk 'NR>1 && $2 ~ /^[0-9a-f]+$/ {print $6; exit}')"
+    | awk 'NR>1 && $2 ~ /^[0-9a-f]+$/ {print $5; exit}')"
 g5_write 31 40
 sleep 5
 "${TIMEOUT_ARGV[@]}" "$LITESTREAM" sync -socket "$G5_SOCK" "$G5_SRC" >/dev/null 2>&1 || true
@@ -871,27 +873,39 @@ g5_damage() {
     cp -r "$G5_ROOT/clean" "$G5_DMG"
     case "$case_name" in
         flip)
+            # The newest LEVEL-0 artifact, which is the one a restore prefers
+            # as its starting point -- damaging an edge-of-history segment
+            # would prove less.
             python3 - "$G5_DMG" <<'PY'
 import glob, os, sys
-files = sorted(glob.glob(os.path.join(sys.argv[1], "ltx", "*", "*.ltx")))
+root = os.path.join(sys.argv[1], "ltx")
+levels = sorted(d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d))) \
+    if os.path.isdir(root) else []
+files = []
+if levels:
+    d = os.path.join(root, levels[0])
+    files = sorted(glob.glob(os.path.join(d, "*.ltx")))
 tgt = files[-1] if files else None
 if tgt:
     b = bytearray(open(tgt, "rb").read())
     i = len(b) // 2
     b[i] ^= 0xFF
     open(tgt, "wb").write(bytes(b))
-    print(os.path.basename(tgt), len(b), i)
+    print("damaged", os.path.relpath(tgt, sys.argv[1]), "byte", i, "of", len(b))
 PY
             ;;
         truncate)
             python3 - "$G5_DMG" <<'PY'
 import glob, os, sys
-files = sorted(glob.glob(os.path.join(sys.argv[1], "ltx", "*", "*.ltx")))
+root = os.path.join(sys.argv[1], "ltx")
+levels = sorted(d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d))) \
+    if os.path.isdir(root) else []
+files = sorted(glob.glob(os.path.join(root, levels[0], "*.ltx"))) if levels else []
 tgt = files[0] if files else None
 if tgt:
     b = open(tgt, "rb").read()
     open(tgt, "wb").write(b[: max(1, len(b) // 10)])
-    print(os.path.basename(tgt), len(b))
+    print("truncated", os.path.relpath(tgt, sys.argv[1]), "to", max(1, len(b) // 10), "of", len(b))
 PY
             ;;
         destroy)
