@@ -13,7 +13,12 @@ Record every result in a dated evidence log next to this file.
 
 ## 0. Prerequisites (owner provisions)
 
-- `{{TEST_REGION}}`: OVH region for the sandbox bucket (see R3).
+- `{{TEST_REGION}}`: the region string OVH shows for your bucket (the control
+  panel's Object Storage **Endpoints** tab, and the credentials page for the key
+  pair). This document does not carry a list of them on purpose: an endpoint or
+  region string written from memory is exactly the kind of unverified fact this
+  packet exists to catch, and the two values are two clicks away in the console
+  you have to visit anyway to create the bucket.
 - `{{TEST_BUCKET}}`: dedicated sandbox bucket, versioning enabled per the
   retention drill's needs — nothing else lives here.
 - `{{S3_ACCESS_KEY}}` / `{{S3_SECRET_KEY}}`: dedicated backup-test user keys,
@@ -49,8 +54,12 @@ only credentials in its environment are the ones you pass here). With
 ```sh
 umask 077
 export DG_SANDBOX_BUCKET="$TEST_BUCKET"
-export DG_SANDBOX_ENDPOINT=s3.gra.io.cloud.ovh.net   # the OVH S3 host, no scheme
-export DG_SANDBOX_REGION="$TEST_REGION"              # e.g. gra
+# Endpoint and region come from YOUR OVH console, not from a list in this repo:
+# the bucket's "Endpoints" tab in the control panel, and the credentials page for
+# the key pair. The pattern is s3.<region>.io.cloud.ovh.net, and the packet
+# prepends https:// -- so the variable takes the bare host, with no scheme.
+export DG_SANDBOX_ENDPOINT="s3.${TEST_REGION}.io.cloud.ovh.net"
+export DG_SANDBOX_REGION="$TEST_REGION"
 export DG_SANDBOX_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID"
 export DG_SANDBOX_SECRET_KEY="$AWS_SECRET_ACCESS_KEY"
 
