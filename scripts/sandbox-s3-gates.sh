@@ -1044,7 +1044,7 @@ EOF
     local digest verdict
     digest="$(g5_digest "$out")"
     case "$digest" in
-        "$G5_SRC_DIGEST") verdict="correct" ;;
+        "$G5_SRC_DIGEST") verdict="correct" ;;   # digest-identical + integrity ok; see the note below
         missing|"")      verdict="rejected" ;;
         *)               verdict="WRONG-CONTENT" ;;
     esac
@@ -1095,7 +1095,7 @@ G5_CORRECT_N="$(printf '%s\n%s\n%s\n%s\n' "$G5_FLIP" "$G5_TRUNC" "$G5_DESTROY" "
 # of its own measurement. The claim is now derived from the counts, so it can
 # only ever describe what the run observed.
 if [ "$G5_STALE" != "${G5_STALE#correct}" ]; then
-    G5_DAMAGE_VERDICT="damage to REDUNDANT artifacts is survivable: every artifact but the newest was damaged and the restore still returned the exact source. litestream 0.5.17 verifies what it reads, and a restore that only needed the surviving segment is still byte-exact rather than merely plausible."
+    G5_DAMAGE_VERDICT="damage to REDUNDANT artifacts is survivable: every artifact but the newest was damaged and the restore still returned the source -- digest-identical on (rows, sum(id), distinct notes) with a clean integrity_check. That is a content comparison, not a byte-for-byte one: a restore differing only in ways those three numbers and the integrity check cannot see would also have passed, so 'exact' without that qualifier would claim more than was measured."
 elif [ "$G5_STALE" != "${G5_STALE#rejected}" ]; then
     G5_DAMAGE_VERDICT="damage to REDUNDANT artifacts is NOT survivable here: with the newest artifact intact and only older ones damaged, the restore still refused (nonzero exit, no output file). A replica is therefore all-or-nothing in practice -- a single unreadable artifact can take a restore with it, which is a reason to keep more than one copy rather than to trust a partial one."
 else
@@ -1134,7 +1134,7 @@ fi
     echo "     every artifact reduced to two bytes:                     $G5_DESTROY"
     echo "     every artifact BUT the newest, one byte flipped in each:  $G5_STALE"
     echo
-    echo "     $G5_REJECTED_N of 4 were REJECTED, $G5_CORRECT_N returned the exact source, and"
+    echo "     $G5_REJECTED_N of 4 were REJECTED, $G5_CORRECT_N matched the source digest, and"
     echo "     $G5_DAMAGE_BAD produced a database that was not the source."
     echo "     what a refusal actually said, from the restore's own log:"
     g5_damage_reason stale
@@ -1165,7 +1165,7 @@ fi
 if [ "$G5_LATEST_OK" = "1" ] && [ "$G5_MID_OK" = "1" ] && [ "$G5_PIT_OK" = "1" ] \
    && [ "$G5_SELECTORS_AGREE" = "1" ] && [ "${G5_DAMAGE_BAD:-1}" = "0" ] \
    && [ "${G5_FETCHED:-0}" -gt 0 ]; then
-    record 5 PASS "bucket-backed restore drill: the latest restore is exact, a mid-history point and a point-in-time target both restore the content that position actually held (not merely the same as each other), and all $G5_FETCHED corrupt-artifact cases either matched the source or were refused, with none producing a database that was not the source" \
+    record 5 PASS "bucket-backed restore drill: the latest restore is digest-identical to the source, a mid-history point and a point-in-time target both restore the content that position actually held (not merely the same as each other), and all $G5_FETCHED corrupt-artifact cases either matched the source or were refused, with none producing a database that was not the source" \
         "source $G5_SRC_DIGEST (integrity $G5_SRC_INTEGRITY) over $G5_SEGMENTS segments; latest $G5_LATEST_DIGEST (integrity $G5_LATEST_INTEGRITY, exit $G5_LATEST_RC)" \
         "mid-history -txid ${G5_LTX_MID:-none} -> $G5_MID_DIGEST (exit $G5_MID_RC), matching the content captured at that position: $G5_MID_EXPECTED" \
         "point-in-time -timestamp ${G5_PIT_TARGET:-none} -> $G5_PIT_DIGEST (exit $G5_PIT_RC), same captured content" \
@@ -1785,6 +1785,18 @@ g8_write_and_serve blocked-egress yes yes
 printf 'method=GET status=403 code=AccessDenied message=injected quota fault\n' > "$G8_FAULTS"
 g8_write_and_serve near-quota yes no
 
+# EVERY injected 403 the daemon logged, not just the first phase's. This was a
+# mid-run snapshot taken right after the revoked-credentials phase, so it
+# snapshotted the log before the near-quota phase had logged anything, and the
+# line below it read "injected 403s seen verbatim in the daemon log: 1" while
+# the phase output two lines underneath showed TWO injected 403 messages. A
+# corroborating count that is scoped to one phase and labelled as a total is
+# worse than no count: it looks like it confirms the measurement and does not.
+# Counted here, once, after the last faulted phase, over the whole log.
+G8_A="$(grep -cE 'StatusCode: 403.*injected .*fault|injected (quota|revoked-credential) fault' \
+    "$G8_ROOT/litestream.log" 2>/dev/null || true)"
+G8_A_PHASE1="$(grep -c 'revoked-credential fault' "$G8_ROOT/litestream.log" 2>/dev/null || true)"
+
 # Recovery: clear the fault, restart the daemon so its exponential backoff
 # (built up while the faults were active) does not mask a working recovery,
 # write once more, and prove by RESTORE that the missing writes arrived.
@@ -1875,7 +1887,10 @@ fi
     echo
     # A zero here next to a non-zero signal count would mean the log lines came
     # from somewhere other than the injected fault, so it is stated, not implied.
-    echo "injected 403s seen verbatim in the daemon log: ${G8_A:-0}"
+    # Counted over the WHOLE drill after the last faulted phase: an earlier
+    # version snapshotted after the first phase only and printed a total that
+    # was really a partial.
+    echo "injected 403s seen verbatim in the daemon log, whole drill: ${G8_A:-0} (of which revoked-credentials: ${G8_A_PHASE1:-0})"
     echo
     echo "new daemon signal lines, per phase (the delta the count above is made of):"
     printf '%s\n' "${G8_SIGNAL_LINES:-  (none)}" | sed 's/^/  /'
@@ -2396,11 +2411,23 @@ EOF
 # The setting §6 asks to be exercised, written in exactly the form an operator
 # would try first. Writing it and watching litestream start is exactly the
 # mistake the rehearsal found, so it is tried here and the result recorded.
+#
+# ITS OWN PREFIX, and that is load-bearing rather than tidy. This config
+# replicates the SAME database as the plain one above, into the SAME prefix,
+# with only a customer key added. On a bucket that actually enforces SSE-C that
+# is a trap: the keyless restore below -- the half that measures whether a
+# backup can be restored at all -- would then be reading objects it cannot
+# decrypt, would fail, and the gate would be unable to PASS on a bucket whose
+# encryption is working perfectly. Two prefixes keep the two questions apart:
+# does the service encrypt what it stored, and can an ordinary keyless backup
+# be restored. A real deployment has to answer both, and conflating them makes
+# the gate unable to report either.
+G10_SSEC_PREFIX="$G10_PREFIX/ssec"
 cat > "$G10_ROOT/with-customer-key.yml" <<EOF
 dbs:
   - path: $G10_SRC
     replica:
-      url: s3://$BUCKET/$G10_PREFIX?endpoint=$SCHEME://$G10_PROXY_PORT&region=$REGION
+      url: s3://$BUCKET/$G10_SSEC_PREFIX?endpoint=$SCHEME://$G10_PROXY_PORT&region=$REGION
       sse-customer-key: $(head -c 32 /dev/urandom | base64)
 EOF
 timeout 20 "$LITESTREAM" replicate -config "$G10_ROOT/with-customer-key.yml" > "$G10_ROOT/with-key.log" 2>&1 || true
@@ -2533,7 +2560,7 @@ G10_NOKEY_MSG="$(grep -m1 -iE 'Error|error=' "$G10_ROOT/restore-nokey.log" 2>/de
 # that aborted the whole packet three gates early -- which the rehearsal
 # driver's distinct-gate post-condition then caught, reporting 9/12 gates and a
 # failed post-condition rather than a packet that quietly stopped.
-G10_CANARY="$("${S3PROBE[@]}" sse-canary --prefix "$G10_PREFIX/canary" 2>&1 || true)"
+G10_CANARY="$("${S3PROBE[@]}" sse-canary --prefix "$G10_SSEC_PREFIX/canary" 2>&1 || true)"
 G10_CANARY_VERDICT="$(printf '%s' "$G10_CANARY" | jfield verdict)"
 {
     echo "1. The configuration an operator reaches for first:"

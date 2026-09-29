@@ -754,9 +754,16 @@ def summarize(path: str) -> int:
     if generations:
         print(f"distinct ListObjectsV2 prefixes probed: {len(generations)}")
     if sse_seen:
-        print(f"requests carrying server-side-encryption headers: {sse_seen}")
+        print(f"requests carrying server-side-encryption headers, in THIS cycle's log: {sse_seen}")
     else:
-        print("requests carrying server-side-encryption headers: 0 (litestream sent none)")
+        # Scoped to this window, on purpose. An unqualified "litestream sent
+        # none" reads as a statement about the whole run, and gate 10's SSE-C
+        # probe -- run through a different proxy, later, on purpose -- does sign
+        # those headers. Two lines in one packet, contradicting each other
+        # because one of them failed to say what it was talking about.
+        print("requests carrying server-side-encryption headers, in THIS cycle's log: 0 "
+              "(no SSE-C or SSE header in the requests proxied for this window; gate 10's "
+              "probe runs through its own proxy and is reported there)")
     return 0
 
 

@@ -743,17 +743,25 @@ def op_sse_canary(c: S3Client, key_prefix: str) -> dict[str, Any]:
             }
         )
     except S3Error as exc:
+        # ENFORCED must mean the service refused because of the MISSING KEY, not
+        # because the credential is not allowed to read the object at all. A
+        # least-privilege policy that denies GetObject on the canary prefix
+        # answers AccessDenied too, and calling that proof of encryption would
+        # have this gate "prove" a security property on a bucket that merely
+        # refuses the read. So the message has to name encryption; a bare
+        # access-denied is INDETERMINATE and says which distinction was missing.
         code = (exc.code or "").lower()
         message = (exc.message or "").lower()
-        if code in ("invalidargument", "accessdenied", "kmsaccessdenied", "invalidrequest",
-                    "invalidobjectstate") or "encrypt" in message:
+        if "encrypt" in message or code in ("invalidargument", "invalidrequest",
+                                            "invalidobjectstate", "kmsaccessdenied"):
             out.update(
                 {
                     "verdict": "ENFORCED",
                     "reason": (
                         "the read without the customer key was refused for an encryption "
-                        f"reason ({exc.code}), which is the proof that the stored bytes are "
-                        "ciphertext rather than the service merely recording the header"
+                        f"reason ({exc.code}: {exc.message}), which is the proof that the "
+                        "stored bytes are ciphertext rather than the service merely "
+                        "recording the header"
                     ),
                     "readback_without_key_status": exc.status,
                 }
@@ -762,7 +770,13 @@ def op_sse_canary(c: S3Client, key_prefix: str) -> dict[str, Any]:
             out.update(
                 {
                     "verdict": "indeterminate",
-                    "reason": f"the read without a key failed for an unrelated reason ({exc.code})",
+                    "reason": (
+                        f"the read without a key was refused with {exc.code} -- a reason that "
+                        "does not name encryption -- so this is a permission answer, not a "
+                        "proof about the bytes. Grant s3:GetObject on the canary prefix and "
+                        "re-run to get the real answer"
+                    ),
+                    "readback_without_key_status": exc.status,
                 }
             )
         return out

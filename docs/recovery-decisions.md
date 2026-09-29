@@ -185,27 +185,34 @@ follows in the sandbox/notification work):
      refuted it. Whether the stored bytes are encrypted is the SERVICE's
      answer, not litestream's -- see decision 3.
    - **Credential scope, MEASURED** -- the operation matrix the packet issues
-     against a bucket in a passing run (938 requests on the 2026-09-29
-     rehearsal, three non-2xx answers all named, no others):
+     against a bucket in a passing run (940 requests on the 2026-09-29
+     rehearsal, 264+27+8+69 = 368 of them litestream's, three non-2xx answers all named, no others):
 
      | method | query-prefix | count | IAM action | issued by |
      | --- | --- | --- | --- | --- |
-     | `GET` | `list-type=2` | 722 | `s3:ListBucket` | litestream |
-     | `GET` | `x-id=GetObject` | 41 | `s3:GetObject` | litestream |
-     | `PUT` | `x-id=PutObject` | 71 | `s3:PutObject` | litestream |
-     | `GET` | `versions` | 4 | `s3:ListBucketVersions` | packet (retention arithmetic, residue check) |
+     | `GET` | `list-type=2` | 264 | `s3:ListBucket` | litestream |
+     | `GET` | `list-type=2` | 449 | `s3:ListBucket` | packet (versions, retention, residue) |
+     | `GET` | `x-id=GetObject` | 27 | `s3:GetObject` | litestream |
+     | `GET` | `x-id=GetObject` | 32 | `s3:GetObject` | packet (gate 5 damage cases) |
+     | `GET` | object key, no `x-id` | 5 | `s3:GetObject` | packet (gate 5, gate 10 canary) |
+     | `GET` | `versions` | 4 | `s3:ListBucketVersions` | packet |
      | `GET` | `lifecycle` | 1 | `s3:GetLifecycleConfiguration` | packet |
-     | `PUT` | `lifecycle` | 1 | `s3:PutLifecycleConfiguration` | packet |
-     | `HEAD` | object key | 15 | `s3:GetObject` | packet (SSE check, artifact inspection) |
-     | `GET` | object key, no `x-id` | 6 | `s3:GetObject` | packet (gate 5 damage cases, SSE canary) |
-     | `HEAD` | `/<bucket>` | 1 | `s3:ListBucket` | packet |
+     | `HEAD` | object key | 8 | `s3:GetObject` | litestream |
+     | `HEAD` | object key | 5 | `s3:GetObject` | packet (SSE check, artifact inspection) |
+     | `HEAD` | `/<bucket>` | 1 | `s3:ListBucket` | packet (gate 12) |
+     | `PUT` | `x-id=PutObject` | 69 | `s3:PutObject` | litestream (1 signs SSE-C) |
+     | `PUT` | object key, no `x-id` | 1 | `s3:PutObject` | packet (SSE canary) |
      | `PUT` | `/<bucket>` | 2 | `s3:CreateBucket` | packet (idempotent) |
-     | `DELETE` | `versionId` | 72 | `s3:DeleteObjectVersion` | packet (gate 12) |
+     | `PUT` | `lifecycle` | 1 | `s3:PutLifecycleConfiguration` | packet |
+     | `DELETE` | `versionId` | 70 | `s3:DeleteObjectVersion` | packet (gate 12) |
      | `DELETE` | `/<bucket>` | 1 | `s3:DeleteBucket` | packet (gate 12) |
 
      **The litestream-only half is the minimum a steady-state policy needs**:
      `s3:ListBucket`, `s3:GetObject`, `s3:PutObject`, scoped to the
-     per-database prefix (e.g. `sbx/*`). Everything else in that table is the
+     per-database prefix (e.g. `sbx/*`). The split is measured, not assumed:
+     litestream stamps uploads with `x-amz-meta-litestream-timestamp` and signs
+     with the Go SDK, which leaves `amz-sdk-*` markers, and `s3probe.py` leaves
+     neither, so the two clients are separable in the request log. Everything else in that table is the
      packet driving the bucket rather than replication, and
      `s3:CreateBucket` / `s3:DeleteBucket` / `s3:PutLifecycleConfiguration`
      exist only so a disposable test bucket can be managed by the packet
@@ -264,8 +271,8 @@ follows in the sandbox/notification work):
    relying on OVH's documentation plus the reported header.
    *Status 2026-09-29*: **sidecar headroom has been MEASURED, locally**.
    `sandbox-s3-gates.sh` gate 9 ran the litestream 0.5.17 sidecar inside a
-   kernel-enforced 1 GiB transient scope: replication peak 48 MiB, restore
-   peak 34 MiB, no OOM kill. The enforcement is proved, not assumed -- the
+   kernel-enforced 1 GiB transient scope: replication peak 43 MiB, restore
+   peak 34 MiB, restore 2233 ms, no OOM kill. The enforcement is proved, not assumed -- the
    probe allocates 8x the cap and requires the child to be killed, and a
    mechanism that lets it survive is rejected. Headroom against the 1 GB
    budget is roughly 95% at steady state and restore **at this database size**;
