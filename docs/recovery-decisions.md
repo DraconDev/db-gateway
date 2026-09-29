@@ -238,25 +238,30 @@ follows in the sandbox/notification work):
      note is withdrawn. **SSE-C is available to the owner as a client-side
      lever** -- this is the correction that matters, because the withdrawn
      claim implied the only choice was OVH-managed SSE.
-   - **The service's answer is still missing.** The rehearsal store implements
-     neither SSE-OMK nor SSE-C, so a HEAD on the stored objects reported
-     neither `x-amz-server-side-encryption` nor an SSE-C customer-algorithm
-     echo. That is a property of the stand-in, not of litestream and not of
-     OVH. Gate 10 now reads both headers, because a service that correctly
-     applies SSE-C echoes the customer-algorithm and may report no `sse` at
-     all -- reading only `sse` would have called such a service plaintext on
-     OVH.
+   - **The service's answer is still missing, and a header is not it.** A HEAD
+     on the stored objects reported no `x-amz-server-side-encryption`, and the
+     SSE-C `customer-algorithm` echo came back as `AES256`. That echo is the
+     service's claim about itself, and it was checked rather than believed: the
+     rehearsal store echoes the algorithm while storing the body in plaintext,
+     and a canary written with SSE-C was read back with no key and came back
+     intact. Gate 10 now proves encryption instead of reading it -- write a
+     canary with SSE-C, read it back WITHOUT the customer key (a refusal is a
+     proof; the plaintext coming back is a finding), then with the key -- and
+     passes only on that proof. This is a property of the stand-in, not of
+     litestream and not of OVH.
 
    So decision 3 is a real choice between SSE-OMK (OVH-managed, transparent),
    SSE-C (client-supplied per PUT, and litestream already sends it), or
    client-side encryption before the PUT, and the packet states which
    observation each requires rather than guessing. Gate 10 BLOCKS here on the
-   missing service-side answer, not on the client half. The credential-isolation
-   half is no longer confounded and has been **measured clean**: with every
-   ambient credential removed, a restore from the bucket returned all 100 rows.
-   Two things only OVH can answer: the encryption header on the objects it
-   stored under the chosen mode, and, for SSE-C, that a restore succeeds with
-   the customer key and fails cleanly without it.
+   missing service-side proof, not on the client half. The credential-isolation
+   half is not confounded and has been **measured clean**: with every ambient
+   credential removed, a restore from the bucket returned all 100 rows. Two
+   things only OVH can answer: whether its canary reads back REFUSED without
+   the customer key under SSE-C, and whether a restore there succeeds with the
+   key and fails cleanly without it. For SSE-OMK the honest position is that a
+   transparent decrypt cannot be observed from outside, and the owner is
+   relying on OVH's documentation plus the reported header.
    *Status 2026-09-29*: **sidecar headroom has been MEASURED, locally**.
    `sandbox-s3-gates.sh` gate 9 ran the litestream 0.5.17 sidecar inside a
    kernel-enforced 1 GiB transient scope: replication peak ~44 MiB, restore
