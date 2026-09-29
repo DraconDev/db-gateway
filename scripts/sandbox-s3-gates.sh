@@ -984,6 +984,9 @@ fi
     echo "the daemon logged a NEW error/warn for the phase it failed in: $G8_N_DAEMON of $G8_N_FAULTED faulted phases"
     echo "false alarms in the healthy phase:  $G8_N_FALSE_ALARM"
     echo "the sync CLI reported the failure:  $G8_N_SURFACED of $G8_N_FAULTED faulted phases"
+    # A zero here next to a non-zero signal count would mean the log lines came
+    # from somewhere other than the injected fault, so it is stated, not implied.
+    echo "injected 403s seen verbatim in the daemon log: ${G8_A:-0}"
     echo
     echo "new daemon signal lines, per phase (the delta the count above is made of):"
     printf '%s\n' "${G8_SIGNAL_LINES:-  (none)}" | sed 's/^/  /'
