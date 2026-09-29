@@ -33,9 +33,12 @@ USAGE
       put-object          PUT a local file as a key (lifecycle aging input)
       get-object          GET a key to stdout or a file
       list-versions       GET ?versions -> [{key, version_id, last_modified}]
+      list-objects        GET ?list-type=2 (paginated) -> current keys
       put-lifecycle       PUT ?lifecycle from a JSON rules file
       get-lifecycle       GET ?lifecycle -> the stored rules
-      delete-all-versions DELETE ?versions, repeatedly, until empty
+      delete-everything   empty the bucket through BOTH ?versions and
+                          ?list-type=2, so a service that implements only one
+                          of them still gets emptied (alias: delete-all-versions)
       delete-bucket       DELETE the bucket
       probe-capabilities   which bucket-level APIs this endpoint implements
 
@@ -385,6 +388,45 @@ def op_list_versions(c: S3Client, prefix: str = "") -> dict[str, Any]:
     return {"bucket": c.bucket, "count": len(out), "versions": out}
 
 
+def op_list_objects(c: S3Client, prefix: str = "") -> dict[str, Any]:
+    """Current-version keys via ?list-type=2, following truncation to the end.
+
+    This is the second of the two enumerations gate 12 needs, and it exists
+    because a service is allowed to implement LIST but not ?versions. An
+    endpoint that 501s on ?versions (the rehearsal store does) would leave
+    `?versions`-only cleanup deleting nothing while the bucket stays full, and
+    the resulting "residue remains" would name the wrong culprit: the packet's
+    assumption, not the store's contents.
+
+    Pagination matters for the same reason: a single page is 1000 keys, and a
+    packet that deletes one page and calls the rest residue has not emptied
+    anything on a bucket with more than 1000 objects.
+    """
+    keys: list[str] = []
+    token = ""
+    pages = 0
+    while True:
+        query: list[tuple[str, str]] = [("list-type", "2")]
+        if prefix:
+            query.append(("prefix", prefix))
+        if token:
+            query.append(("continuation-token", token))
+        _, _, body = c.request("GET", path=f"/{c.bucket}", query=query)
+        root = ET.fromstring(body)
+        pages += 1
+        for el in root.findall(f"{{{S3_NS}}}Contents") + root.findall("Contents"):
+            key = _text(el, "Key")
+            if key and (not prefix or key.startswith(prefix)):
+                keys.append(key)
+        truncated = _text(root, "IsTruncated") == "true"
+        token = _text(root, "NextContinuationToken")
+        if not truncated or not token:
+            break
+        if pages > 10_000:  # a service that never stops paginating
+            raise S3Error(0, "PaginationLoop", "list-type=2 kept returning truncated pages")
+    return {"bucket": c.bucket, "count": len(keys), "pages": pages, "keys": keys}
+
+
 def op_put_lifecycle(c: S3Client, rules_path: str) -> dict[str, Any]:
     """Store a lifecycle configuration expressed as JSON, translated to the S3 XML.
 
@@ -434,29 +476,89 @@ def op_get_lifecycle(c: S3Client) -> dict[str, Any]:
     return {"rules": rules, "count": len(rules)}
 
 
-def op_delete_all_versions(c: S3Client) -> dict[str, Any]:
+def op_delete_everything(c: S3Client) -> dict[str, Any]:
     """Empty the bucket, versions included. Gate 12's residue check starts here.
 
-    Deletes by key+version rather than by the versions query alone, because
-    only that form is guaranteed to remove noncurrent versions: a lifecycle
-    rule that has not run yet still has them, and a leftover noncurrent version
-    is residue even though LIST looks empty.
+    Two enumerations, not one, because no single one is guaranteed:
+
+    * `?versions` deletes by key+versionId, which is the ONLY form guaranteed to
+      remove noncurrent versions and delete markers. On an unversioned bucket a
+      lifecycle rule that has not run yet still leaves them, and a leftover
+      noncurrent version is residue even though LIST looks empty.
+    * `?list-type=2` catches everything `?versions` cannot see, which is the
+      case on a service that answers 501 NotImplemented for `?versions` -- the
+      rehearsal store does exactly that, and a `?versions`-only cleanup deleted
+      zero objects and then reported "residue remains", naming the store
+      instead of the packet's own single-API assumption.
+
+    Residue is therefore re-measured through BOTH. When a service cannot
+    enumerate versions at all, that is reported as an unavailable capability
+    rather than folded into a zero: the caller can then say what the check did
+    and did not cover, which is the only honest form of this answer.
     """
-    listing = op_list_versions(c)
-    deleted = 0
+    enumeration: dict[str, str] = {}
     errors: list[dict[str, str]] = []
-    for v in listing["versions"]:
+    deleted = 0
+    done_keys: set[str] = set()
+    versions_supported = False
+
+    # (1) every version, when the service can enumerate them
+    versions: list[dict[str, str]] = []
+    try:
+        listing = op_list_versions(c)
+        versions = listing["versions"]
+        versions_supported = True
+        enumeration["list-versions"] = "supported"
+    except S3Error as exc:
+        enumeration["list-versions"] = f"not available ({exc.code})"
+    for v in versions:
         try:
-            c.request("DELETE", path=f"/{c.bucket}/{v['key']}", query=[("versionId", v["version_id"])])
+            query = [("versionId", v["version_id"])] if v["version_id"] else []
+            c.request("DELETE", path=f"/{c.bucket}/{v['key']}", query=query)
             deleted += 1
+            done_keys.add(v["key"])
         except S3Error as exc:
             errors.append({"key": v["key"], "code": exc.code, "message": exc.message})
-    remaining = op_list_versions(c)
+
+    # (2) every current key, whatever the versions listing could or could not see
+    try:
+        objects = op_list_objects(c)
+        enumeration["list-objects-v2"] = "supported"
+    except S3Error as exc:
+        enumeration["list-objects-v2"] = f"not available ({exc.code})"
+        objects = {"keys": []}
+    for key in objects["keys"]:
+        if key in done_keys:
+            continue
+        try:
+            c.request("DELETE", path=f"/{c.bucket}/{key}")
+            deleted += 1
+            done_keys.add(key)
+        except S3Error as exc:
+            errors.append({"key": key, "code": exc.code, "message": exc.message})
+
+    # (3) re-measure through the same two enumerations
+    versions_remaining: int | None
+    try:
+        versions_remaining = op_list_versions(c)["count"]
+    except S3Error as exc:
+        versions_remaining = None
+        enumeration["list-versions (re-check)"] = f"not available ({exc.code})"
+    try:
+        objects_remaining = op_list_objects(c)["count"]
+    except S3Error as exc:
+        objects_remaining = -1
+        enumeration["list-objects-v2 (re-check)"] = f"not available ({exc.code})"
+    residue = max(versions_remaining or 0, max(objects_remaining, 0))
     return {
-        "versions_found": listing["count"],
+        "enumeration": enumeration,
+        "versions_found": len(versions) if versions_supported else None,
+        "objects_found": len(objects["keys"]),
         "deleted": deleted,
         "errors": errors,
-        "versions_remaining": remaining["count"],
+        "versions_remaining": versions_remaining,
+        "objects_remaining": objects_remaining,
+        "residue_remaining": residue,
     }
 
 
@@ -540,10 +642,13 @@ def main(argv: list[str] | None = None) -> int:
     go.add_argument("--out", default=None)
     lv = sub.add_parser("list-versions")
     lv.add_argument("--prefix", default="")
+    lo = sub.add_parser("list-objects")
+    lo.add_argument("--prefix", default="")
     pl = sub.add_parser("put-lifecycle")
     pl.add_argument("rules_json")
     sub.add_parser("get-lifecycle")
-    sub.add_parser("delete-all-versions")
+    dp = sub.add_parser("delete-everything", aliases=["delete-all-versions"])
+    dp.set_defaults(command="delete-everything")
     sub.add_parser("delete-bucket")
     sub.add_parser("probe-capabilities")
 
@@ -580,12 +685,14 @@ def main(argv: list[str] | None = None) -> int:
             result = op_get_object(client, args.key, args.out)
         elif args.command == "list-versions":
             result = op_list_versions(client, args.prefix)
+        elif args.command == "list-objects":
+            result = op_list_objects(client, args.prefix)
         elif args.command == "put-lifecycle":
             result = op_put_lifecycle(client, args.rules_json)
         elif args.command == "get-lifecycle":
             result = op_get_lifecycle(client)
-        elif args.command == "delete-all-versions":
-            result = op_delete_all_versions(client)
+        elif args.command == "delete-everything":
+            result = op_delete_everything(client)
         elif args.command == "delete-bucket":
             result = op_delete_bucket(client)
         elif args.command == "probe-capabilities":
