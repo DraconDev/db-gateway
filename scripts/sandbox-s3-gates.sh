@@ -1216,6 +1216,76 @@ if [ -z "$G9_MECH" ] && [ -n "$G9_OWN_CGROUP" ] && [ -d "$G9_OWN_CGROUP" ] \
     rmdir "$G9_OWN_CGROUP/$G9_CG_NAME" 2>/dev/null || true
 fi
 
+# SETTING memory.max is not ENFORCING it. The previous version accepted either
+# mechanism on the strength of "memory.max exists and the limit was written",
+# and on at least one host that limit was honoured by the property alone: a
+# 400 MiB allocator under MemoryMax=64M completed and the cgroup's recorded
+# peak sat just above the limit without an OOM kill. Setting a number and
+# clamping the workload are different acts, and a gate that conflates them
+# would report "constrained" for a measurement made on an unconstrained host.
+# The probe below therefore asks the kernel, not the property: it tries to
+# allocate several times the cap and checks whether the child actually dies.
+G9_ENFORCE_REASON=""
+if [ -n "$G9_MECH" ]; then
+    # 64 MiB cap, 4x 64-MiB allocations = 256 MiB. Any cgroup memory controller
+    # that is really enforcing should OOM-kill the child long before 256 MiB.
+    G9_PROBE_TMP="$(mktemp -d "${TMPDIR:-/tmp}/dg-sandbox-g9probe-XXXXXX")"
+    G9_ENF_LOG="$G9_PROBE_TMP/enforce.log"
+    case "$G9_MECH" in
+        systemd)
+            # systemd-run --wait waits for the unit to finish, so a successful
+            # return here means the allocator ran to completion without being
+            # killed -- i.e. the cap did not enforce. A real enforcement
+            # OOM-kills the unit, --wait still returns, but the unit's exit
+            # status carries the signal and the child says "Killed".
+            systemd-run --user --wait --quiet -p "MemoryMax=64M" \
+                -p "MemoryAccounting=yes" --unit="dg-sandbox-g9-enf-$$" \
+                python3 -c "
+import sys
+b = []
+try:
+    while True: b.append(bytearray(64 * 1024 * 1024))
+except MemoryError: print('MemoryError at', len(b), 'MiB')
+print('returned', len(b), 'MiB')" > "$G9_ENF_LOG" 2>&1 || true
+            ;;
+        cgroup)
+            mkdir -p "$G9_OWN_CGROUP/$G9_CG_NAME"
+            printf '%s' $((64 * 1024 * 1024)) > "$G9_OWN_CGROUP/$G9_CG_NAME/memory.max"
+            ( setsid bash -c "printf '%s' \$\$ > '$G9_OWN_CGROUP/$G9_CG_NAME/cgroup.procs'; exec python3 -c '
+import sys
+b = []
+try:
+    while True: b.append(bytearray(64 * 1024 * 1024))
+except MemoryError: print(\"MemoryError at\", len(b), \"MiB\")
+print(\"returned\", len(b), \"MiB\")
+'" > "$G9_ENF_LOG" 2>&1 ) || true
+            wait 2>/dev/null || true
+            ;;
+    esac
+    # Read the cgroup's oom_kill count from where it lives for this mechanism.
+    G9_OOM_KILL="0"
+    case "$G9_MECH" in
+        systemd)
+            G9_OOM_KILL="$(grep -E '^oom_kill ' "$G9_OWN_CGROUP"/../*/memory.events 2>/dev/null | awk '{s+=$2}END{print s+0}')"
+            ;;
+        cgroup)
+            G9_OOM_KILL="$(awk '/^oom_kill /{print $2}' "$G9_OWN_CGROUP/$G9_CG_NAME/memory.events" 2>/dev/null)"
+            [ -z "$G9_OOM_KILL" ] && G9_OOM_KILL=0
+            rmdir "$G9_OWN_CGROUP/$G9_CG_NAME" 2>/dev/null || true
+            ;;
+    esac
+    G9_ALLOCATED_MIB="$(grep -oE 'returned [0-9]+ MiB' "$G9_ENF_LOG" 2>/dev/null | grep -oE '[0-9]+' | tail -1)"
+    G9_ALLOCATED_MIB="${G9_ALLOCATED_MIB:-0}"
+    if [ "${G9_OOM_KILL:-0}" -eq 0 ] && [ "${G9_ALLOCATED_MIB:-0}" -ge 128 ]; then
+        G9_ENFORCE_REASON="$G9_MECH mechanism set memory.max but did NOT enforce it: a 256 MiB allocator under a 64 MiB cap completed (recorded peak ~${G9_ALLOCATED_MIB} MiB, no oom_kill). On this host, memory.max is treated as a property but the kernel is not OOM-killing on exceed. Gate 9 cannot honestly claim 'constrained' under that mechanism, so it is rejected."
+        G9_MECH=""
+        G9_MECH=""
+        G9_PROBE_A_ERR="$G9_ENFORCE_REASON (systemd)"
+        G9_PROBE_B_ERR="$G9_ENFORCE_REASON (cgroup)"
+    fi
+    rm -rf "$G9_PROBE_TMP"
+fi
+
 G9_CGROUP_RAN=0
 [ -n "$G9_MECH" ] && G9_CGROUP_RAN=1
 if [ "$G9_CGROUP_RAN" = "1" ]; then
