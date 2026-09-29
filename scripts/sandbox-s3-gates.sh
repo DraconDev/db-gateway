@@ -1006,7 +1006,9 @@ PY
             # artifact, which nothing can substitute for, so they measure
             # whether damage is DETECTED; this one measures whether damage to
             # something redundant is survivable, and whether the surviving
-            # restore is byte-exact or merely plausible.
+            # restore is content-exact or merely plausible. "Exact" here means
+            # (rows, sum(id), distinct notes) plus PRAGMA integrity_check, which
+            # is a strong content comparison and not a byte-for-byte one.
             python3 - "$G5_DMG" <<'PY'
 import glob, os, sys
 root = os.path.join(sys.argv[1], "ltx")
@@ -1101,16 +1103,21 @@ else
 fi
 
 {
-    echo "comparisons are (rows, sum(id), distinct notes) -- a count alone cannot see a"
-    echo "restore that returns the right number of wrong rows."
+    echo "comparisons are (rows, sum(id), distinct notes) plus PRAGMA integrity_check."
+    echo "A count alone cannot see a restore that returns the right number of wrong"
+    echo "rows, and a well-formed database can still be the wrong one."
     echo
-    echo "  source:                      $G5_SRC_DIGEST   (30 rows, then 40 more)"
+    echo "  source:                      $G5_SRC_DIGEST   (30 rows, then 40 more)  integrity: $G5_SRC_INTEGRITY"
+    echo "  content captured at the mid-history position, before the next batch existed:"
+    echo "                               $G5_MID_EXPECTED   integrity: ${G5_MID_EXPECTED_INTEGRITY:-not read}"
     echo "  segments in the replica:      $G5_SEGMENTS"
-    echo "  1. latest restore, exit $G5_LATEST_RC:     $G5_LATEST_DIGEST"
-    echo "  2. mid-history -txid ${G5_LTX_MID:-none}, exit $G5_MID_RC: $G5_MID_DIGEST"
-    echo "     point-in-time -timestamp $G5_PIT_TARGET, exit $G5_PIT_RC: $G5_PIT_DIGEST"
-    echo "     both selectors name the SAME position, and they returned the same"
-    echo "     bytes: $G5_SELECTORS_AGREE (1 = the restored content agrees)."
+    echo "  1. latest restore, exit $G5_LATEST_RC:     $G5_LATEST_DIGEST   integrity: $G5_LATEST_INTEGRITY"
+    echo "  2. mid-history -txid ${G5_LTX_MID:-none}, exit $G5_MID_RC: $G5_MID_DIGEST   integrity: $G5_MID_INTEGRITY"
+    echo "     point-in-time -timestamp $G5_PIT_TARGET, exit $G5_PIT_RC: $G5_PIT_DIGEST   integrity: ${G5_PIT_INTEGRITY:-not read}"
+    echo "     both must equal the content captured at that position. Comparing them"
+    echo "     with EACH OTHER is not the same check: two selectors can agree on the"
+    echo "     same wrong earlier point, and only the captured digest rules that out."
+    echo "     selectors-agree: $G5_SELECTORS_AGREE (1 = the two restores agree)."
     echo "     the point is the SECOND segment, not the first. The first row of"
     echo "     \`litestream ltx\` is the base snapshot, whose max_txid is the very start"
     echo "     of history: -txid against it restores an EMPTY database (0 rows) with"
