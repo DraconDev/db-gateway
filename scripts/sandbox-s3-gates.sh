@@ -823,8 +823,6 @@ else
        && [ "${G5_MID_ROWS:-0}" -lt "${G5_SRC_DIGEST%%|*}" ] 2>/dev/null; then
         G5_MID_OK=1
     fi
-else
-    G5_MID_RC="no-txid"
 fi
 
 # 2b. point-in-time. The target has to be STRICTLY AFTER a segment boundary:
