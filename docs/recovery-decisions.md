@@ -12,7 +12,7 @@ but nothing in this document is an owner-accepted RPO/RTO/retention guarantee,
 a backup SLA, or verified OVH/tool coverage. Public sources only; live bucket,
 tool-version, and host verification remain open M3 work.
 
-## Decision status (updated 2026-09-20)
+## Decision status (updated 2026-09-29)
 
 - **Working profile:** C — continuous WAL-style shipping with a five-minute
   lag objective after committed changes, seven days of frequent points, and
@@ -167,16 +167,67 @@ follows in the sandbox/notification work):
    facts and pricing, so they are deliberately deferred to the sandbox step
    rather than guessed here.
    *Measured inputs now available* (`docs/backup-compatibility.md` §6a, from
-   the litestream 0.5.17 rehearsal, 2026-09-28): `endpoint` and `region` are
-   honoured as replica URL query parameters and need no other setting; a
-   replica root is **not** namespaced per database, so the bucket layout must
-   be one prefix per gateway database; **unknown replica keys are silently
-   ignored**, so an encryption setting written into the config would replicate
-   in plaintext while appearing to work — the encryption half of this decision
-   is therefore a bucket or explicit-mechanism decision, not a config key.
-   Budget, exclusions, region choice and pricing still need real facts.
+   the litestream 0.5.17 rehearsal, 2026-09-28 + 2026-09-29):
+
+   - `endpoint` and `region` are honoured as replica URL query parameters
+     (`s3://<bucket>/<prefix>?endpoint=<scheme://host>&region=<r>`) and need
+     no other setting. Path-style addressing is required by OVH; virtual-host
+     style is silently accepted by litestream and not used.
+   - A replica root is **not** namespaced per database, so the bucket layout
+     must be one prefix per gateway database (`s3://<bucket>/<db-name>/...`).
+     The gateway holds N databases, so this is load-bearing, not tidy.
+   - **Unknown replica keys are silently ignored.** A config carrying
+     `sse-customer-key` replicated with no error and no encryption.
+   - **Credential scope, MEASURED** -- the operation matrix the packet issues
+     against a bucket in a passing run (578 requests on the rehearsal run,
+     three non-2xx answers all named, no others):
+
+     | method | query-prefix | count | IAM action |
+     | --- | --- | --- | --- |
+     | `GET` | `list-type=2` | 425 | `s3:ListBucket` |
+     | `GET` | `x-id=GetObject` | 35 | `s3:GetObject` |
+     | `GET` | `versions` | 4 | `s3:ListBucketVersions` |
+     | `GET` | `delimiter=...` | 7 | `s3:ListBucket` |
+     | `GET` | `lifecycle` | 1 | `s3:GetLifecycleConfiguration` |
+     | `HEAD` | `/<bucket>` | 6 | `s3:ListBucket` |
+     | `PUT` | `x-id=PutObject` | 48 | `s3:PutObject` |
+     | `PUT` | `lifecycle` | 1 | `s3:PutLifecycleConfiguration` |
+     | `PUT` | `/<bucket>` | 2 | `s3:CreateBucket` |
+     | `DELETE` | `versionId` | 48 | `s3:DeleteObjectVersion` |
+     | `DELETE` | `/<bucket>` | 1 | `s3:DeleteBucket` |
+
+     The minimum scoping is `arn:...:bucket=<test-bucket>` plus a
+     `Condition` on the key prefix (e.g. `sbx/*`). `s3:CreateBucket` and
+     `s3:DeleteBucket` are only needed if the owner wants this packet to
+     manage the bucket itself; both are not exercised on a steady-state
+     retention run. The OVH account-level cap (1 Gbps/connection, 300
+     PUT/s + 900 GET/s soft limits) is the owner-decision input that no
+     rehearsal can answer.
+   - **Encryption** -- `sse-customer-key` is silently ignored by 0.5.17;
+     see decision 3.
+   - Budget, exclusions, region choice and pricing still need real facts.
 3. **STILL OPEN** — same inputs as 2, plus what headroom the 1 GB host must
    show. Deferred with 2.
+   *Status 2026-09-29*: **encryption has been MEASURED, not decided**. The
+   rehearsal proved `litestream 0.5.17` ignores `replica.sse-customer-key`:
+   the daemon started with the key in the config, replication proceeded with
+   no error, and a HEAD on the resulting objects returned no
+   `x-amz-server-side-encryption` header from the service. The setting that
+   is not visible from the service is not in effect, so a Litestream config
+   key cannot be the answer. The decision is now strictly a bucket / storage-
+   class one: SSE-OMK (OVH-managed, transparent to the client), SSE-C (the
+   client supplies a key per PUT), or client-side encryption before the PUT.
+   Gate 10 BLOCKS on the rehearsal endpoint because the TLS layer + the
+   rehearsal CA confounds the "no ambient credentials" test in isolation, and
+   it must be re-answered on OVH -- the restore-without-ambient-credentials
+   measurement is the operator-visible confirmation that the bucket, not the
+   client, is enforcing encryption at rest.
+   *Status 2026-09-29*: **headroom has been MEASURED for the same reason,
+   also BLOCKED here**. On this host the kernel SETS `memory.max` but does
+   NOT OOM-enforce it, so the enforcement probe inside `sandbox-s3-gates.sh`
+   rejects every mechanism and the gate records unconstrained numbers
+   (clearly labelled). The 1 GB VPS is the host that can answer this; gate 9
+   was built to be IMPOSED, not assumed.
 4. **DECIDED** — restore policy: a restore always lands on a **separate**
    database/target; overwriting an existing name requires **explicit owner
    authorization** (never an unattended or key-scoped path); rollback artifacts
@@ -195,11 +246,23 @@ follows in the sandbox/notification work):
 6. **STILL OPEN** — whether sandbox evidence accepts continuous Profile C under
    the five-minute objective, and what measured headroom the 1 GB host must
    show. This is the question the sandbox exists to answer.
-   *Status 2026-09-28*: the gate program is built and runs
-   (`scripts/sandbox-packet.sh`); gate 1 is satisfied and gates 2, 5, 7 have
-   passed in file-replica rehearsal only. The question cannot be answered
-   without a test bucket and the owner's go-ahead, which is the objective's
-   own BLOCKER.
+   *Status 2026-09-29*: the gate program is built and rehearsed end to end
+   (`scripts/rehearse-sandbox-packet.sh`); nine of twelve gates PASS in
+   rehearsal (`docs/backup-compatibility.md` §6a), the remaining three are
+   blocked on the owner's test bucket and on a host that can enforce a
+   1 GB-shaped memory limit. **The alerting half of decision 6 is partly
+   settled by the gate-8 measurement**: litestream 0.5.17 does not surface
+   every failure mode in the daemon log or in `litestream status`. Blocked-
+   egress was visible only via the `litestream sync` CLI, and the restore
+   path was the only surface for parts of the measurement. A passing gate 8
+   is therefore not "an alert exists" -- it is "an alert exists that an
+   operator must be looking at the right surface for". Decision 6 needs an
+   external freshness check (a scheduled restore-and-count, or comparing the
+   gateway's own last-backup timestamp against now), not just a litestream
+   log watcher. The packet names the surfaces in the gate-8 output so the
+   operator can pick which one to alert on. The question cannot be answered
+   without a test bucket, the owner's go-ahead, and the 1 GB VPS -- which
+   are this goal's only remaining blockers.
 
 ## Sources (public, accessed 2026-09-18)
 

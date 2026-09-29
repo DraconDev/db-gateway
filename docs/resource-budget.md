@@ -49,6 +49,25 @@ host shape (or an equivalent VM), with the release profile:
 1. Release-profile RSS under a realistic workload (owner's actual database
    sizes and query mix), idle and sustained.
 2. Litestream sidecar RSS + disk staging during a snapshot/replication cycle.
+   *Measured 2026-09-29 against the rehearsal endpoint with pinned 0.5.17*.
+   The `sandbox-s3-gates.sh` gate 9 sampler ran a 6.9 MiB / 120 000-row
+   database through `litestream replicate` for 12 s of sampled replication
+   with one live INSERT per 0.4 s, then a `litestream restore` from the
+   bucket. Peaks:
+
+   | run | mechanism | replication peak RSS (KiB) | restore peak RSS (KiB) | restore time (ms) |
+   | --- | --- | --- | --- | --- |
+   | 2026-09-29 #5 | unconstrained | ~48 000 | ~35 000 | ~3 000 |
+
+   *The 1 GB fit claim is NOT supported by this number.* The rehearsal ran on
+   a dev host with tens of GiB available and **the kernel here SETS
+   `memory.max` but does NOT OOM-enforce it** -- the gate 9 enforcement probe
+   (a 512 MiB allocator under a 64 MiB cap) ran to completion on this host,
+   which is the failure mode the probe is built to catch. The probe now lives
+   inside `sandbox-s3-gates.sh` and rejects every mechanism that does not
+   kill the workload, so this measurement is reported as unconstrained and
+   labelled as such in the packet. The 1 GB VPS is where item 2 is meant to
+   be measured; the dev host is where it cannot be.
 3. Target OS baseline RSS and page-cache behavior with the data dir hot.
 4. Burst test: sustained writes at the 429 capacity edge; record peak RSS and
    confirm recovery to idle baseline.
