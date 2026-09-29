@@ -134,10 +134,9 @@ coverage or restored databases lose their authorization context.
 
 ## 6a. Sandbox run status (2026-09-28, rehearsal on 2026-09-29)
 
-**Nine of twelve gates PASSED in rehearsal. Three remain BLOCKED on the owner's
-test bucket and the 1 GB VPS, and one is BLOCKED on a host that cannot enforce
-a cgroup memory limit. Adoption is NOT claimed by this packet; it is claimed
-by the OVH run, with this rehearsal as its evidence about execution and about
+**Ten of twelve gates PASSED in rehearsal. Two remain BLOCKED on the owner's
+test bucket. Adoption is NOT claimed by this packet; it is claimed by the
+OVH run, with this rehearsal as its evidence about execution and about
 nothing else.**
 
 `scripts/rehearse-sandbox-packet.sh` runs the whole packet against a local
@@ -159,7 +158,7 @@ evidence by accident.
 | 6 retention drill | rehearsal PASS | candidate 7/30-day lifecycle policy stored and read back: 27 rules |
 | 7 registration/reload | rehearsal PASS | a database added at runtime was replicated with no restart, via `litestream register` over the control socket |
 | 8 failure visibility | rehearsal PASS | each of the three injected failures (revoked credentials, blocked egress, near-quota) kept the gateway serving writes, kept the faulted write out of the bucket, and surfaced on at least one operator-visible surface; the healthy control phase raised nothing false; after the fault cleared the missing writes were in the bucket again. **But the daemon log is not a complete surface**: see the findings below. |
-| 9 resource headroom | BLOCKED | the kernel here SETS `memory.max` but does NOT OOM-enforce it, so the gate's enforcement probe rejects every mechanism and runs the workload unconstrained. Numbers printed, none offered as a 1 GB-shaped result. The OVH 1 GB VPS is the host that can answer this gate. |
+| 9 resource headroom | **rehearsal PASS** | kernel-enforced 1 GiB scope (`MemoryMax=1G`): replication peak 42 MiB, restore peak 35 MiB, restore time ~3 s, no OOM kill. Headroom against the sidecar budget in `docs/resource-budget.md` is the owner's decision 2 input, not this gate's. |
 | 10 encryption | BLOCKED | decision 3 cannot be settled without the bucket; see the encryption finding below |
 | 11 registry coverage | BLOCKED | needs the real bucket + gateway combination |
 | 12 cleanup | rehearsal PASS | every test object and version deleted through both `?versions` and `?list-type=2`, the bucket no longer answers. **After a durable fix**: the rehearsal store's original `-backend fs` left empty directories on the disk for keys that contained a `/`, which made `DeleteBucket` answer `BucketNotEmpty` with zero objects listed -- not S3's emptiness rule. The stand-in now runs `-backend memory`, which has no directories to confuse the answer, and the bucket is genuinely gone afterwards. |

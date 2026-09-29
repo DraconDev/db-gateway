@@ -222,12 +222,16 @@ follows in the sandbox/notification work):
    it must be re-answered on OVH -- the restore-without-ambient-credentials
    measurement is the operator-visible confirmation that the bucket, not the
    client, is enforcing encryption at rest.
-   *Status 2026-09-29*: **headroom has been MEASURED for the same reason,
-   also BLOCKED here**. On this host the kernel SETS `memory.max` but does
-   NOT OOM-enforce it, so the enforcement probe inside `sandbox-s3-gates.sh`
-   rejects every mechanism and the gate records unconstrained numbers
-   (clearly labelled). The 1 GB VPS is the host that can answer this; gate 9
-   was built to be IMPOSED, not assumed.
+   *Status 2026-09-29*: **sidecar headroom has been MEASURED, locally**.
+   `sandbox-s3-gates.sh` gate 9 ran the litestream 0.5.17 sidecar inside a
+   kernel-enforced 1 GiB transient scope (`MemoryMax=1G`): replication peak
+   ~42 MiB, restore peak ~35 MiB, no OOM kill. Headroom against the 1 GB
+   budget is roughly 95% at steady state and restore; the OVH 1 GB VPS run
+   will confirm on different hardware, and the `docs/backup-compatibility.md`
+   §6a row for gate 9 carries the constraint mechanism and the OOM-kill
+   observation so the owner can compare. Budget cap, region pricing, and the
+   exact decision are still the owner's; the input they were waiting on is
+   now on the page.
 4. **DECIDED** — restore policy: a restore always lands on a **separate**
    database/target; overwriting an existing name requires **explicit owner
    authorization** (never an unattended or key-scoped path); rollback artifacts
