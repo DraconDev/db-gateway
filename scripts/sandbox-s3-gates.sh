@@ -78,10 +78,53 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$OUT" ] || { echo "--out is required" >&2; usage; exit 2; }
 
-: "${DG_SANDBOX_BUCKET:?DG_SANDBOX_BUCKET is required for the S3 gates}"
-: "${DG_SANDBOX_ENDPOINT:?DG_SANDBOX_ENDPOINT is required for the S3 gates}"
-: "${DG_SANDBOX_ACCESS_KEY_ID:?DG_SANDBOX_ACCESS_KEY_ID is required for the S3 gates}"
-: "${DG_SANDBOX_SECRET_KEY:?DG_SANDBOX_SECRET_KEY is required for the S3 gates}"
+# PREFLIGHT: every problem, at once.
+#
+# The four `:?` lines this replaces stopped at the FIRST missing variable, so
+# provisioning the bucket meant run, read the error, fix one thing, run again --
+# four round trips against a live account for a checklist the script already
+# knows. It now names everything that is missing or looks wrong in a single
+# pass, because the owner is about to do this once, and a confusing first
+# attempt against a real bucket is the expensive kind.
+PRE_MISSING=()
+[ -n "${DG_SANDBOX_BUCKET:-}" ] || PRE_MISSING+=("DG_SANDBOX_BUCKET        the disposable test bucket; nothing else lives in it")
+[ -n "${DG_SANDBOX_ENDPOINT:-}" ] || PRE_MISSING+=("DG_SANDBOX_ENDPOINT      the S3 host with NO scheme, e.g. s3.gra.io.cloud.ovh.net")
+[ -n "${DG_SANDBOX_ACCESS_KEY_ID:-}" ] || PRE_MISSING+=("DG_SANDBOX_ACCESS_KEY_ID  a key scoped to that bucket only")
+[ -n "${DG_SANDBOX_SECRET_KEY:-}" ] || PRE_MISSING+=("DG_SANDBOX_SECRET_KEY   the matching secret")
+if [ "${#PRE_MISSING[@]}" -gt 0 ]; then
+    echo "refusing to run the S3 gates; the owner's inputs are incomplete:" >&2
+    printf '  missing  %s\n' "${PRE_MISSING[@]}" >&2
+    echo >&2
+    echo "  docs/ovh-sandbox-runbook.md section 0a has the full command and" >&2
+    echo "  section 0 has the 0600 env file these come from. Secrets stay in" >&2
+    echo "  that file: nothing here echoes a value, and the packet reads only" >&2
+    echo "  the two variables the operator exported." >&2
+    exit 2
+fi
+
+# Two input shapes that fail LATE and confusingly, so they are refused early,
+# with the measured reason. Both are plausible first attempts.
+case "$DG_SANDBOX_ENDPOINT" in
+    *://*)
+        echo "refusing: DG_SANDBOX_ENDPOINT='$DG_SANDBOX_ENDPOINT' carries a URL scheme." >&2
+        echo "  The replica URL is built as s3://<bucket>/<prefix>?endpoint=\$SCHEME://<host>," >&2
+        echo "  so a scheme here yields 'https://https://host'. The packet prepends" >&2
+        echo "  the scheme; the variable takes the bare host. This is measured, not" >&2
+        echo "  stylistic: litestream 0.5.17 silently speaks PLAINTEXT when the scheme" >&2
+        echo "  is missing, and a doubled one is a URL it cannot parse at all." >&2
+        exit 2;;
+esac
+for PRE_V in DG_SANDBOX_BUCKET DG_SANDBOX_ENDPOINT DG_SANDBOX_REGION \
+             DG_SANDBOX_ACCESS_KEY_ID DG_SANDBOX_SECRET_KEY; do
+    case "${!PRE_V:-}" in
+        *"{{"*|*"}}"*|*"YOUR"*|*"your-"*|*"CHANGEME"*|*"xxxx"*)
+            echo "refusing: $PRE_V still holds a template placeholder" >&2
+            echo "  The runbook's {{...}} markers are meant to be replaced. Running" >&2
+            echo "  against a placeholder fails at the signature, which reads as a" >&2
+            echo "  credential problem and is not one." >&2
+            exit 2;;
+    esac
+done
 
 SCHEME="${DG_SANDBOX_SCHEME:-https}"
 REGION="${DG_SANDBOX_REGION:-us-east-1}"
