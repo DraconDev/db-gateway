@@ -819,7 +819,9 @@ g8_log_lines() { wc -l < "$G8_ROOT/litestream.log" 2>/dev/null | tr -d ' ' || ec
 # raises the error while serving the sync the gate triggers, so the line is
 # expected promptly; a single immediate sample would call a slow-but-working
 # surface silent, which is the same error in the other direction. Echoes the
-# lines it found; returns 1 when none arrived inside the bound.
+# lines it found; returns 1 when none arrived inside the bound. It deliberately
+# sets no variable in the caller: it runs in a command substitution, so
+# anything it assigned would be lost with the subshell.
 G8_SIGNAL_WAIT_S=0.5
 G8_SIGNAL_TRIES=10
 g8_wait_for_signal() {
@@ -828,13 +830,11 @@ g8_wait_for_signal() {
         out="$(tail -n "+$((before + 1))" "$G8_ROOT/litestream.log" 2>/dev/null \
                | grep -iE 'level=(ERROR|WARN)' || true)"
         if [ -n "$out" ]; then
-            G8_SIGNAL_SURFACED_S="$(awk -v n="$i" -v s="$G8_SIGNAL_WAIT_S" 'BEGIN{printf "%.1f", n*s}')"
             printf '%s\n' "$out"
             return 0
         fi
         sleep "$G8_SIGNAL_WAIT_S"
     done
-    G8_SIGNAL_SURFACED_S=">$(awk -v n="$G8_SIGNAL_TRIES" -v s="$G8_SIGNAL_WAIT_S" 'BEGIN{printf "%.1f", n*s}')"
     return 1
 }
 
@@ -865,9 +865,9 @@ g8_write_and_serve() {
     # every phase compared a number with itself and reported all four checks as
     # stalled while the row count rose from 21 to 24 in front of it.
     local before after restored sync_out sync_said status_out status_said
-    local daemon_said restore_said log_before surfaces proactive reactive
+    local daemon_said restore_said log_before surfaces proactive reactive t0
     log_before="$(g8_log_lines)"
-    G8_SIGNAL_SURFACED_S="n/a"
+    t0="$SECONDS"
     g8_restore_stderr=""
     before="$(g8_count)"
     g8_write "$label"
@@ -889,16 +889,23 @@ g8_write_and_serve() {
     printf '%s' "$status_out" | grep -qiE 'error|denied|403|forbidden|expired|signature|"error"' && status_said="yes"
     local signal
     signal="$(g8_wait_for_signal "$log_before")" && daemon_said="yes" || daemon_said="no"
+    # The wait runs in a subshell (its output is captured), so it cannot set a
+    # variable in this shell -- the previous version had it do exactly that and
+    # every phase reported "n/a" for how long it waited. The elapsed time is
+    # measured HERE, around the call, which is the only place it exists.
+    G8_SIGNAL_SURFACED_S="$((SECONDS - t0))"
     [ -n "$signal" ] && printf '%s\n' "$signal" | tail -2 >> "$G8_ROOT/signal-delta.txt"
     restored="$(g8_restored)"
     restore_said="no"
     [ -n "$g8_restore_stderr" ] && restore_said="yes"
-    surfaces="none"
+    # Build the surface list by appending, or a phase whose first surface fired
+    # reads "none,sync-cli" -- a list that claims two surfaces and means one.
+    surfaces=""
     [ "$daemon_said" = "yes" ] && surfaces="daemon-log"
-    [ "$sync_said" = "yes" ] && surfaces="$surfaces,sync-cli"
-    [ "$status_said" = "yes" ] && surfaces="$surfaces,status-cli"
-    [ "$restore_said" = "yes" ] && surfaces="$surfaces,restore-cli"
-    surfaces="${surfaces#,}"
+    [ "$sync_said" = "yes" ] && surfaces="${surfaces:+$surfaces,}sync-cli"
+    [ "$status_said" = "yes" ] && surfaces="${surfaces:+$surfaces,}status-cli"
+    [ "$restore_said" = "yes" ] && surfaces="${surfaces:+$surfaces,}restore-cli"
+    [ -n "$surfaces" ] || surfaces="none"
     proactive="no"
     if [ "$daemon_said" = "yes" ] || [ "$sync_said" = "yes" ] || [ "$status_said" = "yes" ]; then
         proactive="yes"
@@ -906,7 +913,7 @@ g8_write_and_serve() {
     reactive="no"
     [ "$restore_said" = "yes" ] && reactive="yes"
     G8_SURFACES+=("$label -> $surfaces")
-    G8_RESULTS+=("$label: live $before -> $after, in-bucket $restored, surfaces that carried it: $surfaces (proactive: $proactive, restore-only: $reactive), new daemon signal within ${G8_SIGNAL_SURFACED_S}s")
+    G8_RESULTS+=("$label: live $before -> $after, in-bucket $restored, surfaces that carried it: $surfaces (proactive: $proactive, restore-only: $reactive), daemon signal within ${G8_SIGNAL_SURFACED_S}s")
     # Keep the last sync output visible. The greps above are what makes the
     # gate pass/fail, but the wording varies by litestream version and the
     # packet is the only durable place to look when the gate's count says no.
