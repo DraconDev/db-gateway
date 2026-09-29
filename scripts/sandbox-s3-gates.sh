@@ -1328,12 +1328,23 @@ G12_CLEANUP_NOTE=""
 if [ "${DG_SANDBOX_SKIP_CLEANUP:-0}" = "1" ]; then
     record 12 BLOCKED "cleanup skipped on request (DG_SANDBOX_SKIP_CLEANUP=1): the test objects were left in place" \
         "bucket: $BUCKET   prefix: sbx/" \
-        "delete them with: DG_SANDBOX_BUCKET=$BUCKET scripts/s3probe.py delete-all-versions"
+        "delete them with: DG_SANDBOX_BUCKET=$BUCKET scripts/s3probe.py delete-everything"
     GATE12_SKIPPED=1
 else
-    G12_DEL="$("${S3PROBE[@]}" delete-all-versions 2>&1 || true)"
-    G12_REMAIN="$(printf '%s' "$G12_DEL" | jfield versions_remaining)"
-    G12_FOUND="$(printf '%s' "$G12_DEL" | jfield versions_found)"
+    G12_DEL="$("${S3PROBE[@]}" delete-everything 2>&1 || true)"
+    # Residue is re-measured through BOTH enumerations the service supports:
+    # ?versions and ?list-type=2. Reading it from the versions listing alone is
+    # what made the first rehearsal report "residue remains" for a store that
+    # 501s on ?versions -- the packet deleted nothing and then blamed the
+    # bucket. `residue_remaining` is the max of the two; which of them was
+    # available is recorded, because a service that cannot enumerate versions
+    # cannot have noncurrent versions PROVEN absent, only unobservable.
+    G12_REMAIN="$(printf '%s' "$G12_DEL" | jfield residue_remaining)"
+    G12_VERS_REMAIN="$(printf '%s' "$G12_DEL" | jfield versions_remaining)"
+    G12_OBJS_REMAIN="$(printf '%s' "$G12_DEL" | jfield objects_remaining)"
+    G12_ENUM="$(printf '%s' "$G12_DEL" | jfield enumeration)"
+    G12_FOUND="$(printf '%s' "$G12_DEL" | jfield objects_found)"
+    G12_VERS_FOUND="$(printf '%s' "$G12_DEL" | jfield versions_found)"
     G12_DELETED="$(printf '%s' "$G12_DEL" | jfield deleted)"
     G12_BUCKET_DEL="$("${S3PROBE[@]}" delete-bucket 2>&1 || true)"
     G12_BUCKET_GONE="$(printf '%s' "$G12_BUCKET_DEL" | python3 -c '
@@ -1351,8 +1362,11 @@ except Exception: print("unknown"); raise SystemExit(0)
 st = d.get("bucket_status")
 print("yes" if st in (404, "404") else ("unknown" if st is None else f"no (HTTP {st})"))' 2>/dev/null || echo unknown)"
     {
-        echo "objects/versions found under the packet prefixes: ${G12_FOUND:-?}"
-        echo "deleted: ${G12_DELETED:-?}   still listed afterwards: ${G12_REMAIN:-?}"
+        echo "objects found under the packet prefixes (LIST ?list-type=2): ${G12_FOUND:-?}"
+        echo "versions found (?versions): ${G12_VERS_FOUND:-not enumerable on this service}"
+        echo "deleted: ${G12_DELETED:-?}   still listed afterwards: ${G12_REMAIN:-?}" \
+             "(versions ${G12_VERS_REMAIN:-?}, current keys ${G12_OBJS_REMAIN:-?})"
+        echo "enumeration: ${G12_ENUM:-?}"
         echo "delete-bucket: $G12_BUCKET_DEL"
         echo "independent re-check -- does the bucket still answer: $G12_ABSENT"
         echo
@@ -1381,7 +1395,9 @@ print("yes" if st in (404, "404") else ("unknown" if st is None else f"no (HTTP 
             "local sandbox $SANDBOX is ${SANDBOX_OWNER_TEXT}"
     else
         record 12 FAIL "residue remains after cleanup" \
-            "remaining versions: ${G12_REMAIN:-?}" \
+            "residue remaining: ${G12_REMAIN:-?} (versions ${G12_VERS_REMAIN:-?}, current keys ${G12_OBJS_REMAIN:-?})" \
+            "deleted: ${G12_DELETED:-?}   enumeration used: ${G12_ENUM:-?}" \
+            "delete result: $G12_DEL" \
             "bucket still answers: $G12_ABSENT" \
             "delete-bucket: $G12_BUCKET_DEL" \
             "local sandbox $SANDBOX is ${SANDBOX_OWNER_TEXT}"
