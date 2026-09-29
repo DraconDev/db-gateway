@@ -2513,6 +2513,21 @@ env -i PATH="$CLEAN_PATH" HOME="$SANDBOX/home" \
 G10_NOKEY_RC=$?
 G10_NOKEY_MSG="$(grep -m1 -iE 'Error|error=' "$G10_ROOT/restore-nokey.log" 2>/dev/null | cut -c1-200 || true)"
 
+# The PROOF, not the service's word. Everything the evidence block above reports
+# is a header the service chose to send; this is the one observation a client
+# can make about bytes at rest. The rehearsal store ECHOES
+# x-amz-server-side-encryption-customer-algorithm on a HEAD while storing the
+# object in plaintext -- verified by reading a canary back with no key and
+# finding it intact -- so a gate that treats the header as proof of encryption
+# reports a security property that does not exist.
+#
+# It runs BEFORE the evidence block, not after it. Placed after, the block that
+# prints it read an unset variable, and because the script runs under `set -u`
+# that aborted the whole packet three gates early -- which the rehearsal
+# driver's distinct-gate post-condition then caught, reporting 9/12 gates and a
+# failed post-condition rather than a packet that quietly stopped.
+G10_CANARY="$("${S3PROBE[@]}" sse-canary --prefix "$G10_PREFIX/canary" 2>&1 || true)"
+G10_CANARY_VERDICT="$(printf '%s' "$G10_CANARY" | jfield verdict)"
 {
     echo "1. The configuration an operator reaches for first:"
     echo "   replica.sse-customer-key: <random 32 bytes>"
@@ -2552,15 +2567,6 @@ G10_NOKEY_MSG="$(grep -m1 -iE 'Error|error=' "$G10_ROOT/restore-nokey.log" 2>/de
     echo "      where a transparent decrypt makes a round-trip succeed whatever is"
     echo "      at rest -- for those modes the header is all a client can see."
 } >> "$OUT"
-
-# The PROOF, not the service's word. Everything above is a header the service
-# chose to send; this is the one observation a client can make about bytes at
-# rest. The rehearsal store ECHOES x-amz-server-side-encryption-customer-algorithm
-# on a HEAD while storing the object in plaintext -- verified by reading a
-# canary back with no key and finding it intact -- so a gate that treats the
-# header as proof of encryption reports a security property that does not exist.
-G10_CANARY="$("${S3PROBE[@]}" sse-canary --prefix "$G10_PREFIX/canary" 2>&1 || true)"
-G10_CANARY_VERDICT="$(printf '%s' "$G10_CANARY" | jfield verdict)"
 
 # Gate 10 grades the two halves SEPARATELY, because they have nothing to do
 # with each other and lumping them is what produced a fabricated blocker.
