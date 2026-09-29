@@ -2369,6 +2369,13 @@ G10_FAULTS="$G10_ROOT/faults"
 : > "$G10_FAULTS"
 : > "$G10_REQLOG"
 start_proxy "gate10" "$G10_REQLOG" "$G10_FAULTS"
+# PROXY_PORT is "host:port" -- the proxy writes that whole string to its port
+# file, and the comment on start_proxy says so. Prefixing another host here
+# produced the replica URL `https://127.0.0.1:127.0.0.1:<port>`, which
+# litestream took literally, and gate 10's restore then failed on "lookup
+# 127.0.0.1:127.0.0.1: no such host" -- a configuration defect in the gate,
+# reported as a data-loss failure because the restore returning 0 rows is a
+# FAIL verdict. Composed the way every other gate composes it.
 G10_PROXY_PORT="$PROXY_PORT"
 cat > "$G10_ROOT/litestream.yml" <<EOF
 logging:
@@ -2377,7 +2384,7 @@ logging:
 dbs:
   - path: $G10_SRC
     replica:
-      url: s3://$BUCKET/$G10_PREFIX?endpoint=$SCHEME://127.0.0.1:$G10_PROXY_PORT&region=$REGION
+      url: s3://$BUCKET/$G10_PREFIX?endpoint=$SCHEME://$G10_PROXY_PORT&region=$REGION
 EOF
 # The setting §6 asks to be exercised, written in exactly the form an operator
 # would try first. Writing it and watching litestream start is exactly the
@@ -2386,7 +2393,7 @@ cat > "$G10_ROOT/with-customer-key.yml" <<EOF
 dbs:
   - path: $G10_SRC
     replica:
-      url: s3://$BUCKET/$G10_PREFIX?endpoint=$SCHEME://127.0.0.1:$G10_PROXY_PORT&region=$REGION
+      url: s3://$BUCKET/$G10_PREFIX?endpoint=$SCHEME://$G10_PROXY_PORT&region=$REGION
       sse-customer-key: $(head -c 32 /dev/urandom | base64)
 EOF
 timeout 20 "$LITESTREAM" replicate -config "$G10_ROOT/with-customer-key.yml" > "$G10_ROOT/with-key.log" 2>&1 || true
