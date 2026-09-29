@@ -1225,66 +1225,67 @@ fi
 # would report "constrained" for a measurement made on an unconstrained host.
 # The probe below therefore asks the kernel, not the property: it tries to
 # allocate several times the cap and checks whether the child actually dies.
-G9_ENFORCE_REASON=""
-if [ -n "$G9_MECH" ]; then
-    # 64 MiB cap, 4x 64-MiB allocations = 256 MiB. Any cgroup memory controller
-    # that is really enforcing should OOM-kill the child long before 256 MiB.
-    G9_PROBE_TMP="$(mktemp -d "${TMPDIR:-/tmp}/dg-sandbox-g9probe-XXXXXX")"
-    G9_ENF_LOG="$G9_PROBE_TMP/enforce.log"
-    case "$G9_MECH" in
-        systemd)
-            # systemd-run --wait waits for the unit to finish, so a successful
-            # return here means the allocator ran to completion without being
-            # killed -- i.e. the cap did not enforce. A real enforcement
-            # OOM-kills the unit, --wait still returns, but the unit's exit
-            # status carries the signal and the child says "Killed".
-            systemd-run --user --wait --quiet -p "MemoryMax=64M" \
-                -p "MemoryAccounting=yes" --unit="dg-sandbox-g9-enf-$$" \
-                python3 -c "
+# The contract is precise and chosen to be unambiguous on both host kinds:
+#   allocator asks for 8x64=512 MiB under a 64 MiB cap
+#   if the child prints "SURVIVED <N> MiB" with N>=128 -- the cap did not clamp
+#   if the child is killed before printing that line -- the cap did clamp
+# No reliance on cgroup memory.events, which is gone by the time we want to
+# read it for a transient systemd scope.
+G9_PROBE_TMP="$(mktemp -d "${TMPDIR:-/tmp}/dg-sandbox-g9probe-XXXXXX")"
+G9_ENF_LOG="$G9_PROBE_TMP/enforce.log"
+G9_ENF_PAYLOAD="$G9_PROBE_TMP/payload.py"
+# The contract is precise and chosen to be unambiguous on both host kinds:
+#   allocator asks for 8x64=512 MiB under a 64 MiB cap
+#   if the child prints "SURVIVED <N> MiB" with N>=128 -- the cap did not clamp
+#   if the child is killed before printing that line -- the cap did clamp
+# No reliance on cgroup memory.events, which is gone by the time we want to
+# read it for a transient systemd scope.
+cat > "$G9_ENF_PAYLOAD" <<'PYEOF'
 import sys
 b = []
-try:
-    while True: b.append(bytearray(64 * 1024 * 1024))
-except MemoryError: print('MemoryError at', len(b), 'MiB')
-print('returned', len(b), 'MiB')" > "$G9_ENF_LOG" 2>&1 || true
+for i in range(8):
+    b.append(bytearray(64 * 1024 * 1024))
+print("SURVIVED", len(b) * 64, "MiB")
+PYEOF
+G9_ENFORCE_OK=0
+G9_ENF_REASON=""
+G9_ENF_ALLOCATED=""
+if [ -n "$G9_MECH" ]; then
+    case "$G9_MECH" in
+        systemd)
+            # --wait blocks until the unit finishes. If the OOM killer fires
+            # inside the cap, the unit exits and --wait returns; the question
+            # is whether the log says SURVIVED or not.
+            systemd-run --user --wait --quiet -p "MemoryMax=64M" \
+                -p "MemoryAccounting=yes" --unit="dg-sandbox-g9-enf-$$" \
+                python3 "$G9_ENF_PAYLOAD" > "$G9_ENF_LOG" 2>&1 || true
             ;;
         cgroup)
             mkdir -p "$G9_OWN_CGROUP/$G9_CG_NAME"
             printf '%s' $((64 * 1024 * 1024)) > "$G9_OWN_CGROUP/$G9_CG_NAME/memory.max"
-            ( setsid bash -c "printf '%s' \$\$ > '$G9_OWN_CGROUP/$G9_CG_NAME/cgroup.procs'; exec python3 -c '
-import sys
-b = []
-try:
-    while True: b.append(bytearray(64 * 1024 * 1024))
-except MemoryError: print(\"MemoryError at\", len(b), \"MiB\")
-print(\"returned\", len(b), \"MiB\")
-'" > "$G9_ENF_LOG" 2>&1 ) || true
+            # The child writes its own pid into the cgroup before exec, so the
+            # measured program never runs even one instruction outside the cap.
+            ( setsid bash -c 'printf "%s" "$$" > "$1"/cgroup.procs; shift; exec python3 "$@"' _ \
+                "$G9_OWN_CGROUP/$G9_CG_NAME" "$G9_ENF_PAYLOAD" > "$G9_ENF_LOG" 2>&1 ) || true
             wait 2>/dev/null || true
             ;;
     esac
-    # Read the cgroup's oom_kill count from where it lives for this mechanism.
-    G9_OOM_KILL="0"
-    case "$G9_MECH" in
-        systemd)
-            G9_OOM_KILL="$(grep -E '^oom_kill ' "$G9_OWN_CGROUP"/../*/memory.events 2>/dev/null | awk '{s+=$2}END{print s+0}')"
-            ;;
-        cgroup)
-            G9_OOM_KILL="$(awk '/^oom_kill /{print $2}' "$G9_OWN_CGROUP/$G9_CG_NAME/memory.events" 2>/dev/null)"
-            [ -z "$G9_OOM_KILL" ] && G9_OOM_KILL=0
-            rmdir "$G9_OWN_CGROUP/$G9_CG_NAME" 2>/dev/null || true
-            ;;
-    esac
-    G9_ALLOCATED_MIB="$(grep -oE 'returned [0-9]+ MiB' "$G9_ENF_LOG" 2>/dev/null | grep -oE '[0-9]+' | tail -1)"
-    G9_ALLOCATED_MIB="${G9_ALLOCATED_MIB:-0}"
-    if [ "${G9_OOM_KILL:-0}" -eq 0 ] && [ "${G9_ALLOCATED_MIB:-0}" -ge 128 ]; then
-        G9_ENFORCE_REASON="$G9_MECH mechanism set memory.max but did NOT enforce it: a 256 MiB allocator under a 64 MiB cap completed (recorded peak ~${G9_ALLOCATED_MIB} MiB, no oom_kill). On this host, memory.max is treated as a property but the kernel is not OOM-killing on exceed. Gate 9 cannot honestly claim 'constrained' under that mechanism, so it is rejected."
-        G9_MECH=""
-        G9_MECH=""
-        G9_PROBE_A_ERR="$G9_ENFORCE_REASON (systemd)"
-        G9_PROBE_B_ERR="$G9_ENFORCE_REASON (cgroup)"
+    G9_ENF_ALLOCATED="$(grep -oE 'SURVIVED [0-9]+' "$G9_ENF_LOG" 2>/dev/null | grep -oE '[0-9]+' || true)"
+    G9_ENF_ALLOCATED="${G9_ENF_ALLOCATED:-0}"
+    if [ "${G9_ENF_ALLOCATED:-0}" -lt 128 ]; then
+        G9_ENFORCE_OK=1
+    else
+        G9_ENF_REASON="$G9_MECH mechanism set memory.max but did NOT enforce it: a 512 MiB allocator under a 64 MiB cap completed with ${G9_ENF_ALLOCATED} MiB resident. On this host, memory.max is a property but the kernel is not OOM-killing on exceed. Gate 9 cannot honestly claim 'constrained' under that mechanism, so it is rejected"
     fi
-    rm -rf "$G9_PROBE_TMP"
 fi
+if [ -n "$G9_MECH" ] && [ "$G9_ENFORCE_OK" != "1" ]; then
+    case "$G9_MECH" in
+        systemd) G9_PROBE_A_ERR="$G9_ENF_REASON";;
+        cgroup)  G9_PROBE_B_ERR="$G9_ENF_REASON";;
+    esac
+    G9_MECH=""
+fi
+rm -rf "$G9_PROBE_TMP"
 
 G9_CGROUP_RAN=0
 [ -n "$G9_MECH" ] && G9_CGROUP_RAN=1
@@ -1465,9 +1466,9 @@ G9_STATUS="$G9_MECH_DESC"
     echo "database under test: $G9_DBSIZE bytes, 120000 rows before the live writes"
     echo "memory budget:       $G9_STATUS"
     if [ "$G9_CGROUP_RAN" != "1" ]; then
-        echo "  systemd scope: $G9_PROBE_A_ERR"
-        echo "  direct cgroup: $G9_PROBE_B_ERR"
-    fi
+        echo "  systemd scope: ${G9_PROBE_A_ERR:-no session bus or systemd-run missing}"
+        echo "  direct cgroup: ${G9_PROBE_B_ERR:-no child cgroup with a writable memory.max}"
+        echo "  enforcement probe: a 512 MiB allocator under a 64 MiB cap was run on each mechanism that could set memory.max. A mechanism that survives is rejected, because memory.max that the kernel does not OOM-enforce is a property, not a constraint. The OVH 1 GB VPS is where this gate is meant to run; the dev host is where this probe says it cannot."
     echo
     printf 'steady replication  peak RSS %s KiB (%s%% of budget, kernel high-water mark)\n' "$G9_MAX_RSS" "$G9_REPL_PCT"
     printf 'steady replication  CPU  %s ticks across the sampling window\n' "$G9_REPL_CPU_TICKS"
