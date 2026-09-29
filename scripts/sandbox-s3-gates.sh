@@ -1151,8 +1151,8 @@ G9_BUDGET="$REPO/docs/resource-budget.md"
 # printed, and which any reader had to decode for themselves.
 G9_LIMIT_BYTES="$G9_LIMIT"
 case "$G9_LIMIT" in
-    *G) G9_LIMIT_BYTES=$(( ${G9_LIMIT%G} * 1024 * 1024 ));;
-    *M) G9_LIMIT_BYTES=$(( ${G9_LIMIT%M} * 1024 ));;
+    *G) G9_LIMIT_BYTES=$(( ${G9_LIMIT%G} * 1024 * 1024 * 1024 ));;
+    *M) G9_LIMIT_BYTES=$(( ${G9_LIMIT%M} * 1024 * 1024 ));;
     *K) G9_LIMIT_BYTES=$(( ${G9_LIMIT%K} * 1024 ));;
 esac
 [ "${G9_LIMIT_BYTES:-0}" -gt 0 ] 2>/dev/null || G9_LIMIT_BYTES=$((1024 * 1024 * 1024))
