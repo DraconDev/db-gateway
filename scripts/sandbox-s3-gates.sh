@@ -2460,7 +2460,7 @@ sleep 6
 kill "$G10_PID" 2>/dev/null || true; wait "$G10_PID" 2>/dev/null || true
 sleep 1
 
-G10_HEAD="$("${S3PROBE[@]}" head-object "$G10_PREFIX/0000/0000000000000001-0000000000000001.ltx" 2>&1 || true)"
+G10_HEAD="$("${S3PROBE[@]}" head-object "$G10_SSEC_PREFIX/0000/0000000000000001-0000000000000001.ltx" 2>&1 || true)"
 G10_SSE="$(printf '%s' "$G10_HEAD" | jfield sse)"
 # The SSE-C echo is a DIFFERENT observation from x-amz-server-side-encryption.
 # A service that applies SSE-C answers a HEAD with
@@ -2471,7 +2471,7 @@ G10_HEAD_ANY=""
 G10_KEYS=()
 # Capture the keys into a bash array -- never word-split a captured JSON into a
 # `for`, which would bash-try-to-execute the JSON fragments as commands.
-mapfile -t G10_KEYS < <("${S3PROBE[@]}" list-versions --prefix "$G10_PREFIX/" 2>/dev/null \
+mapfile -t G10_KEYS < <("${S3PROBE[@]}" list-versions --prefix "$G10_SSEC_PREFIX/" 2>/dev/null \
     | python3 -c '
 import json, sys
 try:

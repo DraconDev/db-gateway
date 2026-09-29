@@ -1,5 +1,22 @@
 # Sandbox adoption packet (docs/backup-compatibility.md §6)
 
+> **SUPERSEDED 2026-09-29 — kept as the historical record, body unedited.**
+> This run predates every gate in `scripts/sandbox-s3-gates.sh`, which did not
+> exist when it was made: its gates 3, 4, 6, 8, 9, 10, 11 and 12 are recorded
+> below as BLOCKED or absent because nothing had been written to run them. Use
+> `docs/sandbox-packet-2026-09-29-rehearsal.log` for current evidence.
+>
+> **One finding in this file was wrong and is retracted.** Below, finding 4
+> reads "Unknown replica keys are SILENTLY IGNORED. A config carrying
+> `sse-customer-key` replicated with no error and no encryption." The 2026-09-29
+> run's request log refuted it: litestream 0.5.17 signs
+> `x-amz-server-side-encryption-customer-algorithm`, `-key` and `-key-md5` on
+> its uploads. The claim was inferred from the daemon starting without an error.
+> The corrected statement is in `docs/backup-compatibility.md`'s encryption
+> finding, and the gate now measures what litestream sent instead of inferring
+> it. The text below is left exactly as it was written, because a record that
+> is quietly rewritten is not a record.
+
 date: 2026-09-28T18:28:01Z
 host: Linux 7.1.2 x86_64
 litestream pinned: 0.5.17 (/home/dracon/.local/dg-sandbox/litestream-0.5.17)
