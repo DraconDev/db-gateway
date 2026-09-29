@@ -2183,41 +2183,52 @@ G10_NOKEY_MSG="$(grep -m1 -iE 'Error|error=' "$G10_ROOT/restore-nokey.log" 2>/de
     echo "      cannot be tested here unless the service applies SSE-C itself."
 } >> "$OUT"
 
-# Gate 10 PASSES on the measured facts that ARE rehearsable here, and BLOCKS
-# the restore-with-no-ambient-credentials test on the rehearsal endpoint with
-# the reason it cannot be answered there. The full §6 finding the owner
-# needs is recorded as the gate's evidence, not as a pass/fail grade.
+# Gate 10 grades the two halves SEPARATELY, because they have nothing to do
+# with each other and lumping them is what produced a fabricated blocker.
+#
+#   half A -- is the stored data encrypted? Only the SERVICE can answer that,
+#             by reporting x-amz-server-side-encryption on what it holds. A
+#             local stand-in has no SSE to report, so half A is OVH's.
+#   half B -- can a restore reach a credential it was not handed? That is a
+#             property of litestream plus the packet's own environment, and it
+#             is fully measurable HERE.
+#
+# Two rehearsal runs reported half B as blocked by "TLS to the self-signed
+# bucket rejects the connection when the AWS_* variables are stripped". That
+# explanation was invented: the restore never ran, because `env -i
+# PATH=/usr/bin:/bin timeout ...` could not find `timeout` on this host, and
+# the line proving it -- "env: 'timeout': No such file or directory" -- was
+# sitting in the gate's own evidence block. The wrapper is now resolved to an
+# absolute path before the environment is stripped, so the restore runs and
+# the result below is the restore's, whatever it is.
+G10_SSE_SEEN=0
+if [ -n "$G10_SSE" ] || { [ "$G10_HEAD_ANY" != "(none reported)" ] && [ "$G10_HEAD_ANY" != "(no objects listed)" ]; }; then
+    G10_SSE_SEEN=1
+fi
 if [ "$G10_ROWS" = "100" ]; then
-    # The restore-with-key round-tripped all 100 rows. The encryption shape
-    # of what the bucket actually holds is whatever the service reports --
-    # here, none, because gofakes3 does not implement SSE. That is the
-    # rehearsal-endpoint limit; on OVH the head-object loop will report it.
-    if [ -n "$G10_SSE" ] || [ "$G10_HEAD_ANY" != "(none reported)" ] && [ "$G10_HEAD_ANY" != "(no objects listed)" ]; then
+    if [ "$G10_SSE_SEEN" = "1" ]; then
         record 10 PASS "encryption is visible from the service (SSE reported: $G10_HEAD_ANY) and a restore with the sandbox key returned all 100 rows" \
             "objects report x-amz-server-side-encryption: $G10_HEAD_ANY" \
-            "restore with the sandbox key only: $G10_ROWS/100 rows"
-    else
-        record 10 BLOCKED "the service did not report server-side encryption on any of the 100 rows, so the rehearsal endpoint cannot answer whether the objects ARE encrypted; the restore round-tripped all 100 rows and litestream ignored the sse-customer-key, but neither half is enough on its own" \
-            "sse-customer-key: litestream 0.5.17 accepted it without error and replicated in the clear (measured)" \
-            "objects report x-amz-server-side-encryption: $G10_HEAD_ANY (the rehearsal endpoint -- gofakes3 -- does not implement SSE; OVH will)" \
             "restore with the sandbox key only: $G10_ROWS/100 rows" \
-            "restore-with-no-ambient-credentials test BLOCKED HERE -- OVH must confirm, because the rehearsal endpoint adds TLS + region friction that confounds a credential-isolation measurement; the OWNER'S answer is what decision 3 needs" \
             "withdrawn-credential restore (litestream-level): exit $G10_NOKEY_RC, ${G10_NOKEY_MSG:-(silent)}"
+    else
+        record 10 BLOCKED "the rehearsal endpoint reports no server-side encryption on any object, so half of this gate -- whether the stored data is encrypted -- cannot be answered here; the other half, restore with no ambient credential, was measured and returned all 100 rows" \
+            "objects report x-amz-server-side-encryption: $G10_HEAD_ANY (a local stand-in has no SSE to report; OVH will)" \
+            "sse-customer-key: litestream 0.5.17 accepted the key without error and replicated in the clear (measured; the headline decision-3 finding)" \
+            "restore with the environment stripped to nothing but the sandbox key, empty AWS config files, EC2 metadata disabled: $G10_ROWS/100 rows -- MEASURED, not blocked" \
+            "withdrawn-credential restore (litestream-level): exit $G10_NOKEY_RC, ${G10_NOKEY_MSG:-(silent)}" \
+            "WHAT OVH MUST CONFIRM: the x-amz-server-side-encryption value on the objects OVH stored under the chosen mode, and a restore that returns the same rows with a key that is not present anywhere in the environment"
     fi
 elif [ "${G10_ROWS:-0}" -gt 0 ]; then
-    # The restore returned some rows but not all -- a partial failure that the
-    # packet must not call a pass.
-    record 10 FAIL "the restore returned ${G10_ROWS}/100 rows; the exact cause is in the restore log" \
-        "restore log tail:" "$(tail -8 "$G10_ROOT/restore.log" 2>/dev/null | sed 's/^/  /')"
-else
-    # Zero rows is the rehearsal endpoint's self-signed-cert + empty-store
-    # peculiarity, NOT a finding about encryption. Record the strong evidence
-    # and BLOCK the part that needs OVH.
-    record 10 BLOCKED "the restore-without-ambient-credentials test cannot be answered on this rehearsal endpoint: TLS to the self-signed bucket rejects the connection when the AWS_* variables that litestream 0.5.17 uses to discover the CA are stripped, regardless of whether the credentials themselves are correct. The test is therefore BLOCKED HERE; it must be confirmed on OVH" \
-        "sse-customer-key: litestream 0.5.17 accepted it without error and replicated in the clear (measured; the headline decision-3 finding)" \
-        "restore with the sandbox key only: ${G10_ROWS:-0}/100 rows -- the rehearsal endpoint confound" \
+    # A partial round-trip is neither pass nor blocker: the packet must not
+    # dress a partial result up as an environmental limitation.
+    record 10 FAIL "the restore returned ${G10_ROWS}/100 rows, so the credential-isolation half of this gate did not hold" \
         "restore log tail:" "$(tail -8 "$G10_ROOT/restore.log" 2>/dev/null | sed 's/^/  /')" \
-        "WHAT OVH MUST CONFIRM: a restore from the bucket with AWS_* stripped to empty (no profile, no shared credentials, EC2 metadata disabled) returns the same row count as a restore with the sandbox key. That is the operator-visible answer to decision 3."
+        "no environmental cause is assumed: the cause is in the log above"
+else
+    record 10 FAIL "the restore with the environment stripped returned 0 of 100 rows" \
+        "restore log tail:" "$(tail -8 "$G10_ROOT/restore.log" 2>/dev/null | sed 's/^/  /')" \
+        "wrapper used: ${TIMEOUT_BIN:-none} (an unresolvable timeout wrapper is no longer able to fail this test silently)"
 fi
 
 # --------------------------------------------------------------------------
@@ -2226,18 +2237,179 @@ fi
 # restores rows that nothing can authorise, so this gate restores through the
 # gateway rather than counting rows in sqlite.
 #
-# On the rehearsal endpoint the metadata.sqlite + scoped-key round-trip
-# cannot be answered fully: the scoped-key authentication path depends on
-# the gateway's own key registry against the real metadata, and restoring
-# that metadata through the rehearsal store then reauthenticating through
-# the rehearsal gateway adds the same TLS + region friction gate 10 hit.
-# This gate BLOCKED on the rehearsal endpoint and points at OVH.
+# This gate USED to be a hard BLOCKED, on the stated ground that restoring
+# metadata.sqlite out of the rehearsal bucket and reauthenticating against the
+# result "adds the same TLS + region friction gate 10 hit". That reasoning does
+# not hold, and holding it cost a real gate. The gateway never speaks S3: the
+# bucket is read by litestream, and what the gateway is then handed is two
+# ordinary files in a data directory. Nothing in that path touches the
+# endpoint, its certificate, or its region. The rehearsal proved the opposite
+# of a blocker here -- the TLS friction belonged to gate 10, and even there it
+# turned out to be a missing `timeout` binary rather than a property of TLS.
+#
+# So the round-trip is run for real: replicate the live registry and a live
+# database to the bucket, restore both into an EMPTY directory, start a gateway
+# on that directory, and present a scoped key minted before the loss.
 # --------------------------------------------------------------------------
 G11_ROOT="$SANDBOX/gate11"
-record 11 BLOCKED "the metadata.sqlite + scoped-key round-trip is not rehearsable against the rehearsal endpoint. Gate 4 already proved a data-file can be restored from the bucket and read back exactly; what remains is metadata.sqlite as a first-class replicated file and a scoped key minted from the recovered registry authenticating against it. OVH must answer both, because the rehearsal endpoint adds TLS + region friction that confounds a clean credential-isolation measurement" \
-    "metadata.sqlite on a file replica (gates 2/5/7) was replicated and restored to the source, so the replication path works end-to-end with the pinned litestream" \
-    "restoring metadata.sqlite out of the bucket and minting a scoped key from it needs the real gateway + real bucket: OVH" \
-    "what OVH must confirm: (1) metadata.sqlite replicated to the bucket as a first-class object can be restored and the restored file is accepted by the gateway as a valid registry; (2) a scoped key minted from the recovered registry authenticates against the restored gateway copy"
+mkdir -p "$G11_ROOT"
+G11_SRC="$G11_ROOT/live"
+G11_RCV="$G11_ROOT/recovered"
+G11_LS_SOCK="$G11_ROOT/litestream.sock"
+# g11_rc: set by the gate's own measurements below; every sub-case is reported
+# whatever happens, because a gate that reports one number for six questions
+# is the failure mode this whole file exists to prevent.
+G11_VERDICT=BLOCKED
+G11_WHY="not executed"
+G11_EVIDENCE=()
+if [ ! -x "$DG_BIN" ]; then
+    G11_WHY="the gateway binary is not built at $DG_BIN, and this gate is about the gateway's own registry; a file-level rehearsal of metadata.sqlite would prove the same thing the file replica in gate 5 already proves"
+else
+    rm -rf "$G11_SRC" "$G11_RCV"
+    mkdir -p "$G11_SRC" "$G11_RCV"
+    umask 077
+    G11_INIT="$("$DG_BIN" init --data-dir "$G11_SRC" 2>/dev/null)"
+    G11_OWNER="$(printf '%s' "$G11_INIT" | jfield owner_key)"
+    printf '%s\n' "$G11_OWNER" > "$G11_ROOT/owner.key"
+    chmod 600 "$G11_ROOT/owner.key"
+    G11_PORT="$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')"
+    "$DG_BIN" serve --listen "127.0.0.1:$G11_PORT" --data-dir "$G11_SRC" \
+        > "$G11_ROOT/serve.log" 2>&1 &
+    G11_SERVE_PID=$!
+    track_daemon G11_SERVE_PID
+    DG11=( "$DG_BIN" --server "http://127.0.0.1:$G11_PORT" --key-file "$G11_ROOT/owner.key" )
+    for _ in $(seq 1 100); do
+        "${DG11[@]}" status >/dev/null 2>&1 && break
+        sleep 0.1
+    done
+    # A database with real rows, a scoped key scoped to that one database, and
+    # a second database the key must NOT be able to reach. The scope check is
+    # what turns "the registry loaded" into "the registry is still authoritative":
+    # a restored registry that accepted every key for every database would pass
+    # a weaker test than this one.
+    "${DG11[@]}" create ledger_app >/dev/null 2>&1 || true
+    "${DG11[@]}" create other_app >/dev/null 2>&1 || true
+    "${DG11[@]}" query ledger_app "CREATE TABLE ledger(id INTEGER PRIMARY KEY, note TEXT)" >/dev/null 2>&1 || true
+    "${DG11[@]}" query ledger_app "WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n < 60) INSERT INTO ledger(note) SELECT 'reg-' || n FROM seq" >/dev/null 2>&1 || true
+    "${DG11[@]}" query other_app "CREATE TABLE t(a INTEGER)" >/dev/null 2>&1 || true
+    # Names are [a-z0-9_] only: validate_name rejects a hyphen, and the CLI
+    # reports that as a bare "invalid_request" with no field named.
+    G11_SCOPED="$("${DG11[@]}" key create --role database_read_only \
+        --database ledger_app ledger_reader 2>/dev/null | jfield key)"
+    printf '%s\n' "$G11_SCOPED" > "$G11_ROOT/scoped.key"
+    chmod 600 "$G11_ROOT/scoped.key"
+    G11_LIVE_ROWS="$("${DG11[@]}" --json query ledger_app "SELECT count(*) AS n FROM ledger" 2>/dev/null | jfield rows.0.0)"
+    G11_LIVE_SCOPE="$("${DG11[@]}" --json list 2>/dev/null | jfield databases)"
+    # Stop the gateway BEFORE replicating: metadata.sqlite is a live WAL
+    # database, and a replica taken while it is being written is a replica of a
+    # moment that never existed as a consistent pair with the data file.
+    kill "$G11_SERVE_PID" 2>/dev/null || true
+    wait "$G11_SERVE_PID" 2>/dev/null || true
+
+    cat > "$G11_ROOT/litestream.yml" <<EOF
+logging:
+  level: info
+  type: text
+socket:
+  enabled: true
+  path: $G11_LS_SOCK
+dbs:
+  - path: $G11_SRC/metadata.sqlite
+    replica:
+      url: s3://$BUCKET/sbx/g11/metadata?endpoint=$SCHEME://$ENDPOINT&region=$REGION
+  - path: $G11_SRC/ledger_app.sqlite
+    replica:
+      url: s3://$BUCKET/sbx/g11/ledger_app?endpoint=$SCHEME://$ENDPOINT&region=$REGION
+EOF
+    "$LITESTREAM" replicate -config "$G11_ROOT/litestream.yml" > "$G11_ROOT/replicate.log" 2>&1 &
+    G11_LS_PID=$!
+    track_daemon G11_LS_PID
+    sleep 6
+    "${TIMEOUT_ARGV[@]}" "$LITESTREAM" sync -socket "$G11_LS_SOCK" "$G11_SRC/metadata.sqlite" >/dev/null 2>&1 || true
+    "${TIMEOUT_ARGV[@]}" "$LITESTREAM" sync -socket "$G11_LS_SOCK" "$G11_SRC/ledger_app.sqlite" >/dev/null 2>&1 || true
+    sleep 2
+    kill "$G11_LS_PID" 2>/dev/null || true
+    wait "$G11_LS_PID" 2>/dev/null || true
+
+    # Recovery: an EMPTY directory, two files restored out of the bucket, and a
+    # gateway that has never seen either of them.
+    for f in metadata ledger_app; do
+        cat > "$G11_ROOT/restore-$f.yml" <<EOF
+dbs:
+  - path: $G11_RCV/$f.sqlite
+    replica:
+      url: s3://$BUCKET/sbx/g11/$f?endpoint=$SCHEME://$ENDPOINT&region=$REGION
+EOF
+        "${TIMEOUT_ARGV[@]}" "$LITESTREAM" restore -config "$G11_ROOT/restore-$f.yml" \
+            -o "$G11_RCV/$f.sqlite" "$G11_RCV/$f.sqlite" > "$G11_ROOT/restore-$f.log" 2>&1 || true
+    done
+    G11_RCV_META_SIZE="$(stat -c%s "$G11_RCV/metadata.sqlite" 2>/dev/null || echo 0)"
+    G11_RCV_DB_SIZE="$(stat -c%s "$G11_RCV/ledger_app.sqlite" 2>/dev/null || echo 0)"
+    G11_OWNER_SIDS="$(python3 -c '
+import sqlite3, sys
+try:
+    c = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+    print(c.execute("SELECT count(*) FROM credentials").fetchone()[0])
+except Exception:
+    print(0)' "$G11_RCV/metadata.sqlite" 2>/dev/null)"
+
+    G11_R_PORT="$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')"
+    "$DG_BIN" serve --listen "127.0.0.1:$G11_R_PORT" --data-dir "$G11_RCV" \
+        > "$G11_ROOT/serve-recovered.log" 2>&1 &
+    G11_R_SERVE_PID=$!
+    track_daemon G11_R_SERVE_PID
+    R11=( "$DG_BIN" --server "http://127.0.0.1:$G11_R_PORT" --key-file "$G11_ROOT/scoped.key" )
+    for _ in $(seq 1 100); do
+        "${R11[@]}" list >/dev/null 2>&1 && break
+        sleep 0.1
+    done
+    G11_REC_ROWS="$("${R11[@]}" --json query ledger_app "SELECT count(*) AS n FROM ledger" 2>/dev/null | jfield rows.0.0)"
+    G11_REC_VISIBLE="$("${R11[@]}" --json list 2>/dev/null | jfield databases)"
+    # The same key against a database it was never scoped to must still be
+    # refused, in the recovered gateway, from the recovered registry.
+    G11_REC_DENIED="no"
+    if ! "${R11[@]}" --json query other_app "SELECT 1 AS n" >/dev/null 2>&1; then
+        G11_REC_DENIED="yes (exit nonzero, as required)"
+    fi
+    kill "$G11_R_SERVE_PID" 2>/dev/null || true
+    wait "$G11_R_SERVE_PID" 2>/dev/null || true
+
+    G11_EVIDENCE=(
+        "live gateway: ledger_app $G11_LIVE_ROWS rows, visible databases $G11_LIVE_SCOPE"
+        "scoped key minted BEFORE the loss, scoped to ledger_app, role database_read_only"
+        "replicated to the bucket: metadata.sqlite and ledger_app.sqlite, each on its own prefix"
+        "recovered into an empty directory: metadata.sqlite $G11_RCV_META_SIZE bytes, ledger_app.sqlite $G11_RCV_DB_SIZE bytes, $G11_OWNER_SIDS credential rows in the recovered registry"
+        "gateway started on the recovered directory: the pre-loss scoped key authenticated and read $G11_REC_ROWS rows (live was $G11_LIVE_ROWS)"
+        "scope still enforced after recovery: reachable $G11_REC_VISIBLE, other_app refused: $G11_REC_DENIED"
+    )
+    if [ -n "$G11_SCOPED" ] && [ "$G11_REC_ROWS" = "$G11_LIVE_ROWS" ] && [ "${G11_LIVE_ROWS:-0}" -gt 0 ] 2>/dev/null; then
+        G11_VERDICT=PASS
+        G11_WHY="the registry and the data file were both restored out of the bucket into an empty directory, and a scoped key minted before the loss authenticated against the recovered registry, read the exact row count, and was still refused for a database it was never scoped to"
+    elif [ -z "$G11_SCOPED" ]; then
+        G11_VERDICT=BLOCKED
+        G11_WHY="no scoped key could be minted against the live gateway, so there is nothing to resolve after recovery; the reason is in the evidence above"
+    elif [ "${G11_RCV_META_SIZE:-0}" -eq 0 ] 2>/dev/null; then
+        G11_VERDICT=FAIL
+        G11_WHY="metadata.sqlite did not come back out of the bucket at all, so the recovered directory has no registry to authenticate against"
+    else
+        G11_VERDICT=FAIL
+        G11_WHY="the registry came back (${G11_RCV_META_SIZE} bytes, $G11_OWNER_SIDS credentials) but the pre-loss scoped key did not read $G11_LIVE_ROWS rows from it (read ${G11_REC_ROWS:-none}); the recovered registry is not resolving the recovered credentials"
+    fi
+    {
+        echo "the recovery path, end to end:"
+        for line in "${G11_EVIDENCE[@]}"; do echo "  $line"; done
+        echo
+        echo "Why the ORDER matters: the owner credential and the scoped key are stored"
+        echo "as HASHES in metadata.sqlite, and a restored file is only useful if the"
+        echo "gateway accepts that file as its registry. Starting a second gateway on"
+        echo "the recovered directory, with a key minted before the loss, is the only"
+        echo "observation that distinguishes \"the file came back\" from \"the"
+        echo "authorization context came back\"."
+    } >> "$OUT"
+fi
+record 11 "$G11_VERDICT" "$G11_WHY" \
+    "${G11_EVIDENCE[@]}" \
+    "what remains OVH's: whether the OVH test bucket stores and returns these same two files byte-for-byte, and whether its lifecycle rules would expire the registry before the data files it describes"
 # --------------------------------------------------------------------------
 # Gate 12: cleanup, and the residue check that makes it a gate. Deleting the
 # objects and saying so is not the same as proving nothing is left, so this
