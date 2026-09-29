@@ -315,18 +315,37 @@ in the clear; that claim was inferred from a clean start and the request log
 refuted it. The client-side lever exists -- the owner is not forced into
 SSE-OMK because SSE-C is unavailable.
 
-**What the service does, which is the part that decides the question.** A HEAD
-on the stored objects reported neither `x-amz-server-side-encryption` nor an
-SSE-C `customer-algorithm` echo, because the rehearsal store implements
-neither mode. Both headers are read by gate 10, and they are different
-observations: a service that correctly applies SSE-C echoes the
-customer-algorithm and may report no `sse` at all, so reading only `sse` would
-label it plaintext -- a false negative that would have been carried straight
-onto OVH. The unresolved question, which no rehearsal can answer:
+**What the service does, which is the part that decides the question -- and a
+header is not an answer.** A HEAD on the stored objects reported no
+`x-amz-server-side-encryption`, and the SSE-C `customer-algorithm` echo came
+back as `AES256`. Taken at face value that would be the answer, and it is worth
+being precise about why it is not: **a header is the service's claim about
+itself.** The rehearsal store was then checked directly, and it echoes the
+customer-algorithm while storing the object body in plaintext -- a canary
+written with SSE-C was read back with no key at all and came back intact. The
+echo proves the service recorded the metadata, and nothing about the bytes.
 
-> does the OVH bucket report an encryption header on what it stored under the
-> chosen mode -- and, for SSE-C specifically, does a restore work with the
-> customer key present, and fail cleanly without it?
+Gate 10 therefore proves it instead of reading it. `s3probe.py sse-canary`
+writes a canary with SSE-C, reads it back **without** the customer key, then
+reads it back with it. A keyless read refused for an encryption reason is
+ENFORCED, and that is a proof the stored bytes are ciphertext; the canary
+coming back in the clear is NOT-ENCRYPTED; anything else is INDETERMINATE. The
+gate passes only on ENFORCED, and reports a claim without proof as a claim. The
+measurement is as much about the packet as about the store: a harness that
+trusted the header would have passed a stand-in that stores plaintext, and the
+same code would have passed a real bucket carrying the same defect.
+
+Note the limit, which the gate states rather than hides: this settles SSE-C and
+says nothing about SSE-S3/SSE-OMK, where the service decrypts transparently and
+a round-trip succeeds whatever is stored at rest. For those modes the header is
+all a client can see, and OVH's own documentation of default encryption is what
+the owner relies on.
+
+The unresolved question, which no rehearsal can answer:
+
+> on the OVH bucket, does the same canary read back REFUSED without the customer
+> key under SSE-C, and does a restore then still work with the key present and
+> fail cleanly without it?
 
 The key-loss half is the operational consequence of choosing SSE-C, and it
 cannot be exercised until the service actually applies SSE-C. That is a reason
