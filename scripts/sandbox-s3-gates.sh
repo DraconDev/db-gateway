@@ -148,6 +148,19 @@ if [ -z "${DG_SANDBOX_DIR:-}" ]; then
 else
     SANDBOX_OWNER_TEXT="created by sandbox-packet.sh, which removes it on its own exit; this script does not"
 fi
+# Every daemon this script backgrounds is registered here. The proxies were and
+# the litestream/gateway daemons were NOT, so a run that died between gates --
+# an interrupt, a `set -e` abort, a bash re-reading a file that was edited under
+# it -- left litestream replicating into a bucket and a `dg serve` holding a
+# data directory, both pointing at a temp tree that the trap then deleted. Four
+# such daemons and two whole endpoints were found alive after their runs had
+# finished, all with config files under temp trees that no longer existed, and
+# the rehearsal's own post-conditions could not see them: they diff the process
+# set before and after THIS run, so anything leaked by an EARLIER run is
+# invisible to them by construction.
+track_daemon() { # <shell variable holding the pid> -- kill it on exit
+    CLEANUP+=("kill \$$1 2>/dev/null || true")
+}
 trap cleanup_all EXIT
 
 # start_proxy <name> <request-log> <fault-file>
@@ -504,6 +517,7 @@ dbs:
 EOF
 "$LITESTREAM" replicate -config "$G4_ROOT/litestream.yml" > "$G4_ROOT/litestream.log" 2>&1 &
 G4_PID=$!
+track_daemon G4_PID
 sleep 4
 
 write_rows() {
@@ -737,6 +751,7 @@ EOF
 
 "$LITESTREAM" replicate -config "$G5_ROOT/litestream.yml" > "$G5_ROOT/litestream.log" 2>&1 &
 G5_PID=$!
+track_daemon G5_PID
 sleep 4
 # Two committed batches with a full sync between them, so "mid-history" is a
 # point an operator could actually have asked for at the time, not an
@@ -1108,6 +1123,7 @@ dbs:
 EOF
 "$LITESTREAM" replicate -config "$G8_ROOT/litestream.yml" > "$G8_ROOT/litestream.log" 2>&1 &
 G8_LS_PID=$!
+track_daemon G8_LS_PID
 sleep 4
 
 g8_count() {
@@ -1351,6 +1367,7 @@ g8_write_and_serve near-quota yes no
 kill "$G8_LS_PID" 2>/dev/null || true; wait "$G8_LS_PID" 2>/dev/null || true
 "$LITESTREAM" replicate -config "$G8_ROOT/litestream.yml" > "$G8_ROOT/litestream.log" 2>&1 &
 G8_LS_PID=$!
+track_daemon G8_LS_PID
 # Give the new daemon a moment to list objects, then write.
 sleep 4
 G8_LIVE_AFTER="$(g8_count)"
@@ -1724,6 +1741,7 @@ G9_MEMEVENTS=""
 
 "$LITESTREAM" replicate -config "$G9_CFG" > "$G9_ROOT/replicate.log" 2>&1 &
 G9_PID=$!
+track_daemon G9_PID
 sleep 6
 G9_REPL_PID_RSS="$(rss_of "$G9_PID")"
 G9_REPL_PID_CPU="$(cpu_ticks_of "$G9_PID")"
@@ -1919,6 +1937,7 @@ G10_KEY_ERROR="$(grep -m1 -iE 'Error|error=' "$G10_ROOT/with-key.log" 2>/dev/nul
 
 "$LITESTREAM" replicate -config "$G10_ROOT/litestream.yml" > "$G10_ROOT/replicate.log" 2>&1 &
 G10_PID=$!
+track_daemon G10_PID
 sleep 6
 kill "$G10_PID" 2>/dev/null || true; wait "$G10_PID" 2>/dev/null || true
 sleep 1
