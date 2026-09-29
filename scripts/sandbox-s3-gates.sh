@@ -956,6 +956,36 @@ PY
                 [ -f "$f" ] && printf 'xx' > "$f"
             done
             ;;
+        stale)
+            # EVERY artifact except the newest, one byte flipped in each. This
+            # is the case the "litestream rebuilds from whatever is still
+            # decodable" claim is actually about, and it is the only one of the
+            # four that can distinguish a checksum-verified reader from one
+            # that silently rebuilds. The other three damage the newest
+            # artifact, which nothing can substitute for, so they measure
+            # whether damage is DETECTED; this one measures whether damage to
+            # something redundant is survivable, and whether the surviving
+            # restore is byte-exact or merely plausible.
+            python3 - "$G5_DMG" <<'PY'
+import glob, os, sys
+root = os.path.join(sys.argv[1], "ltx")
+levels = sorted(d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d))) \
+    if os.path.isdir(root) else []
+files = []
+if levels:
+    d = os.path.join(root, levels[0])
+    files = sorted(glob.glob(os.path.join(d, "*.ltx")))
+for tgt in files[:-1]:
+    b = bytearray(open(tgt, "rb").read())
+    if not b:
+        continue
+    i = len(b) // 2
+    b[i] ^= 0xFF
+    open(tgt, "wb").write(bytes(b))
+    print("damaged", os.path.relpath(tgt, sys.argv[1]), "byte", i, "of", len(b),
+          f"({len(files) - 1} artifact(s) damaged, {os.path.basename(files[-1])} left intact)")
+PY
+            ;;
     esac
     local out="$G5_ROOT/dmg-$case_name.sqlite"
     rm -f "$out"
@@ -985,15 +1015,33 @@ if [ "$G5_FETCHED" -gt 0 ]; then
     G5_FLIP="$(g5_damage flip)"
     G5_TRUNC="$(g5_damage truncate)"
     G5_DESTROY="$(g5_damage destroy)"
+    G5_STALE="$(g5_damage stale)"
 else
     G5_FLIP="no-artifacts|?|not attempted: the bucket returned no objects under $G5_PREFIX/"
     G5_TRUNC="$G5_FLIP"
     G5_DESTROY="$G5_FLIP"
+    G5_STALE="$G5_FLIP"
 fi
-G5_DAMAGE_BAD="$(printf '%s\n%s\n%s\n' "$G5_FLIP" "$G5_TRUNC" "$G5_DESTROY" \
+G5_DAMAGE_BAD="$(printf '%s\n%s\n%s\n%s\n' "$G5_FLIP" "$G5_TRUNC" "$G5_DESTROY" "$G5_STALE" \
     | grep -cE '^(WRONG-CONTENT|unreadable)' || true)"
-G5_REJECTED_N="$(printf '%s\n%s\n%s\n' "$G5_FLIP" "$G5_TRUNC" "$G5_DESTROY" \
+G5_REJECTED_N="$(printf '%s\n%s\n%s\n%s\n' "$G5_FLIP" "$G5_TRUNC" "$G5_DESTROY" "$G5_STALE" \
     | grep -cE '^rejected' || true)"
+G5_CORRECT_N="$(printf '%s\n%s\n%s\n%s\n' "$G5_FLIP" "$G5_TRUNC" "$G5_DESTROY" "$G5_STALE" \
+    | grep -cE '^correct' || true)"
+# The sentence that used to be hardcoded here asserted that litestream "has no
+# per-artifact check that rejects damage to a REDUNDANT artifact -- it rebuilds
+# from whatever else is still decodable and returns the right bytes", while the
+# three lines directly above it said all three cases were REJECTED. A reader
+# checking the numbers against the prose found the packet claiming the opposite
+# of its own measurement. The claim is now derived from the counts, so it can
+# only ever describe what the run observed.
+if [ "$G5_STALE" != "${G5_STALE#correct}" ]; then
+    G5_DAMAGE_VERDICT="damage to REDUNDANT artifacts is survivable: every artifact but the newest was damaged and the restore still returned the exact source. litestream 0.5.17 verifies what it reads, and a restore that only needed the surviving segment is still byte-exact rather than merely plausible."
+elif [ "$G5_STALE" != "${G5_STALE#rejected}" ]; then
+    G5_DAMAGE_VERDICT="damage to REDUNDANT artifacts is NOT survivable here: with the newest artifact intact and only older ones damaged, the restore still refused (nonzero exit, no output file). A replica is therefore all-or-nothing in practice -- a single unreadable artifact can take a restore with it, which is a reason to keep more than one copy rather than to trust a partial one."
+else
+    G5_DAMAGE_VERDICT="the redundant-artifact case did not return the exact source and did not refuse outright: $G5_STALE"
+fi
 
 {
     echo "comparisons are (rows, sum(id), distinct notes) -- a count alone cannot see a"
@@ -1020,13 +1068,17 @@ G5_REJECTED_N="$(printf '%s\n%s\n%s\n' "$G5_FLIP" "$G5_TRUNC" "$G5_DESTROY" \
     echo "     one byte flipped deep inside the newest level-0 artifact: $G5_FLIP"
     echo "     an artifact truncated to 10%:                            $G5_TRUNC"
     echo "     every artifact reduced to two bytes:                     $G5_DESTROY"
+    echo "     every artifact BUT the newest, one byte flipped in each:  $G5_STALE"
     echo
-    echo "     $G5_REJECTED_N of 3 were REJECTED, $G5_DAMAGE_BAD produced a database that was"
-    echo "     not the source. The measured property: litestream 0.5.17 has no per-artifact"
-    echo "     check that rejects damage to a REDUNDANT artifact -- it rebuilds from"
-    echo "     whatever else is still decodable and returns the right bytes. It refuses"
-    echo "     only when no decodable path to a complete database is left, and then it"
-    echo "     refuses loudly: nonzero exit, no output file, a named reason."
+    echo "     $G5_REJECTED_N of 4 were REJECTED, $G5_CORRECT_N returned the exact source, and"
+    echo "     $G5_DAMAGE_BAD produced a database that was not the source."
+    echo "     $G5_DAMAGE_VERDICT"
+    echo "     The three newest-artifact cases measure whether damage is DETECTED; the"
+    echo "     fourth measures what a surviving restore is worth. The distinction"
+    echo "     matters because the first three have no substitute available, so they"
+    echo "     cannot tell 'checksum verified' apart from 'gave up'."
+    echo "     What no case produced is the outcome that would be undetectable: a"
+    echo "     restore that exited 0 with a database that is not the source."
     echo
     echo "     THE OPERATIONAL CONSEQUENCE, which is why this is a gate and not a note:"
     echo "     a restore's success cannot be read off litestream's exit status, in either"
@@ -1040,7 +1092,7 @@ if [ "$G5_LATEST_OK" = "1" ] && [ "$G5_MID_OK" = "1" ] && [ "$G5_PIT_OK" = "1" ]
         "source $G5_SRC_DIGEST over $G5_SEGMENTS segments; latest $G5_LATEST_DIGEST (exit $G5_LATEST_RC)" \
         "mid-history -txid ${G5_LTX_MID:-none} -> $G5_MID_DIGEST (exit $G5_MID_RC)" \
         "point-in-time -timestamp ${G5_PIT_TARGET:-none} -> $G5_PIT_DIGEST (exit $G5_PIT_RC); same point, same bytes" \
-        "corrupt artifacts: $G5_FLIP | $G5_TRUNC | $G5_DESTROY" \
+        "corrupt artifacts: $G5_FLIP | $G5_TRUNC | $G5_DESTROY | $G5_STALE" \
         "supersedes the earlier file-replica gate 5 line above, which could not answer mid-history or corruption" \
         "gateway import validation of the restored file is gate 11"
 elif [ "$G5_MID_OK" = "1" ] && [ "$G5_PIT_OK" = "1" ] && [ "$G5_SELECTORS_AGREE" != "1" ]; then
@@ -1052,7 +1104,8 @@ elif [ "${G5_DAMAGE_BAD:-1}" != "0" ]; then
         "source $G5_SRC_DIGEST" \
         "flip: $G5_FLIP" \
         "truncate: $G5_TRUNC" \
-        "destroy: $G5_DESTROY"
+        "destroy: $G5_DESTROY" \
+        "stale (newest left intact): $G5_STALE"
 elif [ "$G5_LATEST_OK" != "1" ]; then
     record 5 FAIL "the latest restore from the bucket is not the source" \
         "source $G5_SRC_DIGEST   restored $G5_LATEST_DIGEST   exit $G5_LATEST_RC" \
