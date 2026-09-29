@@ -56,7 +56,15 @@ SANDBOX_DIR="$(mktemp -d "${TMPDIR:-/tmp}/dg-sandbox-run-XXXXXX")"
 # delete its state -- which is exactly what happened to a rehearsal whose
 # endpoint vanished mid-gate.
 [ -n "$STATE_DIR" ] || STATE_DIR="$SANDBOX_DIR/endpoint"
-STATUS=0
+# TWO STATUSES, never one. The packet exits nonzero whenever any gate is
+# blocked or failed, which is §6's own rule and is CORRECT behaviour: a
+# rehearsal that has not yet answered every gate must not look complete. This
+# driver used to adopt that exit code as its own, so a run whose gates were all
+# fine and whose five post-conditions all held still printed "REHEARSAL
+# POST-CONDITIONS FAILED" underneath five lines saying they held. The packet's
+# verdict and this driver's verdict are different questions and get different
+# exits: POST_STATUS is what this script can actually answer for.
+POST_STATUS=0
 
 # Everything this script starts is torn down whatever happens, including on an
 # interrupt: a rehearsal that leaves a proxy bound to a port is a rehearsal that
@@ -88,8 +96,8 @@ PRE_STORE="$(pgrep -f 'gofakes3 -host' 2>/dev/null | sort | tr '\n' ' ' || true)
 
 echo "== running the packet (timeout ${TIMEOUT_S}s)" >&2
 timeout "$TIMEOUT_S" "$PACKET_SCRIPT" --out "$OUT" --rehearsal
-STATUS=$?
-echo "== packet exited $STATUS" >&2
+PACKET_STATUS=$?
+echo "== packet exited $PACKET_STATUS" >&2
 
 # Fold the endpoint's own request log into the packet BEFORE teardown. It is
 # the record every request the packet made produced, including the ones no gate
@@ -130,12 +138,12 @@ teardown
 post() { printf '%s\n' "$@" >> "$OUT"; }
 
 # 1. the packet's own sandbox tree and this run's endpoint state are gone
-if [ -e "$SANDBOX_DIR" ]; then post "RESIDUE: $SANDBOX_DIR still exists"; STATUS=1
+if [ -e "$SANDBOX_DIR" ]; then post "RESIDUE: $SANDBOX_DIR still exists"; POST_STATUS=1
 else post "sandbox tree removed: $SANDBOX_DIR"; fi
 
 # 2. any dg-sandbox temp trees this run created
 STRAY="$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'dg-sandbox*' -newer "$OUT" -print 2>/dev/null || true)"
-if [ -n "$STRAY" ]; then post "STRAY temp trees newer than the packet: $STRAY"; STATUS=1
+if [ -n "$STRAY" ]; then post "STRAY temp trees newer than the packet: $STRAY"; POST_STATUS=1
 else post "no dg-sandbox* temp tree newer than the packet"; fi
 
 # 3. no logging proxy or store this driver started is still running
@@ -152,20 +160,26 @@ NEW_PROXY="$(pidset_diff "$PRE_PIDS" "$POST_PIDS")"
 NEW_STORE="$(pidset_diff "$PRE_STORE" "$POST_STORE")"
 if [ -n "$NEW_PROXY" ] || [ -n "$NEW_STORE" ]; then
     post "SURVIVING processes started by the rehearsal: proxy='$NEW_PROXY' store='$NEW_STORE'"
-    STATUS=1
+    POST_STATUS=1
 else
     post "no logging proxy or object store started by the rehearsal is still running"
 fi
 
 # 4. the endpoint state directory is gone
-if [ -e "$STATE_DIR" ]; then post "RESIDUE: endpoint state $STATE_DIR still exists"; STATUS=1
+if [ -e "$STATE_DIR" ]; then post "RESIDUE: endpoint state $STATE_DIR still exists"; POST_STATUS=1
 else post "endpoint state removed: $STATE_DIR"; fi
 
 # 5. the packet recorded a mode line, so a rehearsal can never be read as §6
 if grep -q '^mode: REHEARSAL' "$OUT"; then post "packet declares: mode REHEARSAL"
-else post "PACKET DOES NOT DECLARE A REHEARSAL MODE -- fix the header before trusting this file"; STATUS=1; fi
+else post "PACKET DOES NOT DECLARE A REHEARSAL MODE -- fix the header before trusting this file"; POST_STATUS=1; fi
 
-if [ "$STATUS" -eq 0 ]; then
+# 6. the gates that need a bucket actually RAN. A packet can satisfy every
+#    post-condition above by having executed no gates at all.
+GATES_RUN="$(grep -cE '^## gate [0-9]+: ' "$OUT" 2>/dev/null || true)"
+if [ "${GATES_RUN:-0}" -ge 12 ]; then post "gates executed: $GATES_RUN/12"
+else post "ONLY $GATES_RUN/12 GATES EXECUTED -- a leak-free run that ran no gates proves nothing"; POST_STATUS=1; fi
+
+if [ "$POST_STATUS" -eq 0 ]; then
     post ""
     post "all rehearsal post-conditions hold: the run left nothing on disk and nothing running."
 else
@@ -173,5 +187,21 @@ else
     post "REHEARSAL POST-CONDITIONS FAILED -- see above. The gates are not the only thing that must be true."
 fi
 
-echo "rehearsal post-conditions: exit $STATUS" >&2
-exit "$STATUS"
+# The packet's own exit is reported, never adopted. It is nonzero whenever a
+# gate is blocked, which on a rehearsal is the expected state for the gates
+# that only OVH can answer; folding that into this driver's verdict would make
+# an honest packet look like a dirty machine.
+post ""
+if [ "$PACKET_STATUS" -eq 0 ]; then
+    post "packet exit: 0 (no gate is blocked or failed)."
+else
+    BLOCKED_LIST="$(grep -oE '^## gate [0-9]+: BLOCKED' "$OUT" | grep -oE '[0-9]+' | tr '\n' ',' | sed 's/,$//' || true)"
+    FAILED_LIST="$(grep -oE '^## gate [0-9]+: FAIL' "$OUT" | grep -oE '[0-9]+' | tr '\n' ',' | sed 's/,$//' || true)"
+    post "packet exit: $PACKET_STATUS, by §6's own rule (blocked or failed gates are not passes)."
+    post "  blocked: ${BLOCKED_LIST:-none}   failed: ${FAILED_LIST:-none}"
+    post "  that is the packet answering honestly, not this driver reporting a fault:"
+    post "  every line above is about whether THIS RUN cleaned up after itself."
+fi
+
+echo "packet: exit $PACKET_STATUS   rehearsal post-conditions: exit $POST_STATUS" >&2
+exit "$POST_STATUS"
