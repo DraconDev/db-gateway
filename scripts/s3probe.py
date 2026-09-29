@@ -718,6 +718,8 @@ def main(argv: list[str] | None = None) -> int:
     dp = sub.add_parser("delete-everything", aliases=["delete-all-versions"])
     dp.set_defaults(command="delete-everything")
     sub.add_parser("delete-bucket")
+    sc = sub.add_parser("sse-canary")
+    sc.add_argument("--prefix", default="sbx/sse-canary")
     sub.add_parser("probe-capabilities")
 
     args = p.parse_args(argv)
@@ -763,6 +765,8 @@ def main(argv: list[str] | None = None) -> int:
             result = op_delete_everything(client)
         elif args.command == "delete-bucket":
             result = op_delete_bucket(client)
+        elif args.command == "sse-canary":
+            result = op_sse_canary(client, args.prefix)
         elif args.command == "probe-capabilities":
             result = op_probe_capabilities(client)
         else:  # pragma: no cover - argparse rejects anything else
