@@ -31,6 +31,35 @@ set -euo pipefail
 
 STATE_DIR="${DG_REHEARSAL_STATE:-$HOME/.local/dg-sandbox/s3-rehearsal}"
 GOFAKES3_BIN="${DG_REHEARSAL_S3_BIN:-$HOME/.local/dg-sandbox/rehearsal-store/bin/gofakes3}"
+# WHICH STORE BACKEND, AND WHY IT IS NOT A TUNING KNOB. Measured 2026-09-29 on
+# gofakes3 v1.2.0:
+#   -backend fs      stores keys as files, so a key with a '/' leaves an empty
+#                    DIRECTORY behind when the object is deleted. DeleteBucket
+#                    then answers 409 BucketNotEmpty while S3's own LIST shows
+#                    zero objects. That is not S3's emptiness rule -- AWS and
+#                    OVH both decide it from the object listing -- so the fs
+#                    backend makes the stand-in WRONG in precisely the
+#                    dimension §6 gate 12 measures, and gate 12 duly reported
+#                    "residue remains" for a bucket that held none. A
+#                    rehearsal endpoint that cannot tell a real residue from a
+#                    store artifact is worse than no endpoint.
+#   -backend memory  has no directories to confuse the answer, and it also
+#                    implements ?versions, so the residue check can exercise
+#                    BOTH enumerations (versions AND list-type=2) instead of
+#                    proving only the one the fs backend happens to support.
+# The default is therefore memory, and the choice is disclosed to the packet
+# through DG_SANDBOX_ENDPOINT_IMPL so no reader can mistake the store's
+# behaviour for the OVH service's.
+S3_BACKEND="${DG_REHEARSAL_S3_BACKEND:-memory}"
+STORE_FS_ARGS=()
+STORE_DESC="gofakes3 (-backend $S3_BACKEND)"
+if [ "$S3_BACKEND" = "fs" ] || [ "$S3_BACKEND" = "directfs" ]; then
+    STORE_FS_ARGS=(-fs.path "$STATE_DIR/data")
+    if [ "$S3_BACKEND" = "directfs" ]; then
+        STORE_FS_ARGS=(-directfs.path "$STATE_DIR/data" -directfs.bucket "$BUCKET" -directfs.create)
+    fi
+    STORE_DESC="gofakes3 (-backend $S3_BACKEND; keys are files, so DELETE bucket can answer BucketNotEmpty with zero objects listed -- see the note in scripts/s3-rehearsal-endpoint.sh)"
+fi
 PROXY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/s3-log-proxy.py"
 BUCKET="${DG_REHEARSAL_BUCKET:-dg-sandbox-rehearsal}"
 KEY_ID="${DG_REHEARSAL_KEY_ID:-S3[DRACON_SECRET:REDACTED]}"
@@ -65,6 +94,7 @@ export DG_SANDBOX_CA_BUNDLE='$STATE_DIR/tls/bundle.pem'
 export DG_SANDBOX_TLS_CERT='$STATE_DIR/tls/ca.pem'
 export DG_SANDBOX_TLS_KEY='$STATE_DIR/tls/key.pem'
 export DG_SANDBOX_REHEARSAL=1
+export DG_SANDBOX_ENDPOINT_IMPL='$STORE_DESC behind a validating SigV4 proxy that logs every request'
 EOF
 }
 
@@ -158,7 +188,7 @@ EOF
     S3_PORT="$(free_port)"
     PROXY_PORT="$(free_port)"
 
-    "$GOFAKES3_BIN" -host "127.0.0.1:$S3_PORT" -backend fs -fs.path "$STATE_DIR/data" \
+    "$GOFAKES3_BIN" -host "127.0.0.1:$S3_PORT" -backend "$S3_BACKEND" "${STORE_FS_ARGS[@]}" \
         > "$STATE_DIR/log/store.log" 2>&1 &
     STORE_PID=$!
     echo "$STORE_PID" > "$STATE_DIR/pids"
