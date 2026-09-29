@@ -793,7 +793,28 @@ G5_SEGMENTS="$(printf '%s\n' "$G5_LTX_ALL" | awk 'NR>1 && $2 ~ /^[0-9a-f]+$/ {n+
 G5_LTX_MID="$(g5_ltx_field 3 2)"
 G5_MID_TS="$(g5_ltx_field 5 2)"
 
+# Content check on every file this gate reads, source and restored alike.
+# PRAGMA integrity_check distinguishes a database that is WRONG from one that
+# is not even a valid database, and the packet had been naming it in its own
+# evidence while never running it -- a claim no evidence supported. It runs
+# now, and its verdict is reported beside the digests it qualifies.
+G5_INTEGRITY() { # <sqlite file> -- "ok" or the first problem the engine reports
+    python3 - "$1" <<'PY'
+import sqlite3, sys, os
+p = sys.argv[1]
+if not os.path.exists(p):
+    print("missing")
+else:
+    try:
+        rows = sqlite3.connect(f"file:{p}?mode=ro", uri=True).execute("PRAGMA integrity_check").fetchall()
+        print(rows[0][0] if rows else "no answer")
+    except Exception as exc:
+        print(f"unreadable:{exc}")
+PY
+}
+
 G5_SRC_DIGEST="$(g5_digest "$G5_SRC")"
+G5_SRC_INTEGRITY="$(G5_INTEGRITY "$G5_SRC")"
 G5_LATEST_RC="$(g5_restore latest)"
 G5_LATEST_DIGEST="$(g5_digest "$G5_ROOT/out-latest.sqlite")"
 G5_LATEST_OK=0

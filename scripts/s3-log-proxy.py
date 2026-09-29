@@ -127,22 +127,39 @@ def _parse_fault_line(line: str) -> dict[str, str]:
     read zero: the kind of silent measurement failure a corroborating check
     exists to catch, and which it then failed to catch.
 
-    The LAST pair on a line takes the rest of the line, which is the usual
-    convention and the only one that lets a human write a readable message.
+    Two ways to write a value containing spaces, because the format has to say
+    which one it is reading:
+
+    * `message="several words"` -- quoted, unambiguous, any position on the line.
+    * `message=several words`   -- unquoted, and the LAST pair on the line, so
+      the value owns everything after it. Gate 8 writes its messages last.
     """
     fields: dict[str, str] = {}
-    rest = line
+    rest = line.strip()
     while rest:
         if "=" not in rest:
             break
         name, _, rest = rest.partition("=")
+        name = name.strip()
+        if rest.startswith('"'):
+            value, sep, rest = rest[1:].partition('"')
+            fields[name] = value
+            rest = rest.strip().lstrip() if sep else ""
+            continue
         head, sep, tail = rest.partition(" ")
-        if sep and "=" not in tail.split(" ", 1)[0]:
-            # No further `key=` on this line: this value owns the remainder.
-            fields[name.strip()] = tail.strip()
+        if not sep:
+            fields[name] = head
             break
-        fields[name.strip()] = head.strip()
-        rest = tail.strip() if sep else ""
+        # An unquoted value runs to the end of the line unless the line
+        # continues with another `key=`, which is how a message can sit in the
+        # middle without swallowing the fields after it.
+        nxt = tail.split(" ", 1)[0]
+        if "=" in nxt:
+            fields[name] = head
+            rest = tail.strip()
+        else:
+            fields[name] = rest.strip()
+            break
     return fields
 
 
