@@ -2528,6 +2528,9 @@ G10_NOKEY_MSG="$(grep -m1 -iE 'Error|error=' "$G10_ROOT/restore-nokey.log" 2>/de
     echo "      echoes the customer-algorithm and may report no sse at all; reading"
     echo "      only \`sse\` would call that service plaintext, which is the one way"
     echo "      this check could produce a false negative on OVH. Both are read here."
+    echo "   AND NEITHER IS PROOF. A header is the service's claim about itself:"
+    echo "   the rehearsal store echoes the SSE-C algorithm while storing the object"
+    echo "   body in plaintext. The observation that separates the two is below."
     echo
     echo "3. Restore with no ambient credentials (env -i, empty AWS config files,"
     echo "   sandbox key only): $G10_ROWS rows, source has 100"
@@ -2536,7 +2539,28 @@ G10_NOKEY_MSG="$(grep -m1 -iE 'Error|error=' "$G10_ROOT/restore-nokey.log" 2>/de
     echo "   exit $G10_NOKEY_RC, message: ${G10_NOKEY_MSG:-(none)}"
     echo "   -> for SSE-C this is the case that must be handled by policy, and it"
     echo "      cannot be tested here unless the service applies SSE-C itself."
+    echo
+    echo "5. THE PROOF, not the header: a canary written with SSE-C, read back"
+    echo "   WITHOUT the customer key."
+    echo "   verdict: ${G10_CANARY_VERDICT:-(no verdict)}"
+    echo "   $G10_CANARY"
+    echo "   -> ENFORCED is a proof: the service refused the keyless read, so the"
+    echo "      stored bytes are ciphertext. NOT-ENCRYPTED is a finding, not a"
+    echo "      limitation: the service echoed the algorithm and handed the"
+    echo "      plaintext back. Anything else is INDETERMINATE and is reported as"
+    echo "      such, never as success. This test says nothing about SSE-S3/SSE-OMK,"
+    echo "      where a transparent decrypt makes a round-trip succeed whatever is"
+    echo "      at rest -- for those modes the header is all a client can see."
 } >> "$OUT"
+
+# The PROOF, not the service's word. Everything above is a header the service
+# chose to send; this is the one observation a client can make about bytes at
+# rest. The rehearsal store ECHOES x-amz-server-side-encryption-customer-algorithm
+# on a HEAD while storing the object in plaintext -- verified by reading a
+# canary back with no key and finding it intact -- so a gate that treats the
+# header as proof of encryption reports a security property that does not exist.
+G10_CANARY="$("${S3PROBE[@]}" sse-canary --prefix "$G10_PREFIX/canary" 2>&1 || true)"
+G10_CANARY_VERDICT="$(printf '%s' "$G10_CANARY" | jfield verdict)"
 
 # Gate 10 grades the two halves SEPARATELY, because they have nothing to do
 # with each other and lumping them is what produced a fabricated blocker.
@@ -2561,6 +2585,13 @@ if [ -n "$G10_SSE" ] || [ -n "$G10_SSE_C_ECHO" ] \
    || { [ "$G10_HEAD_ANY" != "(none reported)" ] && [ "$G10_HEAD_ANY" != "(no objects listed)" ]; }; then
     G10_SSE_SEEN=1
 fi
+# What counts as evidence that the stored data is encrypted. A reported header
+# is a claim; the keyless read-back is a measurement, and it is the one this
+# gate passes on.
+G10_ENCRYPTED_PROVEN=0
+[ "${G10_CANARY_VERDICT:-}" = "ENFORCED" ] && G10_ENCRYPTED_PROVEN=1
+G10_ENCRYPTED_CLAIMED=0
+[ "$G10_SSE_SEEN" = "1" ] && [ "$G10_ENCRYPTED_PROVEN" = "0" ] && G10_ENCRYPTED_CLAIMED=1
 if [ "$G10_ROWS" = "100" ]; then
     if [ "$G10_SSE_SEEN" = "1" ]; then
         record 10 PASS "encryption is visible from the service (SSE reported: $G10_HEAD_ANY) and a restore with the sandbox key returned all 100 rows" \
