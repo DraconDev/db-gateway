@@ -786,13 +786,55 @@ except Exception:
     print(-1)" 2>/dev/null || echo -1
 }
 
-# One phase of the fault drill: $1 label, $2 expect-faulted (yes|no).
+# How many lines the daemon log holds right now. The log is CUMULATIVE, so a
+# per-phase `grep level=ERROR|WARN` over the whole file is sticky: the first
+# fault leaves a line behind, and every later phase then "reports" a failure it
+# never caused. That is not a cosmetic flaw -- it inflates the count past the
+# number of phases, so the gate failed a run whose signal was real, and it
+# would equally pass a run where only the first fault ever surfaced. The
+# measurement below is a DELTA over the lines this phase added, and a healthy
+# phase is a control that must produce NO new signal, so the signal is proven
+# to be a signal rather than a standing error line.
+g8_log_lines() { wc -l < "$G8_ROOT/litestream.log" 2>/dev/null | tr -d ' ' || echo 0; }
+
+# Wait a bounded 5s for the daemon to log a signal for THIS phase. The daemon
+# raises the error while serving the sync the gate triggers, so the line is
+# expected promptly; a single immediate sample would call a slow-but-working
+# surface silent, which is the same error in the other direction. Echoes the
+# lines it found; returns 1 when none arrived inside the bound.
+G8_SIGNAL_WAIT_S=0.5
+G8_SIGNAL_TRIES=10
+g8_wait_for_signal() {
+    local before="$1" i out
+    for i in $(seq 1 "$G8_SIGNAL_TRIES"); do
+        out="$(tail -n "+$((before + 1))" "$G8_ROOT/litestream.log" 2>/dev/null \
+               | grep -iE 'level=(ERROR|WARN)' || true)"
+        if [ -n "$out" ]; then
+            G8_SIGNAL_SURFACED_S="$(awk -v n="$i" -v s="$G8_SIGNAL_WAIT_S" 'BEGIN{printf "%.1f", n*s}')"
+            printf '%s\n' "$out"
+            return 0
+        fi
+        sleep "$G8_SIGNAL_WAIT_S"
+    done
+    G8_SIGNAL_SURFACED_S=">$(awk -v n="$G8_SIGNAL_TRIES" -v s="$G8_SIGNAL_WAIT_S" 'BEGIN{printf "%.1f", n*s}')"
+    return 1
+}
+
+# One phase of the fault drill:
+#   $1 label, $2 faulted (yes|no), $3 restore path still readable (yes|no)
+# The two flags are deliberately separate. A phase whose fault also breaks the
+# restore's own calls cannot be measured for "the write is absent from the
+# bucket", and folding those phases into one denominator is what let a count of
+# 3 be compared against 2 and report a failure that was really an arithmetic
+# mismatch between two different questions.
 g8_write_and_serve() {
-    local label="$1" expect="$2"
+    local label="$1" faulted="$2" stale_measurable="$3"
     # BEFORE the write. The previous version read the count after inserting, so
     # every phase compared a number with itself and reported all four checks as
     # stalled while the row count rose from 21 to 24 in front of it.
-    local before after restored sync_out sync_said daemon_said
+    local before after restored sync_out sync_said daemon_said log_before signal
+    log_before="$(g8_log_lines)"
+    G8_SIGNAL_SURFACED_S="n/a"
     before="$(g8_count)"
     g8_write "$label"
     after="$(g8_count)"
@@ -800,10 +842,10 @@ g8_write_and_serve() {
     printf '%s\n' "$sync_out" | tail -1 | cut -c1-120 > "$G8_ROOT/sync-last.txt"
     sync_said="no"
     printf '%s' "$sync_out" | grep -qiE 'error|denied|403|forbidden|no such host|connection|timeout|rejected' && sync_said="yes"
-    daemon_said="no"
-    grep -qiE 'level=(ERROR|WARN)' "$G8_ROOT/litestream.log" 2>/dev/null && daemon_said="yes"
+    signal="$(g8_wait_for_signal "$log_before")" && daemon_said="yes" || daemon_said="no"
+    [ -n "$signal" ] && printf '%s\n' "$signal" | tail -2 >> "$G8_ROOT/signal-delta.txt"
     restored="$(g8_restored)"
-    G8_RESULTS+=("$label: live $before -> $after, in-bucket $restored, sync reported the failure: $sync_said, daemon log level=ERROR/WARN: $daemon_said")
+    G8_RESULTS+=("$label: live $before -> $after, in-bucket $restored, sync reported the failure: $sync_said, new daemon signal this phase: $daemon_said (within ${G8_SIGNAL_SURFACED_S}s)")
     # Keep the last sync output visible. The grep above is what makes the
     # gate pass/fail, but the wording varies by litestream version and the
     # packet is the only durable place to look when the gate's count says no.
@@ -811,28 +853,44 @@ g8_write_and_serve() {
     [ "${after:-0}" -gt "${before:-0}" ] && G8_SERVED+=("served") || G8_SERVED+=("STALLED")
     # While faulted, the write must NOT be in the bucket: that is what "the
     # backup is stale" means in practice, and it is the fact an operator needs.
-    if [ "$expect" = "yes" ]; then
+    if [ "$stale_measurable" = "yes" ]; then
+        G8_STALE_MEASURABLE+=("yes")
         if [ "${restored:--1}" -ge 0 ] && [ "${restored:-0}" -le "${before:-0}" ]; then
             G8_STALE_OK+=("yes")
         else
             G8_STALE_OK+=("no")
         fi
     fi
-    [ "$sync_said" = "yes" ] && G8_SURFACED+=("yes") || G8_SURFACED+=("no")
     [ "$daemon_said" = "yes" ] && G8_DAEMON+=("yes") || G8_DAEMON+=("no")
+    if [ "$faulted" = "yes" ]; then
+        G8_FAULTED+=("$label")
+    elif [ "$daemon_said" = "yes" ]; then
+        # A healthy phase that raises a signal is a FALSE ALARM, and it matters
+        # more than it looks: an operator who sees ERROR in the log during
+        # normal operation learns to ignore it, and then misses the real stall.
+        G8_FALSE_ALARM+=("$label")
+    fi
+    [ "$sync_said" = "yes" ] && G8_SURFACED+=("yes") || G8_SURFACED+=("no")
 }
 
 G8_RESULTS=()
 G8_SERVED=()
 G8_STALE_OK=()
+G8_STALE_MEASURABLE=()
+G8_FAULTED=()
+G8_FALSE_ALARM=()
 G8_SURFACED=()
 G8_DAEMON=()
-g8_write_and_serve healthy no
+G8_SIGNAL_SURFACED_S="n/a"
+# The control phase. Nothing is broken here, so the daemon must stay quiet:
+# this is what turns "the log said something" into "the log said something
+# BECAUSE the backup stopped".
+g8_write_and_serve healthy no no
 
 # (a) revoked credentials: PUTs are rejected. GETs (the restore path) still
 # work, so the absence of the faulted write can be measured.
 printf 'method=PUT status=403 code=AccessDenied message=injected revoked-credential fault\n' > "$G8_FAULTS"
-g8_write_and_serve revoked-credentials yes
+g8_write_and_serve revoked-credentials yes yes
 G8_A="$(grep -c 'revoked-credential fault' "$G8_ROOT/litestream.log" 2>/dev/null || true)"
 
 # (b) blocked egress: PUTs are refused, but GETs are NOT, so the restore path
@@ -841,7 +899,7 @@ G8_A="$(grep -c 'revoked-credential fault' "$G8_ROOT/litestream.log" 2>/dev/null
 # own GETs, which makes "the write is absent from the bucket" unmeasurable;
 # measuring it requires a narrower fault.
 printf 'method=PUT refuse=true\n' > "$G8_FAULTS"
-g8_write_and_serve blocked-egress yes
+g8_write_and_serve blocked-egress yes yes
 
 # (c) destination near quota: the LIST (the listing path, which is what the
 # daemon uses to enumerate generations and what restore uses to enumerate
@@ -850,7 +908,7 @@ g8_write_and_serve blocked-egress yes
 # fault is genuinely unmeasurable. The pass criterion for this phase is the
 # daemon surfacing the failure plus the gateway keeping writes served.
 printf 'method=GET status=403 code=AccessDenied message=injected quota fault\n' > "$G8_FAULTS"
-g8_write_and_serve near-quota no
+g8_write_and_serve near-quota yes no
 
 # Recovery: clear the fault, restart the daemon so its exponential backoff
 # (built up while the faults were active) does not mask a working recovery,
@@ -883,19 +941,22 @@ kill "$G8_LS_PID" 2>/dev/null || true; wait "$G8_LS_PID" 2>/dev/null || true
 G8_N_SERVED=0
 for s in ${G8_SERVED[@]+"${G8_SERVED[@]}"}; do [ "$s" = "served" ] && G8_N_SERVED=$((G8_N_SERVED+1)); done
 G8_TOTAL=${#G8_SERVED[@]}
-G8_N_STALE_ATTEMPTED=${#G8_STALE_OK[@]}
-# The stale-check is skipped for a fault that blocks the restore's own path
-# (near-quota: the LIST it injects is exactly the restore's first call), so
-# the attempted count is what "absent from the bucket" measures, not the
-# number of phases. The daemon-log and sync-reported counts cover all phases.
-G8_N_FAULTS=$G8_N_STALE_ATTEMPTED
+# Three denominators, three questions. They are NOT the same number and the
+# earlier version used one of them for all three, which is how a run with 3
+# signals out of 3 faults was recorded as "3/2" and failed.
+#   faulted phases          -> did the daemon surface the failure?
+#   stale-measurable phases -> could the absence of the write be measured at all?
+G8_N_FAULTED=${#G8_FAULTED[@]}
+G8_N_STALE_MEASURABLE=${#G8_STALE_MEASURABLE[@]}
 G8_N_STALE_OK=0
 for s in ${G8_STALE_OK[@]+"${G8_STALE_OK[@]}"}; do [ "$s" = "yes" ] && G8_N_STALE_OK=$((G8_N_STALE_OK+1)); done
 G8_N_SURFACED=0
 for s in ${G8_SURFACED[@]+"${G8_SURFACED[@]}"}; do [ "$s" = "yes" ] && G8_N_SURFACED=$((G8_N_SURFACED+1)); done
 G8_N_DAEMON=0
 for s in ${G8_DAEMON[@]+"${G8_DAEMON[@]}"}; do [ "$s" = "yes" ] && G8_N_DAEMON=$((G8_N_DAEMON+1)); done
-G8_SIGNAL_LINES="$(grep -iE 'level=(ERROR|WARN)' "$G8_ROOT/litestream.log" 2>/dev/null | head -4 || true)"
+G8_N_FALSE_ALARM=${#G8_FALSE_ALARM[@]}
+G8_FAULTED_LIST="$(IFS=,; echo "${G8_FAULTED[*]+${G8_FAULTED[*]}}")"
+G8_SIGNAL_LINES="$(head -8 "$G8_ROOT/signal-delta.txt" 2>/dev/null || true)"
 G8_SYNC_TAIL="$(head -8 "$G8_ROOT/sync-tail.txt" 2>/dev/null || true)"
 G8_BACKUP_STATE="(gateway not built)"
 # `dg backup status` is the operator-facing staleness signal. On a minimum
@@ -915,12 +976,16 @@ fi
     echo
     for r in "${G8_RESULTS[@]}"; do printf '  %s\n' "$r"; done
     echo
-    echo "gateway writes kept being served:            $G8_N_SERVED of $G8_TOTAL phases"
-    echo "faulted write absent from the bucket:        $G8_N_STALE_OK of $G8_N_FAULTS faulted phases"
-    echo "the sync command reported the failure:       $G8_N_SURFACED of $G8_N_FAULTS faulted phases"
-    echo "the daemon log raised level=ERROR/WARN:      $G8_N_DAEMON of $G8_N_FAULTS faulted phases"
+    echo "faulted phases:                     $G8_FAULTED_LIST"
+    echo "gateway writes kept being served:   $G8_N_SERVED of $G8_TOTAL phases (1 healthy + $G8_N_FAULTED faulted)"
+    echo "faulted write absent from the bucket: $G8_N_STALE_OK of $G8_N_STALE_MEASURABLE measurable faulted phases"
+    echo "  (the near-quota phase injected a failure on LIST, which is the restore's own first call,"
+    echo "   so 'absent from the bucket' is not measurable there and is not counted against it)"
+    echo "the daemon logged a NEW error/warn for the phase it failed in: $G8_N_DAEMON of $G8_N_FAULTED faulted phases"
+    echo "false alarms in the healthy phase:  $G8_N_FALSE_ALARM"
+    echo "the sync CLI reported the failure:  $G8_N_SURFACED of $G8_N_FAULTED faulted phases"
     echo
-    echo "daemon signal lines:"
+    echo "new daemon signal lines, per phase (the delta the count above is made of):"
     printf '%s\n' "${G8_SIGNAL_LINES:-  (none)}" | sed 's/^/  /'
     echo
     echo "sync command output, last 8 lines (the grep that decides sync-reported above):"
@@ -929,32 +994,34 @@ fi
     echo "gateway backup freshness, as an operator reads it:"
     echo "  ${G8_BACKUP_STATE}"
     echo
-    if [ "$G8_N_DAEMON" -lt "$G8_N_FAULTS" ]; then
+    if [ "$G8_N_DAEMON" -lt "$G8_N_FAULTED" ] || [ "$G8_N_FALSE_ALARM" -gt 0 ]; then
         echo "FINDING, NOT A GATE FAILURE: litestream 0.5.17 did not raise"
-        echo "level=ERROR/WARN in the daemon log for every injected failure, so a"
-        echo "stale backup is NOT visible in that log. What made it visible here"
-        echo "was a restore, a failing sync command, and the gateway's own"
-        echo "fresh/stale state above -- all of which something has to be watching."
-        echo "There is no alerting on this host, so a silent backup stall remains"
-        echo "a gap in the adoption claim. This is the substance behind decision"
-        echo "6, not a passing gate."
+        echo "level=ERROR/WARN for every injected failure, so a stale backup is"
+        echo "NOT reliably visible in that log. What made it visible here was a"
+        echo "restore, and the gateway's own fresh/stale state above -- all of"
+        echo "which something has to be watching. There is no alerting on this"
+        echo "host, so a silent backup stall remains a gap in the adoption claim."
+        echo "This is the substance behind decision 6, not a passing gate."
     fi
 } >> "$OUT"
 
-if [ "$G8_N_SERVED" -eq "$G8_TOTAL" ] && [ "$G8_N_STALE_OK" -eq "$G8_N_FAULTS" ] \
-   && [ "$G8_N_DAEMON" -eq "$G8_N_FAULTS" ] && [ "$G8_RECOVERED" = "1" ]; then
-    record 8 PASS "each of the three injected failures kept the gateway serving writes, kept the faulted write out of the bucket, and was raised by the daemon at level=ERROR/WARN -- and after the fault cleared the missing writes were in the bucket again" \
+if [ "$G8_N_SERVED" -eq "$G8_TOTAL" ] && [ "$G8_N_STALE_OK" -eq "$G8_N_STALE_MEASURABLE" ] \
+   && [ "$G8_N_DAEMON" -eq "$G8_N_FAULTED" ] && [ "$G8_N_FALSE_ALARM" -eq 0 ] \
+   && [ "$G8_RECOVERED" = "1" ]; then
+    record 8 PASS "each of the three injected failures kept the gateway serving writes, kept the faulted write out of the bucket, and was raised by the daemon at level=ERROR/WARN within the phase that caused it -- the healthy phase raised nothing, and after the fault cleared the missing writes were in the bucket again" \
         "checks: ${G8_RESULTS[*]}" \
-        "writes served: $G8_N_SERVED/$G8_TOTAL   faulted writes absent from the bucket: $G8_N_STALE_OK/$G8_N_FAULTS   daemon log ERROR/WARN: $G8_N_DAEMON/$G8_N_FAULTS" \
+        "writes served: $G8_N_SERVED/$G8_TOTAL   faulted writes absent from the bucket: $G8_N_STALE_OK/$G8_N_STALE_MEASURABLE measurable   new daemon error/warn per faulted phase: $G8_N_DAEMON/$G8_N_FAULTED   false alarms while healthy: $G8_N_FALSE_ALARM" \
         "sync command output recorded but not part of the gate -- the CLI prints per-DB txid lines, not the daemon's error; the daemon log is the right surface" \
         "recovered after the fault cleared: $([ "$G8_RECOVERED" = 1 ] && echo "yes, a restore returns $G8_RECOVERED_ROWS rows against $G8_LIVE_AFTER live" || echo no)"
 else
     record 8 FAIL "failure visibility did not hold" \
         "checks: ${G8_RESULTS[*]}" \
+        "faulted phases: $G8_FAULTED_LIST" \
         "writes served: $G8_N_SERVED/$G8_TOTAL" \
-        "faulted writes absent from the bucket: $G8_N_STALE_OK/$G8_N_FAULTS" \
-        "sync reported the failure: $G8_N_SURFACED/$G8_N_FAULTS" \
-        "daemon log ERROR/WARN: $G8_N_DAEMON/$G8_N_FAULTS" \
+        "faulted writes absent from the bucket: $G8_N_STALE_OK/$G8_N_STALE_MEASURABLE measurable" \
+        "new daemon error/warn per faulted phase: $G8_N_DAEMON/$G8_N_FAULTED" \
+        "false alarms while healthy: $G8_N_FALSE_ALARM" \
+        "sync reported the failure: $G8_N_SURFACED/$G8_N_FAULTED" \
         "recovered: $G8_RECOVERED (restore returned ${G8_RECOVERED_ROWS:-?}, live is ${G8_LIVE_AFTER:-?})" \
         "log tail:" "$(tail -6 "$G8_ROOT/litestream.log" 2>/dev/null | sed 's/^/  /')"
 fi
