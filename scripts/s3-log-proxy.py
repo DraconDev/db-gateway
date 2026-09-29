@@ -110,10 +110,40 @@ def _read_faults() -> list[dict[str, str]]:
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
-                out.append(dict(p.split("=", 1) for p in line.split(" ") if "=" in p))
+                out.append(_parse_fault_line(line))
     except OSError:
         return []
     return out
+
+
+def _parse_fault_line(line: str) -> dict[str, str]:
+    """`key=value key=value ...`, where a VALUE MAY CONTAIN SPACES.
+
+    Splitting on spaces and keeping only the `=`-bearing tokens silently
+    truncated `message=injected revoked-credential fault` to the single word
+    "injected", so the daemon logged `AccessDenied: injected` and gate 8's
+    check that the log shows the fault it injected -- which greps for the full
+    text -- reported zero on every run. That is a counter that can only ever
+    read zero: the kind of silent measurement failure a corroborating check
+    exists to catch, and which it then failed to catch.
+
+    The LAST pair on a line takes the rest of the line, which is the usual
+    convention and the only one that lets a human write a readable message.
+    """
+    fields: dict[str, str] = {}
+    rest = line
+    while rest:
+        if "=" not in rest:
+            break
+        name, _, rest = rest.partition("=")
+        head, sep, tail = rest.partition(" ")
+        if sep and "=" not in tail.split(" ", 1)[0]:
+            # No further `key=` on this line: this value owns the remainder.
+            fields[name.strip()] = tail.strip()
+            break
+        fields[name.strip()] = head.strip()
+        rest = tail.strip() if sep else ""
+    return fields
 
 
 def _fault_for(method: str, bucket: str, key: str) -> dict[str, str] | None:

@@ -2271,11 +2271,28 @@ else
 fi
 
 # --------------------------------------------------------------------------
-# Gate 10: encryption, and restore with no ambient credentials. The rehearsal
-# found that litestream 0.5.17 silently ignores an encryption key in its
-# config, so this gate asserts the thing that can actually be observed -- what
-# the service reports about the objects it stored -- and separately proves the
-# restore path cannot reach a credential it was not given.
+# Gate 10: encryption, and restore with no ambient credentials.
+#
+# WHAT IS ASSERTED, AND WHY IT IS NOT "THE KEY WAS IGNORED". The first version
+# of this gate wrote `sse-customer-key` into the config, watched the daemon
+# start without an error, and concluded that litestream 0.5.17 ignores the key
+# and replicates in the clear. The conclusion was published as the headline
+# decision-3 fact. The run's OWN request log refuted it: all three PUTs of that
+# phase carried x-amz-server-side-encryption-customer-algorithm, -key and
+# -key-md5, all three inside the signature. litestream sends SSE-C on every
+# upload; the stand-in simply neither enforces nor echoes it. Those are
+# different facts with opposite consequences for the owner -- one says the
+# client-side lever does not exist, the other says it does and the service is
+# the open question -- so the gate now observes the PUTs themselves instead of
+# inferring anything from a clean start.
+#
+# It also reads the SSE-C ECHO. A service that correctly applies SSE-C answers
+# a HEAD with x-amz-server-side-encryption-customer-algorithm, and reading only
+# x-amz-server-side-encryption would report that service as storing plaintext
+# -- a false negative that would have reached OVH, where the check matters.
+#
+# Separately, and independently of all of the above, the restore half proves
+# the restore path cannot reach a credential it was not handed.
 # --------------------------------------------------------------------------
 G10_ROOT="$SANDBOX/gate10"
 mkdir -p "$G10_ROOT"
@@ -2287,6 +2304,17 @@ c.execute("CREATE TABLE t(a INTEGER)"); c.executemany("INSERT INTO t VALUES (?)"
 c.commit()
 PY
 G10_PREFIX="sbx/g10"
+# The customer-key run goes through its OWN validating proxy, because the
+# observation this gate now rests on is in the request headers. Going straight
+# to the endpoint would leave the question -- "did the client actually send
+# SSE-C?" -- unanswerable from the packet, which is how the first version of
+# this gate had to guess.
+G10_REQLOG="$G10_ROOT/requests.jsonl"
+G10_FAULTS="$G10_ROOT/faults"
+: > "$G10_FAULTS"
+: > "$G10_REQLOG"
+start_proxy "gate10" "$G10_REQLOG" "$G10_FAULTS"
+G10_PROXY_PORT="$PROXY_PORT"
 cat > "$G10_ROOT/litestream.yml" <<EOF
 logging:
   level: info
@@ -2294,7 +2322,7 @@ logging:
 dbs:
   - path: $G10_SRC
     replica:
-      url: s3://$BUCKET/$G10_PREFIX?endpoint=$SCHEME://$ENDPOINT&region=$REGION
+      url: s3://$BUCKET/$G10_PREFIX?endpoint=$SCHEME://127.0.0.1:$G10_PROXY_PORT&region=$REGION
 EOF
 # The setting §6 asks to be exercised, written in exactly the form an operator
 # would try first. Writing it and watching litestream start is exactly the
@@ -2303,12 +2331,31 @@ cat > "$G10_ROOT/with-customer-key.yml" <<EOF
 dbs:
   - path: $G10_SRC
     replica:
-      url: s3://$BUCKET/$G10_PREFIX?endpoint=$SCHEME://$ENDPOINT&region=$REGION
+      url: s3://$BUCKET/$G10_PREFIX?endpoint=$SCHEME://127.0.0.1:$G10_PROXY_PORT&region=$REGION
       sse-customer-key: $(head -c 32 /dev/urandom | base64)
 EOF
 timeout 20 "$LITESTREAM" replicate -config "$G10_ROOT/with-customer-key.yml" > "$G10_ROOT/with-key.log" 2>&1 || true
 G10_KEY_STARTED=$?
 G10_KEY_ERROR="$(grep -m1 -iE 'Error|error=' "$G10_ROOT/with-key.log" 2>/dev/null | cut -c1-200 || true)"
+# WHAT LITESTREAM ACTUALLY PUT ON THE WIRE, read out of the proxy's own log of
+# the requests it signed and forwarded.
+G10_SSE_C_PUTS=0
+G10_SSE_C_SENT=0
+if [ -s "$G10_REQLOG" ]; then
+    G10_SSE_C_PUTS="$(grep -c '"method": "PUT"' "$G10_REQLOG" 2>/dev/null || true)"
+    G10_SSE_C_SENT="$(grep -c 'x-amz-server-side-encryption-customer-algorithm' "$G10_REQLOG" 2>/dev/null || true)"
+fi
+G10_SSE_C_PUTS="$(printf '%s' "${G10_SSE_C_PUTS:-0}" | tr -cd '0-9')"
+G10_SSE_C_SENT="$(printf '%s' "${G10_SSE_C_SENT:-0}" | tr -cd '0-9')"
+[ -n "$G10_SSE_C_PUTS" ] || G10_SSE_C_PUTS=0
+[ -n "$G10_SSE_C_SENT" ] || G10_SSE_C_SENT=0
+if [ "$G10_SSE_C_SENT" = "0" ] && [ "$G10_SSE_C_PUTS" -gt 0 ]; then
+    G10_SSE_C_VERDICT="the daemon uploaded $G10_SSE_C_PUTS object(s) and NOT ONE carried an SSE-C header -- the key in the config did not reach the wire"
+elif [ "$G10_SSE_C_SENT" -gt 0 ]; then
+    G10_SSE_C_VERDICT="the daemon uploaded $G10_SSE_C_PUTS object(s) and $G10_SSE_C_SENT of them carried x-amz-server-side-encryption-customer-algorithm/-key/-key-md5 inside the signature: litestream 0.5.17 SENDS SSE-C. Whether the stored bytes are encrypted is the SERVICE's answer, not litestream's"
+else
+    G10_SSE_C_VERDICT="the customer-key run made no uploads at all, so nothing can be said about what it would have sent"
+fi
 
 "$LITESTREAM" replicate -config "$G10_ROOT/litestream.yml" > "$G10_ROOT/replicate.log" 2>&1 &
 G10_PID=$!
@@ -2319,6 +2366,11 @@ sleep 1
 
 G10_HEAD="$("${S3PROBE[@]}" head-object "$G10_PREFIX/0000/0000000000000001-0000000000000001.ltx" 2>&1 || true)"
 G10_SSE="$(printf '%s' "$G10_HEAD" | jfield sse)"
+# The SSE-C echo is a DIFFERENT observation from x-amz-server-side-encryption.
+# A service that applies SSE-C answers a HEAD with
+# x-amz-server-side-encryption-customer-algorithm, and that IS the service
+# confirming the stored bytes are encrypted under a client-supplied key.
+G10_SSE_C_ECHO="$(printf '%s' "$G10_HEAD" | jfield sse_customer_algorithm)"
 G10_HEAD_ANY=""
 G10_KEYS=()
 # Capture the keys into a bash array -- never word-split a captured JSON into a
@@ -2336,7 +2388,9 @@ for k in "${G10_KEYS[@]}"; do
     [ -z "$k" ] && continue
     H="$("${S3PROBE[@]}" head-object "$k" 2>&1 || true)"
     S="$(printf '%s' "$H" | jfield sse)"
+    C="$(printf '%s' "$H" | jfield sse_customer_algorithm)"
     [ -n "$S" ] && G10_HEAD_ANY="$S"
+    [ -n "$C" ] && G10_HEAD_ANY="sse-c: customer-algorithm=$C"
     [ -z "$G10_HEAD_ANY" ] && G10_HEAD_ANY="(none reported)"
 done
 if [ -z "$G10_HEAD_ANY" ]; then
@@ -2392,14 +2446,17 @@ G10_NOKEY_MSG="$(grep -m1 -iE 'Error|error=' "$G10_ROOT/restore-nokey.log" 2>/de
     echo "1. The configuration an operator reaches for first:"
     echo "   replica.sse-customer-key: <random 32 bytes>"
     echo "   litestream started: $([ -n "${G10_KEY_ERROR:-}" ] && echo "no -- $G10_KEY_ERROR" || echo "YES, with no error")"
-    echo "   -> a 2026-09-28 rehearsal recorded the same: 0.5.17 accepts an unknown"
-    echo "      replica key silently and replicates in the clear. Starting is not evidence."
+    echo "   and on the wire, from the proxy that signed and forwarded its requests:"
+    echo "     $G10_SSE_C_VERDICT"
     echo
-    echo "2. What the service reports about the objects it actually stored:"
-    echo "   x-amz-server-side-encryption: ${G10_SSE:-(not reported by this service)}"
+    echo "2. What the SERVICE reports about the objects it actually stored:"
+    echo "   x-amz-server-side-encryption:        ${G10_SSE:-(not reported)}"
+    echo "   x-amz-server-side-encryption-customer-algorithm: ${G10_SSE_C_ECHO:-(not echoed)}"
     echo "   across every object under the prefix: $G10_HEAD_ANY"
-    echo "   -> this is the only observation that can settle decision 3. A setting"
-    echo "      that is not visible from the service is not in effect."
+    echo "   -> these two are different observations. A service that applies SSE-C"
+    echo "      echoes the customer-algorithm and may report no sse at all; reading"
+    echo "      only \`sse\` would call that service plaintext, which is the one way"
+    echo "      this check could produce a false negative on OVH. Both are read here."
     echo
     echo "3. Restore with no ambient credentials (env -i, empty AWS config files,"
     echo "   sandbox key only): $G10_ROWS rows, source has 100"
@@ -2429,7 +2486,8 @@ G10_NOKEY_MSG="$(grep -m1 -iE 'Error|error=' "$G10_ROOT/restore-nokey.log" 2>/de
 # absolute path before the environment is stripped, so the restore runs and
 # the result below is the restore's, whatever it is.
 G10_SSE_SEEN=0
-if [ -n "$G10_SSE" ] || { [ "$G10_HEAD_ANY" != "(none reported)" ] && [ "$G10_HEAD_ANY" != "(no objects listed)" ]; }; then
+if [ -n "$G10_SSE" ] || [ -n "$G10_SSE_C_ECHO" ] \
+   || { [ "$G10_HEAD_ANY" != "(none reported)" ] && [ "$G10_HEAD_ANY" != "(no objects listed)" ]; }; then
     G10_SSE_SEEN=1
 fi
 if [ "$G10_ROWS" = "100" ]; then
@@ -2439,12 +2497,12 @@ if [ "$G10_ROWS" = "100" ]; then
             "restore with the sandbox key only: $G10_ROWS/100 rows" \
             "withdrawn-credential restore (litestream-level): exit $G10_NOKEY_RC, ${G10_NOKEY_MSG:-(silent)}"
     else
-        record 10 BLOCKED "the rehearsal endpoint reports no server-side encryption on any object, so half of this gate -- whether the stored data is encrypted -- cannot be answered here; the other half, restore with no ambient credential, was measured and returned all 100 rows" \
-            "objects report x-amz-server-side-encryption: $G10_HEAD_ANY (a local stand-in has no SSE to report; OVH will)" \
-            "sse-customer-key: litestream 0.5.17 accepted the key without error and replicated in the clear (measured; the headline decision-3 finding)" \
+        record 10 BLOCKED "the service reported neither x-amz-server-side-encryption nor an SSE-C echo on any object, so whether the stored data is encrypted cannot be answered here; the other half, restore with no ambient credential, was measured and returned all 100 rows" \
+            "objects under the prefix report: sse='${G10_SSE:-}' sse-c-algorithm='${G10_SSE_C_ECHO:-}' ($G10_HEAD_ANY). A local stand-in implements neither mode; OVH will answer one of them" \
+            "sse-customer-key, measured on the wire: $G10_SSE_C_VERDICT" \
             "restore with the environment stripped to nothing but the sandbox key, empty AWS config files, EC2 metadata disabled: $G10_ROWS/100 rows -- MEASURED, not blocked" \
             "withdrawn-credential restore (litestream-level): exit $G10_NOKEY_RC, ${G10_NOKEY_MSG:-(silent)}" \
-            "WHAT OVH MUST CONFIRM: the x-amz-server-side-encryption value on the objects OVH stored under the chosen mode, and a restore that returns the same rows with a key that is not present anywhere in the environment"
+            "WHAT OVH MUST CONFIRM: the encryption header on the objects OVH stored under the chosen mode (sse, or the SSE-C customer-algorithm echo), and a restore that returns the same rows with a key that is not present anywhere in the environment"
     fi
 elif [ "${G10_ROWS:-0}" -gt 0 ]; then
     # A partial round-trip is neither pass nor blocker: the packet must not
