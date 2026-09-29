@@ -226,16 +226,16 @@ PROXY="$REPO/scripts/s3-log-proxy.py"
 # ability to exec a coreutil is not part of that.
 TIMEOUT_BIN="$(command -v timeout 2>/dev/null || true)"
 CLEAN_PATH="/usr/bin:/bin"
+# As an argv array, not a function: `env -i ... <bash-function>` cannot work,
+# because env execs a name and a function is not a name.
+TIMEOUT_ARGV=()
 if [ -n "$TIMEOUT_BIN" ]; then
+    TIMEOUT_ARGV=("$TIMEOUT_BIN" 120)
     case "$CLEAN_PATH" in
         *"$(dirname "$TIMEOUT_BIN")"*) ;;
         *) CLEAN_PATH="$CLEAN_PATH:$(dirname "$TIMEOUT_BIN")" ;;
     esac
 fi
-run_bounded() { # <seconds> <cmd...> -- run with a timeout if one is available
-    local secs="$1"; shift
-    if [ -n "$TIMEOUT_BIN" ]; then "$TIMEOUT_BIN" "$secs" "$@"; else "$@"; fi
-}
 
 # record <gate> <PASS|FAIL|BLOCKED> <one-line result> [detail...]
 record() {
@@ -1639,9 +1639,8 @@ env -i PATH="$CLEAN_PATH" HOME="$SANDBOX/home" \
     AWS_SHARED_CREDENTIALS_FILE="$SANDBOX/home/.aws-empty" \
     AWS_EC2_METADATA_DISABLED=true AWS_REGION="$REGION" \
     SSL_CERT_FILE="${SSL_CERT_FILE:-}" \
-    run_bounded 120 "$LITESTREAM" restore -config "$G10_ROOT/litestream.yml" -o "$G10_OUT" "$G10_SRC" \
+    "${TIMEOUT_ARGV[@]}" "$LITESTREAM" restore -config "$G10_ROOT/litestream.yml" -o "$G10_OUT" "$G10_SRC" \
     > "$G10_ROOT/restore.log" 2>&1 || true
-G10_RESTORE_RC=$?
 G10_ROWS="$(python3 - "$G10_OUT" <<'PY'
 import sqlite3, sys
 try:
@@ -1662,7 +1661,7 @@ env -i PATH="$CLEAN_PATH" HOME="$SANDBOX/home" \
     AWS_EC2_METADATA_DISABLED=true AWS_REGION="$REGION" \
     SSL_CERT_FILE="${SSL_CERT_FILE:-}" \
     DG_SANDBOX_WITHDRAW=1 \
-    run_bounded 120 env AWS_ACCESS_KEY_ID= AWS_SECRET_ACCESS_KEY= \
+    "${TIMEOUT_ARGV[@]}" env AWS_ACCESS_KEY_ID= AWS_SECRET_ACCESS_KEY= \
     "$LITESTREAM" restore -config "$G10_ROOT/litestream.yml" -o "$G10_NOKEY_OUT" "$G10_SRC" \
     > "$G10_ROOT/restore-nokey.log" 2>&1 || true
 G10_NOKEY_RC=$?
