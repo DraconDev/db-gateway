@@ -2593,11 +2593,32 @@ G10_ENCRYPTED_PROVEN=0
 G10_ENCRYPTED_CLAIMED=0
 [ "$G10_SSE_SEEN" = "1" ] && [ "$G10_ENCRYPTED_PROVEN" = "0" ] && G10_ENCRYPTED_CLAIMED=1
 if [ "$G10_ROWS" = "100" ]; then
-    if [ "$G10_SSE_SEEN" = "1" ]; then
-        record 10 PASS "encryption is visible from the service (SSE reported: $G10_HEAD_ANY) and a restore with the sandbox key returned all 100 rows" \
-            "objects report x-amz-server-side-encryption: $G10_HEAD_ANY" \
+    if [ "$G10_ENCRYPTED_PROVEN" = "1" ]; then
+        record 10 PASS "a canary written with SSE-C was refused on read-back WITHOUT the customer key, which is proof the stored bytes are ciphertext rather than a claim from a header; and a restore with the sandbox key returned all 100 rows" \
+            "proof, not assertion: $G10_CANARY" \
+            "reported headers, for the record: sse='${G10_SSE:-}' sse-c-algorithm='${G10_SSE_C_ECHO:-}'" \
             "restore with the sandbox key only: $G10_ROWS/100 rows" \
             "withdrawn-credential restore (litestream-level): exit $G10_NOKEY_RC, ${G10_NOKEY_MSG:-(silent)}"
+    elif [ "${G10_CANARY_VERDICT:-}" = "NOT-ENCRYPTED" ]; then
+        # The dangerous case, and the one this gate exists to catch: the service
+        # advertises encryption and hands the plaintext back anyway. Reporting
+        # the header as a pass here is how a rehearsal endpoint would have
+        # "proven" encryption that does not exist -- and the same logic would
+        # have passed a real bucket with the same defect.
+        record 10 FAIL "the service reported an SSE-C algorithm on its objects AND returned the canary in the clear when read back with no key: it advertises encryption it is not applying" \
+            "canary test: $G10_CANARY" \
+            "reported headers: sse='${G10_SSE:-}' sse-c-algorithm='${G10_SSE_C_ECHO:-}'" \
+            "a header is a claim, and this one is false: do not configure SSE-C against this endpoint expecting encrypted storage" \
+            "restore half was measured and clean: $G10_ROWS/100 rows, withdrawn-credential restore exit $G10_NOKEY_RC"
+    elif [ "$G10_SSE_SEEN" = "1" ]; then
+        # The service claims encryption and the proof is unavailable -- because
+        # the mode decrypts transparently (SSE-S3/OMK) or the canary could not
+        # be read back. The claim is recorded as a claim.
+        record 10 BLOCKED "the service reports an encryption header ($G10_HEAD_ANY) but that is its own claim about itself, and this mode cannot be proven from the client: a keyless read-back is meaningless where the service decrypts transparently. OVH must answer whether the stored data is encrypted" \
+            "headers reported: sse='${G10_SSE:-}' sse-c-algorithm='${G10_SSE_C_ECHO:-}'" \
+            "canary test (SSE-C only): ${G10_CANARY_VERDICT:-(no verdict)} -- $G10_CANARY" \
+            "WHAT WOULD PROVE IT ON OVH: for SSE-C, the keyless read-back above; for SSE-S3/OMK, the bucket's own documentation of default encryption plus an operator who has accepted that a transparent decrypt cannot be observed from outside" \
+            "restore half was measured and clean: $G10_ROWS/100 rows, withdrawn-credential restore exit $G10_NOKEY_RC"
     else
         record 10 BLOCKED "the service reported neither x-amz-server-side-encryption nor an SSE-C echo on any object, so whether the stored data is encrypted cannot be answered here; the other half, restore with no ambient credential, was measured and returned all 100 rows" \
             "objects under the prefix report: sse='${G10_SSE:-}' sse-c-algorithm='${G10_SSE_C_ECHO:-}' ($G10_HEAD_ANY). A local stand-in implements neither mode; OVH will answer one of them" \
