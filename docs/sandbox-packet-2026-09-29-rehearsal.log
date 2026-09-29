@@ -1,10 +1,10 @@
 # Sandbox adoption packet (docs/backup-compatibility.md §6)
 
-date: 2026-09-29T13:47:11Z
+date: 2026-09-29T14:03:01Z
 host: Linux 7.1.2 x86_64
 litestream pinned: 0.5.17 (/home/dracon/.local/dg-sandbox/litestream-0.5.17)
 bucket: dg-sandbox-rehearsal
-endpoint: 127.0.0.1:40235
+endpoint: 127.0.0.1:53281
 region: us-east-1
 mode: REHEARSAL against a loopback endpoint (--rehearsal)
 
@@ -36,11 +36,11 @@ replica advanced (new .ltx segment): yes
 NOT §6 GATE 2: file replica, not OVH; no 1 GB-shaped sandbox; no p50/p99 comparison yet.
 
 ## gate 7: PASS -- rehearsal: a new database was replicated WITHOUT restarting litestream, via the control socket
-route (a) config edit + litestream start: FAILED -- Error: start failed: database not found: /tmp/dg-sandbox-yNFP5w/rehearsal/data/rehearsal_two.sqlite
+route (a) config edit + litestream start: FAILED -- Error: start failed: database not found: /tmp/dg-sandbox-PrjXvz/rehearsal/data/rehearsal_two.sqlite
 route (b) register over the control socket: WORKED
 remove side: litestream unregister: WORKED
 signal observed in the daemon log:
-  (no log line; replica root /tmp/dg-sandbox-yNFP5w/rehearsal/replica/rehearsal_two now holds .ltx segments for it)
+  (no log line; replica root /tmp/dg-sandbox-PrjXvz/rehearsal/replica/rehearsal_two now holds .ltx segments for it)
 ANSWER for §6: the config FILE is read at startup only. Adding a database
 to a running daemon means 'litestream register -replica <url> <db-path>'
 over the control socket (or a restart). SIGHUP is not a reload signal:
@@ -49,7 +49,7 @@ NOT §6 GATE 7: file replica. The sandbox must repeat this against the
 bucket and confirm the deployed unit's own socket path and permissions.
 
 ## gate 5: PASS -- rehearsal: restored to a separate path, row count matches the source exactly
-restore target: /tmp/dg-sandbox-yNFP5w/rehearsal/restore/rehearsal.sqlite (separate directory, not the data dir)
+restore target: /tmp/dg-sandbox-PrjXvz/rehearsal/restore/rehearsal.sqlite (separate directory, not the data dir)
 rows in source: 260
 rows in restored copy: 260
 NOT §6 GATE 5: file replica; no gateway import validation of the restored
@@ -57,7 +57,7 @@ file, no mid-history point, and no corrupt-artifact rejection case.
 
 ## the S3 endpoint these gates ran against
 
-scheme://127.0.0.1:40235  bucket=dg-sandbox-rehearsal  region=us-east-1  path-style addressing
+scheme://127.0.0.1:53281  bucket=dg-sandbox-rehearsal  region=us-east-1  path-style addressing
 service behind it: gofakes3 (-backend memory) behind a validating SigV4 proxy that logs every request
 
 The line above names a LOCAL STAND-IN, not the OVH service. Its
@@ -70,13 +70,13 @@ the harness drives correct requests and handles the answers; they do not
 prove the OVH test region and class accept them. Re-run unchanged with
 DG_SANDBOX_ENDPOINT set to the OVH endpoint to turn them into §6 evidence.
 variants tried (each: objects written / requests rejected):
-  working: OK -- 3 object(s) written, 0 rejected  [s3://dg-sandbox-rehearsal/gate3?endpoint=https://127.0.0.1:43953&region=us-east-1]
-  no-scheme: FAILED -- 0 object(s) written, 0 rejected  [s3://dg-sandbox-rehearsal/gate3?endpoint=127.0.0.1:44793&region=us-east-1]  
-  no-endpoint: FAILED -- 0 object(s) written, 0 rejected  [s3://dg-sandbox-rehearsal/gate3?region=us-east-1]  error="check database behind replica: get replica position: operation error S3: ListObjectsV2, https response error StatusCode: 403, RequestID: A90DXBNW4EPP1PV3
-  wrong-region: OK -- 3 object(s) written, 0 rejected  [s3://dg-sandbox-rehearsal/gate3?endpoint=https://127.0.0.1:44175&region=nowhere-1]
-  no-region: OK -- 3 object(s) written, 0 rejected  [s3://dg-sandbox-rehearsal/gate3?endpoint=https://127.0.0.1:42417]
-  path-style: OK -- 3 object(s) written, 0 rejected  [s3://dg-sandbox-rehearsal/gate3?endpoint=https://127.0.0.1:46041&region=us-east-1]
-  untrusted-ca: FAILED -- 0 object(s) written, 0 rejected  [s3://dg-sandbox-rehearsal/gate3?endpoint=https://127.0.0.1:40349&region=us-east-1]  
+  working: OK -- 3 object(s) written, 0 rejected  [s3://dg-sandbox-rehearsal/gate3?endpoint=https://127.0.0.1:34353&region=us-east-1]
+  no-scheme: FAILED -- 0 object(s) written, 0 rejected  [s3://dg-sandbox-rehearsal/gate3?endpoint=127.0.0.1:32853&region=us-east-1]  
+  no-endpoint: FAILED -- 0 object(s) written, 0 rejected  [s3://dg-sandbox-rehearsal/gate3?region=us-east-1]  error="check database behind replica: get replica position: operation error S3: ListObjectsV2, https response error StatusCode: 403, RequestID: VJR1K2FHGE2JNRG8
+  wrong-region: OK -- 4 object(s) written, 0 rejected  [s3://dg-sandbox-rehearsal/gate3?endpoint=https://127.0.0.1:40745&region=nowhere-1]
+  no-region: OK -- 3 object(s) written, 0 rejected  [s3://dg-sandbox-rehearsal/gate3?endpoint=https://127.0.0.1:37387]
+  path-style: OK -- 2 object(s) written, 0 rejected  [s3://dg-sandbox-rehearsal/gate3?endpoint=https://127.0.0.1:42281&region=us-east-1]
+  untrusted-ca: FAILED -- 0 object(s) written, 0 rejected  [s3://dg-sandbox-rehearsal/gate3?endpoint=https://127.0.0.1:45879&region=us-east-1]  
 
 force-path-style: litestream 0.5.17 has no such replica option. It was
   accepted as a replica URL query parameter in the 2026-09-28 file
@@ -99,10 +99,10 @@ skip-verify (TLS): NOT USED, and the packet now proves why it does not
   AWS_CA_BUNDLE is the documented AWS way to add a CA and 0.5.17 ABORTS
   on it: "cannot load aws config: unable to add custom RootCAs
   HTTPClient, has no WithTransportOptions". SSL_CERT_FILE is read by
-  Go instead and works. Trust in this run: SSL_CERT_FILE=/tmp/dg-sandbox-run-FQFMc0/endpoint/tls/bundle.pem (system roots + the rehearsal endpoint's self-signed CA); verification stays ON, and AWS_CA_BUNDLE is deliberately NOT set because litestream 0.5.17 aborts on it
+  Go instead and works. Trust in this run: SSL_CERT_FILE=/tmp/dg-sandbox-run-X8UpUx/endpoint/tls/bundle.pem (system roots + the rehearsal endpoint's self-signed CA); verification stays ON, and AWS_CA_BUNDLE is deliberately NOT set because litestream 0.5.17 aborts on it
 
 minimal working replica URL (against the configured endpoint):
-  s3://dg-sandbox-rehearsal/gate3?endpoint=https://127.0.0.1:40235&region=us-east-1
+  s3://dg-sandbox-rehearsal/gate3?endpoint=https://127.0.0.1:53281&region=us-east-1
   i.e. the endpoint parameter carries the scheme. Without it, this URL
   replicates nothing and says nothing about why.
 
@@ -110,16 +110,16 @@ NOTE: `replica.path` cannot carry a URL. `path: s3://...` fails with
   "replica path cannot be a url, please use the url field instead".
 
 ## gate 3: PASS -- explicit endpoint/region config works, and the same URL FAILS both without its scheme and without the rehearsal CA, so the pass is neither a transport artifact nor a disabled-verification artifact
-endpoint: https://127.0.0.1:40235   region: us-east-1
-TLS trust: SSL_CERT_FILE=/tmp/dg-sandbox-run-FQFMc0/endpoint/tls/bundle.pem (system roots + the rehearsal endpoint's self-signed CA); verification stays ON, and AWS_CA_BUNDLE is deliberately NOT set because litestream 0.5.17 aborts on it
+endpoint: https://127.0.0.1:53281   region: us-east-1
+TLS trust: SSL_CERT_FILE=/tmp/dg-sandbox-run-X8UpUx/endpoint/tls/bundle.pem (system roots + the rehearsal endpoint's self-signed CA); verification stays ON, and AWS_CA_BUNDLE is deliberately NOT set because litestream 0.5.17 aborts on it
 certificate enforcement: proved -- the untrusted-ca variant was refused
 measured over a full cycle: initial snapshot, two databases, live writes,
 two forced syncs and two restores.
 
-total_requests=121 non_2xx=0 bytes_uploaded=12938 distinct_list_prefixes=22
-    104  GET list-type=2 (ListObjectsV2)
-      6  GET x-id
-     11  PUT x-id
+total_requests=108 non_2xx=0 bytes_uploaded=7144 distinct_list_prefixes=22
+     97  GET list-type=2 (ListObjectsV2)
+      4  GET x-id
+      7  PUT x-id
 
 operations litestream 0.5.17 issued, as a credential policy is written:
   required: s3:GetObject, s3:PutObject, s3:ListBucket
@@ -135,19 +135,19 @@ restore from the bucket: alice 200 rows, bob 150 rows
   (source was 200 and 150; a wrong-but-200 restore was measured on 2026-09-28)
 
 ## gate 4: PASS -- every S3 operation litestream 0.5.17 issued succeeded, and both databases restored from the bucket with exact row counts
-requests: 121, non-2xx: 0, distinct ListObjectsV2 prefixes: 22
+requests: 108, non-2xx: 0, distinct ListObjectsV2 prefixes: 22
 operations: GET list-type=2 (ListObjectsV2),GET x-id,PUT x-id
 restored alice=200/200 bob=150/150
 
 ## S3 request log, summarised by the proxy in front of the endpoint
 
-requests: 121
-    104  GET dg-sandbox-rehearsal/(bucket-level)*
-      6  GET dg-sandbox-rehearsal/sbx*
-     11  PUT dg-sandbox-rehearsal/sbx*
-bytes uploaded: 12938
+requests: 108
+     97  GET dg-sandbox-rehearsal/(bucket-level)*
+      4  GET dg-sandbox-rehearsal/sbx*
+      7  PUT dg-sandbox-rehearsal/sbx*
+bytes uploaded: 7144
 distinct ListObjectsV2 prefixes probed: 22
-requests carrying server-side-encryption headers: 0 (litestream sent none)
+requests carrying server-side-encryption headers, in THIS cycle's log: 0 (no SSE-C or SSE header in the requests proxied for this window; gate 10's probe runs through its own proxy and is reported there)
 comparisons are (rows, sum(id), distinct notes) plus PRAGMA integrity_check.
 A count alone cannot see a restore that returns the right number of wrong
 rows, and a well-formed database can still be the wrong one.
@@ -158,7 +158,7 @@ rows, and a well-formed database can still be the wrong one.
   segments in the replica:      3
   1. latest restore, exit 0:     70|2485|70   integrity: ok
   2. mid-history -txid 0000000000000002, exit 0: 30|465|30   integrity: ok
-     point-in-time -timestamp 2026-09-29T13:51:12Z, exit 0: 30|465|30   integrity: ok
+     point-in-time -timestamp 2026-09-29T14:07:02Z, exit 0: 30|465|30   integrity: ok
      both must equal the content captured at that position. Comparing them
      with EACH OTHER is not the same check: two selectors can agree on the
      same wrong earlier point, and only the captured digest rules that out.
@@ -173,13 +173,13 @@ rows, and a well-formed database can still be the wrong one.
      replica -- the same replica restores fully one second later.
 
   3. corrupt-artifact cases, over the bucket's own objects
-     (4 downloaded through the signed API; the service's copy untouched):
+     (5 downloaded through the signed API; the service's copy untouched):
      one byte flipped deep inside the newest level-0 artifact: rejected|1|missing
      an artifact truncated to 10%:                            rejected|1|missing
      every artifact reduced to two bytes:                     rejected|1|missing
      every artifact BUT the newest, one byte flipped in each:  rejected|1|missing
 
-     4 of 4 were REJECTED, 0 returned the exact source, and
+     4 of 4 were REJECTED, 0 matched the source digest, and
      0 produced a database that was not the source.
      what a refusal actually said, from the restore's own log:
       Error: no matching backup files available
@@ -199,11 +199,11 @@ rows, and a well-formed database can still be the wrong one.
      gate runs both, on the source and on every restored file, instead of
      naming them in prose.
 
-## gate 5: PASS -- bucket-backed restore drill: the latest restore is exact, a mid-history point and a point-in-time target both restore the content that position actually held (not merely the same as each other), and all 4 corrupt-artifact cases either matched the source or were refused, with none producing a database that was not the source
+## gate 5: PASS -- bucket-backed restore drill: the latest restore is digest-identical to the source, a mid-history point and a point-in-time target both restore the content that position actually held (not merely the same as each other), and all 5 corrupt-artifact cases either matched the source or were refused, with none producing a database that was not the source
 source 70|2485|70 (integrity ok) over 3 segments; latest 70|2485|70 (integrity ok, exit 0)
 mid-history -txid 0000000000000002 -> 30|465|30 (exit 0), matching the content captured at that position: 30|465|30
-point-in-time -timestamp 2026-09-29T13:51:12Z -> 30|465|30 (exit 0), same captured content
-corrupt artifacts (4 downloaded through the signed API): rejected|1|missing | rejected|1|missing | rejected|1|missing | rejected|1|missing
+point-in-time -timestamp 2026-09-29T14:07:02Z -> 30|465|30 (exit 0), same captured content
+corrupt artifacts (5 downloaded through the signed API): rejected|1|missing | rejected|1|missing | rejected|1|missing | rejected|1|missing
 supersedes the earlier file-replica gate 5 line above, which could not answer mid-history or corruption
 gateway import validation of the restored file is gate 11
 candidate policy, as sent to the bucket:
@@ -228,11 +228,11 @@ rules read back that MATCH what was sent, on id + status + both day counts:
   409 was once reported as a policy stored and read back.
 
 the policy's arithmetic against the ages the service reports:
-  {"versions_enumerated": 15, "versions_with_parsed_age": 15, "unparsed_timestamps": 0, "oldest_version_age_days": 0, "newest_version_age_days": 0, "as_is": {"kept": 15, "expired_current": 0, "expired_noncurrent": 0}, "if_everything_were_31_days_older": {"kept": 0, "expired_current": 15, "expired_noncurrent": 0}, "policy_days": {"current": 7, "noncurrent": 30}}
+  {"versions_enumerated": 12, "versions_with_parsed_age": 12, "unparsed_timestamps": 0, "oldest_version_age_days": 0, "newest_version_age_days": 0, "as_is": {"kept": 12, "expired_current": 0, "expired_noncurrent": 0}, "if_everything_were_31_days_older": {"kept": 0, "expired_current": 12, "expired_noncurrent": 0}, "policy_days": {"current": 7, "noncurrent": 30}}
 
-  read that as: 15 versions exist now, all between 0 and
+  read that as: 12 versions exist now, all between 0 and
   0 day(s) old. A 7-day current / 30-day noncurrent policy applied to
-  them as they stand keeps 15 of them. Shift every age 31 days into
+  them as they stand keeps 12 of them. Shift every age 31 days into
   the past -- a month of real backups -- and the same policy keeps
   0. The two differ, which is the property that matters: the policy
   keeps the recent side and drops the aged side, rather than dropping both.
@@ -248,7 +248,7 @@ restore after the retention step: exit 0, 70|2485|70
 ## gate 6: BLOCKED -- this endpoint does not implement the bucket API retention needs, so no retention policy can be stored or read back here
 put-lifecycle: {"ok": false, "error": {"status": 409, "code": "BucketAlreadyExists", "message": ""}}
 get-lifecycle: GET ?lifecycle answered 200 with <ListBucketResult>, not a <LifecycleConfiguration>; this service does not implement it.
-list-versions (the other half of retention): 15 version(s) enumerated
+list-versions (the other half of retention): 12 version(s) enumerated
 NOT A PASS and not a failure of the packet: the rehearsal endpoint cannot
 answer this question. Run unchanged against the OVH test bucket, which does
 implement PutBucketLifecycleConfiguration.
@@ -258,10 +258,10 @@ cleared. 'in-bucket' is the row count a RESTORE OUT OF THE BUCKET
 returns: the only reading of 'the backup is stale' that a healthy-
 looking process cannot produce.
 
-  healthy: live 20 -> 21, in-bucket 21, surfaces that carried it: none (proactive: no, restore-only: no), daemon signal after 74s [daemon's own backoff when it logged: n/a, wait bound 70s]
-  revoked-credentials: live 21 -> 22, in-bucket 21, surfaces that carried it: daemon-log,sync-cli (proactive: yes, restore-only: no), daemon signal after 1s [daemon's own backoff when it logged: n/a, wait bound 70s]
-  blocked-egress: live 22 -> 23, in-bucket 21, surfaces that carried it: sync-cli (proactive: yes, restore-only: no), daemon signal after 103s [daemon's own backoff when it logged: n/a, wait bound 70s]
-  near-quota: live 23 -> 24, in-bucket -1, surfaces that carried it: daemon-log (proactive: yes, restore-only: no), daemon signal after 2s [daemon's own backoff when it logged: n/a, wait bound 70s]
+  healthy: live 20 -> 21, in-bucket 21, surfaces that carried it: none (proactive: no, restore-only: no), daemon signal after 75s [daemon's own backoff when it logged: n/a, wait bound 70s]
+  revoked-credentials: live 21 -> 22, in-bucket 21, surfaces that carried it: daemon-log,sync-cli (proactive: yes, restore-only: no), daemon signal after 2s [daemon's own backoff when it logged: n/a, wait bound 70s]
+  blocked-egress: live 22 -> 23, in-bucket 21, surfaces that carried it: sync-cli (proactive: yes, restore-only: no), daemon signal after 105s [daemon's own backoff when it logged: n/a, wait bound 70s]
+  near-quota: live 23 -> 24, in-bucket -1, surfaces that carried it: daemon-log (proactive: yes, restore-only: no), daemon signal after 15s [daemon's own backoff when it logged: n/a, wait bound 70s]
 
 faulted phases:                     revoked-credentials,blocked-egress,near-quota
 gateway writes kept being served:   4 of 4 phases (1 healthy + 3 faulted)
@@ -279,12 +279,11 @@ which surface carried which failure (this is the answer to §6 gate 8's
 restore-cli only fires when someone attempts a restore):
   healthy -> none;revoked-credentials -> daemon-log,sync-cli;blocked-egress -> sync-cli;near-quota -> daemon-log
 
-injected 403s seen verbatim in the daemon log: 2
+injected 403s seen verbatim in the daemon log, whole drill: 2 (of which revoked-credentials: 1)
 
 new daemon signal lines, per phase (the delta the count above is made of):
-  time=2026-09-29T14:53:00.135+01:00 level=ERROR msg="compaction failed" system=store db=sbfail.sqlite level=1 error="write ltx file: s3: put object sbx/g8/0001/0000000000000003-0000000000000003.ltx: operation error S3: PutObject, https response error StatusCode: 403, RequestID: proxy, HostID: , api error AccessDenied: injected revoked-credential fault"
-  time=2026-09-29T14:53:00.327+01:00 level=ERROR msg="monitor error" system=store db=sbfail.sqlite replica=s3 error="write ltx file: s3: put object sbx/g8/0000/0000000000000004-0000000000000004.ltx: operation error S3: PutObject, https response error StatusCode: 403, RequestID: proxy, HostID: , api error AccessDenied: injected revoked-credential fault" consecutive_errors=1 backoff=1s
-  time=2026-09-29T14:54:53.098+01:00 level=ERROR msg="l0 retention enforcement failed" system=store db=sbfail.sqlite path=/tmp/dg-sandbox-yNFP5w/gate8/data/sbfail.sqlite error="close l1 iterator: operation error S3: ListObjectsV2, https response error StatusCode: 403, RequestID: proxy, HostID: , api error AccessDenied: injected quota fault"
+  time=2026-09-29T15:08:53.606+01:00 level=ERROR msg="monitor error" system=store db=sbfail.sqlite replica=s3 error="write ltx file: s3: put object sbx/g8/0000/0000000000000004-0000000000000004.ltx: operation error S3: PutObject, https response error StatusCode: 403, RequestID: proxy, HostID: , api error AccessDenied: injected revoked-credential fault" consecutive_errors=1 backoff=1s
+  time=2026-09-29T15:10:58.321+01:00 level=ERROR msg="l0 retention enforcement failed" system=store db=sbfail.sqlite path=/tmp/dg-sandbox-PrjXvz/gate8/data/sbfail.sqlite error="close l1 iterator: operation error S3: ListObjectsV2, https response error StatusCode: 403, RequestID: proxy, HostID: , api error AccessDenied: injected quota fault"
 
 how long a stalled backup stays SILENT is the 'daemon signal after Ns' figure
 in each phase above, read next to the daemon's own declared backoff.
@@ -296,15 +295,15 @@ different findings, and only the second is a reason to distrust the daemon
 log as an alerting source.
 
 sync command output, last 8 lines (the grep that decides sync-reported above):
-  db_path: /tmp/dg-sandbox-yNFP5w/gate8/data/sbfail.sqlite
+  db_path: /tmp/dg-sandbox-PrjXvz/gate8/data/sbfail.sqlite
   txid: 2
   Error: sync failed: sync database: replica sync: write ltx file: s3: put object sbx/g8/0000/0000000000000004-0000000000000004.ltx: operation error S3: PutObject, https response error StatusCode: 403, RequestID: proxy, HostID: , api error AccessDenied: injected revoked-credential fault
   Error: failed to connect to control socket: Post "http://localhost/sync": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
-  db_path: /tmp/dg-sandbox-yNFP5w/gate8/data/sbfail.sqlite
+  db_path: /tmp/dg-sandbox-PrjXvz/gate8/data/sbfail.sqlite
   txid: 8
 
 gateway backup freshness, as an operator reads it:
-  {"timestamp":"2026-09-29T13:55:01.328594Z","level":"ERROR","fields":{"message":"command failed","code":"outcome_unknown","message":"outcome_unknown: transport failed; writes may have committed, replay only with the same 
+  {"timestamp":"2026-09-29T14:11:13.394235Z","level":"ERROR","fields":{"message":"command failed","code":"outcome_unknown","message":"outcome_unknown: transport failed; writes may have committed, replay only with the same 
 (unavailable)
 
 FINDING, NOT A GATE FAILURE -- and the most important paragraph in
@@ -315,7 +314,7 @@ did surface it here: healthy -> none;revoked-credentials -> daemon-log,sync-cli;
 This is the substance behind owner decision 6, not a passing gate.
 
 ## gate 8: PASS -- each of the three injected failures kept the gateway serving writes and kept the faulted write out of the bucket, every one of them surfaced on at least one operator-visible surface, the healthy control phase raised nothing false, and after the fault cleared the missing writes were in the bucket again
-checks: healthy: live 20 -> 21, in-bucket 21, surfaces that carried it: none (proactive: no, restore-only: no), daemon signal after 74s [daemon's own backoff when it logged: n/a, wait bound 70s] revoked-credentials: live 21 -> 22, in-bucket 21, surfaces that carried it: daemon-log,sync-cli (proactive: yes, restore-only: no), daemon signal after 1s [daemon's own backoff when it logged: n/a, wait bound 70s] blocked-egress: live 22 -> 23, in-bucket 21, surfaces that carried it: sync-cli (proactive: yes, restore-only: no), daemon signal after 103s [daemon's own backoff when it logged: n/a, wait bound 70s] near-quota: live 23 -> 24, in-bucket -1, surfaces that carried it: daemon-log (proactive: yes, restore-only: no), daemon signal after 2s [daemon's own backoff when it logged: n/a, wait bound 70s]
+checks: healthy: live 20 -> 21, in-bucket 21, surfaces that carried it: none (proactive: no, restore-only: no), daemon signal after 75s [daemon's own backoff when it logged: n/a, wait bound 70s] revoked-credentials: live 21 -> 22, in-bucket 21, surfaces that carried it: daemon-log,sync-cli (proactive: yes, restore-only: no), daemon signal after 2s [daemon's own backoff when it logged: n/a, wait bound 70s] blocked-egress: live 22 -> 23, in-bucket 21, surfaces that carried it: sync-cli (proactive: yes, restore-only: no), daemon signal after 105s [daemon's own backoff when it logged: n/a, wait bound 70s] near-quota: live 23 -> 24, in-bucket -1, surfaces that carried it: daemon-log (proactive: yes, restore-only: no), daemon signal after 15s [daemon's own backoff when it logged: n/a, wait bound 70s]
 surface map: healthy -> none;revoked-credentials -> daemon-log,sync-cli;blocked-egress -> sync-cli;near-quota -> daemon-log
 writes served: 4/4   faulted writes absent from the bucket: 2/2 measurable   new daemon error/warn per faulted phase: 2/3   faults on no surface: 0   faults with no proactive surface: 0   false alarms while healthy: 0
 the daemon log is NOT a complete surface here (2 of 3); see the finding above for what an operator has to watch instead
@@ -323,21 +322,21 @@ recovered after the fault cleared: yes, a restore returns 25 rows against 24 liv
 database under test: 6893568 bytes, 120000 rows before the live writes
 memory budget:       constrained to 1G by a systemd transient scope (MemoryMax=1G), enforced by the kernel
 
-steady replication  peak RSS 44744 KiB (4% of budget, kernel high-water mark)
-steady replication  CPU  4 ticks across the sampling window
-restore             2233 ms, 120030 rows restored, peak child RSS 35188 KiB (3% of budget)
+steady replication  peak RSS 45900 KiB (4% of budget, kernel high-water mark)
+steady replication  CPU  9 ticks across the sampling window
+restore             2548 ms, 120030 rows restored, peak child RSS 36672 KiB (3% of budget)
 killed for exceeding the budget: no
 
-RSS samples (KiB, every 0.4s during replication):  44716 44716 44716 44720 44720 44744 44744 44744 44744 44728 41024 41024 41024 41024 41024 41024 41024 41088 41088 41092 41092 41156 41156 41156 41156 41156 41156 41156 36216 36216
+RSS samples (KiB, every 0.4s during replication):  45020 45132 45132 41796 41796 41796 41796 41804 41788 41788 41788 41792 41792 41800 41784 41764 43676 43652 43652 43816 43816 43856 43856 43856 43856 43856 43856 43856 43856 43856
 
-## gate 9: PASS -- gateway-sized database replicated and restored inside a kernel-enforced 1G budget: replication peak 43 MiB (4% of budget), restore peak 34 MiB (3% of budget) in 2233 ms, no OOM kill
+## gate 9: PASS -- gateway-sized database replicated and restored inside a kernel-enforced 1G budget: replication peak 44 MiB (4% of budget), restore peak 35 MiB (3% of budget) in 2548 ms, no OOM kill
 constraint: constrained to 1G by a systemd transient scope (MemoryMax=1G), enforced by the kernel
 database: 6893568 bytes, 120000 rows; restore returned 120030 rows, compared by count and not by exit status
 peaks are the kernel's VmHWM / getrusage high-water marks, not sampled maxima
 headroom against the sidecar budget in docs/resource-budget.md is the owner's decision 2, not this gate's
 1. The configuration an operator reaches for first:
    replica.sse-customer-key: <random 32 bytes>
-   litestream started: YES, with no error
+   litestream started: no -- time=2026-09-29T15:12:00.956+01:00 level=WARN msg="shutdown sync skipped by user interrupt" error="after 0 attempts: shutdown sync interrupted"
    and on the wire, from the proxy that signed and forwarded its requests:
      the daemon uploaded 3 object(s) and 3 of them carried x-amz-server-side-encryption-customer-algorithm/-key/-key-md5 inside the signature: litestream 0.5.17 SENDS SSE-C. Whether the stored bytes are encrypted is the SERVICE's answer, not litestream's
 
@@ -364,7 +363,7 @@ headroom against the sidecar budget in docs/resource-budget.md is the owner's de
 5. THE PROOF, not the header: a canary written with SSE-C, read back
    WITHOUT the customer key.
    verdict: NOT-ENCRYPTED
-   {"ok": true, "key": "sbx/g10/canary/66b12d5adb7a.canary", "canary_bytes": 63, "put_status": 200, "verdict": "NOT-ENCRYPTED", "reason": "the object was read back WITHOUT the customer key and the exact plaintext canary came back: the service stored the body in the clear while echoing the SSE-C algorithm on HEAD", "readback_without_key_status": 200, "canary_returned_in_clear": true}
+   {"ok": true, "key": "sbx/g10/ssec/canary/690c21d4508e.canary", "canary_bytes": 63, "put_status": 200, "verdict": "NOT-ENCRYPTED", "reason": "the object was read back WITHOUT the customer key and the exact plaintext canary came back: the service stored the body in the clear while echoing the SSE-C algorithm on HEAD", "readback_without_key_status": 200, "canary_returned_in_clear": true}
    -> ENFORCED is a proof: the service refused the keyless read, so the
       stored bytes are ciphertext. NOT-ENCRYPTED is a finding, not a
       limitation: the service echoed the algorithm and handed the
@@ -374,7 +373,7 @@ headroom against the sidecar budget in docs/resource-budget.md is the owner's de
       at rest -- for those modes the header is all a client can see.
 
 ## gate 10: BLOCKED -- the rehearsal endpoint advertises SSE-C on its objects and stores the body in plaintext -- the canary reads it back with no key. That is a property of the local stand-in, which implements neither encryption mode, and it is reported rather than passed: the point of measuring it here is that the harness can tell an echo from an enforcement. OVH's bucket is the service that has to be proven
-canary test (the proof, refused as a claim): {"ok": true, "key": "sbx/g10/canary/66b12d5adb7a.canary", "canary_bytes": 63, "put_status": 200, "verdict": "NOT-ENCRYPTED", "reason": "the object was read back WITHOUT the customer key and the exact plaintext canary came back: the service stored the body in the clear while echoing the SSE-C algorithm on HEAD", "readback_without_key_status": 200, "canary_returned_in_clear": true}
+canary test (the proof, refused as a claim): {"ok": true, "key": "sbx/g10/ssec/canary/690c21d4508e.canary", "canary_bytes": 63, "put_status": 200, "verdict": "NOT-ENCRYPTED", "reason": "the object was read back WITHOUT the customer key and the exact plaintext canary came back: the service stored the body in the clear while echoing the SSE-C algorithm on HEAD", "readback_without_key_status": 200, "canary_returned_in_clear": true}
 reported headers, shown for the record: sse='' sse-c-algorithm='AES256'
 if the same answer came back from the owner's bucket this line is a FAIL, not a blocker, and the run would say so
 the restore half WAS measured here and is clean: 100/100 rows with the environment stripped, withdrawn-credential restore exit 0
@@ -403,22 +402,22 @@ gateway started on the recovered directory: the pre-loss scoped key authenticate
 scope still enforced after recovery: reachable ['ledger_app'], other_app refused: yes (exit nonzero, as required)
 what remains OVH's: whether the OVH test bucket stores and returns these same two files byte-for-byte, and whether its lifecycle rules would expire the registry before the data files it describes
 objects found under the packet prefixes (LIST ?list-type=2): 0
-versions found (?versions): 70
-deleted: 70   still listed afterwards: 0 (versions 0, current keys 0)
+versions found (?versions): 72
+deleted: 72   still listed afterwards: 0 (versions 0, current keys 0)
 enumeration: {'list-versions': 'supported', 'list-objects-v2': 'supported'}
 delete-bucket: {"ok": true, "deleted": true, "status": 204}
 independent re-check -- does the bucket still answer: yes
 
 local residue:
-  sandbox tree: /tmp/dg-sandbox-yNFP5w (created by sandbox-packet.sh, which removes it on its own exit; this script does not)
+  sandbox tree: /tmp/dg-sandbox-PrjXvz (created by sandbox-packet.sh, which removes it on its own exit; this script does not)
   litestream config, keys and logs all lived inside it
-  no credential was written outside /tmp/dg-sandbox-yNFP5w
+  no credential was written outside /tmp/dg-sandbox-PrjXvz
 
-## gate 12: PASS -- every test object and version deleted (70 deleted, 0 remaining) and the bucket no longer answers: yes
-delete: {"ok": true, "enumeration": {"list-versions": "supported", "list-objects-v2": "supported"}, "versions_found": 70, "objects_found": 0, "deleted": 70, "errors": [], "versions_remaining": 0, "objects_remaining": 0, "residue_remaining": 0}
+## gate 12: PASS -- every test object and version deleted (72 deleted, 0 remaining) and the bucket no longer answers: yes
+delete: {"ok": true, "enumeration": {"list-versions": "supported", "list-objects-v2": "supported"}, "versions_found": 72, "objects_found": 0, "deleted": 72, "errors": [], "versions_remaining": 0, "objects_remaining": 0, "residue_remaining": 0}
 delete-bucket: {"ok": true, "deleted": true, "status": 204}
 independent re-check: {"ok": false, "error": {"status": 404, "code": "Unknown", "message": ""}}
-local sandbox /tmp/dg-sandbox-yNFP5w is created by sandbox-packet.sh, which removes it on its own exit; this script does not
+local sandbox /tmp/dg-sandbox-PrjXvz is created by sandbox-packet.sh, which removes it on its own exit; this script does not
 
 ## summary
 gates recorded: 12  pass: 10  blocked: 2  fail: 0
@@ -426,14 +425,14 @@ gates recorded: 12  pass: 10  blocked: 2  fail: 0
   gate  2  PASS     rehearsal: replication advanced under 60 live writes with 0 busy/deadline failures
   gate  3  PASS     explicit endpoint/region config works, and the same URL FAILS both without its scheme and withou
   gate  4  PASS     every S3 operation litestream 0.5.17 issued succeeded, and both databases restored from the buck
-  gate  5  PASS     bucket-backed restore drill: the latest restore is exact, a mid-history point and a point-in-tim
+  gate  5  PASS     bucket-backed restore drill: the latest restore is digest-identical to the source, a mid-history
   gate  6  BLOCKED  this endpoint does not implement the bucket API retention needs, so no retention policy can be s
   gate  7  PASS     rehearsal: a new database was replicated WITHOUT restarting litestream, via the control socket
   gate  8  PASS     each of the three injected failures kept the gateway serving writes and kept the faulted write o
   gate  9  PASS     gateway-sized database replicated and restored inside a kernel-enforced 1G budget: replication p
   gate 10  BLOCKED  the rehearsal endpoint advertises SSE-C on its objects and stores the body in plaintext -- the c
   gate 11  PASS     the registry and the data file were both restored out of the bucket into an empty directory, and
-  gate 12  PASS     every test object and version deleted (70 deleted, 0 remaining) and the bucket no longer answers
+  gate 12  PASS     every test object and version deleted (72 deleted, 0 remaining) and the bucket no longer answers
 
 blocked gates: 6, 10
 
@@ -443,15 +442,15 @@ failed gate is a reason not to adopt. The remaining gates are named above.
 ## every request the rehearsal endpoint received (endpoint/log/requests.jsonl)
 
 ```
-[raw per-request log omitted from this file: 940 request records, 436 KiB. Regenerate with scripts/rehearse-sandbox-packet.sh, which folds it in at the end of the packet it writes.]
+[raw per-request log omitted from this file: 945 request records, 439 KiB. Regenerate with scripts/rehearse-sandbox-packet.sh, which folds it in at the end of the packet it writes. Every number in the docs can be recomputed from this file with scripts/packet-facts.py.]
 ```
 
 ## rehearsal post-conditions (checked by scripts/rehearse-sandbox-packet.sh)
 
-sandbox tree removed: /tmp/dg-sandbox-run-FQFMc0
+sandbox tree removed: /tmp/dg-sandbox-run-X8UpUx
 no dg-sandbox* temp tree newer than the packet
 no logging proxy or object store started by the rehearsal is still running
-endpoint state removed: /tmp/dg-sandbox-run-FQFMc0/endpoint
+endpoint state removed: /tmp/dg-sandbox-run-X8UpUx/endpoint
 packet declares: mode REHEARSAL
 gates executed: 12/12 distinct (13 gate sections; a gate recorded twice is the later section superseding the earlier, by design)
 
