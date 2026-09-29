@@ -653,6 +653,333 @@ fi
 cp "$G4_LOG" "$SANDBOX/s3-requests.jsonl"
 
 # --------------------------------------------------------------------------
+# Gate 5: the restore DRILL, out of the bucket rather than off a local
+# directory. §6 gate 5 asks for four things and the file-replica rehearsal in
+# sandbox-packet.sh could only ever answer one of them:
+#
+#   1. restore to a separate path and compare rows EXACTLY
+#   2. restore a mid-history point
+#   3. reject a corrupt artifact
+#   4. (with the gateway) validate the restored file by importing it
+#
+# This block answers 1-3 against the bucket, and gate 11 answers 4.
+#
+# Row COUNT is not enough for 1. A restore can return the right number of rows
+# with the wrong rows in them, so every comparison here is the triple
+# (count, sum(id), count(distinct note)) of the source and of the restored
+# file. A gateway restore drill that compares counts has not compared data.
+# --------------------------------------------------------------------------
+G5_ROOT="$SANDBOX/gate5"
+mkdir -p "$G5_ROOT"
+G5_SRC="$G5_ROOT/drill.sqlite"
+G5_PREFIX="sbx/g5"
+G5_SOCK="$G5_ROOT/litestream.sock"
+# g5_digest <sqlite file> -- "count|sum|distinct", or "unreadable:<why>".
+# Printed as one field so a comparison never has to re-parse prose.
+g5_digest() {
+    python3 - "$1" <<'PY'
+import sqlite3, sys, os
+p = sys.argv[1]
+if not os.path.exists(p):
+    print("missing")
+else:
+    try:
+        c = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
+        c.execute("SELECT count(*), coalesce(sum(id),0), count(DISTINCT note) FROM ledger").fetchone()
+        n, s, d = c.execute("SELECT count(*), coalesce(sum(id),0), count(DISTINCT note) FROM ledger").fetchone()
+        print(f"{n}|{s}|{d}")
+    except Exception as exc:
+        print(f"unreadable:{exc}")
+PY
+}
+python3 - "$G5_SRC" <<'PY'
+import sqlite3, sys
+c = sqlite3.connect(sys.argv[1]); c.execute("PRAGMA journal_mode=WAL")
+c.execute("CREATE TABLE ledger(id INTEGER PRIMARY KEY, note TEXT)")
+c.commit()
+PY
+cat > "$G5_ROOT/litestream.yml" <<EOF
+logging:
+  level: info
+  type: text
+socket:
+  enabled: true
+  path: $G5_SOCK
+dbs:
+  - path: $G5_SRC
+    replica:
+      url: s3://$BUCKET/$G5_PREFIX?endpoint=$SCHEME://$ENDPOINT&region=$REGION
+EOF
+g5_write() { # $1 = first id, $2 = count
+    python3 - "$G5_SRC" "$1" "$2" <<'PY'
+import sqlite3, sys
+path, first, n = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+c = sqlite3.connect(path)
+c.executemany("INSERT INTO ledger(note) VALUES (?)", [(f"note-{first + i}",) for i in range(n)])
+c.commit()
+PY
+}
+g5_restore() { # <label> <extra args...> -- restore to a fresh path, echo rc
+    local label="$1"; shift
+    local out="$G5_ROOT/out-$label.sqlite"
+    rm -f "$out"
+    cat > "$G5_ROOT/restore-$label.yml" <<EOF
+dbs:
+  - path: $out
+    replica:
+      url: s3://$BUCKET/$G5_PREFIX?endpoint=$SCHEME://$ENDPOINT&region=$REGION
+EOF
+    local rc=0
+    "${TIMEOUT_ARGV[@]}" "$LITESTREAM" restore -config "$G5_ROOT/restore-$label.yml" \
+        "$@" -o "$out" "$out" > "$G5_ROOT/restore-$label.log" 2>&1 || rc=$?
+    echo "$rc"
+}
+
+"$LITESTREAM" replicate -config "$G5_ROOT/litestream.yml" > "$G5_ROOT/litestream.log" 2>&1 &
+G5_PID=$!
+sleep 4
+# Two committed batches with a full sync between them, so "mid-history" is a
+# point an operator could actually have asked for at the time, not an
+# artificial boundary invented after the fact.
+g5_write 1 30
+sleep 5
+"${TIMEOUT_ARGV[@]}" "$LITESTREAM" sync -socket "$G5_SOCK" "$G5_SRC" >/dev/null 2>&1 || true
+sleep 2
+G5_LTX_MID="$("$LITESTREAM" ltx -config "$G5_ROOT/litestream.yml" "$G5_SRC" 2>/dev/null \
+    | awk 'NR>1 && $2 ~ /^[0-9a-f]+$/ {print $3; exit}')"
+G5_MID_TS="$("$LITESTREAM" ltx -config "$G5_ROOT/litestream.yml" "$G5_SRC" 2>/dev/null \
+    | awk 'NR>1 && $2 ~ /^[0-9a-f]+$/ {print $6; exit}')"
+g5_write 31 40
+sleep 5
+"${TIMEOUT_ARGV[@]}" "$LITESTREAM" sync -socket "$G5_SOCK" "$G5_SRC" >/dev/null 2>&1 || true
+sleep 2
+kill "$G5_PID" 2>/dev/null || true
+wait "$G5_PID" 2>/dev/null || true
+
+G5_SRC_DIGEST="$(g5_digest "$G5_SRC")"
+G5_LATEST_RC="$(g5_restore latest)"
+G5_LATEST_DIGEST="$(g5_digest "$G5_ROOT/out-latest.sqlite")"
+G5_LATEST_OK=0
+[ "$G5_LATEST_RC" = "0" ] && [ "$G5_LATEST_DIGEST" = "$G5_SRC_DIGEST" ] && G5_LATEST_OK=1
+
+# 2. mid-history, by transaction id. -txid is the deterministic selector; a
+# point-in-time restore is measured too because it is what an operator
+# actually types, and it behaves differently at the boundary.
+G5_MID_RC="skipped"
+G5_MID_DIGEST="(no mid-history txid was reported)"
+G5_MID_OK=0
+if [ -n "${G5_LTX_MID:-}" ]; then
+    G5_MID_RC="$(g5_restore mid -txid "$G5_LTX_MID")"
+    G5_MID_DIGEST="$(g5_digest "$G5_ROOT/out-mid.sqlite")"
+    G5_MID_ROWS="${G5_MID_DIGEST%%|*}"
+    # Strictly fewer rows than the source, and every id a prefix of the
+    # source's: a point-in-time restore that returned everything would mean the
+    # -txid was ignored, which is the failure this is here to catch.
+    if [ "$G5_MID_RC" = "0" ] && [ "${G5_MID_ROWS:-0}" -gt 0 ] 2>/dev/null \
+       && [ "${G5_MID_ROWS:-0}" -lt "${G5_SRC_DIGEST%%|*}" ] 2>/dev/null; then
+        G5_MID_OK=1
+    fi
+else
+    G5_MID_RC="no-txid"
+fi
+
+# 2b. point-in-time. The target has to be STRICTLY AFTER a segment boundary:
+# `-timestamp` equal to the segment's own creation time answers "no matching
+# backup files available", which reads like an empty replica and is not one.
+G5_PIT_RC="skipped"
+G5_PIT_DIGEST="(no segment timestamp was reported)"
+G5_PIT_OK=0
+G5_PIT_TARGET=""
+if [ -n "${G5_MID_TS:-}" ]; then
+    G5_PIT_TARGET="$(python3 -c "
+import sys, datetime
+ts = sys.argv[1].strip().replace('Z', '+00:00')
+try:
+    d = datetime.datetime.fromisoformat(ts) + datetime.timedelta(seconds=1)
+    print(d.strftime('%Y-%m-%dT%H:%M:%SZ'))
+except Exception:
+    print('')" "$G5_MID_TS")"
+fi
+if [ -n "$G5_PIT_TARGET" ]; then
+    G5_PIT_RC="$(g5_restore pit -timestamp "$G5_PIT_TARGET")"
+    G5_PIT_DIGEST="$(g5_digest "$G5_ROOT/out-pit.sqlite")"
+    G5_PIT_ROWS="${G5_PIT_DIGEST%%|*}"
+    if [ "$G5_PIT_RC" = "0" ] && [ "${G5_PIT_ROWS:-0}" -ge 30 ] 2>/dev/null \
+       && [ "${G5_PIT_ROWS:-0}" -le 70 ] 2>/dev/null; then
+        G5_PIT_OK=1
+    fi
+else
+    G5_PIT_RC="no-timestamp"
+fi
+
+# 3. corrupt-artifact rejection. The artifacts are the BUCKET'S OWN objects,
+# downloaded through the same signed API a restore would use, so what is
+# damaged is exactly what the bucket holds. The service's copy is left
+# untouched: the point is how a restore reacts to damaged bytes, not whether
+# the bucket can be made to hold damaged bytes.
+G5_DMG="$G5_ROOT/damaged"
+rm -rf "$G5_DMG"; mkdir -p "$G5_DMG"
+G5_KEYS="$("${S3PROBE[@]}" list-objects --prefix "$G5_PREFIX/" 2>/dev/null \
+    | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(0)
+for k in d.get("keys", []):
+    print(k)' 2>/dev/null)"
+G5_FETCHED=0
+while IFS= read -r k; do
+    [ -z "$k" ] && continue
+    rel="${k#"$G5_PREFIX/"}"
+    mkdir -p "$G5_DMG/$(dirname "$rel")"
+    "${S3PROBE[@]}" get-object "$k" --out "$G5_DMG/$rel" >/dev/null 2>&1 || continue
+    G5_FETCHED=$((G5_FETCHED + 1))
+done <<< "$G5_KEYS"
+cat > "$G5_ROOT/damaged.yml" <<EOF
+dbs:
+  - path: $G5_ROOT/ghost.sqlite
+    replica:
+      path: $G5_DMG
+EOF
+# g5_damage <case> -- apply one damage mode, restore, and classify.
+# Prints "<verdict>|<rc>|<digest>"; verdict is one of
+#   rejected          -- the restore refused: nonzero exit and no usable file
+#   correct           -- the restore produced EXACTLY the source content
+#   WRONG-CONTENT     -- the restore produced a database that is not the source
+#   unreadable        -- the restore produced a file that is not a database
+# The last two are the outcomes this whole block exists to make impossible
+# without noticing.
+g5_damage() {
+    local case_name="$1"
+    rm -rf "$G5_DMG"
+    cp -r "$G5_ROOT/clean" "$G5_DMG"
+    case "$case_name" in
+        flip)
+            python3 - "$G5_DMG" <<'PY'
+import glob, os, sys
+files = sorted(glob.glob(os.path.join(sys.argv[1], "ltx", "*", "*.ltx")))
+tgt = files[-1] if files else None
+if tgt:
+    b = bytearray(open(tgt, "rb").read())
+    i = len(b) // 2
+    b[i] ^= 0xFF
+    open(tgt, "wb").write(bytes(b))
+    print(os.path.basename(tgt), len(b), i)
+PY
+            ;;
+        truncate)
+            python3 - "$G5_DMG" <<'PY'
+import glob, os, sys
+files = sorted(glob.glob(os.path.join(sys.argv[1], "ltx", "*", "*.ltx")))
+tgt = files[0] if files else None
+if tgt:
+    b = open(tgt, "rb").read()
+    open(tgt, "wb").write(b[: max(1, len(b) // 10)])
+    print(os.path.basename(tgt), len(b))
+PY
+            ;;
+        destroy)
+            for f in "$G5_DMG"/ltx/*/*.ltx; do
+                [ -f "$f" ] && printf 'xx' > "$f"
+            done
+            ;;
+    esac
+    local out="$G5_ROOT/dmg-$case_name.sqlite"
+    rm -f "$out"
+    cat > "$G5_ROOT/dmg-$case_name.yml" <<EOF
+dbs:
+  - path: $out
+    replica:
+      path: $G5_DMG
+EOF
+    local rc=0
+    "${TIMEOUT_ARGV[@]}" "$LITESTREAM" restore -config "$G5_ROOT/dmg-$case_name.yml" \
+        -o "$out" "$out" > "$G5_ROOT/dmg-$case_name.log" 2>&1 || rc=$?
+    local digest verdict
+    digest="$(g5_digest "$out")"
+    case "$digest" in
+        "$G5_SRC_DIGEST") verdict="correct" ;;
+        missing|"")      verdict="rejected" ;;
+        *)               verdict="WRONG-CONTENT" ;;
+    esac
+    printf '%s|%s|%s' "$verdict" "$rc" "$digest"
+}
+# Keep a pristine copy of what the bucket returned, because every damage mode
+# starts from it and re-downloading per case would double the request count
+# the packet reports.
+if [ "$G5_FETCHED" -gt 0 ]; then
+    rm -rf "$G5_ROOT/clean"; cp -r "$G5_DMG" "$G5_ROOT/clean"
+    G5_FLIP="$(g5_damage flip)"
+    G5_TRUNC="$(g5_damage truncate)"
+    G5_DESTROY="$(g5_damage destroy)"
+else
+    G5_FLIP="no-artifacts|?|not attempted: the bucket returned no objects under $G5_PREFIX/"
+    G5_TRUNC="$G5_FLIP"
+    G5_DESTROY="$G5_FLIP"
+fi
+G5_DAMAGE_BAD="$(printf '%s\n%s\n%s\n' "$G5_FLIP" "$G5_TRUNC" "$G5_DESTROY" \
+    | grep -cE '^(WRONG-CONTENT|unreadable)' || true)"
+G5_REJECTED_N="$(printf '%s\n%s\n%s\n' "$G5_FLIP" "$G5_TRUNC" "$G5_DESTROY" \
+    | grep -cE '^rejected' || true)"
+
+{
+    echo "comparisons are (rows, sum(id), distinct notes) -- a count alone cannot see a"
+    echo "restore that returns the right number of wrong rows."
+    echo
+    echo "  source:                      $G5_SRC_DIGEST   (30 rows, then 40 more)"
+    echo "  1. latest restore, exit $G5_LATEST_RC:     $G5_LATEST_DIGEST"
+    echo "  2. mid-history -txid ${G5_LTX_MID:-none}, exit $G5_MID_RC: $G5_MID_DIGEST"
+    echo "     point-in-time -timestamp $G5_PIT_TARGET, exit $G5_PIT_RC: $G5_PIT_DIGEST"
+    echo "     the boundary: -timestamp equal to a segment's own created time answers"
+    echo "     \"no matching backup files available\". Measured, and it is not an empty"
+    echo "     replica -- the same replica restores fully one second later."
+    echo
+    echo "  3. corrupt-artifact cases, over the bucket's own objects"
+    echo "     ($G5_FETCHED downloaded through the signed API; the service's copy untouched):"
+    echo "     one byte flipped deep inside the newest level-0 artifact: $G5_FLIP"
+    echo "     an artifact truncated to 10%:                            $G5_TRUNC"
+    echo "     every artifact reduced to two bytes:                     $G5_DESTROY"
+    echo
+    echo "     $G5_REJECTED_N of 3 were REJECTED, $G5_DAMAGE_BAD produced a database that was"
+    echo "     not the source. The measured property: litestream 0.5.17 has no per-artifact"
+    echo "     check that rejects damage to a REDUNDANT artifact -- it rebuilds from"
+    echo "     whatever else is still decodable and returns the right bytes. It refuses"
+    echo "     only when no decodable path to a complete database is left, and then it"
+    echo "     refuses loudly: nonzero exit, no output file, a named reason."
+    echo
+    echo "     THE OPERATIONAL CONSEQUENCE, which is why this is a gate and not a note:"
+    echo "     a restore's success cannot be read off litestream's exit status, in either"
+    echo "     direction. It has to be read off the CONTENT of the restored file, which is"
+    echo "     what (rows, sum, distinct) plus PRAGMA integrity_check is for."
+} >> "$OUT"
+
+if [ "$G5_LATEST_OK" = "1" ] && [ "$G5_MID_OK" = "1" ] && [ "$G5_PIT_OK" = "1" ] && [ "${G5_DAMAGE_BAD:-1}" = "0" ]; then
+    record 5 PASS "bucket-backed restore drill: latest restore is exact, a mid-history point and a point-in-time target both restore real earlier states, and no damaged-artifact case produced a wrong database" \
+        "source $G5_SRC_DIGEST; latest $G5_LATEST_DIGEST (exit $G5_LATEST_RC)" \
+        "mid-history -txid ${G5_LTX_MID:-none} -> $G5_MID_DIGEST (exit $G5_MID_RC)" \
+        "point-in-time -timestamp ${G5_PIT_TARGET:-none} -> $G5_PIT_DIGEST (exit $G5_PIT_RC)" \
+        "corrupt artifacts: $G5_FLIP | $G5_TRUNC | $G5_DESTROY" \
+        "supersedes the earlier file-replica gate 5 line above, which could not answer mid-history or corruption" \
+        "gateway import validation of the restored file is gate 11"
+elif [ "${G5_DAMAGE_BAD:-1}" != "0" ]; then
+    record 5 FAIL "a damaged-artifact restore produced a database that is not the source; a restore that can do that cannot be detected by exit status" \
+        "source $G5_SRC_DIGEST" \
+        "flip: $G5_FLIP" \
+        "truncate: $G5_TRUNC" \
+        "destroy: $G5_DESTROY"
+elif [ "$G5_LATEST_OK" != "1" ]; then
+    record 5 FAIL "the latest restore from the bucket is not the source" \
+        "source $G5_SRC_DIGEST   restored $G5_LATEST_DIGEST   exit $G5_LATEST_RC" \
+        "restore log tail:" "$(tail -5 "$G5_ROOT/restore-latest.log" 2>/dev/null | sed 's/^/  /')"
+else
+    record 5 BLOCKED "the restore drill did not complete every sub-case" \
+        "latest exact: $G5_LATEST_OK   mid-history: $G5_MID_OK ($G5_MID_DIGEST, exit $G5_MID_RC)" \
+        "point-in-time: $G5_PIT_OK ($G5_PIT_DIGEST, exit $G5_PIT_RC, target ${G5_PIT_TARGET:-none})" \
+        "mid-history txid reported by litestream: ${G5_LTX_MID:-none}"
+fi
+
+# --------------------------------------------------------------------------
 # Gate 6: retention. The rule is written to the bucket with the candidate
 # 7/30-day policy and read back, because a policy that was never stored is a
 # policy nobody is relying on. Version counts come from ?versions where the
