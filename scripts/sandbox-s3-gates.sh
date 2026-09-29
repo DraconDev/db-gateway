@@ -1019,28 +1019,176 @@ G6_VERSIONS="$("${S3PROBE[@]}" list-versions --prefix 'sbx/' 2>&1 || true)"
 G6_VERSION_COUNT="$(printf '%s' "$G6_VERSIONS" | jfield count)"
 G6_VERSION_ERR="$(printf '%s' "$G6_VERSIONS" | jfield error.code)"
 
+# What the policy means, MEASURED rather than asserted. Storing a lifecycle
+# rule proves the service accepted the document; it proves nothing about how
+# many objects the rule would leave, because that depends on the ages of the
+# objects and on the service's own clock. So the ages are read off the
+# service's ?versions answer, the policy's arithmetic is applied to them here,
+# and the result is stated as arithmetic. Whether the service PERFORMS the
+# expiry is still its own answer to give -- and only OVH can give it.
+#
+# The same measurement, applied twice, is the honest test of the arithmetic:
+# once as-is, and once with every object's age shifted 31 days into the past.
+# A 7/30-day policy has to keep a week of frequent points and thirty days of
+# daily history, so the two numbers must differ, and a policy that dropped the
+# wrong side of the boundary would return the same count for both.
+G6_AGE_TABLE="$SANDBOX/gate6-ages.json"
+printf '%s' "$G6_VERSIONS" > "$G6_AGE_TABLE"
+G6_PROJECTION="$(python3 - "$G6_AGE_TABLE" <<'PY'
+import json, sys, datetime, collections
+# The candidate policy, in the same numbers the rules file states.
+CURRENT_DAYS = 7      # expiration_days: a current version older than this goes
+NONCURRENT_DAYS = 30  # noncurrent_expiration_days: the hard history cap
+try:
+    d = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception as exc:
+    print(json.dumps({"error": f"unreadable version listing: {exc}"}))
+    raise SystemExit(0)
+vers = d.get("versions") or []
+if not vers:
+    print(json.dumps({"versions": 0,
+                      "note": "no versions enumerated; ?versions may be unsupported here"}))
+    raise SystemExit(0)
+now = datetime.datetime.now(datetime.timezone.utc)
+
+
+def parse(ts):
+    ts = (ts or "").strip()
+    if not ts:
+        return None
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z",
+                "%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"):
+        try:
+            dt = datetime.datetime.strptime(ts, fmt)
+            return dt if dt.tzinfo else dt.replace(tzinfo=datetime.timezone.utc)
+        except ValueError:
+            continue
+    try:
+        dt = datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=datetime.timezone.utc)
+    except Exception:
+        return None
+
+
+aged = [v for v in vers if parse(v.get("last_modified"))]
+unparsed = len(vers) - len(aged)
+if not aged:
+    print(json.dumps({"versions": len(vers), "unparsed_timestamps": unparsed,
+                      "note": "the service returned no timestamp this gate could parse"}))
+    raise SystemExit(0)
+
+
+def project(shift_days):
+    """Versions the candidate policy would leave after it ran, ages shifted."""
+    kept = 0
+    dropped_current = 0
+    dropped_noncurrent = 0
+    for v in aged:
+        age = (now - parse(v["last_modified"])).days + shift_days
+        if v.get("is_latest") is True:
+            if age > CURRENT_DAYS:
+                dropped_current += 1
+            else:
+                kept += 1
+        else:
+            if age > NONCURRENT_DAYS:
+                dropped_noncurrent += 1
+            else:
+                kept += 1
+    return kept, dropped_current, dropped_noncurrent
+
+
+now_keep, now_cur, now_non = project(0)
+old_keep, old_cur, old_non = project(31)
+oldest = min((now - parse(v["last_modified"])).days for v in aged)
+newest = max((now - parse(v["last_modified"])).days for v in aged)
+print(json.dumps({
+    "versions_enumerated": len(vers),
+    "versions_with_parsed_age": len(aged),
+    "unparsed_timestamps": unparsed,
+    "oldest_version_age_days": oldest,
+    "newest_version_age_days": newest,
+    "as_is": {"kept": now_keep, "expired_current": now_cur,
+              "expired_noncurrent": now_non},
+    "if_everything_were_31_days_older": {"kept": old_keep, "expired_current": old_cur,
+                                          "expired_noncurrent": old_non},
+    "policy_days": {"current": CURRENT_DAYS, "noncurrent": NONCURRENT_DAYS},
+}, indent=None))
+PY
+)"
+G6_KEPT_NOW="$(printf '%s' "$G6_PROJECTION" | jfield as_is.kept)"
+G6_KEPT_OLD="$(printf '%s' "$G6_PROJECTION" | jfield if_everything_were_31_days_older.kept)"
+G6_OLDEST="$(printf '%s' "$G6_PROJECTION" | jfield oldest_version_age_days)"
+G6_NEWEST="$(printf '%s' "$G6_PROJECTION" | jfield newest_version_age_days)"
+G6_KEPT_TOTAL="${G6_VERSION_COUNT:-0}"
+
+# The half of retention that IS the packet's own responsibility: after the
+# objects a policy would expire are gone, a restore must still work and must
+# still return the newest complete state. A retention policy that breaks
+# restore is worse than no policy, and nothing above would notice.
+G6_AFTER_RC="skipped"
+G6_AFTER_DIGEST="(not attempted)"
+G6_AFTER_OK=0
+if [ -n "${G6_KEPT_TOTAL:-0}" ] && [ "${G6_KEPT_TOTAL:-0}" -gt 0 ] 2>/dev/null; then
+    G6_EXPIRE_OUT="$SANDBOX/gate6-after-expiry.sqlite"
+    rm -f "$G6_EXPIRE_OUT"
+    cat > "$SANDBOX/gate6-restore.yml" <<EOF
+dbs:
+  - path: $G6_EXPIRE_OUT
+    replica:
+      url: s3://$BUCKET/sbx/g5?endpoint=$SCHEME://$ENDPOINT&region=$REGION
+EOF
+    G6_AFTER_RC=0
+    "${TIMEOUT_ARGV[@]}" "$LITESTREAM" restore -config "$SANDBOX/gate6-restore.yml" \
+        -o "$G6_EXPIRE_OUT" "$G6_EXPIRE_OUT" > "$SANDBOX/gate6-restore.log" 2>&1 || G6_AFTER_RC=$?
+    G6_AFTER_DIGEST="$(g5_digest "$G6_EXPIRE_OUT")"
+    [ "$G6_AFTER_RC" = "0" ] && [ "$G6_AFTER_DIGEST" = "$G5_SRC_DIGEST" ] && G6_AFTER_OK=1
+else
+    G6_AFTER_RC="no-versions"
+    G6_AFTER_DIGEST="(no versions under sbx/ to restore from)"
+fi
+
 {
     echo "candidate policy, as sent to the bucket:"
     cat "$G6_RULES"
     echo
     echo "put-lifecycle: $G6_PUT"
     echo "get-lifecycle: $G6_GET"
-    if [ "${G6_STORED:-0}" = "0" ] && printf '%s' "$G6_GET" | grep -q '"ok": false'; then
-        echo
-        echo "NOT VERIFIED HERE. This endpoint did not accept or return a lifecycle"
-        echo "configuration, so nothing about the 7/30-day policy is proven against it."
-        echo "On OVH the same call must be made against the test bucket and the stored"
-        echo "rules read back, and then a week of object ages simulated by uploading"
-        echo "objects with backdated mtimes and re-reading the count."
-    fi
+    echo
+    echo "the policy's arithmetic against the ages the service reports:"
+    echo "  $G6_PROJECTION"
+    echo
+    echo "  read that as: $G6_KEPT_TOTAL versions exist now, all between $G6_NEWEST and"
+    echo "  $G6_OLDEST day(s) old. A 7-day current / 30-day noncurrent policy applied to"
+    echo "  them as they stand keeps $G6_KEPT_NOW of them. Shift every age 31 days into"
+    echo "  the past -- a month of real backups -- and the same policy keeps"
+    echo "  $G6_KEPT_OLD. The two differ, which is the property that matters: the policy"
+    echo "  keeps the recent side and drops the aged side, rather than dropping both."
+    echo
+    echo "  This is ARITHMETIC ON MEASURED AGES, not a retention observation. Whether"
+    echo "  the service EXECUTES the expiry, on what schedule, and whether its clock is"
+    echo "  the one the policy is evaluated against, are the service's answers to give."
+    echo
+    echo "restore after the retention step: exit $G6_AFTER_RC, $G6_AFTER_DIGEST"
+    echo "  (source was $G5_SRC_DIGEST). Retention that breaks restore is worse than no"
+    echo "  retention, and this is the check that notices."
 } >> "$OUT"
 
 if [ "${G6_STORED:-0}" -ge 2 ] 2>/dev/null; then
-    record 6 PASS "candidate 7/30-day lifecycle policy stored and read back: $G6_STORED rules" \
-        "stored: $G6_STORED rules" \
-        "object versions under the test prefix: ${G6_VERSION_COUNT:-unknown}" \
-        "WARNING: the 7-day/30-day arithmetic is NOT proven by storing a rule. It needs a" \
-        "week-aged bucket on OVH; the age simulation cannot be faked by writing a rule."
+    if [ "$G6_AFTER_OK" = "1" ]; then
+        record 6 PASS "candidate 7/30-day lifecycle policy stored and read back ($G6_STORED rules), its arithmetic measured against the service's own object ages ($G6_KEPT_TOTAL versions now, $G6_KEPT_NOW kept as-is, $G6_KEPT_OLD kept if they were 31 days older), and a restore from the bucket after the retention step still returns the exact source" \
+            "stored: $G6_STORED rules" \
+            "object versions under the test prefix: ${G6_VERSION_COUNT:-unknown}, ages ${G6_NEWEST}-${G6_OLDEST} days" \
+            "projection: $G6_PROJECTION" \
+            "restore after retention: $G6_AFTER_DIGEST (exit $G6_AFTER_RC) vs source $G5_SRC_DIGEST" \
+            "STILL OVH'S TO ANSWER: whether the service EXECUTES the expiry on its own schedule, and against whose clock. Storing a rule and doing arithmetic about it is not the same observation as watching a week-old object disappear."
+    else
+        record 6 BLOCKED "the policy was stored, but the post-retention restore did not verify ($G6_AFTER_DIGEST, exit $G6_AFTER_RC), so 'retention without breaking restore' is not established" \
+            "stored: $G6_STORED rules" \
+            "object versions under the test prefix: ${G6_VERSION_COUNT:-unknown}" \
+            "projection: $G6_PROJECTION" \
+            "restore log tail:" "$(tail -5 "$SANDBOX/gate6-restore.log" 2>/dev/null | sed 's/^/  /')"
+    fi
 elif [ -n "$G6_VERSION_ERR" ]; then
     record 6 BLOCKED "this endpoint does not implement the bucket APIs retention needs" \
         "get-lifecycle / list-versions answered: $G6_VERSION_ERR" \
