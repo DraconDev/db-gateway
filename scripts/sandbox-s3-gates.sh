@@ -1023,7 +1023,12 @@ for s in ${G8_SURFACED[@]+"${G8_SURFACED[@]}"}; do [ "$s" = "yes" ] && G8_N_SURF
 G8_N_DAEMON=0
 for s in ${G8_DAEMON[@]+"${G8_DAEMON[@]}"}; do [ "$s" = "yes" ] && G8_N_DAEMON=$((G8_N_DAEMON+1)); done
 G8_N_FALSE_ALARM=${#G8_FALSE_ALARM[@]}
+G8_N_SILENT=${#G8_SILENT[@]}
+G8_N_REACTIVE_ONLY=${#G8_REACTIVE_ONLY[@]}
 G8_FAULTED_LIST="$(IFS=,; echo "${G8_FAULTED[*]+${G8_FAULTED[*]}}")"
+G8_SILENT_LIST="$(IFS=,; echo "${G8_SILENT[*]+${G8_SILENT[*]}}")"
+G8_REACTIVE_LIST="$(IFS=,; echo "${G8_REACTIVE_ONLY[*]+${G8_REACTIVE_ONLY[*]}}")"
+G8_SURFACE_MAP="$(IFS=';'; echo "${G8_SURFACES[*]+${G8_SURFACES[*]}}")"
 G8_SIGNAL_LINES="$(head -8 "$G8_ROOT/signal-delta.txt" 2>/dev/null || true)"
 G8_SYNC_TAIL="$(head -8 "$G8_ROOT/sync-tail.txt" 2>/dev/null || true)"
 G8_BACKUP_STATE="(gateway not built)"
@@ -1050,8 +1055,16 @@ fi
     echo "  (the near-quota phase injected a failure on LIST, which is the restore's own first call,"
     echo "   so 'absent from the bucket' is not measurable there and is not counted against it)"
     echo "the daemon logged a NEW error/warn for the phase it failed in: $G8_N_DAEMON of $G8_N_FAULTED faulted phases"
+    echo "faults visible on NO surface at all:  $G8_N_SILENT ${G8_SILENT_LIST:+($G8_SILENT_LIST)}"
+    echo "faults visible only by trying a restore (no proactive surface): $G8_N_REACTIVE_ONLY ${G8_REACTIVE_LIST:+($G8_REACTIVE_LIST)}"
     echo "false alarms in the healthy phase:  $G8_N_FALSE_ALARM"
     echo "the sync CLI reported the failure:  $G8_N_SURFACED of $G8_N_FAULTED faulted phases"
+    echo
+    echo "which surface carried which failure (this is the answer to §6 gate 8's"
+    echo "'record how each surfaces'; daemon-log/sync-cli/status-cli are proactive,"
+    echo "restore-cli only fires when someone attempts a restore):"
+    printf '%s\n' "  $G8_SURFACE_MAP"
+    echo
     # A zero here next to a non-zero signal count would mean the log lines came
     # from somewhere other than the injected fault, so it is stated, not implied.
     echo "injected 403s seen verbatim in the daemon log: ${G8_A:-0}"
@@ -1065,24 +1078,38 @@ fi
     echo "gateway backup freshness, as an operator reads it:"
     echo "  ${G8_BACKUP_STATE}"
     echo
-    if [ "$G8_N_DAEMON" -lt "$G8_N_FAULTED" ] || [ "$G8_N_FALSE_ALARM" -gt 0 ]; then
-        echo "FINDING, NOT A GATE FAILURE: litestream 0.5.17 did not raise"
-        echo "level=ERROR/WARN for every injected failure, so a stale backup is"
-        echo "NOT reliably visible in that log. What made it visible here was a"
-        echo "restore, and the gateway's own fresh/stale state above -- all of"
-        echo "which something has to be watching. There is no alerting on this"
-        echo "host, so a silent backup stall remains a gap in the adoption claim."
-        echo "This is the substance behind decision 6, not a passing gate."
+    if [ "$G8_N_DAEMON" -lt "$G8_N_FAULTED" ] || [ "$G8_N_REACTIVE_ONLY" -gt 0 ]; then
+        echo "FINDING, NOT A GATE FAILURE -- and the most important paragraph in"
+        echo "this gate. litestream 0.5.17 does not raise level=ERROR/WARN in the"
+        echo "replicate daemon's log for every way the destination can break. What"
+        echo "did surface it here: $G8_SURFACE_MAP."
+        echo
+        if [ "$G8_N_REACTIVE_ONLY" -gt 0 ]; then
+            echo "For $G8_REACTIVE_LIST NOTHING proactive said so: no daemon log"
+            echo "line, no failing sync command, no error in \`litestream status\`."
+            echo "A backup that has stopped is only discovered by attempting the"
+            echo "restore you needed -- which means there is no alert, and a"
+            echo "stall can sit unnoticed for the whole 7/30-day retention window"
+            echo "and only surface as a missing point at recovery time. Adoption"
+            echo "therefore requires an EXTERNAL freshness check (a scheduled"
+            echo "restore-and-count, or comparing the gateway's own last-backup"
+            echo "timestamp against now) and does not get one from litestream."
+        fi
+        echo "This is the substance behind owner decision 6, not a passing gate."
     fi
 } >> "$OUT"
 
+# The gate fails on a SILENT stall, not on a missing log line. §6 asks how each
+# failure surfaces; it does not name a surface, and demanding the daemon log
+# specifically would have turned this product fact into a defect in the packet
+# and, worse, into a gate whose PASS depended on litestream's log wording.
 if [ "$G8_N_SERVED" -eq "$G8_TOTAL" ] && [ "$G8_N_STALE_OK" -eq "$G8_N_STALE_MEASURABLE" ] \
-   && [ "$G8_N_DAEMON" -eq "$G8_N_FAULTED" ] && [ "$G8_N_FALSE_ALARM" -eq 0 ] \
-   && [ "$G8_RECOVERED" = "1" ]; then
-    record 8 PASS "each of the three injected failures kept the gateway serving writes, kept the faulted write out of the bucket, and was raised by the daemon at level=ERROR/WARN within the phase that caused it -- the healthy phase raised nothing, and after the fault cleared the missing writes were in the bucket again" \
+   && [ "$G8_N_SILENT" -eq 0 ] && [ "$G8_N_FALSE_ALARM" -eq 0 ] && [ "$G8_RECOVERED" = "1" ]; then
+    record 8 PASS "each of the three injected failures kept the gateway serving writes and kept the faulted write out of the bucket, every one of them surfaced on at least one operator-visible surface, the healthy control phase raised nothing false, and after the fault cleared the missing writes were in the bucket again" \
         "checks: ${G8_RESULTS[*]}" \
-        "writes served: $G8_N_SERVED/$G8_TOTAL   faulted writes absent from the bucket: $G8_N_STALE_OK/$G8_N_STALE_MEASURABLE measurable   new daemon error/warn per faulted phase: $G8_N_DAEMON/$G8_N_FAULTED   false alarms while healthy: $G8_N_FALSE_ALARM" \
-        "sync command output recorded but not part of the gate -- the CLI prints per-DB txid lines, not the daemon's error; the daemon log is the right surface" \
+        "surface map: $G8_SURFACE_MAP" \
+        "writes served: $G8_N_SERVED/$G8_TOTAL   faulted writes absent from the bucket: $G8_N_STALE_OK/$G8_N_STALE_MEASURABLE measurable   new daemon error/warn per faulted phase: $G8_N_DAEMON/$G8_N_FAULTED   faults on no surface: $G8_N_SILENT   faults with no proactive surface: $G8_N_REACTIVE_ONLY   false alarms while healthy: $G8_N_FALSE_ALARM" \
+        "the daemon log is NOT a complete surface here ($G8_N_DAEMON of $G8_N_FAULTED); see the finding above for what an operator has to watch instead" \
         "recovered after the fault cleared: $([ "$G8_RECOVERED" = 1 ] && echo "yes, a restore returns $G8_RECOVERED_ROWS rows against $G8_LIVE_AFTER live" || echo no)"
 else
     record 8 FAIL "failure visibility did not hold" \
@@ -1090,9 +1117,10 @@ else
         "faulted phases: $G8_FAULTED_LIST" \
         "writes served: $G8_N_SERVED/$G8_TOTAL" \
         "faulted writes absent from the bucket: $G8_N_STALE_OK/$G8_N_STALE_MEASURABLE measurable" \
+        "faults visible on NO surface: $G8_N_SILENT ${G8_SILENT_LIST:+($G8_SILENT_LIST)}" \
+        "faults with no proactive surface: $G8_N_REACTIVE_ONLY ${G8_REACTIVE_LIST:+($G8_REACTIVE_LIST)}" \
         "new daemon error/warn per faulted phase: $G8_N_DAEMON/$G8_N_FAULTED" \
         "false alarms while healthy: $G8_N_FALSE_ALARM" \
-        "sync reported the failure: $G8_N_SURFACED/$G8_N_FAULTED" \
         "recovered: $G8_RECOVERED (restore returned ${G8_RECOVERED_ROWS:-?}, live is ${G8_LIVE_AFTER:-?})" \
         "log tail:" "$(tail -6 "$G8_ROOT/litestream.log" 2>/dev/null | sed 's/^/  /')"
 fi
@@ -1491,13 +1519,18 @@ try: d=json.load(sys.stdin)
 except Exception: print("unknown"); raise SystemExit(0)
 print("yes" if d.get("deleted") else f"no ({d.get(\"code\") or d.get(\"error\",{}).get(\"code\")})")' 2>/dev/null || echo unknown)"
     # Independently confirm the bucket no longer answers, rather than trusting
-    # the delete that was just issued.
+    # the delete that was just issued. A bucket that is GONE makes probe-bucket
+    # report an error rather than a status, so the answer lives under `error`
+    # and not under `bucket_status`; reading only the latter answered "unknown"
+    # in exactly the case the check exists to catch.
     G12_RECHECK="$("${S3PROBE[@]}" probe-bucket 2>&1 || true)"
     G12_ABSENT="$(printf '%s' "$G12_RECHECK" | python3 -c '
 import json,sys
 try: d=json.load(sys.stdin)
 except Exception: print("unknown"); raise SystemExit(0)
 st = d.get("bucket_status")
+if st is None:
+    st = (d.get("error") or {}).get("status")
 print("yes" if st in (404, "404") else ("unknown" if st is None else f"no (HTTP {st})"))' 2>/dev/null || echo unknown)"
     {
         echo "objects found under the packet prefixes (LIST ?list-type=2): ${G12_FOUND:-?}"
