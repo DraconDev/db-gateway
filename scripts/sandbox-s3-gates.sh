@@ -2486,6 +2486,15 @@ except Exception:
     print(0)
 PY
 )"
+# A restore that returns 0 rows has two very different causes, and calling them
+# the same thing puts a defect in the wrong book. "The database is not there" is
+# a product finding. "The restore never reached the bucket" -- a malformed
+# endpoint, a name that does not resolve, a refused connection -- is a defect in
+# THIS GATE, and it must be reported as one. A gate cannot answer its question
+# when its own configuration is wrong, and saying FAIL for that tells the owner
+# their backup is broken when it is the harness that is.
+G10_TRANSPORT_ERR="$(grep -m1 -iE 'no such host|connection refused|dial tcp|request send failed|unsupported protocol|malformed|certificate|SSL' \
+    "$G10_ROOT/restore.log" 2>/dev/null | cut -c1-200 || true)"
 # And with the key withdrawn, which is the SSE-C key-loss case: a restore that
 # is supposed to fail must fail rather than return an empty database.
 G10_NOKEY_OUT="$G10_ROOT/restored-nokey.sqlite"
@@ -2566,6 +2575,13 @@ if [ "$G10_ROWS" = "100" ]; then
             "withdrawn-credential restore (litestream-level): exit $G10_NOKEY_RC, ${G10_NOKEY_MSG:-(silent)}" \
             "WHAT OVH MUST CONFIRM: the encryption header on the objects OVH stored under the chosen mode (sse, or the SSE-C customer-algorithm echo), and a restore that returns the same rows with a key that is not present anywhere in the environment"
     fi
+elif [ -n "${G10_TRANSPORT_ERR:-}" ]; then
+    # The gate could not do its job. Named as a harness defect, not a failure
+    # of the product under test, because that is what it is.
+    record 10 BLOCKED "the restore could not reach the bucket at all, so this gate measured nothing; the replica URL it built is wrong, which is a defect in the packet, not in the backup" \
+        "restore log said: $G10_TRANSPORT_ERR" \
+        "replica URL this gate used: s3://$BUCKET/$G10_PREFIX?endpoint=$SCHEME://$G10_PROXY_PORT&region=$REGION" \
+        "NOTE the verdict: 0 rows here means 'not reached', not 'not backed up'. A run that reported this as FAIL would put a false data-loss finding in the owner's book."
 elif [ "${G10_ROWS:-0}" -gt 0 ]; then
     # A partial round-trip is neither pass nor blocker: the packet must not
     # dress a partial result up as an environmental limitation.
