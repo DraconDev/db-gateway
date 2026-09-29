@@ -1134,23 +1134,124 @@ fi
 
 # --------------------------------------------------------------------------
 # Gate 9: resource headroom. The §6 wording is "on a 1 GB-shaped sandbox",
-# which on a host with 31 GB means the shape has to be imposed, not assumed.
-# A cgroup memory limit is the closest faithful equivalent: it makes the kernel
-# refuse allocations above the budget, so the measurement is of a constrained
-# host and not of an unconstrained one that happens to be idle.
+# which on a host with more memory than that means the shape has to be IMPOSED,
+# not assumed. An unconstrained number is not a 1 GB-shaped number, and this
+# gate says so rather than reporting the unconstrained one as if it were the
+# answer.
 # --------------------------------------------------------------------------
 G9_ROOT="$SANDBOX/gate9"
 mkdir -p "$G9_ROOT"
 G9_LIMIT="${DG_SANDBOX_MEMORY_LIMIT:-1G}"
 G9_SRC="$G9_ROOT/heavy.sqlite"
 G9_BUDGET="$REPO/docs/resource-budget.md"
-G9_HAS_CGROUP=0
-# `set -u` is on and this is an OPTIONAL caller-supplied path into the cgroup
-# tree; an unset variable here aborted the packet mid-gate, after gates 3, 4, 6
-# and 8 had already run. Every optional knob is defaulted at the top of its
-# gate, not read straight from the environment.
-USER_CGROUP_PATH="${USER_CGROUP_PATH:-}"
-[ -f /sys/fs/cgroup/cgroup.controllers ] && [ -w /sys/fs/cgroup/cgroup.procs ] && G9_HAS_CGROUP=1
+
+# Parse the limit once, to bytes. The percentage in the report is computed from
+# it, so getting this wrong would make a 1 MiB budget read as 100000% of budget
+# -- which is exactly the "4728% of the budget" line the unconstrained runs
+# printed, and which any reader had to decode for themselves.
+G9_LIMIT_BYTES="$G9_LIMIT"
+case "$G9_LIMIT" in
+    *G) G9_LIMIT_BYTES=$(( ${G9_LIMIT%G} * 1024 * 1024 ));;
+    *M) G9_LIMIT_BYTES=$(( ${G9_LIMIT%M} * 1024 ));;
+    *K) G9_LIMIT_BYTES=$(( ${G9_LIMIT%K} * 1024 ));;
+esac
+[ "${G9_LIMIT_BYTES:-0}" -gt 0 ] 2>/dev/null || G9_LIMIT_BYTES=$((1024 * 1024 * 1024))
+G9_LIMIT_KIB=$((G9_LIMIT_BYTES / 1024))
+
+# --------------------------------------------------------------------------
+# HOW THE SHAPE IS IMPOSED. Two mechanisms, both of which make the KERNEL
+# refuse an allocation above the budget, and both probed for real:
+#
+#   A. systemd-run --user --scope -p MemoryMax=<limit>. The systemd user
+#      manager holds the memory controller, so this is what works on an
+#      ordinary user session.
+#   B. a direct cgroup v2 child with memory.max written into it. This works
+#      only where the memory controller is delegated to the caller's subtree.
+#
+# The previous version asked `/sys/fs/cgroup/cgroup.procs` whether cgroups were
+# usable. That file is root-owned and is never writable by a user, so the test
+# was ALWAYS false: gate 9 reported "unconstrained" on a host where the limit
+# could in fact be imposed, having skipped its own constrained path before
+# trying it, and the owner would have been told to go and buy a 1 GB VPS for a
+# number this machine can produce. The question worth asking is whether the
+# CALLER's own cgroup can hold a constrained child. Whichever mechanism wins,
+# the packet records it and why the other was rejected.
+# --------------------------------------------------------------------------
+G9_OWN_CGROUP="/sys/fs/cgroup$(awk -F: '/^0::/{print $3}' /proc/self/cgroup 2>/dev/null || true)"
+G9_CG_NAME="dg-sandbox-g9-$$"
+G9_MECH=""
+G9_PROBE_A_ERR=""
+G9_PROBE_B_ERR=""
+
+# (A) systemd transient scope
+if [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] || [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus" ]; then
+    if command -v systemd-run >/dev/null 2>&1; then
+        if systemd-run --user --scope --quiet -p "MemoryMax=$G9_LIMIT" \
+            -p "MemoryAccounting=yes" --unit="dg-sandbox-g9-probe-$$" true >/dev/null 2>&1; then
+            G9_MECH="systemd"
+        else
+            G9_PROBE_A_ERR="$(systemd-run --user --scope --quiet -p "MemoryMax=$G9_LIMIT" \
+                --unit="dg-sandbox-g9-probe2-$$" true 2>&1 | head -2 | tr '\n' ' ')"
+        fi
+    else
+        G9_PROBE_A_ERR="systemd-run is not on PATH"
+    fi
+else
+    G9_PROBE_A_ERR="no session bus (DBUS_SESSION_BUS_ADDRESS unset, no \$XDG_RUNTIME_DIR/bus), so there is no user manager to ask"
+fi
+
+# (B) direct child cgroup, only if the memory controller is delegated here
+if [ -z "$G9_MECH" ] && [ -n "$G9_OWN_CGROUP" ] && [ -d "$G9_OWN_CGROUP" ] \
+   && [ -w "$G9_OWN_CGROUP/cgroup.procs" ]; then
+    if mkdir -p "$G9_OWN_CGROUP/$G9_CG_NAME" 2>/dev/null \
+       && [ -f "$G9_OWN_CGROUP/$G9_CG_NAME/memory.max" ]; then
+        if printf '%s' "$G9_LIMIT_BYTES" > "$G9_OWN_CGROUP/$G9_CG_NAME/memory.max" 2>/dev/null; then
+            G9_MECH="cgroup"
+        else
+            G9_PROBE_B_ERR="memory.max exists under $G9_OWN_CGROUP but is not writable by this user"
+        fi
+    else
+        G9_PROBE_B_ERR="no memory.max in a child of $G9_OWN_CGROUP: the memory controller is not delegated to this subtree (its cgroup.subtree_control is '$(tr -d '\n' < "$G9_OWN_CGROUP/cgroup.subtree_control" 2>/dev/null)')"
+    fi
+    rmdir "$G9_OWN_CGROUP/$G9_CG_NAME" 2>/dev/null || true
+fi
+
+G9_CGROUP_RAN=0
+[ -n "$G9_MECH" ] && G9_CGROUP_RAN=1
+if [ "$G9_CGROUP_RAN" = "1" ]; then
+    case "$G9_MECH" in
+        systemd) G9_MECH_DESC="constrained to $G9_LIMIT by a systemd transient scope (MemoryMax=$G9_LIMIT), enforced by the kernel";;
+        cgroup)  G9_MECH_DESC="constrained to $G9_LIMIT by a cgroup v2 child with memory.max=$G9_LIMIT_BYTES, enforced by the kernel";;
+    esac
+else
+    G9_MECH_DESC="UNCONSTRAINED -- no memory limit could be imposed"
+fi
+
+# Run a command inside the limit. With the direct mechanism the child writes
+# its OWN pid into cgroup.procs before exec, so the measured program does not
+# run even one instruction outside the budget.
+G9_PREFIX=()
+if [ "$G9_MECH" = "systemd" ]; then
+    G9_PREFIX=( systemd-run --user --scope --quiet -p "MemoryMax=$G9_LIMIT"
+                -p "MemoryAccounting=yes" --unit="$G9_CG_NAME-run" )
+elif [ "$G9_MECH" = "cgroup" ]; then
+    mkdir -p "$G9_OWN_CGROUP/$G9_CG_NAME"
+    G9_PREFIX=( bash -c 'printf "%s" "$$" > "$1"/cgroup.procs; shift; exec "$@"' _ "$G9_OWN_CGROUP/$G9_CG_NAME" )
+    CLEANUP+=("rmdir '$G9_OWN_CGROUP/$G9_CG_NAME' 2>/dev/null || true")
+fi
+
+# Measured with a hard RSS ceiling when one could be imposed, and recorded as
+# unconstrained when not. A number from an unconstrained run is not a gate 9
+# result and is labelled that way.
+run_constrained() {
+    # $1 = description, rest = command
+    local desc="$1"; shift
+    if [ "$G9_CGROUP_RAN" = "1" ]; then
+        timeout 900 "${G9_PREFIX[@]}" "$@" 2>&1 || true
+    else
+        timeout 900 "$@" 2>&1 || true
+    fi
+}
 
 rss_of() { # $1 = pid
     awk '/^VmRSS:/ {print $2}' "/proc/$1/status" 2>/dev/null || echo 0
@@ -1183,31 +1284,8 @@ dbs:
       url: s3://$BUCKET/sbx/g9?endpoint=$SCHEME://$ENDPOINT&region=$REGION
 EOF
 
-G9_CGROUP_RAN=0
 G9_MEMEVENTS=""
-if [ "$G9_HAS_CGROUP" = "1" ] && command -v systemd-run >/dev/null 2>&1; then
-    # A transient scope with MemoryMax set: the constraint is applied by the
-    # kernel, and MemoryPeak records the high-water mark inside it.
-    G9_SCOPE="dg-sandbox-g9-$$"
-    if systemd-run --user --scope --quiet \
-        -p "MemoryMax=$G9_LIMIT" -p "MemoryAccounting=yes" \
-        --unit="$G9_SCOPE" true >/dev/null 2>&1; then
-        G9_CGROUP_RAN=1
-    fi
-fi
 
-# Measured with a hard RSS ceiling when one could be imposed, and recorded as
-# unconstrained when not. A number from an unconstrained run is not a gate 9
-# result and is labelled that way.
-run_constrained() {
-    # $1 = description, rest = command
-    local desc="$1"; shift
-    if [ "$G9_CGROUP_RAN" = "1" ]; then
-        systemd-run --user --scope --quiet -p "MemoryMax=$G9_LIMIT" -p "MemoryAccounting=yes" "$@" 2>&1 || true
-    else
-        "$@" 2>&1 || true
-    fi
-}
 
 "$LITESTREAM" replicate -config "$G9_CFG" > "$G9_ROOT/replicate.log" 2>&1 &
 G9_PID=$!
