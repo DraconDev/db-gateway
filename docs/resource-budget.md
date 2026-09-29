@@ -29,7 +29,7 @@ release-blocking measurement.
 | Gateway process RSS, small workload | Measured (M1, M2) | ~4.3 MiB release idle; ~15 MiB debug loaded. Release + realistic data: **unmeasured**. |
 | OS baseline | Partially known, workload unmeasured | The supervised target is an approximately 1 GiB Ubuntu micro2 host, but OS baseline, page-cache behavior, and concurrent workload footprint were not measured. |
 | SQLite connections / page cache | Bounded by construction, not stress-verified | No pool; ≤8 reader + ≤4 writer concurrent query connections (the read and write admission lanes are independent) + occasional purge connection; SQLite default cache ≈ 2 MiB per connection ⇒ ≈ 24 MiB order-of-magnitude ceiling, not the ≈ 10 MiB a single 4-permit lane would imply. Sustained-burst peak RSS **unmeasured**. |
-| Backup tooling (Litestream sidecar) | Unmeasured (M5 is not sidecar evidence) | The local filesystem rehearsal validates fault/status/restore invariants, but no sidecar runs locally; Litestream RSS, disk staging, replication bandwidth, and five-minute lag are unknown. See `docs/backup-compatibility.md` for the pinned version only. |
+| Backup tooling (Litestream sidecar) | Measured locally, 1 GiB enforced (2026-09-29) | Gate 9 sampled a 6.9 MiB / 120 000-row database through `litestream replicate` and `restore` inside a kernel-enforced `MemoryMax=1G` scope: replication peak ~42 MiB, restore peak ~34 MiB, restore ~2.7 s, no OOM kill. See Release-blocking item 2 for the enforcement mechanism and what this does NOT cover (different hardware, a week of WAL growth, real disk). |
 | Burst headroom | Partially bounded | 2 s deadline + 429 capacity rejects cap concurrency (see contention test), but peak RSS under sustained capacity load is **unmeasured** on micro2. |
 | Disk growth | Baseline only | 86 KiB for 300 small rows + WAL + metadata. Growth per real workload, tombstone 24 h retention accumulation, and purge cadence effects are **unmeasured**. |
 
@@ -58,16 +58,30 @@ host shape (or an equivalent VM), with the release profile:
    | run | mechanism | replication peak RSS (KiB) | restore peak RSS (KiB) | restore time (ms) |
    | --- | --- | --- | --- | --- |
    | 2026-09-29 #5 | unconstrained | ~48 000 | ~35 000 | ~3 000 |
+   | 2026-09-29 #8 | kernel-enforced `MemoryMax=1G` | ~42 000 | ~34 000 | ~2 700 |
 
-   *The 1 GB fit claim is NOT supported by this number.* The rehearsal ran on
-   a dev host with tens of GiB available and **the kernel here SETS
-   `memory.max` but does NOT OOM-enforce it** -- the gate 9 enforcement probe
-   (a 512 MiB allocator under a 64 MiB cap) ran to completion on this host,
-   which is the failure mode the probe is built to catch. The probe now lives
-   inside `sandbox-s3-gates.sh` and rejects every mechanism that does not
-   kill the workload, so this measurement is reported as unconstrained and
-   labelled as such in the packet. The 1 GB VPS is where item 2 is meant to
-   be measured; the dev host is where it cannot be.
+   **The earlier "unconstrained" row was the packet's own defect, not a fact
+   about the host.** Gate 9 decided whether the limit was in force by asking
+   `/sys/fs/cgroup/cgroup.procs` whether cgroups were usable; that file is
+   root-owned and never writable by a user, so the test was always false and
+   the gate skipped its constrained path on a machine that could enforce one.
+   The question worth asking is whether the CALLER's own cgroup can hold a
+   constrained child. It can, by two routes, and both are probed for real:
+   `systemd-run --user --scope -p MemoryMax=1G`, and a direct cgroup v2 child
+   where the memory controller is delegated to the caller's subtree. The packet
+   records which one it used and why the other was rejected.
+
+   **Setting `memory.max` is not enforcing it**, so neither route is accepted
+   on the strength of "the file exists and the number was written". The probe
+   asks the kernel: it tries to allocate 8x the cap (512 MiB under a 64 MiB
+   cap) and requires the child to DIE. A mechanism that lets that complete
+   prints `SURVIVED` and is rejected outright, because it would otherwise
+   report a "constrained" measurement made under no constraint at all. Under
+   the enforced limit the sampled peaks sit at ~4% of budget for replication
+   and ~3% for restore, with no OOM kill, so the sidecar is not the binding
+   term in this envelope **at this database size**. The 1 GB VPS is still
+   where item 2 is properly measured: different hardware, different kernel,
+   a real disk, and a week of WAL growth rather than twelve seconds of it.
 3. Target OS baseline RSS and page-cache behavior with the data dir hot.
 4. Burst test: sustained writes at the 429 capacity edge; record peak RSS and
    confirm recovery to idle baseline.
