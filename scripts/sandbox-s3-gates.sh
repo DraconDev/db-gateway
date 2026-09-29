@@ -253,6 +253,18 @@ fi
     echo "## the S3 endpoint these gates ran against"
     echo
     echo "scheme://$ENDPOINT  bucket=$BUCKET  region=$REGION  path-style addressing"
+    # What is actually behind that name. A stand-in has to be declared, not
+    # inferred: a store quirk read as a service fact is how a rehearsal turns
+    # into evidence it never was. DG_SANDBOX_ENDPOINT_IMPL is set by
+    # scripts/s3-rehearsal-endpoint.sh; on the owner's bucket nothing sets it.
+    echo "service behind it: ${DG_SANDBOX_ENDPOINT_IMPL:-the S3 service itself (no local stand-in configured)}"
+    if [ -n "${DG_SANDBOX_ENDPOINT_IMPL:-}" ]; then
+        echo
+        echo "The line above names a LOCAL STAND-IN, not the OVH service. Its"
+        echo "answers are evidence about this packet's execution path and about"
+        echo "nothing else -- not about OVH's storage classes, lifecycle rules,"
+        echo "quota behaviour, encryption or cost."
+    fi
     if [ "$ENDPOINT" != "${DG_SANDBOX_OVH_ENDPOINT:-__none__}" ] && [[ "$ENDPOINT" != *.io.cloud.ovh.net ]]; then
         echo
         echo "This is NOT the OVH endpoint named in §6 gate 3. Gates run here prove"
@@ -1452,15 +1464,18 @@ print("yes" if st in (404, "404") else ("unknown" if st is None else f"no (HTTP 
             "independent re-check: $G12_RECHECK" \
             "local sandbox $SANDBOX is ${SANDBOX_OWNER_TEXT}"
     elif [ "${G12_REMAIN:-1}" = "0" ]; then
-        # The packet's own prefixes are clean. The bucket itself could not be
-        # dropped only because the rehearsal endpoint's store does not
-        # implement versioned delete well enough to make delete-bucket succeed;
-        # the local sandbox and the packet's keys are gone. The OVH run will
-        # either succeed end-to-end or report what specifically remains, and
-        # this BLOCKED form preserves that answer for the owner.
-        record 12 BLOCKED "every test object and version under the packet's prefixes was deleted (${G12_DELETED:-?} deleted, 0 remaining); delete-bucket could not complete against the rehearsal endpoint's store, so the bucket still answers. Local cleanup of the sandbox, keys, and litestream config IS complete. The OVH run must confirm delete-bucket" \
+        # Every S3-visible object is gone -- both enumerations agree on zero --
+        # but DeleteBucket still answered BucketNotEmpty. A real S3 service
+        # decides emptiness from the object listing, so this means the service
+        # in front is counting something S3 does not model. The rehearsal
+        # store's fs backend does exactly that: it keeps empty DIRECTORIES for
+        # deleted keys that contained a '/', and reports them as contents. The
+        # endpoint script now runs a backend that does not, so reaching this
+        # branch means something NEW about the target, and it is reported as a
+        # finding for the owner rather than as a cleanup failure.
+        record 12 BLOCKED "every test object and version under the packet's prefixes was deleted and BOTH enumerations now list nothing (${G12_DELETED:-?} deleted, 0 remaining), but delete-bucket still answered ${G12_BUCKET_GONE}, so the bucket is still there. The service is counting something S3 does not model -- on the rehearsal store that was empty directories left for deleted keys containing '/', which is why the stand-in now runs a backend that does not do this. If OVH answers BucketNotEmpty with zero objects listed, that is a finding about OVH and it must be reported, not worked around. Local cleanup of the sandbox, keys, and litestream config IS complete" \
             "delete: $G12_DEL" \
-            "delete-bucket: $G12_BUCKET_DEL (the rehearsal endpoint does not implement versioned delete cleanly; OVH will)" \
+            "delete-bucket: $G12_BUCKET_DEL" \
             "independent re-check -- does the bucket still answer: $G12_ABSENT" \
             "local sandbox $SANDBOX is ${SANDBOX_OWNER_TEXT}"
     else
