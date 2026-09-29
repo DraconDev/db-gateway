@@ -149,6 +149,12 @@ def main(argv: list[str] | None = None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("packet", help="a packet file, with or without the raw request log")
     ap.add_argument("--json", action="store_true", help="emit JSON instead of markdown")
+    ap.add_argument("--write-matrix", metavar="FILE",
+                    help="write the derived matrix + totals as a compact JSON sidecar")
+    ap.add_argument("--from-matrix", metavar="FILE",
+                    help="take the matrix from a sidecar instead of the packet's request log; "
+                         "a committed packet elides that log for size, and a sidecar is what "
+                         "keeps the operation matrix checkable from the repository")
     args = ap.parse_args(argv)
 
     try:
@@ -160,7 +166,21 @@ def main(argv: list[str] | None = None) -> int:
     reqs = load_requests(text)
     facts = scalar_facts(text)
     rows: list[tuple[str, str, int, str]] = []
-    if reqs:
+    if args.from_matrix:
+        try:
+            side = json.load(open(args.from_matrix, encoding="utf-8"))
+        except OSError as exc:
+            print(f"packet-facts: {exc}", file=sys.stderr)
+            return 2
+        facts["matrix_source"] = args.from_matrix
+        facts["requests_in_log"] = str(side.get("requests", "unknown"))
+        for r in side.get("matrix", []):
+            rows.append((r["method"], r["operation"], int(r["count"]), r["issued_by"]))
+        if args.write_matrix:
+            print(f"packet-facts: matrix came from {args.from_matrix}; nothing new to write",
+                  file=sys.stderr)
+            args.write_matrix = None
+    elif reqs:
         rows, total = matrix(reqs)
         facts["requests_in_log"] = str(total)
         non2xx = collections.Counter(r.get("status") for r in reqs if int(r.get("status") or 0) >= 300)
@@ -175,6 +195,22 @@ def main(argv: list[str] | None = None) -> int:
     else:
         facts["requests_in_log"] = "not available: the per-request log is elided from this copy"
 
+    if args.write_matrix:
+        payload = {
+            "derived_from": args.packet,
+            "requests": facts.get("requests_in_log"),
+            "non_2xx": facts.get("non_2xx"),
+            "non_2xx_by_status": facts.get("non_2xx_by_status"),
+            "sse_c_signed_requests": facts.get("sse_c_signed_requests"),
+            "matrix": [{"method": m, "operation": p, "count": n, "issued_by": w}
+                       for m, p, n, w in rows],
+        }
+        with open(args.write_matrix, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=1, sort_keys=True)
+            fh.write("\n")
+        print(f"packet-facts: wrote {args.write_matrix} ({sum(r[2] for r in rows)} requests)",
+              file=sys.stderr)
+
     if args.json:
         print(json.dumps({"facts": facts,
                           "matrix": [{"method": m, "operation": p, "count": n, "issued_by": w}
@@ -183,6 +219,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     print("## facts this packet contains\n")
+    if "matrix_source" in facts:
+        print(f"(matrix taken from the sidecar {facts['matrix_source']}; the packet's own "
+              f"request log is elided from the committed copy)")
     for k, v in facts.items():
         print(f"- {k}: {v}")
     if rows:

@@ -1,0 +1,105 @@
+{
+ "derived_from": "docs/sandbox-packet-2026-09-29-rehearsal.log (the run of 2026-09-29T14:03:01Z; its raw request log is elided from the committed copy for size, which is why this sidecar exists)",
+ "matrix": [
+  {
+   "count": 72,
+   "issued_by": "packet",
+   "method": "DELETE",
+   "operation": "versionId"
+  },
+  {
+   "count": 1,
+   "issued_by": "packet",
+   "method": "DELETE",
+   "operation": "/<bucket>"
+  },
+  {
+   "count": 450,
+   "issued_by": "packet",
+   "method": "GET",
+   "operation": "list-type=2"
+  },
+  {
+   "count": 270,
+   "issued_by": "litestream",
+   "method": "GET",
+   "operation": "list-type=2"
+  },
+  {
+   "count": 29,
+   "issued_by": "packet",
+   "method": "GET",
+   "operation": "x-id=GetObject"
+  },
+  {
+   "count": 22,
+   "issued_by": "litestream",
+   "method": "GET",
+   "operation": "x-id=GetObject"
+  },
+  {
+   "count": 6,
+   "issued_by": "packet",
+   "method": "GET",
+   "operation": "(object key)"
+  },
+  {
+   "count": 4,
+   "issued_by": "packet",
+   "method": "GET",
+   "operation": "versions"
+  },
+  {
+   "count": 1,
+   "issued_by": "packet",
+   "method": "GET",
+   "operation": "lifecycle"
+  },
+  {
+   "count": 10,
+   "issued_by": "litestream",
+   "method": "HEAD",
+   "operation": "(object key)"
+  },
+  {
+   "count": 4,
+   "issued_by": "packet",
+   "method": "HEAD",
+   "operation": "(object key)"
+  },
+  {
+   "count": 1,
+   "issued_by": "packet",
+   "method": "HEAD",
+   "operation": "/<bucket>"
+  },
+  {
+   "count": 71,
+   "issued_by": "litestream",
+   "method": "PUT",
+   "operation": "x-id=PutObject"
+  },
+  {
+   "count": 2,
+   "issued_by": "packet",
+   "method": "PUT",
+   "operation": "/<bucket>"
+  },
+  {
+   "count": 1,
+   "issued_by": "packet",
+   "method": "PUT",
+   "operation": "lifecycle"
+  },
+  {
+   "count": 1,
+   "issued_by": "packet",
+   "method": "PUT",
+   "operation": "(object key)"
+  }
+ ],
+ "non_2xx": "3",
+ "non_2xx_by_status": "{\"404\": 1, \"409\": 2}",
+ "requests": "945",
+ "sse_c_signed_requests": "1"
+}

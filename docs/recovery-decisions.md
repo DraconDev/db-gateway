@@ -178,14 +178,19 @@ follows in the sandbox/notification work):
      The gateway holds N databases, so this is load-bearing, not tidy.
    - **Encryption client-side, MEASURED** -- litestream 0.5.17 **sends
      SSE-C**: with `sse-customer-key` set, the validating proxy recorded
-     `x-amz-server-side-encryption-customer-algorithm`, `-key` and `-key-md5`
-     inside `SignedHeaders` of every PUT under that prefix. An earlier finding
+     `sse_customer_present=1` on all three PUTs under that prefix -- the request
+     carried `x-amz-server-side-encryption-customer-algorithm`, `-key` and
+     `-key-md5` as it went past. (The proxy re-signs upstream over its own header
+     set, so the endpoint's log cannot show which headers were inside the
+     signature; the committed packet shows the `sse_customer_present` field, and
+     the claim is limited to that.) An earlier finding
      in this file said the key was ignored and the data replicated in the
      clear; that was inferred from a clean daemon start and the request log
      refuted it. Whether the stored bytes are encrypted is the SERVICE's
      answer, not litestream's -- see decision 3.
    - **Credential scope, MEASURED** -- the operation matrix the packet issues
-     against a bucket in a passing run (945 requests on the 2026-09-29
+     against a bucket in a passing run (945 requests; re-derivable with
+     `scripts/packet-facts.py` from the committed packet and its matrix sidecar) on the 2026-09-29
      rehearsal, 270+22+10+71 = 373 of them litestream's, three non-2xx answers all named, no others):
 
      | method | query-prefix | count | IAM action | issued by |
@@ -200,7 +205,7 @@ follows in the sandbox/notification work):
      | `HEAD` | object key | 10 | `s3:GetObject` | litestream |
      | `HEAD` | object key | 4 | `s3:GetObject` | packet (SSE check, artifact inspection) |
      | `HEAD` | `/<bucket>` | 1 | `s3:ListBucket` | packet (gate 12) |
-     | `PUT` | `x-id=PutObject` | 71 | `s3:PutObject` | litestream (1 signs SSE-C) |
+     | `PUT` | `x-id=PutObject` | 71 | `s3:PutObject` | litestream (3 carry SSE-C on the wire) |
      | `PUT` | object key, no `x-id` | 1 | `s3:PutObject` | packet (SSE canary) |
      | `PUT` | `/<bucket>` | 2 | `s3:CreateBucket` | packet (idempotent) |
      | `PUT` | `lifecycle` | 1 | `s3:PutLifecycleConfiguration` | packet |
@@ -271,8 +276,8 @@ follows in the sandbox/notification work):
    relying on OVH's documentation plus the reported header.
    *Status 2026-09-29*: **sidecar headroom has been MEASURED, locally**.
    `sandbox-s3-gates.sh` gate 9 ran the litestream 0.5.17 sidecar inside a
-   kernel-enforced 1 GiB transient scope: replication peak 45 MiB, restore
-   peak 36 MiB, restore 2548 ms, no OOM kill. The enforcement is proved, not assumed -- the
+   kernel-enforced 1 GiB transient scope: replication peak 44 MiB (45 900 KiB), restore
+   peak 35 MiB (36 672 KiB), restore 2548 ms, no OOM kill. The enforcement is proved, not assumed -- the
    probe allocates 8x the cap and requires the child to be killed, and a
    mechanism that lets it survive is rejected. Headroom against the 1 GB
    budget is roughly 95% at steady state and restore **at this database size**;

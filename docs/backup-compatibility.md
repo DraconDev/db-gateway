@@ -159,7 +159,7 @@ evidence by accident.
 | 6 retention drill | **BLOCKED** (rehearsal endpoint) | the rehearsal store does not implement `?lifecycle`: `PutBucketLifecycleConfiguration` answers **409** and `GetBucketLifecycleConfiguration` answers **200 with a `ListBucketResult`**. The gate reports the capability as unimplemented rather than counting the children of a document that is not a lifecycle configuration. The arithmetic half still measured: 12 versions enumerated, 12 kept as-is, 0 kept if every age were 31 days older, and a restore after the retention step returns the source. **OVH's bucket must answer the storage half.** |
 | 7 registration/reload | rehearsal PASS | a database added at runtime was replicated with no restart, via `litestream register` over the control socket |
 | 8 failure visibility | rehearsal PASS | each of the three injected failures (revoked credentials, blocked egress, near-quota) kept the gateway serving writes, kept the faulted write out of the bucket, and surfaced on at least one operator-visible surface; the healthy control phase raised nothing false; after the fault cleared the missing writes were in the bucket again. Both injected 403s appear verbatim in the daemon log, which the gate now checks over the whole drill rather than one phase. **But the daemon log is not a complete surface**: see the findings below. |
-| 9 resource headroom | **rehearsal PASS** | kernel-enforced 1 GiB scope (`MemoryMax=1G`, enforcement proved by an OOM-kill probe): replication peak 45 MiB (45 900 KiB, 4% of budget), restore peak 36 MiB (36 672 KiB), restore 2548 ms, 120 030 rows restored, no OOM kill. Headroom against the sidecar budget in `docs/resource-budget.md` is the owner's decision 2 input, not this gate's. |
+| 9 resource headroom | **rehearsal PASS** | kernel-enforced 1 GiB scope (`MemoryMax=1G`, enforcement proved by an OOM-kill probe): replication peak 44 MiB (45 900 KiB, 4% of budget), restore peak 35 MiB (36 672 KiB), restore 2548 ms, 120 030 rows restored, no OOM kill. Headroom against the sidecar budget in `docs/resource-budget.md` is the owner's decision 2 input, not this gate's. |
 | 10 encryption | **BLOCKED** (rehearsal endpoint) | litestream's half is **measured**: it signs `x-amz-server-side-encryption-customer-algorithm/-key/-key-md5` on its uploads, so SSE-C is available to the owner as a client-side lever. The service's half is proved, not read: the canary test writes with SSE-C and reads back **without** the key, and the rehearsal endpoint returned the plaintext canary while echoing `customer-algorithm=AES256` on HEAD -- an echo is a claim, and this one is false. The gate passes only on a refused keyless read, and BLOCKED here because the stand-in implements neither mode. Restore with no ambient credential measured clean (100/100 rows). See the encryption finding below. |
 | 11 registry coverage | rehearsal PASS | the registry and the data file were both restored out of the bucket into an empty directory, and a scoped key minted BEFORE the loss authenticated against the recovered registry, read the exact row count, and was still refused for a database it was never scoped to. The `metadata.sqlite` round-trip and scoped-key resolution both hold; only the OVH service's own behaviour is unanswered. |
 | 12 cleanup | rehearsal PASS | every test object and version deleted through both `?versions` and `?list-type=2`, the bucket no longer answers. **After a durable fix**: the rehearsal store's original `-backend fs` left empty directories on the disk for keys that contained a `/`, which made `DeleteBucket` answer `BucketNotEmpty` with zero objects listed -- not S3's emptiness rule. The stand-in now runs `-backend memory`, which has no directories to confuse the answer, and the bucket is genuinely gone afterwards. |
@@ -197,8 +197,13 @@ one would otherwise have been discovered by a gate recording a false PASS.
    daemon start without an error, and recorded that litestream 0.5.17
    "replicated in the clear" -- which the run's own request log then refuted:
    all three uploads carried `x-amz-server-side-encryption-customer-algorithm`,
-   `-key` and `-key-md5` inside the signature. litestream SENDS SSE-C; the
-   rehearsal store simply neither enforces nor echoes it. Both halves have to
+   `-key` and `-key-md5` **on the wire** -- the validating proxy recorded
+   `sse_customer_present=1` for each. litestream SENDS SSE-C; the rehearsal store
+   simply neither enforces nor echoes it.
+   ("On the wire" is the supportable wording. The proxy re-signs upstream over
+   its own header set, so the *endpoint's* log cannot show litestream's signed
+   header list; `sse_customer_present` is the field that records what the client
+   sent. The committed packet shows all three.) Both halves have to
    be observed separately -- what the client put on the wire, and what the
    service reports about what it stored -- because only the second one says
    whether the bytes at rest are encrypted. Decision 3 must be settled at the
@@ -269,10 +274,24 @@ would have been wrong.
 
 Measured on the 2026-09-29 rehearsal run, in counts of requests the bucket's
 proxy saw (945 requests in total; the per-record log is folded into the full
-packet and elided from the committed copy). **Every number in this table is
-recomputable from the committed packet** with `python3 scripts/packet-facts.py
-docs/sandbox-packet-2026-09-29-rehearsal.log`, which is also what the reviewer's
-recheck used. The rows sum to the total, which is checked rather than hoped:
+packet and elided from the committed copy).
+
+**The rows sum to the total, which is checked rather than hoped** -- and they
+are checkable from the repository, not only from a run somebody kept. The raw
+945-record log is elided from the committed packet for size, so the derived
+matrix is committed beside it as
+`docs/sandbox-packet-2026-09-29-rehearsal.matrix.json`, and
+
+```sh
+python3 scripts/packet-facts.py docs/sandbox-packet-2026-09-29-rehearsal.log \
+        --from-matrix docs/sandbox-packet-2026-09-29-rehearsal.matrix.json
+```
+
+prints every scalar fact (gate tallies, peaks, counts) from the packet itself and
+the matrix from that sidecar, so a reader can re-derive this table rather than
+trust it. The one thing the sidecar cannot do is re-derive itself, and that is
+stated rather than hidden: regenerate both with
+`--write-matrix docs/...matrix.json` from an un-elided run.
 
 | method | query-prefix | count | purpose | issued by |
 | --- | --- | --- | --- | --- |
@@ -286,8 +305,8 @@ recheck used. The rows sum to the total, which is checked rather than hoped:
 | `HEAD` | object key | 10 | litestream's own existence checks during replication | litestream |
 | `HEAD` | object key | 4 | gate 10's SSE check and gate 5's artifact inspection | packet |
 | `HEAD` | `/<bucket>` | 1 | gate 12's "does the bucket still answer" probe -- the 404 that IS this gate's answer | packet |
-| `PUT` | `x-id=PutObject` | 71 | upload LTX; sets `x-amz-meta-litestream-timestamp`. One of them signs the three `x-amz-server-side-encryption-customer-*` headers | litestream |
-| `PUT` | object key, no `x-id` | 1 | the SSE canary | packet |
+| `PUT` | `x-id=PutObject` | 71 | upload LTX; sets `x-amz-meta-litestream-timestamp`. The 3 under `sbx/g10/ssec/` carried the three `x-amz-server-side-encryption-customer-*` headers on the wire (`sse_customer_present=1`); the proxy re-signs upstream, so no litestream signature in this log contains them | litestream |
+| `PUT` | object key, no `x-id` | 1 | the SSE canary -- the only request in this log whose signature actually contains the three SSE-C headers | packet |
 | `PUT` | `/<bucket>` | 2 | bucket create (idempotent: one first-create, one OVH-shaped re-create) | packet |
 | `PUT` | `lifecycle` | 1 | gate 6 stores the candidate 7/30-day policy | packet |
 | `DELETE` | `versionId` | 72 | gate 12 deletes by key+versionId (noncurrent versions + delete markers) | packet |
@@ -318,9 +337,14 @@ calls a passing run makes.
 
 **What litestream does, measured on the wire.** With
 `replica.sse-customer-key` set, litestream 0.5.17 starts without an error and
-**signs SSE-C on every upload**: the packet's validating proxy recorded
-`x-amz-server-side-encryption-customer-algorithm`, `-key` and `-key-md5` in
-`SignedHeaders` of every PUT under that prefix. This corrects an earlier
+**sends SSE-C on every upload**: the packet's validating proxy recorded
+`sse_customer_present=1` on all three PUTs under that prefix, i.e. the request
+carried `x-amz-server-side-encryption-customer-algorithm`, `-key` and `-key-md5`
+as it went past. It does NOT show them in `SignedHeaders`, and cannot: the proxy
+re-signs upstream over its own header set, so the endpoint's log never carries
+litestream's signed header list. The claim that matters -- litestream sends the
+key -- is visible in the committed packet; the claim about which headers were
+inside the signature is not, and is not made. This corrects an earlier
 finding in this document, which claimed 0.5.17 ignores the key and replicates
 in the clear; that claim was inferred from a clean start and the request log
 refuted it. The client-side lever exists -- the owner is not forced into

@@ -59,8 +59,8 @@ host shape (or an equivalent VM), with the release profile:
    | measurement | value |
    | --- | --- |
    | constraint | `MemoryMax=1G` systemd transient scope, enforcement proved by an OOM-kill probe |
-   | steady replication, peak RSS | 45 900 KiB (4% of the 1 GiB budget) |
-   | restore | 2548 ms, 120 030 rows restored, peak child RSS 36 672 KiB (3% of budget) |
+   | steady replication, peak RSS | 45 900 KiB = 44 MiB (4% of the 1 GiB budget) |
+   | restore | 2548 ms, 120 030 rows restored, peak child RSS 36 672 KiB = 35 MiB (3% of budget) |
    | killed for exceeding the budget | no |
 
    **These numbers are recomputable:** `python3 scripts/packet-facts.py

@@ -2114,6 +2114,15 @@ rm -rf "$G9_PROBE_TMP"
 
 G9_CGROUP_RAN=0
 [ -n "$G9_MECH" ] && G9_CGROUP_RAN=1
+# THE PROBE'S VERDICT, AS A SENTENCE, whether it passed or failed. Recorded
+# either way: the packet used to print the probe's mechanics only when a
+# mechanism was rejected, so a passing run asserted "enforced by the kernel"
+# without showing the measurement that justifies it.
+if [ "$G9_CGROUP_RAN" = "1" ]; then
+    G9_PROBE_RESULT="PROVED -- a 512 MiB allocator under a 64 MiB cap was killed by the kernel, so the cap above is a constraint and not just a number written to a file. The child reached ${G9_ENF_ALLOCATED:-0} MiB before dying (0 = it never printed its survival line, i.e. it was killed)."
+else
+    G9_PROBE_RESULT="NOT PROVED -- no mechanism on this host would both accept the limit and enforce it (${G9_ENF_REASON:-see the two attempts below})"
+fi
 if [ "$G9_CGROUP_RAN" = "1" ]; then
     case "$G9_MECH" in
         systemd) G9_MECH_DESC="constrained to $G9_LIMIT by a systemd transient scope (MemoryMax=$G9_LIMIT), enforced by the kernel";;
@@ -2291,10 +2300,18 @@ G9_STATUS="$G9_MECH_DESC"
 {
     echo "database under test: $G9_DBSIZE bytes, 120000 rows before the live writes"
     echo "memory budget:       $G9_STATUS"
+    # The enforcement probe's RESULT is printed on success as well as on failure.
+    # It used to be echoed only when a mechanism was rejected, so a successful
+    # run said "enforced by the kernel" and a reader auditing the packet had no
+    # way to see the evidence for that claim -- the packet asserted the one
+    # property that most needs showing, and showed it only in the runs where it
+    # was false. A claim of enforcement is a measurement, and the measurement
+    # belongs in the artifact.
+    echo "enforcement probe: $G9_PROBE_RESULT"
     if [ "$G9_CGROUP_RAN" != "1" ]; then
         echo "  systemd scope: ${G9_PROBE_A_ERR:-no session bus or systemd-run missing}"
         echo "  direct cgroup: ${G9_PROBE_B_ERR:-no child cgroup with a writable memory.max}"
-        echo "  enforcement probe: a 512 MiB allocator under a 64 MiB cap was run on each mechanism that could set memory.max. A mechanism that survives is rejected, because memory.max that the kernel does not OOM-enforce is a property, not a constraint. The OVH 1 GB VPS is where this gate is meant to run; the dev host is where this probe says it cannot."
+        echo "  what the probe asks: allocate several times the cap (512 MiB under a 64 MiB cap) and require the child to DIE. A mechanism that lets it complete is rejected, because memory.max that the kernel does not OOM-enforce is a property, not a constraint. The OVH 1 GB VPS is where this gate is meant to run; the dev host is where this probe says it cannot."
     fi
     echo
     printf 'steady replication  peak RSS %s KiB (%s%% of budget, kernel high-water mark)\n' "$G9_MAX_RSS" "$G9_REPL_PCT"
