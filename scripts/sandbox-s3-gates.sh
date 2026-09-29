@@ -779,6 +779,10 @@ c.execute(\"INSERT INTO ledger(note) VALUES ('$1')\");c.commit()" 2>/dev/null ||
 # consequence, and it is the only measurement that cannot be faked: a backup
 # that quietly stopped accepting writes still exits 0, still logs nothing, and
 # still has a replica directory. A restore either has the write or it does not.
+# It also prints the restore command's own stderr, because the restore path is
+# one of the four surfaces §6 gate 8 asks about and a surface nobody reads
+# cannot be reported as visible.
+g8_restore_stderr=""
 g8_restored() {
     local out="$G8_ROOT/probe-restore.sqlite"
     rm -f "$out"
@@ -790,6 +794,8 @@ dbs:
 EOF
     timeout 45 "$LITESTREAM" restore -config "$G8_ROOT/probe-restore.yml" \
         -o "$out" "$G8_SRC" > "$G8_ROOT/probe-restore.log" 2>&1 || true
+    g8_restore_stderr="$(grep -iE 'error|denied|403|forbidden|expired|signature|no such host|connection|timeout|refused|not implemented' \
+        "$G8_ROOT/probe-restore.log" 2>/dev/null | head -2 || true)"
     python3 -c "
 import sqlite3
 try:
@@ -839,26 +845,69 @@ g8_wait_for_signal() {
 # bucket", and folding those phases into one denominator is what let a count of
 # 3 be compared against 2 and report a failure that was really an arithmetic
 # mismatch between two different questions.
+#
+# FOUR SURFACES PER PHASE, because §6 gate 8 asks how each failure SURFACES
+# rather than demanding one particular surface carry it:
+#   daemon-log   the replicate daemon's own log (measured as a DELTA)
+#   sync-cli     `litestream sync -wait`, i.e. the operator forcing a sync
+#   status-cli   `litestream status -json`, i.e. the operator asking "is it fresh"
+#   restore-cli  `litestream restore`, i.e. a restore that would not return the
+#                row that was just written
+# The first three are PROACTIVE: something tells the operator without them
+# having to go looking for a missing backup. The fourth is REACTIVE. A stall
+# that only the reactive surface reveals is still a stall, and it is recorded
+# as one -- but the distinction is exactly the difference between "a dashboard
+# goes red" and "you find out during the restore you needed", which is the
+# substance of owner decision 6, so it is a reported finding and not a detail.
 g8_write_and_serve() {
     local label="$1" faulted="$2" stale_measurable="$3"
     # BEFORE the write. The previous version read the count after inserting, so
     # every phase compared a number with itself and reported all four checks as
     # stalled while the row count rose from 21 to 24 in front of it.
-    local before after restored sync_out sync_said daemon_said log_before signal
+    local before after restored sync_out sync_said status_out status_said
+    local daemon_said restore_said log_before surfaces proactive reactive
     log_before="$(g8_log_lines)"
     G8_SIGNAL_SURFACED_S="n/a"
+    g8_restore_stderr=""
     before="$(g8_count)"
     g8_write "$label"
     after="$(g8_count)"
-    sync_out="$("$LITESTREAM" sync -socket "$G8_SOCK" "$G8_SRC" 2>&1 || true)"
+    # -wait is load-bearing. Without it `litestream sync` returns as soon as the
+    # sync is REQUESTED, so the daemon's upload has not been attempted yet and
+    # every surface is sampled before the failure happens. The previous version
+    # of this gate did exactly that and then reported that two of the three
+    # failures were invisible -- a measurement bug that looked like a product
+    # finding. -timeout keeps it bounded if the daemon never answers.
+    sync_out="$("$LITESTREAM" sync -wait -timeout 30 -socket "$G8_SOCK" "$G8_SRC" 2>&1 || true)"
     printf '%s\n' "$sync_out" | tail -1 | cut -c1-120 > "$G8_ROOT/sync-last.txt"
     sync_said="no"
-    printf '%s' "$sync_out" | grep -qiE 'error|denied|403|forbidden|no such host|connection|timeout|rejected' && sync_said="yes"
+    printf '%s' "$sync_out" | grep -qiE 'error|denied|403|forbidden|expired|signature|no such host|connection|timeout|rejected|unavailable' && sync_said="yes"
+    # The status surface, read the way an operator reads it: from the same
+    # config file the daemon was started with, after the failed sync.
+    status_out="$("$LITESTREAM" status -json -config "$G8_ROOT/litestream.yml" 2>&1 | head -c 300 || true)"
+    status_said="no"
+    printf '%s' "$status_out" | grep -qiE 'error|denied|403|forbidden|expired|signature|"error"' && status_said="yes"
+    local signal
     signal="$(g8_wait_for_signal "$log_before")" && daemon_said="yes" || daemon_said="no"
     [ -n "$signal" ] && printf '%s\n' "$signal" | tail -2 >> "$G8_ROOT/signal-delta.txt"
     restored="$(g8_restored)"
-    G8_RESULTS+=("$label: live $before -> $after, in-bucket $restored, sync reported the failure: $sync_said, new daemon signal this phase: $daemon_said (within ${G8_SIGNAL_SURFACED_S}s)")
-    # Keep the last sync output visible. The grep above is what makes the
+    restore_said="no"
+    [ -n "$g8_restore_stderr" ] && restore_said="yes"
+    surfaces="none"
+    [ "$daemon_said" = "yes" ] && surfaces="daemon-log"
+    [ "$sync_said" = "yes" ] && surfaces="$surfaces,sync-cli"
+    [ "$status_said" = "yes" ] && surfaces="$surfaces,status-cli"
+    [ "$restore_said" = "yes" ] && surfaces="$surfaces,restore-cli"
+    surfaces="${surfaces#,}"
+    proactive="no"
+    if [ "$daemon_said" = "yes" ] || [ "$sync_said" = "yes" ] || [ "$status_said" = "yes" ]; then
+        proactive="yes"
+    fi
+    reactive="no"
+    [ "$restore_said" = "yes" ] && reactive="yes"
+    G8_SURFACES+=("$label -> $surfaces")
+    G8_RESULTS+=("$label: live $before -> $after, in-bucket $restored, surfaces that carried it: $surfaces (proactive: $proactive, restore-only: $reactive), new daemon signal within ${G8_SIGNAL_SURFACED_S}s")
+    # Keep the last sync output visible. The greps above are what makes the
     # gate pass/fail, but the wording varies by litestream version and the
     # packet is the only durable place to look when the gate's count says no.
     printf '%s\n' "$sync_out" | head -2 >> "$G8_ROOT/sync-tail.txt"
@@ -876,11 +925,15 @@ g8_write_and_serve() {
     [ "$daemon_said" = "yes" ] && G8_DAEMON+=("yes") || G8_DAEMON+=("no")
     if [ "$faulted" = "yes" ]; then
         G8_FAULTED+=("$label")
-    elif [ "$daemon_said" = "yes" ]; then
+        # A faulted phase nobody could see is the failure this gate exists for:
+        # a backup that stops and never says so.
+        [ "$surfaces" = "none" ] && G8_SILENT+=("$label")
+        [ "$proactive" = "no" ] && G8_REACTIVE_ONLY+=("$label")
+    else
         # A healthy phase that raises a signal is a FALSE ALARM, and it matters
         # more than it looks: an operator who sees ERROR in the log during
         # normal operation learns to ignore it, and then misses the real stall.
-        G8_FALSE_ALARM+=("$label")
+        [ "$surfaces" != "none" ] && G8_FALSE_ALARM+=("$label:$surfaces")
     fi
     [ "$sync_said" = "yes" ] && G8_SURFACED+=("yes") || G8_SURFACED+=("no")
 }
@@ -893,6 +946,9 @@ G8_FAULTED=()
 G8_FALSE_ALARM=()
 G8_SURFACED=()
 G8_DAEMON=()
+G8_SILENT=()
+G8_REACTIVE_ONLY=()
+G8_SURFACES=()
 G8_SIGNAL_SURFACED_S="n/a"
 # The control phase. Nothing is broken here, so the daemon must stay quiet:
 # this is what turns "the log said something" into "the log said something
