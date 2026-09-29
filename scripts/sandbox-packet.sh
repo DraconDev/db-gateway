@@ -143,7 +143,22 @@ fi
 # Isolated credential and data environment. Everything below inherits these.
 # --------------------------------------------------------------------------
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/dg-sandbox-XXXXXX")"
+# Daemons this script backgrounds, killed on exit whatever killed the script.
+# The EXIT trap is REPLACED once below (to add the server), and a second
+# `trap ... EXIT` is not additive -- so a daemon registered with the first trap
+# stops being cleaned up by the second one. Registering into one array that
+# `cleanup` itself drains is the only arrangement that survives that, and it is
+# the reason litestream daemons outlived their runs: this trap is what removed
+# the temp tree they were replicating into, leaving a live daemon pointed at a
+# directory that no longer existed.
+DAEMON_PIDS=()
+track_daemon() { DAEMON_PIDS+=("$1"); }
 cleanup() {
+    local pid
+    for pid in "${DAEMON_PIDS[@]:-}"; do
+        [ -n "$pid" ] || continue
+        kill "$pid" 2>/dev/null || true
+    done
     # Disposable data and credentials do not survive the run. Gate 12 is about
     # residue in the owner's account; residue in a temp dir is the same habit.
     rm -rf "$SANDBOX"
@@ -302,6 +317,7 @@ cleanup_server() {
     kill "$SERVE_PID" 2>/dev/null || true
     wait "$SERVE_PID" 2>/dev/null || true
 }
+track_daemon "$SERVE_PID"
 trap 'cleanup_server; cleanup' EXIT
 
 for _ in $(seq 1 100); do
@@ -356,6 +372,7 @@ EOF
 "$LITESTREAM" replicate -config "$LITESTREAM_CFG" \
     > "$rehearsal_root/litestream.log" 2>&1 &
 LITESTREAM_PID=$!
+track_daemon "$LITESTREAM_PID"
 sleep 2
 
 STATUS_BEFORE="$("${DG[@]}" status --json 2>/dev/null || echo '{}')"
