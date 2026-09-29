@@ -208,6 +208,35 @@ S3PROBE=( python3 "$REPO/scripts/s3probe.py"
     "${CA_ARGS[@]}" )
 PROXY="$REPO/scripts/s3-log-proxy.py"
 
+# A credential-isolation test has to run a process with the environment
+# stripped, and `env -i PATH=/usr/bin:/bin` is how that is spelled. It is also
+# how the test silently stops testing anything: on any host where the
+# coreutils are not in those two directories -- NixOS, Guix, Homebrew, a
+# hardened image, macOS -- `timeout` is not found, the restore never runs, and
+# the zero-row result gets written up as a finding about the ENCRYPTION or the
+# TLS trust chain. That is what gate 10 did for two runs: the packet blamed a
+# "TLS confound" for a restore that had never been executed, and the log line
+# proving it ("env: 'timeout': No such file or directory") was sitting in the
+# gate's own evidence.
+#
+# So the wrapper is resolved to an absolute path HERE, while PATH still means
+# something, and the stripped environment gets a PATH that is minimal but
+# real: the standard directories plus wherever the wrapper actually lives. The
+# isolation that matters is the absence of AWS_* and of any profile file; the
+# ability to exec a coreutil is not part of that.
+TIMEOUT_BIN="$(command -v timeout 2>/dev/null || true)"
+CLEAN_PATH="/usr/bin:/bin"
+if [ -n "$TIMEOUT_BIN" ]; then
+    case "$CLEAN_PATH" in
+        *"$(dirname "$TIMEOUT_BIN")"*) ;;
+        *) CLEAN_PATH="$CLEAN_PATH:$(dirname "$TIMEOUT_BIN")" ;;
+    esac
+fi
+run_bounded() { # <seconds> <cmd...> -- run with a timeout if one is available
+    local secs="$1"; shift
+    if [ -n "$TIMEOUT_BIN" ]; then "$TIMEOUT_BIN" "$secs" "$@"; else "$@"; fi
+}
+
 # record <gate> <PASS|FAIL|BLOCKED> <one-line result> [detail...]
 record() {
     local gate="$1" status="$2" result="$3"; shift 3
@@ -1603,15 +1632,16 @@ fi
 # "no ambient credentials".
 G10_OUT="$G10_ROOT/restored.sqlite"
 rm -f "$G10_OUT"
-env -i PATH=/usr/bin:/bin HOME="$SANDBOX/home" \
+env -i PATH="$CLEAN_PATH" HOME="$SANDBOX/home" \
     AWS_ACCESS_KEY_ID="$DG_SANDBOX_ACCESS_KEY_ID" \
     AWS_SECRET_ACCESS_KEY="$DG_SANDBOX_SECRET_KEY" \
     AWS_CONFIG_FILE="$SANDBOX/home/.aws-empty" \
     AWS_SHARED_CREDENTIALS_FILE="$SANDBOX/home/.aws-empty" \
     AWS_EC2_METADATA_DISABLED=true AWS_REGION="$REGION" \
     SSL_CERT_FILE="${SSL_CERT_FILE:-}" \
-    timeout 120 "$LITESTREAM" restore -config "$G10_ROOT/litestream.yml" -o "$G10_OUT" "$G10_SRC" \
+    run_bounded 120 "$LITESTREAM" restore -config "$G10_ROOT/litestream.yml" -o "$G10_OUT" "$G10_SRC" \
     > "$G10_ROOT/restore.log" 2>&1 || true
+G10_RESTORE_RC=$?
 G10_ROWS="$(python3 - "$G10_OUT" <<'PY'
 import sqlite3, sys
 try:
@@ -1624,7 +1654,7 @@ PY
 # is supposed to fail must fail rather than return an empty database.
 G10_NOKEY_OUT="$G10_ROOT/restored-nokey.sqlite"
 rm -f "$G10_NOKEY_OUT"
-env -i PATH=/usr/bin:/bin HOME="$SANDBOX/home" \
+env -i PATH="$CLEAN_PATH" HOME="$SANDBOX/home" \
     AWS_ACCESS_KEY_ID="$DG_SANDBOX_ACCESS_KEY_ID" \
     AWS_SECRET_ACCESS_KEY="$DG_SANDBOX_SECRET_KEY" \
     AWS_CONFIG_FILE="$SANDBOX/home/.aws-empty" \
@@ -1632,7 +1662,7 @@ env -i PATH=/usr/bin:/bin HOME="$SANDBOX/home" \
     AWS_EC2_METADATA_DISABLED=true AWS_REGION="$REGION" \
     SSL_CERT_FILE="${SSL_CERT_FILE:-}" \
     DG_SANDBOX_WITHDRAW=1 \
-    timeout 120 env AWS_ACCESS_KEY_ID= AWS_SECRET_ACCESS_KEY= \
+    run_bounded 120 env AWS_ACCESS_KEY_ID= AWS_SECRET_ACCESS_KEY= \
     "$LITESTREAM" restore -config "$G10_ROOT/litestream.yml" -o "$G10_NOKEY_OUT" "$G10_SRC" \
     > "$G10_ROOT/restore-nokey.log" 2>&1 || true
 G10_NOKEY_RC=$?
