@@ -78,8 +78,17 @@ placeholders for future/repeated deployments.
 
 ## Unresolved target-host values
 
-Beyond the placeholder table: the service username, binary/data paths, the
-`MemoryMax=` value (pending `docs/resource-budget.md` items 1-5 — the line
-stays commented until measured), log retention for the JSON stderr stream,
-and the backup sidecar unit (Litestream — see `docs/backup-compatibility.md`;
-no unit is provided here).
+Beyond the placeholder table: the service username, binary/data paths, log
+retention for the JSON stderr stream, and the backup sidecar unit
+(Litestream — see `docs/backup-compatibility.md`; no unit is provided here).
+
+`MemoryMax=` is **set** as of 2026-10-10 (`deploy/dg.service`: `MemoryMax=96M`).
+The value is 4x the SQLite per-connection cache ceiling (12 connections x
+2 MiB, measured from `src/store.rs:36-37` and `src/execution.rs:42`) with
+the gateway peak under burst (13 MiB on the dev host, item M2r in
+`docs/resource-budget.md`) and the supervised micro2 idle-after-drill
+sample (8,292 KiB) as the on-target bounds. Re-run
+`scripts/resource-report-release.sh` on the supervised target host to
+record the on-target fact; if a later run rejects 96 MiB, lower the cap
+in the unit and commit the new report with the change. Items 4 and 5 of
+the release-blocking list in `docs/resource-budget.md` remain open.
