@@ -493,6 +493,17 @@ async fn run_console(
     }
     let key_path = key_path.ok_or(Error::new(400, "missing_credential", "--key-file required"))?;
     let console_host = std::env::var("DG_CONSOLE_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    // The value becomes the companion bind address, the readiness-probe
+    // target, and the printed URL. Refuse anything the companion would not
+    // bind (server.ts isLoopback) here, before a hostname can turn the
+    // probe into a TCP connection to an arbitrary host.
+    if !is_loopback_host(&console_host) {
+        return Err(Error::new(
+            400,
+            "invalid_console_host",
+            "DG_CONSOLE_HOST must be a loopback address",
+        ));
+    }
     let entry = console_entry(entry)?;
     let mut gateway = ensure_gateway(server, &data_dir).await?;
     // Past this point every exit path must stop the auto-started gateway:
@@ -1096,6 +1107,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             }
             let snapshot = begin["snapshot"]
                 .as_str()
+                .filter(|id| id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit()))
                 .ok_or(Application(Error::internal()))?
                 .to_string();
             let release_snapshot = || async {
@@ -1202,6 +1214,15 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             .map_err(Application)?;
             // Chunked upload: stream the file piece by piece, then commit.
             // Only a single chunk is ever buffered in memory.
+            // Open with O_NONBLOCK (like the batch path) so a writer-less
+            // FIFO cannot hang the CLI before the regular-file check below.
+            #[cfg(unix)]
+            let file = OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_NONBLOCK)
+                .open(&from)
+                .map_err(|_| Application(Error::invalid()))?;
+            #[cfg(not(unix))]
             let file = File::open(&from).map_err(|_| Application(Error::invalid()))?;
             let metadata = file.metadata().map_err(|_| Application(Error::invalid()))?;
             if !metadata.is_file() || metadata.len() > dg::store::MAX_TRANSFER_SIZE {
@@ -1227,6 +1248,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             }
             let upload = begin["upload"]
                 .as_str()
+                .filter(|id| id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit()))
                 .ok_or(Application(Error::internal()))?
                 .to_string();
             let mut reader = BufReader::new(file);

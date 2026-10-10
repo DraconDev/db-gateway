@@ -101,6 +101,10 @@ pub async fn request(
     // HTTPS too, and disabling it here prevents ambient proxy variables from
     // receiving bearer credentials or redirecting authenticated requests.
     let client = shared_client()?;
+    // A read cannot have committed anything, so only a non-safe method
+    // leaves the write outcome genuinely in doubt. Mirror the TS client and
+    // branch on the method: reads report transport/response failures plainly.
+    let read_only = method.is_safe();
     let mut req = client
         .request(method, url.join(path).map_err(|_| Error::invalid())?)
         .bearer_auth(key);
@@ -110,7 +114,7 @@ pub async fn request(
     if let Some(key) = idempotency {
         req = req.header("Idempotency-Key", key);
     }
-    let response=req.send().await.map_err(|_|Error::new(502,"outcome_unknown","transport failed; writes may have committed, replay only with the same idempotency key within its retention window"))?;
+    let response=req.send().await.map_err(|_|if read_only {Error::new(503,"transport_unavailable","transport failed; the gateway is unavailable")} else {Error::new(502,"outcome_unknown","transport failed; writes may have committed, replay only with the same idempotency key within its retention window")})?;
     let status = response.status();
     // A bounded read protects CLI memory even when pointed at a bad endpoint.
     let response_limit = if path.ends_with("/export") {
@@ -123,27 +127,47 @@ pub async fn request(
     let mut response = response;
     let mut bytes = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(|_| {
-        Error::new(
-            502,
-            "outcome_unknown",
-            "response lost; write outcome unknown",
-        )
-    })? {
-        if bytes.len() + chunk.len() > response_limit {
-            return Err(Error::new(
+        if read_only {
+            Error::new(502, "invalid_gateway_response", "response lost; the gateway response was interrupted")
+        } else {
+            Error::new(
                 502,
                 "outcome_unknown",
-                "response too large; write outcome unknown",
-            ));
+                "response lost; write outcome unknown",
+            )
+        }
+    })? {
+        if bytes.len() + chunk.len() > response_limit {
+            return Err(if read_only {
+                Error::new(
+                    502,
+                    "invalid_gateway_response",
+                    "response too large; the gateway response exceeded the configured limit",
+                )
+            } else {
+                Error::new(
+                    502,
+                    "outcome_unknown",
+                    "response too large; write outcome unknown",
+                )
+            });
         }
         bytes.extend_from_slice(&chunk);
     }
     let value: Value = serde_json::from_slice(&bytes).map_err(|_| {
-        Error::new(
-            502,
-            "outcome_unknown",
-            "invalid response; write outcome unknown",
-        )
+        if read_only {
+            Error::new(
+                502,
+                "invalid_gateway_response",
+                "invalid response; the gateway returned invalid JSON",
+            )
+        } else {
+            Error::new(
+                502,
+                "outcome_unknown",
+                "invalid response; write outcome unknown",
+            )
+        }
     })?;
     // Preserve the API's stable error code and HTTP status in JSON output.
     if !status.is_success() {
