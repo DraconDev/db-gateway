@@ -14,6 +14,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/.cargo/target}"
 UNIT="$ROOT/deploy/dg.service"
 GUIDE="$ROOT/docs/deployment.md"
+BUDGET="$ROOT/docs/resource-budget.md"
 fail() { echo "[validate-deploy] FAIL: $*" >&2; exit 1; }
 log() { echo "[validate-deploy] $*" >&2; }
 
