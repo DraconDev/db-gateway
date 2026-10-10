@@ -178,24 +178,24 @@ export class Gateway {
   }
   async listDatabases(): Promise<string[]> {
     const result = await this.request('/v1/databases', 'GET');
-    if (!object(result) || !isStringArray(result.databases)) throw new GatewayError('outcome_unknown','Malformed list response');
+    if (!object(result) || !isStringArray(result.databases)) throw new GatewayError('invalid_gateway_response','Malformed list response', 502);
     return result.databases;
   }
   async status(): Promise<StatusResponse> {
     const result = await this.request('/v1/status', 'GET');
-    if (!isStatusResponse(result)) throw new GatewayError('outcome_unknown','Malformed status response');
+    if (!isStatusResponse(result)) throw new GatewayError('invalid_gateway_response','Malformed status response', 502);
     return result;
   }
   async databaseInfo(name: string): Promise<DatabaseInfo> {
     assertName(name);
     const result = await this.request(`/v1/databases/${name}`, 'GET');
-    if (!isDatabaseInfo(result)) throw new GatewayError('outcome_unknown','Malformed info response');
+    if (!isDatabaseInfo(result)) throw new GatewayError('invalid_gateway_response','Malformed info response', 502);
     return result;
   }
   async deleteDatabase(name: string): Promise<{ deleted: boolean; purge_after_seconds: number }> {
     assertName(name);
     const result = await this.request(`/v1/databases/${name}`, 'DELETE');
-    if (!object(result) || result.deleted !== true || typeof result.purge_after_seconds !== 'number') {
+    if (!object(result) || result.deleted !== true || !isNonNegativeInt(result.purge_after_seconds)) {
       throw new GatewayError('outcome_unknown','Malformed delete response');
     }
     return { deleted: true, purge_after_seconds: result.purge_after_seconds };
@@ -214,7 +214,7 @@ export class Gateway {
   async listKeys(): Promise<KeyInfo[]> {
     const result = await this.request('/v1/keys', 'GET');
     if (!object(result) || !Array.isArray(result.keys) || !result.keys.every(isKeyInfo)) {
-      throw new GatewayError('outcome_unknown','Malformed key list response');
+      throw new GatewayError('invalid_gateway_response','Malformed key list response', 502);
     }
     return result.keys;
   }
@@ -232,31 +232,38 @@ export class Gateway {
   }
   async importChunked(name: string, data: Uint8Array): Promise<{ imported: string }> {
     assertName(name);
+    if (!(data instanceof Uint8Array) || data.length > MAX_TRANSFER_BYTES) throw new Error('Import data exceeds the 128 MiB transfer bound');
     const begin = await this.request(`/v1/databases/${name}/import/begin`, 'POST', {});
     if (!object(begin) || !isHex64(begin.upload)) throw new GatewayError('outcome_unknown','Malformed upload begin response');
     const upload = begin.upload;
-    for (let offset = 0; offset < data.length; offset += CHUNK_BYTES) {
-      const part = data.subarray(offset, offset + CHUNK_BYTES);
-      const ack = await this.request(`/v1/uploads/${upload}/chunk`, 'POST', { offset, data_base64: bytesToBase64(part) });
-      if (!object(ack) || ack.received !== offset + part.length) {
-        throw new GatewayError('outcome_unknown','Upload acknowledgement mismatch');
+    try {
+      for (let offset = 0; offset < data.length; offset += CHUNK_BYTES) {
+        const part = data.subarray(offset, offset + CHUNK_BYTES);
+        const ack = await this.request(`/v1/uploads/${upload}/chunk`, 'POST', { offset, data_base64: bytesToBase64(part) });
+        if (!object(ack) || ack.received !== offset + part.length) {
+          throw new GatewayError('outcome_unknown','Upload acknowledgement mismatch');
+        }
       }
+      const done = await this.request(`/v1/uploads/${upload}/commit`, 'POST', { name });
+      if (!object(done) || done.imported !== name) throw new GatewayError('outcome_unknown','Malformed commit response');
+      return { imported: name };
+    } catch (error) {
+      try { await this.request(`/v1/uploads/${upload}`, 'DELETE'); } catch { /* best-effort slot release */ }
+      throw error;
     }
-    const done = await this.request(`/v1/uploads/${upload}/commit`, 'POST', { name });
-    if (!object(done) || done.imported !== name) throw new GatewayError('outcome_unknown','Malformed commit response');
-    return { imported: name };
   }
 }
 export class Database {
   constructor(private readonly gateway: Gateway, private readonly name: string) {}
   async execute(sql: string, args: SqlValue[] = [], options: RequestOptions = {}): Promise<QueryResult> {
+    if (typeof sql !== 'string' || sql.length === 0) throw new Error('Invalid SQL argument');
     assertValues(args);
     const result = await this.gateway.request(`/v1/databases/${this.name}/query`, 'POST', {sql,args},options);
     if (!isResult(result)) throw new GatewayError('outcome_unknown','Malformed query response');
     return result;
   }
   async batch(statements: Statement[], options: RequestOptions = {}): Promise<BatchResult> {
-    if (!Array.isArray(statements) || !statements.every(s => object(s) && (s.args === undefined || (Array.isArray(s.args) && s.args.every(isValue))))) {
+    if (!Array.isArray(statements) || !statements.every(s => object(s) && typeof (s as {sql?: unknown}).sql === 'string' && ((s as {args?: unknown}).args === undefined || (Array.isArray((s as {args?: unknown}).args) && ((s as {args?: unknown}).args as unknown[]).every(isValue))))) {
       throw new Error('Invalid SQL argument');
     }
     const result = await this.gateway.request(`/v1/databases/${this.name}/batch`,'POST',{statements,atomic:true},options);
