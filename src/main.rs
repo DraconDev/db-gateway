@@ -684,6 +684,20 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             // A flag that cannot be honoured is refused at startup rather
             // than half-applied: a sink silently dropped means an operator
             // believes they have webhook delivery and do not.
+            // A webhook alone schedules nothing: delivery only runs on the
+            // digest interval or the failure poll, so a bare webhook would
+            // log "sink added" and then never fire. Refuse it with the
+            // remedy instead of announcing a sink that cannot deliver.
+            if backup_notify_webhook.is_some()
+                && backup_digest_secs == 0
+                && backup_failure_poll_secs == 0
+            {
+                return Err(Application(dg::error::Error::new(
+                    400,
+                    "invalid_backup_webhook",
+                    "--backup-notify-webhook requires --backup-digest-secs or --backup-failure-poll-secs; a webhook alone never fires",
+                )));
+            }
             let wants_delivery = backup_digest_secs > 0
                 || backup_failure_poll_secs > 0
                 || backup_notify_webhook.is_some();
