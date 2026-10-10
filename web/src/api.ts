@@ -261,7 +261,7 @@ function isUploadChunk(value: unknown): value is UploadChunk {
 export class GatewayApi {
   constructor(private readonly base: string, private readonly credential: string) {
     const url = new URL(base);
-    if (url.protocol !== 'http:' || !['127.0.0.1', '[::1]', 'localhost'].includes(url.hostname) || url.pathname !== '/' || url.search || url.hash || url.username || url.password) {
+    if (url.protocol !== 'http:' || !isConsoleLoopback(url.hostname) || url.pathname !== '/' || url.search || url.hash || url.username || url.password) {
       throw new Error('Console gateway must use a loopback HTTP origin');
     }
   }
