@@ -67,9 +67,13 @@ if [ -n "$UNIT_MAX" ]; then
     [ "$UNIT_MAX" = "$DOC_MAX" ] \
         || fail "MemoryMax disagreement: deploy/dg.service has $UNIT_MAX, docs/resource-budget.md records $DOC_MAX"
 else
-    grep -q 'MemoryMax' "$BUDGET" \
-        && grep -qi 'unset\|pending' "$BUDGET" \
-        || fail "deploy/dg.service leaves MemoryMax unset but docs/resource-budget.md records a set cap ($DOC_MAX)"
+    # An unset unit is legitimate only while the budget page records no cap
+    # either. The check is on the recorded VALUE, not on whether the words
+    # "unset" or "pending" appear: this page carries both words in the
+    # 2026-09-27 owner-decision blockquote that the 2026-10-10 decision
+    # superseded, so a keyword grep would pass a page that still claims a cap.
+    [ -z "$DOC_MAX" ] \
+        || fail "deploy/dg.service leaves MemoryMax unset but docs/resource-budget.md records $DOC_MAX"
     grep -q 'MemoryMax' "$GUIDE" \
         || fail "deployment guide must document the MemoryMax policy"
 fi
