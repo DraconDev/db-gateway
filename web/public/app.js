@@ -13,6 +13,7 @@ let exportTransfer = null;
 let importTransfer = null;
 let gridState = { table: null, offset: 0, hasMore: false };
 let gridUnordered = new Set();
+let gridSchemaKnown = true;
 let detailGeneration = 0;
 const pending = new WeakMap();
 // Console input history is deliberately in-memory only: statements can
@@ -213,6 +214,10 @@ function renderDetail(detail, tab) {
   $('key-db').value = detail.name;
   $('delete-db').value = detail.name;
   renderGridTables(tables);
+  // When the schema join failed the safeguard set is empty *and* unknown:
+  // assuming rowid then emits ORDER BY rowid against a table that may be
+  // WITHOUT ROWID. Degrade to unordered paging instead of erroring.
+  gridSchemaKnown = detail.schema != null;
   gridUnordered = new Set(schemaRows.filter((row) => /WITHOUT\s+ROWID/i.test(row[1] ?? '')).map((row) => row[0]));
   if (tab === 'data' && gridState.table) void loadGridPage();
 }
@@ -230,7 +235,7 @@ async function loadGridPage() {
   $('grid-page').textContent = 'Loading…';
   try {
     const quoted = `"${table.replace(/"/g, '""')}"`;
-    const order = gridUnordered.has(table) ? '' : ' ORDER BY rowid';
+    const order = gridUnordered.has(table) || !gridSchemaKnown ? '' : ' ORDER BY rowid';
     const value = await post(`/api/databases/${encodeURIComponent(selectedDatabase)}/query`, { sql: `SELECT * FROM ${quoted}${order} LIMIT ${GRID_PAGE_SIZE + 1} OFFSET ${offset}`, args: [] });
     const rows = value.rows ?? [];
     gridState.hasMore = rows.length > GRID_PAGE_SIZE;
