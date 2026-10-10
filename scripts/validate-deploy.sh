@@ -45,13 +45,31 @@ log "checking credential hygiene"
 grep -qE '^(Environment|EnvironmentFile)=' "$UNIT" && fail "unit must not carry secrets via Environment"
 grep -q 'Password\|Secret\|Token' "$UNIT" && fail "unit must not name secrets"
 
+# The cap is a measured decision (docs/resource-budget.md, set 2026-10-10), so
+# the gate checks the unit against the number the budget records rather than
+# demanding it stay unset. A hard "must be unset" rule here is what made this
+# gate red the moment the owner settled on a value: the check had no way to
+# learn that the policy moved on. The gate now fails when the two disagree,
+# which catches both a unit edited without updating the budget and a budget
+# updated without editing the unit -- and a deliberately unset unit is still
+# allowed, in which case the guide must say the policy is pending.
 log "checking resource-budget policy"
-if grep -qE '^[[:space:]]*MemoryMax=' "$UNIT"; then
-    fail "MemoryMax must remain unset while docs/resource-budget.md measurements are pending"
+UNIT_MAX="$(sed -n 's/^[[:space:]]*MemoryMax=\([^[:space:]#]*\).*/\1/p' "$UNIT" | head -1)"
+# The budget page's own statement of the shipped cap, in `MemoryMax=<value>`
+# form, so the two files cannot drift apart silently.
+DOC_MAX="$(sed -n 's/.*`MemoryMax=\([^`[:space:]]*\)`.*/\1/p' "$BUDGET" | head -1)"
+if [ -n "$UNIT_MAX" ]; then
+    [ -n "$DOC_MAX" ] \
+        || fail "deploy/dg.service sets MemoryMax=$UNIT_MAX but docs/resource-budget.md records no cap"
+    [ "$UNIT_MAX" = "$DOC_MAX" ] \
+        || fail "MemoryMax disagreement: deploy/dg.service has $UNIT_MAX, docs/resource-budget.md records $DOC_MAX"
+else
+    grep -q 'MemoryMax' "$BUDGET" \
+        && grep -qi 'unset\|pending' "$BUDGET" \
+        || fail "deploy/dg.service leaves MemoryMax unset but docs/resource-budget.md records a set cap ($DOC_MAX)"
+    grep -q 'MemoryMax' "$GUIDE" \
+        || fail "deployment guide must document the MemoryMax policy"
 fi
-grep -q 'MemoryMax=' "$GUIDE" \
-    && grep -q 'stays commented until measured' "$GUIDE" \
-    || fail "deployment guide must document the pending MemoryMax policy"
 
 if command -v systemd-analyze >/dev/null 2>&1; then
     log "running systemd-analyze verify on substituted copy"
