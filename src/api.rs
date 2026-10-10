@@ -334,10 +334,13 @@ async fn remove(
     work(store, headers, move |s, p| {
         p.owner()?;
         let _guard = s.acquire_queue(&name, true)?;
+        let previous_write = s.last_write(&name);
         s.begin_write(&name)?;
         let result = s.delete(&name, RETENTION_SECS);
         if result.is_ok() {
             s.finish_write(&name);
+        } else {
+            s.cancel_write(&name, previous_write);
         }
         result?;
         Ok(Json(
@@ -366,10 +369,13 @@ async fn clone_route(
             return Err(Error::new(403, "forbidden", "read-only credential"));
         }
         let _guard = s.acquire_queue(&body.destination, true)?;
+        let previous_write = s.last_write(&body.destination);
         s.begin_write(&body.destination)?;
         let result = s.clone_database(&name, &body.destination);
         if result.is_ok() {
             s.finish_write(&body.destination);
+        } else {
+            s.cancel_write(&body.destination, previous_write);
         }
         result?;
         Ok(Json(json!({"source":name,"destination":body.destination})))
@@ -429,10 +435,13 @@ async fn import(
         let temp = s.import_staging(&name)?;
         std::fs::write(temp.path(), &bytes).map_err(|_| Error::internal())?;
         let _guard = s.acquire_queue(&body.name, true)?;
+        let previous_write = s.last_write(&body.name);
         s.begin_write(&body.name)?;
         let result = s.import_from(&body.name, temp.path());
         if result.is_ok() {
             s.finish_write(&body.name);
+        } else {
+            s.cancel_write(&body.name, previous_write);
         }
         result?;
         Ok(Json(json!({"imported":body.name,"from":name})))
@@ -587,10 +596,13 @@ async fn upload_commit(
     work(store, headers, move |s, p| {
         p.owner()?;
         let _guard = s.acquire_queue(&body.name, true)?;
+        let previous_write = s.last_write(&body.name);
         s.begin_write(&body.name)?;
         let result = s.upload_commit(&id, &body.name);
         if result.is_ok() {
             s.finish_write(&body.name);
+        } else {
+            s.cancel_write(&body.name, previous_write);
         }
         result?;
         Ok(Json(json!({"imported": body.name})))
@@ -632,6 +644,7 @@ async fn execute(
         s.authorize(&p, &name)?;
         let path = s.path(&name)?;
         let _guard = s.acquire_queue(&name, !read)?;
+        let previous_write = if read { None } else { s.last_write(&name) };
         if !read {
             s.begin_write(&name)?;
         }
@@ -645,6 +658,8 @@ async fn execute(
         );
         if !read && result.is_ok() {
             s.finish_write(&name);
+        } else if !read {
+            s.cancel_write(&name, previous_write);
         }
         if let Ok(value) = result.as_ref() {
             let (rows_read, rows_written) = execution_usage(value);

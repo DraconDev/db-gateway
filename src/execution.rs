@@ -434,13 +434,23 @@ pub fn execute(
         match replay {
             Ok((old_hash, result)) => {
                 if old_hash != hash {
+                    // The retention purge above must survive even on the
+                    // error path; otherwise a conflicting key pins dead rows.
+                    tx.commit()?;
                     return Err(Error::new(
                         409,
                         "idempotency_key_conflict",
                         "key reused with different request",
                     ));
                 }
-                return serde_json::from_str(&result).map_err(|_| Error::internal());
+                // A replay hit returns early without executing anything, but
+                // the retention purge it already ran lives in this same
+                // transaction: commit first so expired rows are actually
+                // pruned instead of rolled back on every replayed key.
+                let value: Value =
+                    serde_json::from_str(&result).map_err(|_| Error::internal())?;
+                tx.commit()?;
+                return Ok(value);
             }
             Err(rusqlite::Error::QueryReturnedNoRows) => {}
             Err(error) => return Err(error.into()),

@@ -163,14 +163,11 @@ pub fn snapshot(store: &Store) -> Result<BackupHealth, crate::error::Error> {
                     selected = candidate;
                 }
             }
-            if selected.coverage_start.is_none()
-                && sets
-                    .iter()
-                    .filter(|set| set.databases.contains(name))
-                    .any(|set| set.mtime > selected.mtime)
-            {
-                return None;
-            }
+            // `sets` arrives newest-first and `selected` starts as the
+            // newest containing set, only ever replaced toward older ones,
+            // so no containing set can have a greater mtime: no fallback arm
+            // is needed here. (A previous revision carried a defensive
+            // `mtime > selected.mtime` guard that could never fire.)
             Some(selected)
         });
         let (state, newest_set, age_secs) = match newest {
