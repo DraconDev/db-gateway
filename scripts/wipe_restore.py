@@ -7,6 +7,7 @@ row byte-exact and the registry exact. Dummy data, local only.
 Usage: scripts/wipe_restore.py <path-to-dg-binary>
 Exit nonzero unless all dumps match exactly.
 """
+import atexit
 import base64
 import json
 import os
@@ -140,6 +141,9 @@ def dump(api, db, table, cols):
 
 def main():
     tmp = tempfile.mkdtemp(prefix="wipe-restore-")
+    # Rehearsal runs accumulate in /tmp with no cleanup path otherwise;
+    # atexit covers both the PASS exit and any assertion/transport failure.
+    atexit.register(shutil.rmtree, tmp, True)
     data = os.path.join(tmp, "data")
     backup = os.path.join(tmp, "backup")
     os.makedirs(data)

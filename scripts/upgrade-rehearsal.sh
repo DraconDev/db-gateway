@@ -11,7 +11,7 @@ set -euo pipefail
 DEBUG_BIN="$1"
 RELEASE_BIN="$2"
 DIR=$(mktemp -d /tmp/upgrade-rehearsal-XXXXXX)
-trap 'kill "$SRV" 2>/dev/null || true' EXIT
+trap 'kill "${SRV:-}" 2>/dev/null || true; rm -rf "$DIR"' EXIT
 
 KEY=$("$DEBUG_BIN" init --data-dir "$DIR" | python3 -c 'import json,sys; print(json.load(sys.stdin)["owner_key"])')
 
