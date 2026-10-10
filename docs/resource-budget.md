@@ -46,9 +46,33 @@ host shape (or an equivalent VM), with the release profile:
 > headroom, is what would justify a value. Remember the page-cache term in this
 > budget is ~24 MiB (8 readers + 4 writers x ~2 MiB), not the ~10 MiB an
 > earlier single-lane reading implied.
+>
+> **Set 2026-10-10:** the owner-supervised `deploy/dg.service` now sets
+> `MemoryMax=96M`. The justification is the four-times-the-cache-ceiling
+> formula, with the ceiling measured from source (M3, 24 MiB), the gateway peak
+> under burst measured on the dev host (M2r, 13 MiB), and the sidecar peak
+> measured in the rehearsal packet (item 2, 44 MiB; the sidecar runs in its
+> own unit). The supervised micro2 run is the place to record the on-target
+> fact under the same cap; if that measurement rejects 96 MiB, lower it
+> there and commit the new packet with the unit change.
 
 1. Release-profile RSS under a realistic workload (owner's actual database
    sizes and query mix), idle and sustained.
+   *Measured 2026-10-10 on the dev host*:
+   `docs/first-resource-report-release-2026-10-10.json`, reproducible via
+   `scripts/resource-report-release.sh`. The harness builds the release
+   binary, starts `dg serve`, samples VmRSS at four points (idle, after
+   loading 3 DBs x 100 rows, peak under a 50-way 4 s concurrent INSERT
+   burst, post-burst settle), and records the OS state (cold and hot
+   Cached) so the page-cache growth can be observed alongside the process
+   RSS. Numbers, in KiB: idle 8,480; loaded 8,944; peak-under-burst
+   13,056; post-burst 11,752. The p50 single-row SELECT latency on the
+   release profile is 0.85 ms, ~4x lower than the 3.8 ms the debug
+   harness reports. The 13 MiB peak is well below the 24 MiB cache
+   ceiling; the ceiling is the binding term because the workload is
+   small and the cache only fills under repeated hot queries. Re-run
+   on the supervised micro2 host with the same harness to capture the
+   on-target fact.
 2. Litestream sidecar RSS + disk staging during a snapshot/replication cycle.
    *Measured 2026-09-29 against the rehearsal endpoint with pinned 0.5.17, and
    the run is committed*:
@@ -97,20 +121,54 @@ host shape (or an equivalent VM), with the release profile:
    where item 2 is properly measured: different hardware, different kernel,
    a real disk, and a week of WAL growth rather than twelve seconds of it.
 3. Target OS baseline RSS and page-cache behavior with the data dir hot.
+   *Measured 2026-10-10 on the dev host* (methodology transfers; the dev
+   host's Cached column is not the binding term at 32 GiB, but the harness
+   records the cold/hot delta so the same measurement on micro2 produces a
+   comparable number): `docs/first-resource-report-release-2026-10-10.json`
+   `os_memory_kib` — cold Cached 1,354,640 KiB, hot Cached 2,491,944 KiB,
+   hot MemAvailable 8,699,572 KiB of 31,914,628 KiB total. The release
+   process grows its cache up to the 24 MiB ceiling (item 1) by warming the
+   SQLite cache, and the host's Cached column grows to cover the binary,
+   the data dir, and the workload. On a 1 GiB host the same workload will
+   pin a much larger fraction of available memory; the supervised run on
+   micro2 is the place to confirm.
 4. Burst test: sustained writes at the 429 capacity edge; record peak RSS and
    confirm recovery to idle baseline.
+   *Measured 2026-10-10 on the dev host* (release, 50 concurrent INSERTs for
+   4 s): peak 13,056 KiB, post-burst settle 11,752 KiB, ~10% shrink within
+   2 s of burst end. The harness does not enforce 429 rejection at the
+   capacity edge (it sends as fast as curl will dispatch, which is below
+   the 8-read + 4-write admission cap on loopback); the supervised micro2
+   run is where 429-rejection behavior is recorded.
 5. Disk growth projection: real data sizes x retention windows, including
    tombstoned databases awaiting purge.
 
 ## Conditional readiness conclusion
 
-**Not ready to declare.** The measured gateway process (~4-16 MiB in tiny
-workloads, including one 8292 KiB supervised micro2 sample) leaves the 1 GiB
-envelope apparently ample, but the OS baseline, backup sidecar, burst peak,
-and disk growth — any one of which could dominate — are unmeasured. M5's
-millisecond restore result and WAL sample do not close those gaps. Completing
-items 1-5 above is the release gate; until then the budget position is "no
-evidence of pressure, no evidence of fit".
+**Items 1, 2, 3, and the 4-half of the burst (5 remains) are measured as of
+2026-10-10.** The 1 GiB envelope is composed of:
+
+- Gateway process RSS: 13 MiB peak under burst (release, dev host) or
+  8 MiB idle-after-drill (supervised micro2 sample). Worst-case ceiling
+  from code: 24 MiB SQLite cache (8+4 connections x 2 MiB).
+- Litestream sidecar: 44 MiB peak replication, 33 MiB restore (1 GiB
+  enforced scope, rehearsal packet gate 9).
+- OS + page cache: budget remainder (the supervised micro2 run is where
+  this is observed under real pressure).
+
+`MemoryMax=96M` in `deploy/dg.service` is the gateway cap; the sidecar runs
+in its own unit with its own `MemoryMax`. The 96 MiB is 4x the cache
+ceiling (the worst case) and ~7x the measured burst peak; it is 1/10 of
+the 1 GiB host and leaves the OS + sidecar with the remaining 880+ MiB.
+The supervised micro2 run is the place to confirm this value under the
+target host shape; if it is rejected by an OOM kill or a near-miss,
+lower the cap there and commit the new packet with the unit change.
+
+Item 5 (disk growth projection) and the target-host item-4 burst (429
+capacity-reject regime) are not yet measured. The local rehearsal is
+not a substitute for the target-host measurement, and the budget
+position remains "no claim of fit" until the supervised micro2 run
+with this same harness records the on-target fact.
 
 ## Assumptions and required target-host checks
 
