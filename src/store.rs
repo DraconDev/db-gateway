@@ -618,6 +618,48 @@ impl Store {
         }
     }
 
+    /// Undo a `begin_write` fence for a mutation that rolled back without
+    /// committing anything. The fence exists for crash-safety (die after the
+    /// data commit but before the positive marker means `unknown`, never
+    /// falsely fresh), but a rejected write changed nothing, so leaving the
+    /// `-1` marker would flip a fresh database to `unknown` and fire a false
+    /// Alert digest on the next poll. Callers capture `last_write` before
+    /// `begin_write` and restore it here on the failure path.
+    pub fn cancel_write(&self, name: &str, previous: Option<SystemTime>) {
+        let Ok(_marker_guard) = self.marker_lock.lock() else {
+            return;
+        };
+        if let Ok(conn) = self.marker_db.lock() {
+            match previous {
+                Some(stamp) => {
+                    let seconds = stamp
+                        .duration_since(UNIX_EPOCH)
+                        .map(|duration| duration.as_secs() as i64)
+                        .unwrap_or(i64::MAX);
+                    let _ = conn.execute(
+                        "INSERT INTO write_markers(name,written_at) VALUES (?1,?2)
+                         ON CONFLICT(name) DO UPDATE SET written_at=excluded.written_at",
+                        params![name, seconds],
+                    );
+                }
+                None => {
+                    let _ = conn
+                        .execute("DELETE FROM write_markers WHERE name=?", params![name]);
+                }
+            }
+        }
+        if let Ok(mut writes) = self.writes.lock() {
+            match previous {
+                Some(stamp) => {
+                    writes.insert(name.to_string(), stamp);
+                }
+                None => {
+                    writes.remove(name);
+                }
+            }
+        }
+    }
+
     /// Record a successful mutation for legacy store-level callers. New API
     /// mutations use `begin_write` before the write and `finish_write` after.
     pub fn note_write(&self, name: &str) -> Result<()> {
@@ -627,10 +669,13 @@ impl Store {
     }
 
     pub fn create_and_note(&self, name: &str) -> Result<()> {
+        let previous = self.last_write(name);
         self.begin_write(name)?;
         let result = self.create(name);
         if result.is_ok() {
             self.finish_write(name);
+        } else {
+            self.cancel_write(name, previous);
         }
         result
     }
