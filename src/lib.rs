@@ -224,17 +224,30 @@ async fn backup_notifier(store: std::sync::Arc<store::Store>, config: BackupNoti
                     None
                 }
             };
-            if let Some(attempt) = attempt
-                && delivered.should_report(&attempt)
-                && let Ok(health) = health_off_thread(&store).await
-            {
-                let note = notify::failure_note(&health, &attempt);
-                if !notify::deliver_all(&config.sinks, &note).await.is_empty() {
-                    tracing::error!(
-                        code = "backup_failure_delivery_failed",
-                        attempt = %attempt.ts,
-                        "backup failure notice delivery failed"
-                    );
+            // The failure identity is consumed only by a notice that is
+            // actually built and delivered: the health snapshot runs first,
+            // and `should_report` runs after it succeeds. Marking the
+            // identity before the awaited snapshot meant one transient
+            // snapshot error muted every later poll for that attempt, so the
+            // immediate failure notice never fired at all.
+            if let Some(attempt) = attempt {
+                match health_off_thread(&store).await {
+                    Ok(health) if delivered.should_report(&attempt) => {
+                        let note = notify::failure_note(&health, &attempt);
+                        if !notify::deliver_all(&config.sinks, &note).await.is_empty() {
+                            tracing::error!(
+                                code = "backup_failure_delivery_failed",
+                                attempt = %attempt.ts,
+                                "backup failure notice delivery failed"
+                            );
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(reason) => tracing::error!(
+                        code = "backup_failure_snapshot_failed",
+                        reason = reason,
+                        "cannot snapshot backup health; failure notice deferred, identity not consumed"
+                    ),
                 }
             }
         }

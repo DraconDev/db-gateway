@@ -97,7 +97,12 @@ pub async fn run(
             out.flush().map_err(io)?;
             return Ok(());
         }
-        if bytes.len() > MAX_INPUT {
+        // The ceiling is on the SQL line itself: a trailing newline is
+        // transport, not content. A line of exactly 64 KiB (plus its
+        // newline) must be accepted like a 64 KiB batch is, so compare the
+        // content length rather than the raw read length.
+        let content_len = bytes.len() - usize::from(bytes.last() == Some(&b'\n'));
+        if content_len > MAX_INPUT {
             if bytes.last() != Some(&b'\n') {
                 reader.skip_until(b'\n').map_err(io)?;
             }
