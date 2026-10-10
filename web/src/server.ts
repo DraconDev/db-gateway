@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { isIP } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -311,7 +311,6 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
 }
 
 export function sessionId(): string { return randomBytes(18).toString('base64url'); }
-export function fingerprint(value: string): string { return createHash('sha256').update(value).digest('hex').slice(0, 12); }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const config = configFromEnv();

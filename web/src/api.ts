@@ -4,7 +4,6 @@ export interface TableInfo { name: string; rows: number }
 export type DatabaseInfo =
   | { name: string; tombstoned: false; size_bytes: number; created_at: number; tables: TableInfo[] }
   | { name: string; tombstoned: true; purge_after: number; size_bytes: number };
-export interface SqlValue { null?: never; boolean?: never; number?: never; string?: never }
 export type QueryValue = null | boolean | number | string | number[];
 export interface QueryResult { columns: string[]; rows: QueryValue[][]; rows_affected: number }
 export interface CreateResponse { name: string }
