@@ -385,6 +385,21 @@ fn authority(host: &str, port: u16) -> String {
     }
 }
 
+/// Loopback-only check mirroring the companion bind gate (web/src/server.ts
+/// isLoopback): any 127/8 address, the IPv6 loopback (bracketed or bare),
+/// or localhost. Anything else must not become a bind address, probe target,
+/// or printed URL.
+fn is_loopback_host(host: &str) -> bool {
+    let normalized = host.trim().to_lowercase();
+    if normalized == "localhost" || normalized == "::1" || normalized == "[::1]" {
+        return true;
+    }
+    let parts: Vec<&str> = normalized.split('.').collect();
+    parts.len() == 4
+        && parts[0] == "127"
+        && parts[1..].iter().all(|octet| octet.parse::<u8>().is_ok())
+}
+
 /// Loopback-http gateway target (`host:port`) we may auto-start a server
 /// on. Anything else (https, non-loopback, unparsable) is left to the
 /// companion to report; this process never spawns remote listeners.
