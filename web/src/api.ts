@@ -254,6 +254,15 @@ function isUploadStatus(value: unknown): value is UploadStatus {
   return isObject(value) && isTransferId(value.upload) && isNonNegativeInteger(value.received) && isNonNegativeInteger(value.size_cap);
 }
 
+function isConsoleLoopback(hostname: string): boolean {
+  // Same verdict as the companion bind check (web/src/server.ts isLoopback):
+  // any 127/8 address plus the IPv6 loopback and localhost. URL.hostname
+  // strips IPv6 brackets, so accept both bracketed and bare forms.
+  const normalized = hostname.trim().toLowerCase();
+  if (normalized === 'localhost' || normalized === '::1' || normalized === '[::1]') return true;
+  return /^127\.\d+\.\d+\.\d+$/.test(normalized);
+}
+
 function isUploadChunk(value: unknown): value is UploadChunk {
   return isObject(value) && isTransferId(value.upload) && isNonNegativeInteger(value.received);
 }

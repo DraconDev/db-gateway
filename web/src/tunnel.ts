@@ -21,6 +21,7 @@ export interface TunnelOptions {
   localPort: number;
   remoteHost?: string;
   remotePort?: number;
+  sshPort?: number;
   identityFile?: string;
   command?: string;
 }
@@ -30,14 +31,21 @@ export type TunnelState = 'not_configured' | 'stopped' | 'starting' | 'running' 
 export interface TunnelStatus { state: TunnelState; pid?: number; error?: string }
 
 export function tunnelCommand(options: TunnelOptions): TunnelProcess {
-  if (!/^[a-z0-9._-]+@[a-z0-9.-]+$/.test(options.target)) throw new Error('Tunnel target must be user@host');
+  // User/host names are case-insensitive in practice (User@Host); the values
+  // travel as argv entries, never through a shell, so widening the class
+  // cannot inject flags. IPv6 loopback is accepted for remoteHost and passed
+  // through to ssh, whose own error names the problem if it cannot parse it.
+  if (!/^[a-z0-9._-]+@[a-z0-9.-]+$/i.test(options.target)) throw new Error('Tunnel target must be user@host');
   if (!Number.isInteger(options.localPort) || options.localPort < 1024 || options.localPort > 65535) throw new Error('Tunnel local port must be 1024-65535');
   const remoteHost = options.remoteHost ?? '127.0.0.1';
-  if (!/^[a-z0-9.-]+$/.test(remoteHost)) throw new Error('Invalid tunnel remote host');
+  const normalizedRemote = remoteHost.startsWith('[') && remoteHost.endsWith(']') ? remoteHost.slice(1, -1) : remoteHost;
+  if (!(normalizedRemote === '::1' || /^[a-z0-9.-]+$/i.test(remoteHost))) throw new Error('Invalid tunnel remote host');
   const remotePort = options.remotePort ?? 7432;
   if (!Number.isInteger(remotePort) || remotePort < 1 || remotePort > 65535) throw new Error('Invalid tunnel remote port');
+  if (options.sshPort !== undefined && (!Number.isInteger(options.sshPort) || options.sshPort < 1 || options.sshPort > 65535)) throw new Error('Invalid tunnel SSH port');
   const command = options.command ?? 'ssh';
-  const args = ['-N', '-T', '-o', 'ExitOnForwardFailure=yes', '-L', `127.0.0.1:${options.localPort}:${remoteHost}:${remotePort}`,
+  const args = ['-N', '-T', '-o', 'ExitOnForwardFailure=yes'];
+  if (options.sshPort !== undefined) args.push('-p', String(options.sshPort));
     '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3'];
   if (options.identityFile) args.push('-i', options.identityFile);
   args.push(options.target);
