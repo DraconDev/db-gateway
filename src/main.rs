@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 use std::{
-    fs::{File, OpenOptions},
+    fs::OpenOptions,
     io::{BufReader, IsTerminal, Read, Write},
     net::SocketAddr,
     path::{Path, PathBuf},
@@ -1238,7 +1238,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 .open(&from)
                 .map_err(|_| Application(Error::invalid()))?;
             #[cfg(not(unix))]
-            let file = File::open(&from).map_err(|_| Application(Error::invalid()))?;
+            let file = std::fs::File::open(&from).map_err(|_| Application(Error::invalid()))?;
             let metadata = file.metadata().map_err(|_| Application(Error::invalid()))?;
             if !metadata.is_file() || metadata.len() > dg::store::MAX_TRANSFER_SIZE {
                 return Err(Application(Error::new(
