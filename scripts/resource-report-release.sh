@@ -265,6 +265,36 @@ sidecar_peak_kib = $SIDECAR_PEAK_REPLICATION_KIB
 
 binding_term_kib = max(measured_gateway_peak_kib, sqlite_cache_ceiling_kib, sidecar_peak_kib)
 suggested_memory_max_kib = max(2 * binding_term_kib, 65536)
+EOF
+# Repeat the calc in shell so the same numbers can be referenced in the
+# report's binding-term rationale without re-running Python. The Python
+# side is the source of truth; this is the shell-side echo for grep.
+measured_gateway_peak_kib="$PEAK_RSS"
+sqlite_cache_ceiling_kib="$SQLITE_CACHE_CEILING_KIB"
+sidecar_peak_kib="$SIDECAR_PEAK_REPLICATION_KIB"
+binding_term_kib="$measured_gateway_peak_kib"
+[ "$sqlite_cache_ceiling_kib" -gt "$binding_term_kib" ] && binding_term_kib="$sqlite_cache_ceiling_kib"
+[ "$sidecar_peak_kib" -gt "$binding_term_kib" ] && binding_term_kib="$sidecar_peak_kib"
+suggested_memory_max_kib=$(( binding_term_kib * 2 ))
+[ "$suggested_memory_max_kib" -lt 65536 ] && suggested_memory_max_kib=65536
+
+python3 - "$LAT" <<EOF
+import json, statistics
+
+samples_ms = [float(line) * 1000.0 for line in """$LAT""".split()]
+ordered = sorted(samples_ms)
+
+# Same numbers the shell pre-computed, kept in the Python report so the
+# emitted JSON is self-contained and the shell math is not the only
+# witness. The script's documented contract is "the JSON is the
+# report"; recomputing here keeps that contract even if the shell
+# arithmetic is later refactored.
+measured_gateway_peak_kib = $PEAK_RSS
+sqlite_cache_ceiling_kib = $SQLITE_CACHE_CEILING_KIB
+sidecar_peak_kib = $SIDECAR_PEAK_REPLICATION_KIB
+
+binding_term_kib = max(measured_gateway_peak_kib, sqlite_cache_ceiling_kib, sidecar_peak_kib)
+suggested_memory_max_kib = max(2 * binding_term_kib, 65536)
 
 report = {
     "schema": "dg-resource-report-release/1",
