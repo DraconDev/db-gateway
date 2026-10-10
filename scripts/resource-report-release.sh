@@ -244,57 +244,31 @@ PAGE_CACHE_DELTA_KIB=$(( OS_HOT_CACHED - OS_COLD_CACHED ))
 SIDECAR_PEAK_REPLICATION_KIB=45632
 SIDECAR_PEAK_RESTORE_KIB=34576
 
-python3 - "$LAT" <<EOF
-import json, statistics
-
-samples_ms = [float(line) * 1000.0 for line in """$LAT""".split()]
-ordered = sorted(samples_ms)
-
-# Suggested MemoryMax: the largest measured steady-state term, with
-# headroom for the burst peak and the sidecar, and a margin so the
-# gateway is not OOM-killed by a single transient overshoot. The
-# formula is the max of three terms:
-#   1. measured gateway peak under burst (release-profile RSS sample)
+# Pre-compute the suggested MemoryMax in shell so the JSON below can
+# re-emit the same numbers and a reader can grep the script for the
+# rationale without re-running Python.
+#
+# Formula: take the max of three measured terms, double it for headroom,
+# floor at 64 MiB so a tiny workload does not result in a cap the
+# process outgrows on first WAL write.
+#   1. measured gateway peak RSS under burst (release profile)
 #   2. SQLite per-connection cache ceiling (8+4 conns x 2 MiB)
 #   3. sidecar peak (replication, the larger of the two)
-# Then doubled for headroom, with a floor of 64 MiB so a tiny workload
-# does not result in a cap the process outgrows on first WAL write.
-measured_gateway_peak_kib = $PEAK_RSS
-sqlite_cache_ceiling_kib = $SQLITE_CACHE_CEILING_KIB
-sidecar_peak_kib = $SIDECAR_PEAK_REPLICATION_KIB
-
-binding_term_kib = max(measured_gateway_peak_kib, sqlite_cache_ceiling_kib, sidecar_peak_kib)
-suggested_memory_max_kib = max(2 * binding_term_kib, 65536)
-EOF
-# Repeat the calc in shell so the same numbers can be referenced in the
-# report's binding-term rationale without re-running Python. The Python
-# side is the source of truth; this is the shell-side echo for grep.
-measured_gateway_peak_kib="$PEAK_RSS"
-sqlite_cache_ceiling_kib="$SQLITE_CACHE_CEILING_KIB"
-sidecar_peak_kib="$SIDECAR_PEAK_REPLICATION_KIB"
-binding_term_kib="$measured_gateway_peak_kib"
-[ "$sqlite_cache_ceiling_kib" -gt "$binding_term_kib" ] && binding_term_kib="$sqlite_cache_ceiling_kib"
-[ "$sidecar_peak_kib" -gt "$binding_term_kib" ] && binding_term_kib="$sidecar_peak_kib"
+binding_term_kib="$PEAK_RSS"
+[ "$SQLITE_CACHE_CEILING_KIB" -gt "$binding_term_kib" ] && binding_term_kib="$SQLITE_CACHE_CEILING_KIB"
+[ "$SIDECAR_PEAK_REPLICATION_KIB" -gt "$binding_term_kib" ] && binding_term_kib="$SIDECAR_PEAK_REPLICATION_KIB"
 suggested_memory_max_kib=$(( binding_term_kib * 2 ))
 [ "$suggested_memory_max_kib" -lt 65536 ] && suggested_memory_max_kib=65536
 
-python3 - "$LAT" <<EOF
-import json, statistics
+python3 - "$LAT" "$binding_term_kib" "$suggested_memory_max_kib" <<'PYEOF'
+import json, statistics, sys
 
-samples_ms = [float(line) * 1000.0 for line in """$LAT""".split()]
+lat_blob = """$LAT""".split()
+binding_term_kib = int(sys.argv[2])
+suggested_memory_max_kib = int(sys.argv[3])
+
+samples_ms = [float(line) * 1000.0 for line in lat_blob]
 ordered = sorted(samples_ms)
-
-# Same numbers the shell pre-computed, kept in the Python report so the
-# emitted JSON is self-contained and the shell math is not the only
-# witness. The script's documented contract is "the JSON is the
-# report"; recomputing here keeps that contract even if the shell
-# arithmetic is later refactored.
-measured_gateway_peak_kib = $PEAK_RSS
-sqlite_cache_ceiling_kib = $SQLITE_CACHE_CEILING_KIB
-sidecar_peak_kib = $SIDECAR_PEAK_REPLICATION_KIB
-
-binding_term_kib = max(measured_gateway_peak_kib, sqlite_cache_ceiling_kib, sidecar_peak_kib)
-suggested_memory_max_kib = max(2 * binding_term_kib, 65536)
 
 report = {
     "schema": "dg-resource-report-release/1",
@@ -364,4 +338,4 @@ report = {
     "budget_note": "This report is one input to the MemoryMax value, not a claim of fit. A 1 GB fit claim requires the supervised micro2 run with the same workload and the same page-cache methodology; the suggested_memory_max_kib field is a starting ceiling, not a number the host has run under.",
 }
 print(json.dumps(report, indent=2))
-EOF
+PYEOF
