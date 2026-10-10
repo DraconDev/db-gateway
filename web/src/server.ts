@@ -81,12 +81,18 @@ export function configFromEnv(): ConsoleConfig {
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('DG_CONSOLE_PORT must be 1024-65535');
   const target = env('DG_SSH_TARGET');
   const localPort = Number(env('DG_SSH_LOCAL_PORT', '17432'));
+  if (!Number.isInteger(localPort) || localPort < 1024 || localPort > 65535) throw new Error('DG_SSH_LOCAL_PORT must be 1024-65535');
+  const remotePort = Number(env('DG_SSH_REMOTE_PORT', '7432'));
+  if (!Number.isInteger(remotePort) || remotePort < 1 || remotePort > 65535) throw new Error('DG_SSH_REMOTE_PORT must be 1-65535');
+  const sshPortRaw = env('DG_SSH_PORT');
+  const sshPort = sshPortRaw ? Number(sshPortRaw) : undefined;
+  if (sshPort !== undefined && (!Number.isInteger(sshPort) || sshPort < 1 || sshPort > 65535)) throw new Error('DG_SSH_PORT must be 1-65535');
   const tunnel: TunnelOptions | undefined = target ? {
     target,
     localPort,
     remoteHost: env('DG_SSH_REMOTE_HOST', '127.0.0.1'),
-    remotePort: Number(env('DG_SSH_REMOTE_PORT', '7432')),
-    sshPort: env('DG_SSH_PORT') ? Number(env('DG_SSH_PORT')) : undefined,
+    remotePort,
+    sshPort,
     identityFile: env('DG_SSH_IDENTITY_FILE') || undefined,
     command: env('DG_SSH_COMMAND') || undefined,
   } : undefined;
