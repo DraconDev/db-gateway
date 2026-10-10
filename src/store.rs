@@ -1663,43 +1663,84 @@ impl Store {
         offset: u64,
         length: usize,
     ) -> Result<(Vec<u8>, u64, String)> {
-        // The registry lock is held for the whole lookup-plus-read: a
-        // concurrent release (or TTL purge) otherwise removes the retained
-        // directory between lookup and open, turning an honest 404 into a
-        // misleading 500. Upload appends already hold this lock across I/O.
-        let mut transfers = self.transfers.lock().map_err(|_| Error::internal())?;
-        let transfer = match transfers.get(id) {
-            Some(entry) if entry.created.elapsed() < self.transfer_ttl => entry.clone(),
-            Some(_) => {
-                let stale = transfers.remove(id);
-                drop(transfers);
-                if let Some(entry) = stale {
-                    let _ = std::fs::remove_dir_all(&entry.dir);
-                }
+        // Lookup under the lock, clone what the read needs, then release
+        // before touching the filesystem: holding the registry mutex across
+        // file open/seek/read serialized every transfer operation (appends,
+        // status, aborts, other chunks) behind one slow 1 MiB read. The
+        // post-read revalidation below closes the lookup-vs-read race the
+        // coarse lock used to cover: a concurrent release (or TTL purge)
+        // between lookup and open reports an honest 404 instead of a 500.
+        let (file_path, take, size, sha256) = {
+            let transfers = self.transfers.lock().map_err(|_| Error::internal())?;
+            let transfer = match transfers.get(id) {
+                Some(entry) if entry.created.elapsed() < self.transfer_ttl => entry.clone(),
+                Some(_) => return Err(snapshot_missing()),
+                None => return Err(snapshot_missing()),
+            };
+            if transfer.creator != principal.hash && principal.role != "owner" {
                 return Err(snapshot_missing());
             }
-            None => return Err(snapshot_missing()),
+            let (size, sha256) = match &transfer.kind {
+                TransferKind::Snapshot { size, sha256 } => (*size, sha256.clone()),
+                TransferKind::Upload { .. } => return Err(snapshot_missing()),
+            };
+            if offset > size {
+                return Err(Error::invalid());
+            }
+            if length == 0 {
+                return Err(Error::invalid());
+            }
+            let take = (length as u64).min(MAX_CHUNK as u64).min(size - offset) as usize;
+            (transfer.file.clone(), take, size, sha256)
         };
-        if transfer.creator != principal.hash && principal.role != "owner" {
-            return Err(snapshot_missing());
-        }
-        let (size, sha256) = match &transfer.kind {
-            TransferKind::Snapshot { size, sha256 } => (*size, sha256.clone()),
-            TransferKind::Upload { .. } => return Err(snapshot_missing()),
+        // Stale-entry directory removal happens under the lock in the
+        // callers that own expiry; here an expired-or-released transfer
+        // simply reports 404 without touching the filesystem.
+        let mut file = match std::fs::File::open(&file_path) {
+            Ok(file) => file,
+            Err(_) => {
+                // A concurrent release removes the retained directory
+                // between lookup and open: report 404 when the transfer is
+                // gone, 500 only when it is still registered.
+                let gone = self
+                    .transfers
+                    .lock()
+                    .map(|transfers| transfers.get(id).is_none())
+                    .unwrap_or(false);
+                return Err(if gone {
+                    snapshot_missing()
+                } else {
+                    Error::internal()
+                });
+            }
         };
-        if offset > size {
-            return Err(Error::invalid());
-        }
-        if length == 0 {
-            return Err(Error::invalid());
-        }
-        let take = (length as u64).min(MAX_CHUNK as u64).min(size - offset) as usize;
-        let mut file = std::fs::File::open(&transfer.file).map_err(|_| Error::internal())?;
         use std::io::{Read, Seek};
         file.seek(std::io::SeekFrom::Start(offset))
             .map_err(|_| Error::internal())?;
         let mut bytes = vec![0u8; take];
         file.read_exact(&mut bytes).map_err(|_| Error::internal())?;
+        // Revalidate: the transfer must still be registered, unexpired,
+        // and unchanged after the read, or the bytes may come from a
+        // released directory and must not be served.
+        {
+            let transfers = self.transfers.lock().map_err(|_| Error::internal())?;
+            match transfers.get(id) {
+                Some(entry)
+                    if entry.created.elapsed() < self.transfer_ttl
+                        && entry.file == file_path
+                        && (entry.creator == principal.hash || principal.role == "owner") =>
+                {
+                    match &entry.kind {
+                        TransferKind::Snapshot {
+                            size: live_size,
+                            sha256: live_sha,
+                        } if *live_size == size && *live_sha == sha256 => {}
+                        _ => return Err(snapshot_missing()),
+                    }
+                }
+                _ => return Err(snapshot_missing()),
+            }
+        }
         Ok((bytes, size, sha256))
     }
 
