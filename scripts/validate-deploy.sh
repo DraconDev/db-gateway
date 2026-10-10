@@ -57,8 +57,10 @@ grep -q 'Password\|Secret\|Token' "$UNIT" && fail "unit must not name secrets"
 log "checking resource-budget policy"
 UNIT_MAX="$(sed -n 's/^[[:space:]]*MemoryMax=\([^[:space:]#]*\).*/\1/p' "$UNIT" | head -1)"
 # The budget page's own statement of the shipped cap, in `MemoryMax=<value>`
-# form, so the two files cannot drift apart silently.
-DOC_MAX="$(sed -n 's/.*`MemoryMax=\([^`[:space:]]*\)`.*/\1/p' "$BUDGET" | head -1)"
+# form, so the two files cannot drift apart silently. Scoped to the line that
+# names the unit, because the page also records `MemoryMax=1G` twice for the
+# litestream sidecar's enforcement scope and that is not the gateway's cap.
+DOC_MAX="$(grep 'deploy/dg.service' "$BUDGET" | sed -n 's/.*`MemoryMax=\([^`[:space:]]*\)`.*/\1/p' | head -1)"
 if [ -n "$UNIT_MAX" ]; then
     [ -n "$DOC_MAX" ] \
         || fail "deploy/dg.service sets MemoryMax=$UNIT_MAX but docs/resource-budget.md records no cap"
