@@ -46,7 +46,8 @@ export function tunnelCommand(options: TunnelOptions): TunnelProcess {
   const command = options.command ?? 'ssh';
   const args = ['-N', '-T', '-o', 'ExitOnForwardFailure=yes'];
   if (options.sshPort !== undefined) args.push('-p', String(options.sshPort));
-    '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3'];
+  args.push('-L', `127.0.0.1:${options.localPort}:${remoteHost}:${remotePort}`,
+    '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3');
   if (options.identityFile) args.push('-i', options.identityFile);
   args.push(options.target);
   return { command, args };

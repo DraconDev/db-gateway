@@ -37,6 +37,10 @@ DG_KEY_FILE="$HOME/.config/dg/key" \
 node dist/server.js
 ```
 
+`DG_SSH_PORT` (sshd on a nonstandard port) maps to `ssh -p`; uppercase
+`User@Host` names and the IPv6 loopback (`::1`) are accepted as tunnel
+endpoints. `DG_SSH_COMMAND` remains as the explicit override.
+
 The equivalent explicit command is:
 
 ```sh

@@ -86,6 +86,7 @@ export function configFromEnv(): ConsoleConfig {
     localPort,
     remoteHost: env('DG_SSH_REMOTE_HOST', '127.0.0.1'),
     remotePort: Number(env('DG_SSH_REMOTE_PORT', '7432')),
+    sshPort: env('DG_SSH_PORT') ? Number(env('DG_SSH_PORT')) : undefined,
     identityFile: env('DG_SSH_IDENTITY_FILE') || undefined,
     command: env('DG_SSH_COMMAND') || undefined,
   } : undefined;
