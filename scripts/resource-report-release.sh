@@ -260,7 +260,7 @@ binding_term_kib="$PEAK_RSS"
 suggested_memory_max_kib=$(( binding_term_kib * 2 ))
 [ "$suggested_memory_max_kib" -lt 65536 ] && suggested_memory_max_kib=65536
 
-python3 - "$LAT" "$binding_term_kib" "$suggested_memory_max_kib" <<'PYEOF'
+python3 - "$LAT" "$binding_term_kib" "$suggested_memory_max_kib" <<EOF
 import json, statistics, sys
 
 lat_blob = """$LAT""".split()
@@ -338,4 +338,4 @@ report = {
     "budget_note": "This report is one input to the MemoryMax value, not a claim of fit. A 1 GB fit claim requires the supervised micro2 run with the same workload and the same page-cache methodology; the suggested_memory_max_kib field is a starting ceiling, not a number the host has run under.",
 }
 print(json.dumps(report, indent=2))
-PYEOF
+EOF
