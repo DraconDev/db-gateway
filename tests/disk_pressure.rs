@@ -131,14 +131,20 @@ fn page_count_ceiling_fails_the_growing_write_and_lifts_cleanly() {
     assert_eq!(status, 200, "control baseline: {body}");
 
     // Impose the ceiling from outside the server, the way a full disk
-    // imposes itself: a persistent PRAGMA on the database file. Baseline
-    // (schema + 3 small rows) fits in a handful of 4 KiB pages; 8 pages
-    // leaves no room for the 100 KiB write below. SQLite reports the same
-    // SQLITE_FULL for this ceiling as for a genuinely full disk.
+    // imposes itself: a persistent PRAGMA pair on the database file. The
+    // journal is switched to rollback mode first on purpose: in WAL mode
+    // growth lands in the -wal file and the page ceiling only bites at
+    // checkpoint time, which would make the drill about checkpoint timing
+    // instead of disk pressure. In rollback mode every growing write grows
+    // the database file directly. Baseline (schema + 3 small rows) fits in
+    // a handful of 4 KiB pages; 8 pages leaves no room for the fill below.
+    // SQLite reports the same SQLITE_FULL for this ceiling as for a
+    // genuinely full disk.
     {
         let conn =
             rusqlite::Connection::open(data_dir.path().join("pressure.sqlite")).unwrap();
-        conn.execute_batch("PRAGMA max_page_count=8;").unwrap();
+        conn.execute_batch("PRAGMA journal_mode=DELETE; PRAGMA max_page_count=8;")
+            .unwrap();
         let ceiling: i64 = conn
             .query_row("PRAGMA max_page_count", [], |r| r.get(0))
             .unwrap();
