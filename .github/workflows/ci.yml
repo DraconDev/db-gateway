@@ -28,20 +28,46 @@ jobs:
       # than a single test needs. Install docker.io, start the daemon, and
       # run only that one test so the rest of cargo test does not pay the
       # build-time penalty of building inside a fresh container.
-      - name: Install docker for the release-bundle test
+      - name: Provision a container engine for the release-bundle test
+        # Probe docker first (release-bundle.sh's preferred engine), then
+        # podman; install whichever is missing so the step is a no-op on
+        # runners that already ship one. `service docker start` is a no-op
+        # when the engine is already up, so it is safe to run after a
+        # successful `docker info`. If neither engine answers, the step
+        # exits non-zero with a message that names the package each engine
+        # ships in, so the failure points at the install action rather
+        # than at the test that follows.
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq docker.io
-          sudo service docker start
-          sudo docker info >/dev/null
+          set -euo pipefail
+          if command -v docker >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
+            echo "release-bundle: using docker"
+          elif command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1; then
+            echo "release-bundle: using podman"
+          else
+            sudo apt-get update -qq
+            if ! command -v docker >/dev/null 2>&1 || ! sudo docker info >/dev/null 2>&1; then
+              sudo apt-get install -y -qq docker.io
+              sudo service docker start || true
+              if ! sudo docker info >/dev/null 2>&1; then
+                echo "::error::release-bundle: neither docker nor podman is available on this runner." >&2
+                echo "::error::install one of: docker.io (apt) or podman (apt)." >&2
+                exit 1
+              fi
+            fi
+            if ! command -v podman >/dev/null 2>&1; then
+              echo "release-bundle: podman not present, docker is sufficient for this test"
+            fi
+            echo "release-bundle: docker provisioned"
+          fi
       - name: Run the pinned micro2 release-bundle test
         run: cargo test --workspace --locked --test release_bundle -- --ignored
         # The contract test (`micro2_pinned_container_builds_bundle_and_records_builder`)
         # is `#[ignore]`d so `cargo test --workspace` does not pay the cost on every
-        # PR; the explicit `--ignored` here re-runs only it on a docker-capable
-        # runner. The three fake-engine tests in the same file still run as
-        # part of the standard `cargo test --workspace` step above and protect
-        # the script's failure modes.
+        # PR; the explicit `--ignored` here re-runs only it once the previous
+        # step has confirmed a working container engine. The three fake-engine
+        # tests in the same file still run as part of the standard
+        # `cargo test --workspace` step above and protect the script's failure
+        # modes without needing a real container.
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
