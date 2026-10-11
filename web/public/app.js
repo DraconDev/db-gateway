@@ -10,6 +10,7 @@ let enrichedDatabases = [];
 let overviewCache = null;
 let detailCache = null;
 let exportTransfer = null;
+let exportBlobUrl = null;
 let importTransfer = null;
 let gridState = { table: null, offset: 0, hasMore: false };
 let gridUnordered = new Set();
@@ -185,7 +186,11 @@ function showView(route) {
 }
 function renderBackups(backups) {
   const entries = Object.entries(backups?.per_database ?? {});
-  $('backups-summary').innerHTML = entries.length ? entries.map(([name, value]) => `<article><b>${esc(name)}</b><strong>${esc(value.state)}</strong><small>${value.age_secs == null ? 'Age unavailable' : `${value.age_secs}s old`}</small></article>`).join('') : '<p class="muted">No database freshness records reported.</p>';
+  // `unavailable` is the overview's degraded marker: an empty per_database
+  // without it reads as a clean backup state, which an unreachable backup
+  // root must never look like.
+  const empty = backups?.unavailable ? '<p class="state state-error">Backup freshness unavailable.</p>' : '<p class="muted">No database freshness records reported.</p>';
+  $('backups-summary').innerHTML = entries.length ? entries.map(([name, value]) => `<article><b>${esc(name)}</b><strong>${esc(value.state)}</strong><small>${value.age_secs == null ? 'Age unavailable' : `${value.age_secs}s old`}</small></article>`).join('') : empty;
   $('backups').textContent = JSON.stringify(backups ?? { state: 'unknown' }, null, 2);
 }
 function renderDbTable() {
@@ -279,8 +284,11 @@ function renderUsage(overview) {
   const gateway = overview.gateway || {};
   const requests = gateway.requests || {};
   const storage = enrichedDatabases.reduce((sum, db) => sum + (Number.isFinite(db.size_bytes) ? db.size_bytes : 0), 0);
-  const reads = enrichedDatabases.reduce((sum, db) => sum + (db.rows_read ?? 0), 0);
-  const writes = enrichedDatabases.reduce((sum, db) => sum + (db.rows_written ?? 0), 0);
+  // An unknown usage is not a zero: a failed /v1/status emits null, which the
+  // database table renders as unavailable, so the totals must agree with it.
+  const usageUnknown = enrichedDatabases.some((db) => db.rows_read == null || db.rows_written == null);
+  const reads = usageUnknown ? 'unavailable' : enrichedDatabases.reduce((sum, db) => sum + (db.rows_read ?? 0), 0);
+  const writes = usageUnknown ? 'unavailable' : enrichedDatabases.reduce((sum, db) => sum + (db.rows_written ?? 0), 0);
   $('usage-panel').innerHTML = [['Databases', databaseNames.length], ['Storage', fmtBytes(storage)], ['Rows read', reads], ['Rows written', writes], ['Requests', requests.total ?? 'unavailable'], ['Uptime', Number.isFinite(gateway.uptime_secs) ? `${gateway.uptime_secs}s` : 'unavailable']].map(([key, value]) => `<div class="usage-row"><span>${esc(key)}</span><strong>${esc(value)}</strong></div>`).join('');
 }
 async function refresh() {
@@ -361,7 +369,10 @@ async function runExport() {
     const bytes = new Uint8Array(exportTransfer.offset); let cursor = 0; for (const chunk of exportTransfer.chunks) { bytes.set(chunk, cursor); cursor += chunk.length; }
     const digest = await crypto.subtle.digest('SHA-256', bytes); const sha256 = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join(''); if (sha256 !== session.sha256) throw new Error('Export integrity mismatch');
     await request(`/api/snapshots/${encodeURIComponent(session.snapshot)}`, { method: 'DELETE' }).catch(() => undefined); exportTransfer = null; renderTransfer('export-result', { database: databaseName, size: session.size, sha256: session.sha256, transfer: 'chunked', state: 'complete' });
-    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.sqlite3' })); const link = document.createElement('a'); link.href = url; link.download = `${databaseName}.sqlite`; link.textContent = 'Download verified SQLite export'; $('export-result').appendChild(link);
+    // A blob URL pins its buffer for the document's lifetime and an export
+    // can be up to 128 MiB, so revoke the previous link and this one on use.
+    if (exportBlobUrl) URL.revokeObjectURL(exportBlobUrl);
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.sqlite3' })); exportBlobUrl = url; const link = document.createElement('a'); link.href = url; link.download = `${databaseName}.sqlite`; link.textContent = 'Download verified SQLite export'; link.addEventListener('click', () => { URL.revokeObjectURL(url); exportBlobUrl = null; }, { once: true }); $('export-result').appendChild(link);
   } catch (error) { if (!exportTransfer) showError('export-result', error); else { const paused = exportTransfer; renderTransfer('export-result', { database: paused.database, session: paused.session.snapshot, transferred: paused.offset, total: paused.session.size, state: 'paused', error: { code: error.code || 'console_error', message: error.message } }, [['Resume export', () => runExport()], ['Abort export', async () => { try { await request(`/api/snapshots/${encodeURIComponent(paused.session.snapshot)}`, { method: 'DELETE' }); exportTransfer = null; renderTransfer('export-result', { session: paused.session.snapshot, state: 'aborted' }); } catch (abortError) { showError('export-result', abortError); } }]]); } }
   finally { pending.set(form, false); setFormBusy(form, false); }
 }
