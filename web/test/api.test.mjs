@@ -175,6 +175,12 @@ test('tunnel command is loopback-only and lifecycle is injectable', async () => 
   for (const flag of ['ConnectTimeout=10', 'ServerAliveInterval=30', 'ServerAliveCountMax=3']) {
     assert.equal(spec.args.includes(flag), true, `missing ssh flag ${flag}: ${spec.args}`);
   }
+  // IPv6 remoteHost must be bracketed in the OpenSSH -L spec, both when the
+  // caller passes the bare form and when they pre-bracket it.
+  const ipv6Bare = tunnelCommand({ target: 'owner@host', localPort: 17432, remotePort: 7432, remoteHost: '::1' });
+  assert.match(ipv6Bare.args[5], /^127\.0\.0\.1:17432:\[::1\]:7432$/);
+  const ipv6Bracketed = tunnelCommand({ target: 'owner@host', localPort: 17432, remotePort: 7432, remoteHost: '[::1]' });
+  assert.match(ipv6Bracketed.args[5], /^127\.0\.0\.1:17432:\[::1\]:7432$/);
   const child = new EventEmitter();
   child.pid = 123; child.exitCode = null; child.signalCode = null;
   const signals = [];

@@ -43,10 +43,16 @@ export function tunnelCommand(options: TunnelOptions): TunnelProcess {
   const remotePort = options.remotePort ?? 7432;
   if (!Number.isInteger(remotePort) || remotePort < 1 || remotePort > 65535) throw new Error('Invalid tunnel remote port');
   if (options.sshPort !== undefined && (!Number.isInteger(options.sshPort) || options.sshPort < 1 || options.sshPort > 65535)) throw new Error('Invalid tunnel SSH port');
+  // OpenSSH's -L forward spec requires IPv6 remotes to be wrapped in brackets
+  // (e.g. `[::1]:7432`); an unbracketed `::1` produces 5 colons in the spec
+  // and the forward parser refuses to interpret it. Bracket on the way out
+  // for any IPv6 remote so callers can pass either `::1` or `[::1]`.
+  const isIpv6 = normalizedRemote.includes(':');
+  const remoteSpec = isIpv6 ? `[${normalizedRemote}]` : remoteHost;
   const command = options.command ?? 'ssh';
   const args = ['-N', '-T', '-o', 'ExitOnForwardFailure=yes'];
   if (options.sshPort !== undefined) args.push('-p', String(options.sshPort));
-  args.push('-L', `127.0.0.1:${options.localPort}:${remoteHost}:${remotePort}`,
+  args.push('-L', `127.0.0.1:${options.localPort}:${remoteSpec}:${remotePort}`,
     '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3');
   if (options.identityFile) args.push('-i', options.identityFile);
   args.push(options.target);
