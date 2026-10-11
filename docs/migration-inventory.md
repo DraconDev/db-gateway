@@ -9,6 +9,23 @@ Turso database under this gateway; they are not a claim to reproduce Turso's
 entire product catalog. Anything marked UNVERIFIED must be confirmed against
 current Turso docs or a disposable trial export before any migration plan.
 
+## Source survey 2026-10-11: no Turso sources found
+
+Scope: the operator host surveyed was the dev machine itself —
+`~/.turso` (contents), the `/home/dracon/Dev` project tree (database
+files and libSQL client imports), and this repo's code references.
+Result: **zero source databases, zero Turso clients/writers, zero
+libSQL-specific features in use.** `~/.turso` holds only downloaded
+`sqld`/`turso` binaries (no databases, config, or tokens); no `.db` or
+Turso artifacts exist in sibling projects; no `@libsql/client` imports
+exist outside this repo; this repo's Turso mentions are help text and
+migration-doc comparisons only. The gateway's own test/state SQLite
+files (`state/`, `dg-restore-live/`) are rehearsal artifacts, not
+migration sources. Re-survey trigger: when a real Turso source appears,
+fill one per-source block below before its cutover — the cutover gate
+(`docs/migration-cutover.md`: every source database has a filled block)
+is unchanged and currently vacuous.
+
 The design intent stands: keep the gateway's custom JSON protocol,
 single-owner boundary, hash-only credentials, explicit lifecycle, and bounded
 local SQLite semantics. Migration adapts the **source data and callers** to
