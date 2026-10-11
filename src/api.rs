@@ -372,7 +372,7 @@ async fn clone_route(
         // primitive: a scoped app key could name-squat a valid name and burn
         // slots out of the shared registry cap, exposing every other tenant.
         // Owner-only, matching create and import (owner decision 2026-10-10).
-        p.owner()?
+        p.owner()?;
         let _guard = s.acquire_queue(&body.destination, true)?;
         let previous_write = s.last_write(&body.destination);
         s.begin_write(&body.destination)?;
