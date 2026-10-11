@@ -1,0 +1,36 @@
+name: Packet-script lint
+on:
+  push:
+    paths:
+      - 'scripts/sandbox-packet.sh'
+      - 'scripts/sandbox-s3-gates.sh'
+      - 'scripts/s3-rehearsal-endpoint.sh'
+      - 'scripts/rehearse-sandbox-packet.sh'
+      - 'scripts/lint-packet-scripts.sh'
+      - 'scripts/s3probe.py'
+      - 'scripts/s3-log-proxy.py'
+  pull_request:
+    paths:
+      - 'scripts/sandbox-packet.sh'
+      - 'scripts/sandbox-s3-gates.sh'
+      - 'scripts/s3-rehearsal-endpoint.sh'
+      - 'scripts/rehearse-sandbox-packet.sh'
+      - 'scripts/lint-packet-scripts.sh'
+      - 'scripts/s3probe.py'
+      - 'scripts/s3-log-proxy.py'
+permissions:
+  contents: read
+jobs:
+  lint-packet:
+    # The two failure modes bash -n cannot see (a quoted argument that
+    # ends a line without a backslash and immediately becomes a new
+    # command, and an unset variable under set -u) only matter for the
+    # files the linter actually checks. A paths filter on `on:` means
+    # unrelated PRs do not see this check at all, and a PR that touches
+    # one of the listed files cannot merge green if the linter would
+    # have caught a regression there.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: ./scripts/lint-packet-scripts.sh
