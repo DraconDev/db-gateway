@@ -9,22 +9,97 @@ Turso database under this gateway; they are not a claim to reproduce Turso's
 entire product catalog. Anything marked UNVERIFIED must be confirmed against
 current Turso docs or a disposable trial export before any migration plan.
 
-## Source survey 2026-10-11: no Turso sources found
+## Source survey 2026-10-11 (corrected): Turso estate found in dracon-platform
 
-Scope: the operator host surveyed was the dev machine itself —
-`~/.turso` (contents), the `/home/dracon/Dev` project tree (database
-files and libSQL client imports), and this repo's code references.
-Result: **zero source databases, zero Turso clients/writers, zero
-libSQL-specific features in use.** `~/.turso` holds only downloaded
-`sqld`/`turso` binaries (no databases, config, or tokens); no `.db` or
-Turso artifacts exist in sibling projects; no `@libsql/client` imports
-exist outside this repo; this repo's Turso mentions are help text and
-migration-doc comparisons only. The gateway's own test/state SQLite
-files (`state/`, `dg-restore-live/`) are rehearsal artifacts, not
-migration sources. Re-survey trigger: when a real Turso source appears,
-fill one per-source block below before its cutover — the cutover gate
-(`docs/migration-cutover.md`: every source database has a filled block)
-is unchanged and currently vacuous.
+Scope: `~/.turso` contents, the `/home/dracon/Dev` tree (bare-word
+`turso|libsql|hrana` over code/config/scripts, then table/env/builder
+greps), and this repo's references. Method is local-code-only: no Turso
+account, cloud API, token value, or row contents were touched — remote
+sizes, row counts, and live schemas below are marked UNVERIFIED. An
+earlier revision of this section claimed zero sources because its
+patterns (`@libsql/client`, `libsql/`) missed Rust `libsql =` deps and
+`libsql://` URLs; that claim is withdrawn.
+
+### Source A — email-api database (`TURSO_EMAIL_URL` / `TURSO_EMAIL_TOKEN`)
+
+- gateway target name: (unassigned — Stage 1 has not run)
+- file size: UNVERIFIED (remote; no local copy)
+- tables: `email_queue` (code-grounded,
+  `apis/services/email-api/src/state.rs`); further remote tables, if any:
+  UNVERIFIED
+- denied objects: `ALTER TABLE` statements present in email-api state.rs
+  (migration path) — must be flattened to gateway-compatible DDL before
+  import (risk 3); views/triggers/virtual tables: none found in code
+- client/writers: `email-api` via `api_core::db::SharedDb`
+  (`build_connection`), with a connection supervisor that rebuilds the
+  connection (comment in state.rs: server drops idle/rotated Hrana
+  streams; libsql 0.9 has no autoreconnect)
+- libSQL-specific: Hrana remote protocol (`libsql://` URL + token auth),
+  long-lived remote stream with supervisor rebuild
+- credentials to replace: `TURSO_EMAIL_URL`/`TURSO_EMAIL_TOKEN` → gateway
+  key names + roles (unassigned)
+- idempotency adoption: none yet — email-api has no `Idempotency-Key`
+equivalent; queue writers must adopt keyed writes (risk 8)
+
+### Source B — studio-api database (`STUDIO_API_DB_URL`)
+
+- gateway target name: (unassigned)
+- file size / row counts: UNVERIFIED (remote)
+- tables (code-grounded, `CREATE TABLE IF NOT EXISTS` in studio-api
+  src): `studio_channel_growth`, `studio_channel_language`,
+  `studio_channel_presets`, `studio_channel_profile`,
+  `studio_competitors`, `studio_competitor_snapshots`,
+  `studio_daily_titles`, `studio_follows`, `studio_last_seen`,
+  `studio_research_saved`, `studio_saved_comparisons`,
+  `studio_saved_filters`, `studio_sweep_state`, `studio_video_latest`,
+  `studio_video_prev` (15 tables)
+- denied objects: `ALTER TABLE` in state.rs/youtube.rs/analytics.rs plus
+  2 `CREATE TRIGGER` in studio-api src — triggers MUST be redesigned
+  away before import (risk 3 fires for real here); remote-side views:
+  UNVERIFIED
+- client/writers: `studio-api` handlers plus a dedicated poller
+  connection, via `libsql::Builder::new_remote` (state.rs); history of a
+  local fallback for dev (`:memory:?cache=shared` references)
+- libSQL-specific: Hrana remote protocol; no embedded-replica use found
+  in code
+- credentials to replace: `STUDIO_API_DB_URL` + token → gateway keys
+  (unassigned)
+- idempotency adoption: none yet (risk 8)
+
+### Source C — billing databases (`dracon-billing`, `dracon-billing-dev`)
+
+- URLs (code-grounded, `apis/tools/migrate-turso-omega-cleanup.py`):
+  `libsql://dracon-billing-dev-dracondev.aws-eu-west-1.turso.io`,
+  `libsql://dracon-billing-dracondev.aws-eu-west-1.turso.io`
+- tables: `service_access`, `software_licenses` (from the one-shot
+  migration script operating on billing); full schema: UNVERIFIED
+- client/writers: `billing-api` (`apis/services/billing-api/src/state.rs`
+  references dracon-billing); the migrate script is one-shot, not an
+  ongoing writer
+- libSQL-specific: Hrana remote protocol; rest UNVERIFIED
+- credentials, sizes, idempotency: UNVERIFIED / unassigned
+
+### Explicitly out of scope — 14 confirmed-dead databases
+
+`momo-ai-memory`, `momo-ai-models`, `momo-ai-models-staging`,
+`momo-kami`, `momo-kami-staging`, `momo-pages`, `momo-pages-staging`,
+`momo-pages-v2`, `momo-pages-v2-staging`, `my-db`, `next-js-prac`,
+`next-saas-starter`, `simple-stripe-sub-and-advanced-checkout`, `test`
+— verified dead with empty schemas by
+`dracon-platform/scripts/turso-delete-dead-dbs.sh` (zero code refs, zero
+traffic, slated for deletion). No import, no gateway target. Kept but
+shelved: `ai-books`, `ai-model-list` (borderline product ideas — survey
+when activated).
+
+### Survey limits
+
+Remote row counts, file sizes, and live remote schemas were not read
+(no cloud access from this survey). `~/.turso` on this host holds only
+downloaded `sqld`/`turso` binaries. The gateway's own test/state SQLite
+files are rehearsal artifacts, not sources. Cutover gate unchanged:
+every source above needs a filled block (sizes, denied-object census,
+writers, key roles, retry behavior, recovery requirements) before its
+cutover — currently code-grounded but remote-UNVERIFIED.
 
 The design intent stands: keep the gateway's custom JSON protocol,
 single-owner boundary, hash-only credentials, explicit lifecycle, and bounded
