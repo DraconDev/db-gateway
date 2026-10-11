@@ -399,13 +399,7 @@ async fn stop_gateway(gateway: &mut Option<tokio::process::Child>) {
 async fn install_signals(
     gateway: &mut Option<tokio::process::Child>,
     child: &mut tokio::process::Child,
-) -> Result<
-    (
-        tokio::signal::unix::Signal,
-        tokio::signal::unix::Signal,
-    ),
-    dg::error::Error,
-> {
+) -> Result<(tokio::signal::unix::Signal, tokio::signal::unix::Signal), dg::error::Error> {
     use dg::error::Error;
     use tokio::signal::unix::{SignalKind, signal};
     let registered = (
