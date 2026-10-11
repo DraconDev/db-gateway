@@ -1,4 +1,1 @@
-# seeded hot with 4000 rows; load1=102.9
-# baseline: cold 981/981 ok, 0x429 0other 0transport, p50=106.78 p99=318.85 load 102.9->108.7
-# flood: cold 522/525 ok, 3x429 0other 0transport, p50=201.0 p99=569.48 load 108.7->115.6
-# verdict: COLD_OK: cold reject 0.000% -> 0.571% under 10-reader hot flood; hot flood intensity 0 rows read
+# seeded hot with 4000 rows; load1=105.8
