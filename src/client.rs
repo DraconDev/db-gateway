@@ -65,6 +65,55 @@ fn shared_client() -> Result<reqwest::Client> {
         .map_err(|_| Error::internal())
 }
 
+/// Whether a failed request can have committed data. The HTTP method is
+/// the default signal, but the chunked-transfer phase (`export`/`import`
+/// begin, chunk, release, abort) commits nothing while still using POST or
+/// DELETE, so a caller states the semantics instead of the method being the
+/// only voice: telling an operator to replay a keyed write on a request
+/// that had neither a write nor a key is advice they cannot follow.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Semantics {
+    /// A read: no durable write can exist.
+    Read,
+    /// A transfer-phase request: allocates or moves bytes, commits nothing.
+    Transfer,
+    /// A write: a timeout leaves the outcome genuinely in doubt.
+    Write,
+}
+
+impl From<&reqwest::Method> for Semantics {
+    fn from(method: &reqwest::Method) -> Self {
+        if method.is_safe() {
+            Semantics::Read
+        } else {
+            Semantics::Write
+        }
+    }
+}
+
+/// What a failed transport attempt may mean. A read committed nothing, and
+/// neither did a transfer-phase request — the remedy there is the transfer
+/// itself, not a replay.
+fn transport_failure(semantics: Semantics) -> Error {
+    match semantics {
+        Semantics::Read => Error::new(
+            503,
+            "transport_unavailable",
+            "transport failed; the gateway is unavailable",
+        ),
+        Semantics::Transfer => Error::new(
+            503,
+            "transport_unavailable",
+            "transfer interrupted; begin the transfer again",
+        ),
+        Semantics::Write => Error::new(
+            502,
+            "outcome_unknown",
+            "transport failed; writes may have committed, replay only with the same idempotency key within its retention window",
+        ),
+    }
+}
+
 pub async fn request(
     server: &str,
     key: &str,
@@ -72,6 +121,22 @@ pub async fn request(
     path: &str,
     body: Option<Value>,
     idempotency: Option<&str>,
+) -> Result<Value> {
+    let semantics = Semantics::from(&method);
+    request_with_semantics(server, key, method, path, body, idempotency, semantics).await
+}
+
+/// Same as [`request`], with the write semantics stated by the caller: the
+/// transfer-phase callers pass [`Semantics::Transfer`] so a timeout is not
+/// reported as a possible committed write.
+pub async fn request_with_semantics(
+    server: &str,
+    key: &str,
+    method: reqwest::Method,
+    path: &str,
+    body: Option<Value>,
+    idempotency: Option<&str>,
+    semantics: Semantics,
 ) -> Result<Value> {
     let url = reqwest::Url::parse(server).map_err(|_| Error::invalid())?;
     let loopback = url
@@ -101,10 +166,9 @@ pub async fn request(
     // HTTPS too, and disabling it here prevents ambient proxy variables from
     // receiving bearer credentials or redirecting authenticated requests.
     let client = shared_client()?;
-    // A read cannot have committed anything, so only a non-safe method
-    // leaves the write outcome genuinely in doubt. Mirror the TS client and
-    // branch on the method: reads report transport/response failures plainly.
-    let read_only = method.is_safe();
+    // Only a write leaves its outcome genuinely in doubt. A read committed
+    // nothing, and so did a transfer-phase request; mirror the TS client.
+    let may_write = matches!(semantics, Semantics::Write);
     let mut req = client
         .request(method, url.join(path).map_err(|_| Error::invalid())?)
         .bearer_auth(key);
@@ -114,7 +178,7 @@ pub async fn request(
     if let Some(key) = idempotency {
         req = req.header("Idempotency-Key", key);
     }
-    let response=req.send().await.map_err(|_|if read_only {Error::new(503,"transport_unavailable","transport failed; the gateway is unavailable")} else {Error::new(502,"outcome_unknown","transport failed; writes may have committed, replay only with the same idempotency key within its retention window")})?;
+    let response=req.send().await.map_err(|_|transport_failure(semantics))?;
     let status = response.status();
     // A bounded read protects CLI memory even when pointed at a bad endpoint.
     let response_limit = if path.ends_with("/export") {
