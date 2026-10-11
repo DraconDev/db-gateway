@@ -460,7 +460,10 @@ fn gateway_target(server: &str) -> Option<GatewayTarget> {
         return None;
     }
     let host = url.host_str()?;
-    let port = url.port().unwrap_or(80);
+    // An unspecified port is not a target this process may bind: the implied
+    // :80 fails EACCES for any non-root operator, and the child then dies
+    // behind a message about diagnosing rather than about the port.
+    let port = url.port()?;
     let bind = if host.trim_matches(['[', ']']).eq_ignore_ascii_case("localhost") {
         "127.0.0.1".to_string()
     } else {

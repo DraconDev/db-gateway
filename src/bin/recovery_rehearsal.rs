@@ -119,8 +119,13 @@ impl LocalObjectStore {
             }
             Fault::CorruptObject => {
                 let mut corrupt = bytes;
-                let index = corrupt.len() / 2;
-                corrupt[index] ^= 0x01;
+                // A 0-byte snapshot has no byte to flip, and that absence is
+                // the integrity failure this drill records — not a panic.
+                // Same guard the CrashDuringShipping branch above carries.
+                let Some(byte) = corrupt.get_mut(corrupt.len() / 2) else {
+                    return Err(self.fail("checksum_or_integrity_failure"));
+                };
+                *byte ^= 0x01;
                 self.write_atomic(&self.object_path(), &corrupt)?;
                 fs::write(self.checksum_path(), format!("{expected}\n"))
                     .map_err(|error| error.to_string())?;
