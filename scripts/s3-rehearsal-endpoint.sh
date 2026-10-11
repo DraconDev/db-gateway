@@ -169,6 +169,22 @@ EOF
     mkdir -p "$STATE_DIR/data" "$STATE_DIR/log"
     echo "$$" > "$STATE_DIR/owner.pid"
     audit start
+    # Register an EXIT trap that reaps any spawned child if start() aborts
+    # before reaching the happy path. Without it, a missing gofakes3, a
+    # make_cert failure, or a dead child caught by kill -0 would leave
+    # gofakes3 and the proxy orphaned with their ports held and their PIDs
+    # written into STATE_DIR/pids -- the next caller cannot tell which pid
+    # file is live.
+    _start_cleanup() {
+        trap - EXIT
+        if [ -f "$STATE_DIR/pids" ]; then
+            while IFS= read -r pid; do
+                [ -n "$pid" ] || continue
+                kill "$pid" 2>/dev/null || true
+            done < "$STATE_DIR/pids"
+        fi
+    }
+    trap _start_cleanup EXIT
     if ! make_cert; then
         echo "could not create a TLS certificate for the rehearsal endpoint" >&2
         exit 1
@@ -255,6 +271,10 @@ sys.exit(0 if s.connect_ex(('127.0.0.1',$PROXY_PORT))==0 else 1)" 2>/dev/null &&
     cat <<EOF
 DG_SANDBOX_BUCKET=$BUCKET
 EOF
+    # Disarm the startup cleanup trap: the children are now expected to live
+    # until the operator runs `stop`. Without the disarm, every successful
+    # `start` would also kill its own children when this function returns.
+    trap - EXIT
     emit_exports
 }
 
