@@ -69,3 +69,20 @@ Constants decision (proposal Phase 3): keep `ACQUIRE_TIMEOUT` 500 ms,
 absorbs a 12-thread burst with p99 well inside the timeout and zero shed;
 C shows no read contention at all. No measurement here argues for a change;
 re-derive only after micro2 (1 GiB, fewer CPUs) numbers exist.
+
+## Validity (added 2026-10-11)
+
+Nothing above is a universal throughput ceiling. Every figure is a
+single-run measurement of one workload (the phase table) on one host
+(16 CPUs, 31 GiB build host, unloaded, debug or release as noted) under
+one durability configuration — and durability is the expensive half of
+these numbers:
+
+- `journal_mode=WAL`, `synchronous=FULL` (`src/execution.rs`, `src/store.rs`);
+- every request runs in one managed transaction and a write is
+  acknowledged only after commit; a failed statement rolls back the
+  whole request (`docs/api.md` Write semantics).
+
+Change the host, the concurrency shape, or any durability setting and
+the rates and latencies change with them. Reproduce or re-derive on the
+target host before quoting a number as a limit.
