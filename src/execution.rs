@@ -1036,4 +1036,61 @@ mod tests {
         )
         .unwrap();
     }
+
+    #[test]
+    fn execute_detailed_reports_replayed_on_idempotency_hit() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.sqlite");
+        initialize(&path).unwrap();
+        let s = |sql: &str| Statement {
+            sql: sql.into(),
+            args: vec![],
+        };
+        execute(
+            &path,
+            &[s("CREATE TABLE replay_det (v INTEGER)")],
+            true,
+            false,
+            "owner",
+            None,
+        )
+        .unwrap();
+        // Fresh write: replayed is false, payload carries rows_affected.
+        let fresh = execute_detailed(
+            &path,
+            &[s("INSERT INTO replay_det VALUES (1)")],
+            false,
+            false,
+            "owner",
+            Some("replay-det-1"),
+        )
+        .unwrap();
+        assert_eq!(fresh.replayed, false);
+        assert_eq!(fresh.value["rows_affected"], 1);
+        // Same key + same body: replayed is true and the value is the cached
+        // JSON; nothing ran in this request.
+        let replay = execute_detailed(
+            &path,
+            &[s("INSERT INTO replay_det VALUES (1)")],
+            false,
+            false,
+            "owner",
+            Some("replay-det-1"),
+        )
+        .unwrap();
+        assert_eq!(replay.replayed, true);
+        assert_eq!(replay.value, fresh.value);
+        // A non-keyed write reports replayed = false (no cache lookup).
+        let unkeyed = execute_detailed(
+            &path,
+            &[s("INSERT INTO replay_det VALUES (2)")],
+            false,
+            false,
+            "owner",
+            None,
+        )
+        .unwrap();
+        assert_eq!(unkeyed.replayed, false);
+        assert_eq!(unkeyed.value["rows_affected"], 1);
+    }
 }
