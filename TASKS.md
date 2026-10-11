@@ -150,7 +150,7 @@ Done when: clones/exports remain consistent during writes, failed operations do 
 
 ## 7. Integrate OVH-backed recovery
 
-- [ ] Verify the OVH bucket's S3 compatibility, region/endpoint, credentials, and pricing relevant to backups.
+- [ ] Verify the OVH bucket's S3 compatibility, region/endpoint, credentials, and pricing relevant to backups. (Blocked 2026-10-11: no OVH credentials or test bucket in this environment — OVH/AWS/OS credential vars all unset, and docs/ovh-sandbox-runbook.md requires an owner-provisioned test bucket, key pair, and console region; no live verification attempted. Unblocks when the owner provisions runbook prerequisites.)
 - [ ] Select and pin a backup tool/version, evaluating Litestream before considering custom backup code.
 - [ ] Automate per-database backup registration with distinct destinations; verify supported configuration/reload behaviour.
 - [ ] Define retention, credential permissions, encryption requirements, and behaviour when the bucket is unavailable.
