@@ -181,6 +181,10 @@ test('tunnel command is loopback-only and lifecycle is injectable', async () => 
   assert.match(ipv6Bare.args[5], /^127\.0\.0\.1:17432:\[::1\]:7432$/);
   const ipv6Bracketed = tunnelCommand({ target: 'owner@host', localPort: 17432, remotePort: 7432, remoteHost: '[::1]' });
   assert.match(ipv6Bracketed.args[5], /^127\.0\.0\.1:17432:\[::1\]:7432$/);
+  // Identity file with a leading dash would be parsed by ssh as a flag, not
+  // a path; reject up front rather than surfacing a confusing ssh error.
+  assert.throws(() => tunnelCommand({ target: 'owner@host', localPort: 17432, remotePort: 7432, identityFile: '-X' }), /identity file/);
+  assert.throws(() => tunnelCommand({ target: 'owner@host', localPort: 17432, remotePort: 7432, identityFile: '' }), /identity file/);
   const child = new EventEmitter();
   child.pid = 123; child.exitCode = null; child.signalCode = null;
   const signals = [];

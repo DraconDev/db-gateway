@@ -43,6 +43,7 @@ export function tunnelCommand(options: TunnelOptions): TunnelProcess {
   const remotePort = options.remotePort ?? 7432;
   if (!Number.isInteger(remotePort) || remotePort < 1 || remotePort > 65535) throw new Error('Invalid tunnel remote port');
   if (options.sshPort !== undefined && (!Number.isInteger(options.sshPort) || options.sshPort < 1 || options.sshPort > 65535)) throw new Error('Invalid tunnel SSH port');
+  if (options.identityFile !== undefined && (options.identityFile.length === 0 || options.identityFile.startsWith('-'))) throw new Error('Tunnel identity file must be a non-empty path that does not start with a dash');
   // OpenSSH's -L forward spec requires IPv6 remotes to be wrapped in brackets
   // (e.g. `[::1]:7432`); an unbracketed `::1` produces 5 colons in the spec
   // and the forward parser refuses to interpret it. Bracket on the way out
