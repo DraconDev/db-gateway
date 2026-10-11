@@ -13,7 +13,7 @@ OVH S3 endpoint, with gateway exports and validated imports retained as the
 manual fallback. It is not adopted until the sandbox proves WAL contention, required
 S3 operations, restore correctness, retention behavior, failure visibility,
 registry coverage, encryption, and 1 GiB headroom. The first supervised
-micro2 deploy did not install a backup sidecar and does not authorize one.
+micro2 deploy did not install a backup sidecar and does not authorize one. Rationale (2026-10-11): Litestream v0.5.17 was evaluated before any custom backup code because WAL-level replication with independently measurable restore drills is what a hand-rolled copier would have to re-prove; no custom backup code was written — continuous replication is Litestream's job pending the adoption gates above, and point snapshots are the gateway's own export path via scripts/micro2-backup.sh.
 
 The minimum adoption packet is: pinned binary/version output; redacted config
 shape and least-privilege credential scope; passing operation/restore/
