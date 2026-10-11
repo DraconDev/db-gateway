@@ -465,6 +465,9 @@ fn every_credential_gets_its_exact_code_on_every_route() {
         "database_forbidden",
     );
     check(
+        // Clone is owner-only now (owner decision 2026-10-10): a scoped app
+        // key can neither squat a destination name nor burn registry slots,
+        // so the exact code is the owner gate, not a success.
         "rw_a clone ka",
         req(
             a,
@@ -474,8 +477,8 @@ fn every_credential_gets_its_exact_code_on_every_route() {
             &json!({"destination":"kc_yes"}),
             None,
         ),
-        200,
-        "-",
+        403,
+        "forbidden",
     );
     // Import is owner-only (need export bytes first).
     let (_, exp) = req(
