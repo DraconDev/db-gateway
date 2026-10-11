@@ -301,7 +301,7 @@ class Handler(BaseHTTPRequestHandler):
         return self.reply(404, {"error": {"code": "not_found", "message": path}})
 
 server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-print(json.dumps({"fields": {"address": "127.0.0.1:%d" % server.server_address[1]}}), flush=True)
+print(json.dumps({"fields": {"address": "127.0.0.1:%d" % server.server_address[1]}}, separators=(",", ":")), flush=True)
 server.serve_forever()
 "#;
 
