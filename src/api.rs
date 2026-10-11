@@ -333,16 +333,11 @@ async fn remove(
 ) -> Result<Json<Value>> {
     work(store, headers, move |s, p| {
         p.owner()?;
+        // Admission proves the row exists first: queue() allocates on first
+        // sight, so a name no registry row carries would pin state forever.
+        s.path(&name)?;
         let _guard = s.acquire_queue(&name, true)?;
-        let previous_write = s.last_write(&name);
-        s.begin_write(&name)?;
-        let result = s.delete(&name, RETENTION_SECS);
-        if result.is_ok() {
-            s.finish_write(&name);
-        } else {
-            s.cancel_write(&name, previous_write);
-        }
-        result?;
+        s.fenced_write(&name, |s| s.delete(&name, RETENTION_SECS))?;
         Ok(Json(
             json!({"deleted":true,"purge_after_seconds":RETENTION_SECS}),
         ))
@@ -374,15 +369,9 @@ async fn clone_route(
         // Owner-only, matching create and import (owner decision 2026-10-10).
         p.owner()?;
         let _guard = s.acquire_queue(&body.destination, true)?;
-        let previous_write = s.last_write(&body.destination);
-        s.begin_write(&body.destination)?;
-        let result = s.clone_database(&name, &body.destination);
-        if result.is_ok() {
-            s.finish_write(&body.destination);
-        } else {
-            s.cancel_write(&body.destination, previous_write);
-        }
-        result?;
+        s.fenced_write(&body.destination, |s| {
+            s.clone_database(&name, &body.destination)
+        })?;
         Ok(Json(json!({"source":name,"destination":body.destination})))
     })
     .await
@@ -444,15 +433,7 @@ async fn import(
         let temp = s.import_staging(&body.name)?;
         std::fs::write(temp.path(), &bytes).map_err(|_| Error::internal())?;
         let _guard = s.acquire_queue(&body.name, true)?;
-        let previous_write = s.last_write(&body.name);
-        s.begin_write(&body.name)?;
-        let result = s.import_from(&body.name, temp.path());
-        if result.is_ok() {
-            s.finish_write(&body.name);
-        } else {
-            s.cancel_write(&body.name, previous_write);
-        }
-        result?;
+        s.fenced_write(&body.name, |s| s.import_from(&body.name, temp.path()))?;
         Ok(Json(json!({"imported":body.name,"from":name})))
     })
     .await
@@ -605,15 +586,7 @@ async fn upload_commit(
     work(store, headers, move |s, p| {
         p.owner()?;
         let _guard = s.acquire_queue(&body.name, true)?;
-        let previous_write = s.last_write(&body.name);
-        s.begin_write(&body.name)?;
-        let result = s.upload_commit(&id, &body.name);
-        if result.is_ok() {
-            s.finish_write(&body.name);
-        } else {
-            s.cancel_write(&body.name, previous_write);
-        }
-        result?;
+        s.fenced_write(&body.name, |s| s.upload_commit(&id, &body.name))?;
         Ok(Json(json!({"imported": body.name})))
     })
     .await
