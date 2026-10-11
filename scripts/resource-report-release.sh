@@ -237,6 +237,21 @@ SQLITE_CACHE_CEILING_KIB=$(( (READ_PERMITS + WRITE_PERMITS) * CACHE_PER_CONN_KIB
 # the binding term.
 PAGE_CACHE_DELTA_KIB=$(( OS_HOT_CACHED - OS_COLD_CACHED ))
 
+# Constrained-run annotation: when the harness runs inside a kernel-enforced
+# memory scope (e.g. systemd-run --user --scope -p MemoryMax=1G), export
+# DG_CONSTRAINED_RUN=1 (plus DG_CPU_QUOTA for the record) and the report
+# carries the enforcement fact, so a constrained packet is distinguishable
+# from a dev-host baseline. Unset by default; the stock report gains only a
+# null memory_constraint key when it is.
+MEMORY_CONSTRAINT_JSON="null"
+CONSTRAINED_LIMITATION_LINE=""
+if [ -n "${DG_CONSTRAINED_RUN:-}" ]; then
+    SCOPE_CGROUP="$(sed -n 's/^0:://p' /proc/self/cgroup 2>/dev/null || true)"
+    SCOPE_MEM_MAX="$(cat "/sys/fs/cgroup${SCOPE_CGROUP}/memory.max" 2>/dev/null || echo unknown)"
+    MEMORY_CONSTRAINT_JSON="$(python3 -c 'import json,sys; print(json.dumps({"enforced": True, "scope_cgroup": sys.argv[1], "memory_max": sys.argv[2], "cpu_quota": sys.argv[3]}))' "$SCOPE_CGROUP" "$SCOPE_MEM_MAX" "${DG_CPU_QUOTA:-unknown}")"
+    CONSTRAINED_LIMITATION_LINE='        "Gateway workload ran under a kernel-enforced memory ceiling (see memory_constraint); host page-cache terms and CPU count still reflect the dev host.",'
+fi
+
 # Sidecar ceiling: item 2 from the rehearsal packet, committed and
 # recomputable. Pulled from the packet-facts output so a reader does
 # not have to re-derive; the source path is recorded so a future run
@@ -313,6 +328,7 @@ report = {
         "data_dir_page_cache_delta": $PAGE_CACHE_DELTA_KIB,
     },
     "sqlite_cache_ceiling_kib": $SQLITE_CACHE_CEILING_KIB,
+    "memory_constraint": $MEMORY_CONSTRAINT_JSON,
     "sidecar_peak_kib": {
         "replication": $SIDECAR_PEAK_REPLICATION_KIB,
         "restore": $SIDECAR_PEAK_RESTORE_KIB,
@@ -334,6 +350,7 @@ report = {
         "Single run, not a statistical sample; rerun to compare, not to certify.",
         "Item 2 (sidecar) is sourced from the rehearsal packet, not re-measured here. Re-run scripts/sandbox-s3-gates.sh on a new packet to update the sidecar row.",
         "Item 4 (target-host burst under capacity-reject regime) and item 5 (disk growth projection) are not in scope; the supervised micro2 run is the right place to record them.",
+$CONSTRAINED_LIMITATION_LINE
     ],
     "budget_note": "This report is one input to the MemoryMax value, not a claim of fit. A 1 GB fit claim requires the supervised micro2 run with the same workload and the same page-cache methodology; the suggested_memory_max_kib field is a starting ceiling, not a number the host has run under.",
 }
