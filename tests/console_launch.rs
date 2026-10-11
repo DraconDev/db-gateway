@@ -328,3 +328,150 @@ fn unstartable_gateway_fails_actionably() {
         "stderr: {stderr}"
     );
 }
+
+/// A hostname `--server` used to skip the auto-start leg entirely — the
+/// target parse accepted only IP literals — so `dg web` printed "ready" with
+/// nothing serving behind the console. The companion must also be handed the
+/// literal this process actually bound: `localhost` may resolve to `::1`,
+/// which a 127.0.0.1 listener never answers.
+#[test]
+fn console_launch_hostname_server_autostarts_and_rewrites_origin() {
+    if !node_available() {
+        eprintln!(
+            "skipping console_launch_hostname_server_autostarts_and_rewrites_origin: node not on PATH"
+        );
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let stub = write_stub(dir.path());
+    let port = free_port();
+    let gateway_port = free_port();
+    let key_path = dir.path().join("unread.key");
+    let data_dir = dir.path().join("auto-data");
+    let mut child = dg()
+        .args([
+            "web",
+            "--port",
+            &port.to_string(),
+            "--key-file",
+            key_path.to_str().unwrap(),
+            "--entry",
+            stub.to_str().unwrap(),
+            "--server",
+            &format!("http://localhost:{gateway_port}"),
+            "--data-dir",
+            data_dir.to_str().unwrap(),
+        ])
+        .env_remove("DG_CONSOLE_HOST")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let stdout = child.stdout.take().unwrap();
+    let (ready_tx, ready_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if line.contains("dg web ready:") {
+                let _ = ready_tx.send(line);
+                return;
+            }
+        }
+    });
+    let ready = ready_rx
+        .recv_timeout(Duration::from_secs(30))
+        .expect("dg web printed its ready line");
+    assert!(
+        ready.contains(&format!("http://127.0.0.1:{port}")),
+        "ready line: {ready}"
+    );
+
+    // A real gateway was auto-started on the bound literal.
+    let live = reqwest::blocking::get(format!("http://127.0.0.1:{gateway_port}/health/live"))
+        .unwrap();
+    assert_eq!(live.status(), 200);
+
+    let record: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.path().join("env.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        record["DG_SERVER"],
+        format!("http://127.0.0.1:{gateway_port}"),
+        "companion must talk to the literal the auto-started gateway bound"
+    );
+
+    sigterm_and_wait(child);
+    assert!(
+        port_closed(port),
+        "companion port must be closed after supervised shutdown"
+    );
+    assert!(
+        port_closed(gateway_port),
+        "auto-started gateway port must be closed after supervised shutdown"
+    );
+}
+
+/// A port-less `--server` used to imply `:80` in the auto-start leg, which
+/// fails EACCES for any non-root operator behind a "run `dg serve` manually"
+/// message that never names the port. An unspecified port is not a target
+/// this process may bind, so the companion reports the server directly.
+#[test]
+fn web_with_portless_server_binds_nothing_privileged() {
+    if !node_available() {
+        eprintln!("skipping web_with_portless_server_binds_nothing_privileged: node not on PATH");
+        return;
+    }
+    if unsafe { libc::geteuid() } == 0 {
+        eprintln!("skipping web_with_portless_server_binds_nothing_privileged: running as root");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let stub = write_stub(dir.path());
+    let port = free_port();
+    let key_path = dir.path().join("unread.key");
+    let data_dir = dir.path().join("unused-data");
+    let mut child = dg()
+        .args([
+            "web",
+            "--port",
+            &port.to_string(),
+            "--key-file",
+            key_path.to_str().unwrap(),
+            "--entry",
+            stub.to_str().unwrap(),
+            "--server",
+            "http://127.0.0.1",
+            "--data-dir",
+            data_dir.to_str().unwrap(),
+        ])
+        .env_remove("DG_CONSOLE_HOST")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let stdout = child.stdout.take().unwrap();
+    let (ready_tx, ready_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if line.contains("dg web ready:") {
+                let _ = ready_tx.send(line);
+                return;
+            }
+        }
+    });
+    // The old :80 attempt aborted the launch before any companion existed.
+    ready_rx
+        .recv_timeout(Duration::from_secs(30))
+        .expect("dg web printed its ready line");
+    let record: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.path().join("env.json")).unwrap())
+            .unwrap();
+    assert_eq!(record["DG_SERVER"], "http://127.0.0.1");
+    assert!(
+        !data_dir.exists() || std::fs::read_dir(&data_dir).unwrap().next().is_none(),
+        "no gateway may be auto-started for a port-less server"
+    );
+    sigterm_and_wait(child);
+    assert!(port_closed(port));
+}
