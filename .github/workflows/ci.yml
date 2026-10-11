@@ -45,6 +45,14 @@ jobs:
       - run: node web/scripts/web-console-security-check.mjs
       - run: node web/scripts/web-console-smoke.mjs
       - run: node scripts/dg-web-smoke.mjs
+      # `systemd-analyze verify` is half the deploy-template gate; the other
+      # half (placeholder substitution, MemoryMax, etc.) is in the script
+      # itself. ubuntu-latest does not ship systemd-analyze by default, so
+      # install it here so the script can run its full check; without this
+      # the script logs a 'systemd-analyze not available; skipped' line and
+      # the gate prints OK on a partial verification.
+      - name: Install systemd-analyze for the deploy-template gate
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq systemd
       - run: ./scripts/validate-deploy.sh
       - run: python3 scripts/check_plan_consistency.py docs/personal-turso-megaplan.md
   audit:
