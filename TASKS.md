@@ -183,7 +183,7 @@ Done when: the installed service survives restart and can be recovered using the
 
 ## 10. Migrate from Turso safely
 
-- [ ] Inventory databases, schemas, clients, ongoing writers, and any libSQL-specific features.
+- [x] Inventory databases, schemas, clients, ongoing writers, and any libSQL-specific features. (docs/migration-inventory.md: 11-row risk table + per-source fillable template covering DBs, schemas, writers/readers, credentials, libSQL-only features; honestly empty pending source survey; cutover stages in docs/migration-cutover.md)
 - [ ] Export and validate databases while existing access remains available.
 - [ ] Pilot one development database and then one low-risk application.
 - [ ] Plan each production cutover with a write freeze/final export or another verified consistency mechanism; avoid accidental dual writers.
