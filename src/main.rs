@@ -123,13 +123,17 @@ enum Command {
     /// The key is also announced on stderr, since stdout alone is easy to lose
     /// to terminal scrollback.
     Init {
+        /// Data directory to generate the owner credential for.
         #[arg(long)]
         data_dir: PathBuf,
     },
     /// Run the authenticated server (loopback only; remote access via SSH tunnel).
     Serve {
+        /// Loopback address to bind, e.g. 127.0.0.1:7432. Remote access
+        /// rides an SSH tunnel; public binds are refused.
         #[arg(long, default_value = "127.0.0.1:7432")]
         listen: SocketAddr,
+        /// Directory holding the registry and database files.
         #[arg(long, default_value = "state/dg")]
         data_dir: PathBuf,
         /// Versioned backup-set root for `/v1/backups` visibility. Defaults
@@ -162,20 +166,37 @@ enum Command {
     /// List database names visible to the credential (owner sees all).
     List,
     /// Create an empty database.
-    Create { name: String },
+    Create {
+        /// Name for the new database: lowercase letters, digits, and `_`,
+        /// at most 64 chars, never starting with `_`.
+        name: String,
+    },
     /// Show size, tables, creation time, and tombstone state of a database.
-    Info { name: String },
+    Info {
+        /// Database to describe.
+        name: String,
+    },
     /// Clone a database into a new one via the SQLite backup API.
-    Clone { source: String, destination: String },
+    Clone {
+        /// Existing database to copy from.
+        source: String,
+        /// Name for the new copy; must not exist yet.
+        destination: String,
+    },
     /// Snapshot a database to a local .sqlite file (owner/app key).
     Export {
+        /// Database to snapshot.
         name: String,
+        /// Local .sqlite path to write. An existing file is refused and the
+        /// download is published atomically.
         #[arg(long, required = true)]
         out: PathBuf,
     },
     /// Import a local .sqlite file as a new database (owner key only).
     Import {
+        /// Name for the imported database; must not exist yet.
         name: String,
+        /// Regular .sqlite file to upload; 128 MiB ceiling.
         #[arg(long, required = true)]
         from: PathBuf,
     },
@@ -189,20 +210,33 @@ enum Command {
     /// Interactive SQL session over the HTTP API (piped stdin works too).
     /// An optional database name preselects it, like `turso db shell <name>`;
     /// `use <db>` inside still switches.
-    Shell { name: Option<String> },
+    Shell {
+        /// Database to preselect, like `turso db shell <name>`. Inside the
+        /// session `use <db>` still switches.
+        name: Option<String>,
+    },
     /// Execute one SQL statement and print the result rows.
     Query {
+        /// Database to run the statement against.
         name: String,
+        /// One SQL statement to execute.
         sql: String,
+        /// JSON array of bind parameters, e.g. '[7,"a"]'. Defaults to [].
         #[arg(long, default_value = "[]")]
         args: String,
+        /// Replay key: a retry with the same key and identical body returns
+        /// the stored first response instead of re-running the statement.
         #[arg(long)]
         idempotency_key: Option<String>,
     },
     /// Execute an atomic JSON batch from a file. The file is read whole and is capped at 64 KiB.
     Batch {
+        /// Database to run the batch against.
         name: String,
+        /// Batch file: {"statements":[{"sql":"...","args":[]}]}.
         file: PathBuf,
+        /// Replay key: a retry with the same key and identical body returns
+        /// the stored first response instead of re-running the batch.
         #[arg(long)]
         idempotency_key: Option<String>,
     },
@@ -244,9 +278,12 @@ enum KeyCommand {
     List,
     /// Create a scoped credential; prints the raw key once.
     Create {
+        /// Name for the new credential.
         name: String,
+        /// Access level: database_read_only or database_read_write.
         #[arg(long,value_parser=["database_read_only","database_read_write"])]
         role: String,
+        /// Database this key may reach (repeatable; at least one).
         #[arg(long, required = true)]
         database: Vec<String>,
     },
@@ -1254,7 +1291,13 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             #[cfg(not(unix))]
             let file = std::fs::File::open(&from).map_err(|_| Application(Error::invalid()))?;
             let metadata = file.metadata().map_err(|_| Application(Error::invalid()))?;
-            if !metadata.is_file() || metadata.len() > dg::store::MAX_TRANSFER_SIZE {
+            // A directory, FIFO, or device is a bad path, not a size problem.
+            // Folding the type check into the 413 below answered "too large"
+            // for input the sibling `dg batch` path calls invalid.
+            if !metadata.is_file() {
+                return Err(Application(Error::invalid()));
+            }
+            if metadata.len() > dg::store::MAX_TRANSFER_SIZE {
                 return Err(Application(Error::new(
                     413,
                     "result_limit_exceeded",
@@ -1587,7 +1630,12 @@ async fn main() -> ExitCode {
     match run(cli).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            tracing::error!(code=error.code(),message=%error,"command failed");
+            // One `message` key, always: the event message keeps the name and
+            // the error's own Display rides a `detail` field. The previous
+            // `message=%error` field collided with the event's message key,
+            // so a JSON log consumer kept whichever came last and silently
+            // lost the other half.
+            tracing::error!(code=error.code(), detail=%error, "command failed");
             ExitCode::FAILURE
         }
     }
