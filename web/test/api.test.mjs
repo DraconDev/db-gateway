@@ -191,10 +191,57 @@ test('tunnel command is loopback-only and lifecycle is injectable', async () => 
   child.kill = (signal) => { signals.push(signal); if (signal === 'SIGKILL') { child.exitCode = null; child.signalCode = signal; child.emit('exit', null, signal); } return true; };
   await stopTunnel(child, 5);
   assert.deepEqual(signals, ['SIGTERM', 'SIGKILL']);
-  assert.equal(typeof startTunnel, 'function');
+  // startTunnel is the only place that spawns ssh: assert the stdio shape and
+  // that a stderr reader is attached (an undrained pipe deadlocks a chatty
+  // ssh) instead of merely re-proving the import resolved.
+  const stderr = new EventEmitter();
+  const spawned = [];
+  const tunnelChild = startTunnel({ target: 'owner@host', localPort: 17432 }, (command, args, options) => {
+    spawned.push({ command, args, options });
+    return { pid: 789, exitCode: null, signalCode: null, stderr, once() {}, kill() { return true; } };
+  });
+  assert.deepEqual(spawned[0].options.stdio, ['ignore', 'ignore', 'pipe']);
+  assert.equal(spawned[0].command, 'ssh');
+  assert.equal(tunnelChild.stderr, stderr);
+  assert.equal(stderr.listenerCount('data'), 1);
 });
 
-test('server security check rejects public source patterns', async () => {
+test('config maps the managed-tunnel environment onto the tunnel options', async () => {
+  const old = { ...process.env };
+  try {
+    const dir = await mkdtemp(join(tmpdir(), 'dg-web-credential-'));
+    const file = join(dir, 'owner.key');
+    await writeFile(file, key + '\n');
+    await chmod(file, 0o600);
+    process.env.DG_CONSOLE_HOST = '127.0.0.1';
+    process.env.DG_CONSOLE_PORT = '8787';
+    process.env.DG_KEY_FILE = file;
+    process.env.DG_SSH_TARGET = 'Owner@Example.COM';
+    process.env.DG_SSH_LOCAL_PORT = '17432';
+    process.env.DG_SSH_PORT = '2222';
+    process.env.DG_SSH_IDENTITY_FILE = '/tmp/id_ed25519';
+    const config = configFromEnv();
+    // A configured tunnel re-points the gateway at the local forward and
+    // maps each DG_SSH_* variable onto its option -- the third fix in this
+    // path, so the happy path needs a guard of its own.
+    assert.equal(config.gatewayUrl, 'http://127.0.0.1:17432');
+    assert.equal(config.keyFile, file);
+    assert.deepEqual(config.tunnel, {
+      target: 'Owner@Example.COM',
+      localPort: 17432,
+      remoteHost: '127.0.0.1',
+      remotePort: 7432,
+      sshPort: 2222,
+      identityFile: '/tmp/id_ed25519',
+      command: undefined,
+    });
+    await rm(dir, { recursive: true, force: true });
+  } finally {
+    process.env = old;
+  }
+});
+
+test('server security check keeps the origin/CSP gates present', async () => {
   const source = await readFile(new URL('../src/server.ts', import.meta.url), 'utf8');
   assert.match(source, /trustedOrigin/);
   assert.match(source, /content-security-policy/);
