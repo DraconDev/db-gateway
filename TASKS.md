@@ -174,7 +174,7 @@ Done when: bounded test results and known limitations are recorded, including re
 
 - [x] Verify host architecture, persistent disk, available resources, and network approach before selecting release artifacts. (Supervised micro2 evidence is recorded in `docs/first-deploy-micro2.md`; long-term resource growth remains open.)
 - [x] Package reproducible installation/configuration for the gateway and backup component. (scripts/setup.sh release+locked build; scripts/release-bundle.sh pinned Ubuntu-24.04-amd64 builder by digest with SHA-256 checksums; tests/release_bundle.rs re-run green 2026-10-11: 4 passed, 0 failed, 1 ignored)
-- [ ] Run under a dedicated non-root service account with restart policy, graceful shutdown, and resource limits.
+- [x] Run under a dedicated non-root service account with restart policy, graceful shutdown, and resource limits. (deploy/dg.service: templated dedicated User/Group + NoNewPrivileges/ProtectSystem-strict, Restart=on-failure RestartSec=5s, MemoryMax=96M with measured justification; graceful SIGTERM/SIGINT via axum with_graceful_shutdown src/lib.rs:138,360; scripts/validate-deploy.sh re-run green 2026-10-11 incl. systemd-analyze verify clean)
 - [x] Configure HTTPS or private access, protected secrets, and restricted listening interfaces. (The supervised deployment uses loopback-only listening plus the accepted SSH tunnel; `/etc/dg/owner.key` is `0600`. No in-gateway TLS was added.)
 - [ ] Document upgrades, rollback, monitoring, and full host replacement/restore.
 - [x] With explicit deployment approval, run a non-production smoke test and restore drill on micro2. (`docs/first-deploy-micro2.md` and `docs/first-deploy-micro2-evidence.log`; this does not authorize future live changes.)
