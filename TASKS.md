@@ -183,7 +183,7 @@ Done when: the installed service survives restart and can be recovered using the
 
 ## 10. Migrate from Turso safely
 
-- [x] Inventory databases, schemas, clients, ongoing writers, and any libSQL-specific features. (docs/migration-inventory.md: 11-row risk table + dated 2026-10-11 source survey of ~/.turso, /home/dracon/Dev tree, and repo refs — found zero Turso sources/clients/features; per-source template + cutover gate retained for when a source appears)
+- [ ] Inventory databases, schemas, clients, ongoing writers, and any libSQL-specific features. (REVERTED 2026-10-11 x2: found-none survey used too-narrow patterns and missed dracon-platform libsql/Turso artifacts. Wide bare-word survey in progress.)
 - [ ] Export and validate databases while existing access remains available.
 - [ ] Pilot one development database and then one low-risk application.
 - [ ] Plan each production cutover with a write freeze/final export or another verified consistency mechanism; avoid accidental dual writers.
