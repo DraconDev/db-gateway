@@ -29,6 +29,94 @@ evidence).
    paths and how it will adopt gateway retry/idempotency behavior (risks
    7/8 in the inventory).
 
+## Per-production cutover plan
+
+The generic Stages 1–6 below are run **once per production source**, in
+sequence (Source A → Source B → Source C), with each cutover completing
+its full lifecycle — including the soak — before the next begins. The
+sources named in `docs/migration-inventory.md` § Source survey
+(2026-10-11) are:
+
+| # | Source | Writers to freeze | Gateway target | Status |
+|---|---|---|---|---|
+| A | `email-api` database (`TURSO_EMAIL_URL` / `TURSO_EMAIL_TOKEN`) | `email-api` handlers via `api_core::db::SharedDb` + `ConnectionSupervisor` (state.rs:166) | (unassigned) | inventory complete; remote sizes/rows UNVERIFIED |
+| B | `studio-api` database (`STUDIO_API_DB_URL` / `STUDIO_API_DB_TOKEN`) | `studio-api` handlers via SharedDb + supervisor (state.rs:145) **and** a dedicated poller with its own `poller_database` / `poller_conn` (state.rs:680) | (unassigned) | inventory complete; remote sizes/rows UNVERIFIED |
+| C | `billing` databases (`dracon-billing`, `dracon-billing-dev`) | `billing-api` handlers via SharedDb + supervisor (state.rs:592); one-shot `migrate-turso-omega-cleanup.py` is not an ongoing writer | (unassigned) | inventory complete; remote sizes/rows UNVERIFIED |
+
+The pilot source from Stage 1 is selected from these three. Each
+subsequent production cutover repeats Stages 2–6 with the named source's
+freeze mechanism and application set; a soak failure or rollback in one
+source blocks the next.
+
+## Per-source freeze mechanism (avoiding accidental dual writers)
+
+The dual-writer risk is concrete: every production source uses
+`api_core::db::ConnectionSupervisor` (a tokio task that probes the lane
+every 5 s and rebuilds a dead Hrana stream against the same Turso URL —
+see `apis/libs/api-core/src/db.rs:1214-1255`). While the application
+process is up, the supervisor will keep the Turso connection warm and
+reconnect after any failure, so a "freeze" that does not stop the
+process is not a freeze. There is no per-writer kill switch and no
+in-process drain — the only safe mechanism is **process-level
+freeze + env-var swap before restart**, repeated per source:
+
+### Source A — email-api
+
+1. **Freeze:** stop the `email-api` service (`systemctl stop email-api`
+   or equivalent). Confirm: zero `email-api` processes, zero open
+   Hrana streams to `TURSO_EMAIL_URL` from this host (Turso-side check
+   — mechanism UNVERIFIED until the inventory UNVERIFIEDs resolve).
+2. **Cutover gateway-side** per Stages 3–5 below; credentials in
+   `/etc/email-api/dg.env` (or its current home) are rewritten to
+   point at the gateway, the original Turso env vars are retained
+   untouched on a rollback path.
+3. **Dual-writer avoidance:** the supervisor cannot resume a Turso
+   connection because the process is stopped; the new env vars cause a
+   gateway-side connection on next start. No envelope-window where
+   both targets are reachable from a running writer.
+4. **Confirmation before GATE 2:** `ps` shows no `email-api`;
+   `ss -tn` from this host to `TURSO_EMAIL_URL` port returns zero
+   established connections attributable to `email-api`.
+
+### Source B — studio-api (two writers)
+
+1. **Freeze:** stop the `studio-api` service. This kills BOTH the
+   handler SharedDb supervisor (state.rs:145) AND the dedicated poller
+   (state.rs:680) — they are independent connection pools and the
+   poller does not share the supervisor's lane, so "stopping the
+   handlers" alone is not sufficient.
+2. **Confirm:** zero `studio-api` processes, zero established Hrana
+   streams to `STUDIO_API_DB_URL` from this host, no poller
+   `tokio::task` running. Turso-side check mechanism UNVERIFIED.
+3. **Cutover gateway-side** per Stages 3–5 below; credentials swap
+   identically.
+4. **Dual-writer avoidance:** process-level freeze removes both
+   writers; gateway env vars point a single SharedDb + a single
+   replacement poller at the gateway on next start.
+5. **Confirmation before GATE 2:** same as Source A plus a
+   `ps -L -p $(pgrep studio-api)` (must be empty) and a 60 s wait to
+   confirm the poller is not respawned by a cron entry.
+
+### Source C — billing-api
+
+1. **Freeze:** stop the `billing-api` service. The one-shot
+   `migrate-turso-omega-cleanup.py` script is not an ongoing writer
+   and does not need a freeze of its own — confirm it is not
+   currently running (`pgrep -f migrate-turso-omega-cleanup.py`
+   empty) before proceeding.
+2. **Confirm:** zero `billing-api` processes, zero established Hrana
+   streams to `TURSO_BILLING_URL` from this host, no `migrate-` script
+   running. Turso-side check mechanism UNVERIFIED.
+3. **Cutover gateway-side** per Stages 3–5 below.
+4. **Dual-writer avoidance:** identical — process-level freeze and
+   env-var swap.
+5. **Confirmation before GATE 2:** same shape.
+
+The pattern is uniform on purpose: **stop → confirm zero writers →
+swap env vars → restart only after GATE 2**. A partial cutover
+(swap env vars without stopping) is the dual-writer scenario this
+section is here to prevent.
+
 ## Stages
 
 ### Stage 1 — Pilot selection (reversible)
@@ -88,6 +176,141 @@ in gate 8 of `docs/deployment-readiness.md`). Decommission the Turso copy —
 and consider any subscription change — only when the soak criterion (stage
 1) is met for every database, and only with separate explicit approval:
 subscription changes are never implicit in a cutover.
+
+## Post-cutover verification (soak-period checks)
+
+The four areas named in TASKS.md:190 — schemas, row counts/data,
+application behaviour, backup coverage — must all pass at every checkpoint
+below, per source, before that source is considered cutover-complete. The
+soak duration itself is owner-decision-bound (gate 8 of
+`docs/deployment-readiness.md`); the checks below define what "passing the
+soak" means, not how long the soak runs.
+
+**Checkpoints.** Three repeatable checkpoints, per source:
+
+- **C1 — At soak start** (immediately after GATE 3 for the source):
+  baseline the four areas against the Turso export set retained on the
+  rollback floor.
+- **C2 — Daily during soak**: drift checks; the same comparisons re-run
+  to catch silent regressions, schema drift, or backup-side issues
+  before the soak ends.
+- **C3 — At soak end** (before GATE 3 → decommission): the final
+  pass-or-fail record that the soak criterion was met for the source.
+
+A failed check at any checkpoint pauses that source's soak: the cutover
+is not considered complete, GATE 3 is not crossed, and the rollback
+conditions below apply. The Turso copy stays authoritative through the
+soak.
+
+### A. Schema verification (per source, per checkpoint)
+
+Run against the gateway database, comparing to the migration artifact
+from Stage 3:
+
+- DDL matches: per-table `CREATE TABLE` (columns, types, defaults, NOT
+  NULL, CHECK, COLLATE) is byte-identical to the migration artifact;
+  index definitions match the inventory's pre-cutover list.
+- Foreign keys present: every FK from the inventory's pre-cutover list
+  exists on the gateway side; `SELECT count(*) FROM
+  pragma_foreign_key_check` returns `0`.
+- No unexpected `_dg_*` tables: only the canonical `_dg_replay` (when
+  used) and `_dg_*` protection tables; any other `_dg_*` match is an
+  incident.
+- `PRAGMA integrity_check` returns exactly `ok` (re-used from
+  `docs/recovery-contract.md` §4).
+
+Pass criterion: every line above matches the migration artifact;
+integrity_check is `ok`.
+
+### B. Row counts and data verification (per source, per checkpoint)
+
+Turso is still live during the soak; comparisons run against the
+rollback-floor export set (C1) and against an on-demand re-export (C2,
+C3) so the comparison target does not move under the gateway.
+
+- Per-table row counts: gateway `SELECT count(*) FROM <t>` matches the
+  Turso export set for every table in the inventory.
+- Spot-check queries: a curated set of representative SELECTs (covering
+  joins, aggregates, ordering, NULL handling, BLOB columns) returns
+  byte-identical results, including BLOB hex encoding and NULL vs empty
+  string — counts alone are insufficient (re-used from
+  `docs/recovery-contract.md` §4 application-data checks).
+- Drift threshold: C2 daily re-runs accept zero row-count drift; a
+  one-row drift that maps to a documented, expected application write
+  is acceptable only when reconciled in the soak log.
+- Sample of recently-written rows: a writer path known to be live (per
+  the inventory's per-source writer list) produces rows that match
+  application expectations on the gateway.
+
+Pass criterion: all counts and spot-checks match; drift reconciled or
+zero; sample rows match application expectations.
+
+### C. Application behaviour verification (per source, per checkpoint)
+
+The application set is the per-source set named in the Per-production
+cutover plan above (email-api, studio-api, billing-api):
+
+- Application smoke checks pass: the per-app smoke set recorded in the
+  inventory's per-source notes returns 200/expected for every request
+  in the set; the per-app comparison to the pre-cutover Turso
+  baseline (decision 8) shows no regressions.
+- Retry behaviour: 429/408 responses are handled per the gateway
+  contract (`docs/api.md`); no unbounded client-side retry loops
+  appear in the application logs.
+- Idempotency-Key adoption: writers required to use
+  `Idempotency-Key` (per risk 8 in the inventory) send it on every
+  qualifying write; replay under the same key returns the same result
+  (covered by `tests/replay_deep.rs`).
+- Error profile: zero 5xx responses attributable to the gateway on the
+  request path during the soak; 4xx responses are within the
+  documented envelope.
+- Latency budget: p50/p99 latency stays within the agreed budget
+  against the Turso baseline from the inventory; the budget is the
+  owner's, not implicit.
+
+Pass criterion: smoke checks pass; retry/idempotency behaviour matches
+the contract; zero unexpected 5xx; latency within budget.
+
+### D. Backup coverage (per source, before C1 closes, re-checked at C2 and C3)
+
+Backup coverage is a precondition for the next production cutover, so
+it must be live by C1 of the current source's soak — not at the end of
+all soaks.
+
+- Backup set inclusion: `dg backup status` lists the new gateway
+  database; the backup root's manifest contains the source name (per
+  the inventory); no `_dg_replay` shadow matches.
+- First verified snapshot: a verified snapshot exists within the
+  agreed cadence (decision 8) — verified meaning checksum + integrity
+  + FK + protected-table + application-data checks all pass on a
+  separate target, as defined by `docs/recovery-contract.md` §4.
+- Restore drill: one restore drill is run on the first verified
+  snapshot of the source, into a separate target (registry-restored
+  path or fresh-registry path), and the §4 checks all pass.
+- Freshness signal: the observability contract's backup-freshness
+  signal (`docs/observability-contract.md` §2) reports `fresh` for
+  the source, not `stale` or `unknown`; a failed-attempt notice fires
+  on the first failed attempt (§3a).
+- Recovery rehearsal equivalence: the source's per-cutover backup
+  behaviour matches the recovery contract's `Pass` criteria.
+
+Pass criterion: set inclusion confirmed; first verified snapshot
+exists; one restore drill passes §4; freshness signal is `fresh`;
+alert delivery confirmed (one test failure-and-notice during the
+soak, or explicit dry-run).
+
+### E. Soak exit (per source)
+
+A source's soak is complete when every check in A–D has passed at C1,
+C2 (every day), and C3 for that source. The source's GATE 3 is
+crossed only after this record exists; the next source's cutover
+(per the per-production plan) starts only after the prior source's
+GATE 3.
+
+The full cutover lifecycle is complete when every source's GATE 3
+has been crossed; Turso decommission and any subscription change
+follow the Stage 6 conditions above and remain a separate explicit
+owner approval.
 
 ## Rollback conditions
 
