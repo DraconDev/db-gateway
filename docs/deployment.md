@@ -64,6 +64,13 @@ placeholders for future/repeated deployments.
 - **Loopback listening**: the template defaults to `127.0.0.1:7432`, and the
   server itself rejects non-loopback `--listen` before authentication exists
   (`dg serve --help` documents the option; `validate_listen` enforces it).
+- **HTTPS / private transport**: `dg serve` performs no TLS itself because it
+  only listens on loopback. The web console client only accepts a loopback
+  HTTP origin (web/src/api.ts `GatewayApi` constructor), and the Rust client
+  requires HTTPS for any non-loopback endpoint (src/client.rs endpoint
+  validation). Remote exposure must therefore terminate TLS at a reverse
+  proxy on a private network; plaintext over a non-loopback network is
+  refused by the clients, not a supported configuration.
 - **Dedicated unprivileged execution**: `User=`/`Group=` plus
   `NoNewPrivileges=true`, `ProtectSystem=strict`, `ProtectHome=true`.
 - **Persistent data ownership**: the data dir is the working directory and

@@ -124,7 +124,7 @@ Done when: query, rollback, contention, cancellation, and bounded-result tests p
 - [x] Enforce database isolation and read-only permissions using SQLite authorization/connection controls, not SQL prefix checks.
 - [x] Restrict SQL features that could escape the database scope or change server-owned settings, including attachment, extension loading, and filesystem operations.
 - [x] Expose query, transaction, management, and health APIs with consistent error responses.
-- [ ] Keep secrets and sensitive SQL values out of logs; document HTTPS/private-network deployment requirements.
+- [x] Keep secrets and sensitive SQL values out of logs; document HTTPS/private-network deployment requirements.
 
 Done when: positive and negative authorization tests pass, including cross-database denial, revoked keys, and management operations denied to app credentials.
 
