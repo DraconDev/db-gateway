@@ -1,0 +1,2 @@
+# seeded hot with 4000 rows; load1=102.9
+# baseline: cold 981/981 ok, 0x429 0other 0transport, p50=106.78 p99=318.85 load 102.9->108.7
