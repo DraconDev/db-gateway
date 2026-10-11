@@ -662,7 +662,8 @@ impl Store {
 
     /// Record a successful mutation for legacy store-level callers. New API
     /// mutations use `begin_write` before the write and `finish_write` after.
-    pub fn note_write(&self, name: &str) -> Result<()> {
+    #[cfg(test)]
+    pub fn note_write_legacy(&self, name: &str) -> Result<()> {
         self.begin_write(name)?;
         self.finish_write(name);
         Ok(())
@@ -2358,7 +2359,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(dir.path()).unwrap();
         store.create("db").unwrap();
-        store.note_write("db").unwrap();
+        store.note_write_legacy("db").unwrap();
         let before = store.last_write("db").unwrap();
         drop(store);
 
