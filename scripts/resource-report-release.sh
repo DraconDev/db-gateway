@@ -328,7 +328,7 @@ report = {
         "data_dir_page_cache_delta": $PAGE_CACHE_DELTA_KIB,
     },
     "sqlite_cache_ceiling_kib": $SQLITE_CACHE_CEILING_KIB,
-    "memory_constraint": $MEMORY_CONSTRAINT_JSON,
+    "memory_constraint": json.loads('$MEMORY_CONSTRAINT_JSON'),
     "sidecar_peak_kib": {
         "replication": $SIDECAR_PEAK_REPLICATION_KIB,
         "restore": $SIDECAR_PEAK_RESTORE_KIB,
