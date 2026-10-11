@@ -316,7 +316,7 @@ fn every_wall_accepts_at_the_line_and_rejects_past_it() {
     let (_, cnt) = q("b09", &json!({"sql": "SELECT count(*) FROM t"}));
     assert_eq!(cnt["rows"], json!([[0]]), "rejected batch leaked rows");
     let (status, list) = post(a, &owner, "/v1/databases", &json!({}));
-    let _ = (status, list);
+    assert_eq!(status, 400, "empty create must be rejected: {list}");
     let listed: Vec<String> = reqwest::blocking::Client::new()
         .get(format!("http://{a}/v1/databases"))
         .bearer_auth(&owner)

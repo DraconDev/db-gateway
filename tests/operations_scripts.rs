@@ -179,8 +179,14 @@ exit 2
     panic!("restore drill left server process {pid} running");
 }
 
+/// The rehearsal's contract is behavioral, and the string assertions this
+/// replaces could pass with the checks deleted from the commands they name.
+/// A real run against a faithful fake proves the PASS path; a fake that
+/// drops the rollback generation's row must turn the same run nonzero.
+/// `--fail-with-body` is additionally pinned by the string assertions so a
+/// silently-ignored HTTP 500 cannot pass for a success.
 #[test]
-fn script_uses_fail_with_body_and_asserts_generation() {
+fn upgrade_rehearsal_passes_on_a_faithful_binary_and_fails_on_a_lost_generation() {
     let script = fs::read_to_string("scripts/upgrade-rehearsal.sh").unwrap();
     assert!(script.contains("--fail-with-body"));
     assert!(script.contains("rows[-1][0] == \"rollback-gen\""));
@@ -188,7 +194,116 @@ fn script_uses_fail_with_body_and_asserts_generation() {
         script.matches("rollback-generation write intact").count(),
         2
     );
+
+    let dir = tempdir();
+    let fake = dir.path().join("dg");
+    fs::write(&fake, FAKE_DG).unwrap();
+    fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+    let faithful = Command::new("bash")
+        .args([
+            "scripts/upgrade-rehearsal.sh",
+            fake.to_str().unwrap(),
+            fake.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run upgrade rehearsal");
+    assert!(
+        faithful.status.success(),
+        "faithful rehearsal failed:\n{}\n{}",
+        String::from_utf8_lossy(&faithful.stdout),
+        String::from_utf8_lossy(&faithful.stderr)
+    );
+    assert!(String::from_utf8_lossy(&faithful.stdout).contains("UPGRADE REHEARSAL PASS"));
+
+    // Same binary, minus the rollback generation's row: the rehearsal must
+    // exit nonzero instead of printing its PASS line.
+    let regressed = Command::new("bash")
+        .args([
+            "scripts/upgrade-rehearsal.sh",
+            fake.to_str().unwrap(),
+            fake.to_str().unwrap(),
+        ])
+        .env("FAKE_DROP_LAST_GEN", "1")
+        .output()
+        .expect("run regressed upgrade rehearsal");
+    assert!(
+        !regressed.status.success(),
+        "lost rollback generation passed the rehearsal:\n{}",
+        String::from_utf8_lossy(&regressed.stdout)
+    );
+    assert!(
+        String::from_utf8_lossy(&regressed.stderr).contains("AssertionError"),
+        "failure must come from the generation assertion: {}",
+        String::from_utf8_lossy(&regressed.stderr)
+    );
 }
+
+/// Fake `dg` for the rehearsal: a real SQLite-backed server over the exact
+/// route subset the script drives, with one optional fault — drop the final
+/// `%-gen` row from the SELECT that proves the rollback generation survived.
+const FAKE_DG: &str = r#"#!/usr/bin/env python3
+import json, os, sqlite3, sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+if sys.argv[1:2] == ["init"]:
+    print(json.dumps({"owner_key": "a" * 64}))
+    sys.exit(0)
+if sys.argv[1:2] != ["serve"]:
+    sys.exit(2)
+data_dir = sys.argv[sys.argv.index("--data-dir") + 1]
+db_path = os.path.join(data_dir, "up.sqlite")
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def reply(self, status, payload):
+        body = json.dumps(payload).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
+        path = self.path
+        if path == "/v1/databases":
+            return self.reply(200, {"name": body.get("name")})
+        if path.endswith("/query"):
+            sql = body.get("sql", "")
+            conn = sqlite3.connect(db_path)
+            try:
+                cursor = conn.execute(sql, body.get("args") or [])
+                if cursor.description is None:
+                    conn.commit()
+                    return self.reply(200, {"columns": [], "rows": [], "rows_affected": cursor.rowcount})
+                rows = [list(row) for row in cursor.fetchall()]
+                columns = [column[0] for column in cursor.description]
+                if os.environ.get("FAKE_DROP_LAST_GEN") and "%-gen" in sql and rows:
+                    rows = rows[:-1]
+                return self.reply(200, {"columns": columns, "rows": rows})
+            finally:
+                conn.close()
+        if path.endswith("/batch"):
+            conn = sqlite3.connect(db_path)
+            try:
+                results = []
+                for statement in body.get("statements", []):
+                    cursor = conn.execute(statement.get("sql", ""), statement.get("args") or [])
+                    results.append({"columns": [], "rows": [], "rows_affected": cursor.rowcount})
+                conn.commit()
+                return self.reply(200, {"results": results})
+            finally:
+                conn.close()
+        if path.endswith("/export"):
+            return self.reply(200, {"sha256": "0" * 64, "data_base64": "", "size": 0})
+        return self.reply(404, {"error": {"code": "not_found", "message": path}})
+
+server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+print(json.dumps({"fields": {"address": "127.0.0.1:%d" % server.server_address[1]}}), flush=True)
+server.serve_forever()
+"#;
 
 #[test]
 fn soak_readiness_wait_is_bounded() {
