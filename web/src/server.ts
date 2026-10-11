@@ -97,7 +97,10 @@ export function configFromEnv(): ConsoleConfig {
     command: env('DG_SSH_COMMAND') || undefined,
   } : undefined;
   const gatewayUrl = env('DG_SERVER', tunnel ? `http://127.0.0.1:${localPort}` : 'http://127.0.0.1:7432');
-  const keyFile = env('DG_KEY_FILE', join(process.env.HOME ?? '', '.config/dg/key'));
+  // An unset HOME must leave the default empty so the guard below
+  // fires: join('', '.config/dg/key') is the non-empty *relative* path
+  // '.config/dg/key', which silently reads a key from the launch directory.
+  const keyFile = env('DG_KEY_FILE') || (process.env.HOME ? join(process.env.HOME, '.config/dg/key') : '');
   if (!keyFile) throw new Error('DG_KEY_FILE is required');
   return { host, port, gatewayUrl, keyFile, tunnel };
 }
@@ -158,7 +161,10 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
         const [healthR, statusR, backupsR, namesR, keysR] = await Promise.allSettled([api.health(), api.status(), api.backups(), api.list(), api.keys()]);
         const health = healthR.status === 'fulfilled' ? healthR.value : { status: 'unavailable' };
         const status: Record<string, unknown> = statusR.status === 'fulfilled' ? statusR.value as unknown as Record<string, unknown> : {};
-        const backups = backupsR.status === 'fulfilled' ? backupsR.value : { backup_root: null, stale_after_secs: 0, sets: [], per_database: {} };
+        // The discriminator matters: an empty per_database with no marker
+        // renders as "clean", the one reading an unreachable backup root
+        // must never produce.
+        const backups = backupsR.status === 'fulfilled' ? backupsR.value : { backup_root: null, stale_after_secs: 0, sets: [], per_database: {}, unavailable: true };
         const names = namesR.status === 'fulfilled' ? namesR.value : [];
         const keys = keysR.status === 'fulfilled' ? keysR.value : [];
         const value = {
@@ -303,7 +309,6 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
       }
     }
   });
-  if (!isLoopback(config.host)) throw new Error('Console host must be loopback');
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(config.port, config.host, resolve); });
   return {
     server,

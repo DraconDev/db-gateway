@@ -60,12 +60,33 @@ export function tunnelCommand(options: TunnelOptions): TunnelProcess {
   return { command, args };
 }
 
+// ssh's own diagnostics are the only artifact that names *why* a forward
+// failed, and an undrained pipe is also a deadlock: once ssh writes past the
+// OS buffer it blocks in write(2) and the forward never binds. Drain it and
+// keep a bounded tail for the failure message.
+const STDERR_TAILS = new WeakMap<ChildProcess, string>();
+
+/// Bounded tail of a tunnel child's stderr, trimmed for a status message.
+export function stderrTail(child: ChildProcess | undefined): string {
+  if (!child) return '';
+  return (STDERR_TAILS.get(child) ?? '').trim();
+}
+
 export function startTunnel(options: TunnelOptions, spawnLike: SpawnLike = spawn): ChildProcess {
   const process = tunnelCommand(options);
   const child = spawnLike(process.command, process.args, { stdio: ['ignore', 'ignore', 'pipe'] });
   // Prevent an unhandled EventEmitter error if a caller uses startTunnel
   // directly. TunnelController installs its own listener immediately after.
   child.once('error', () => undefined);
+  const stderr = child.stderr;
+  if (stderr) {
+    let tail = '';
+    stderr.on('data', (chunk: Buffer | string) => {
+      tail = (tail + chunk.toString()).slice(-4096);
+      STDERR_TAILS.set(child, tail);
+    });
+    stderr.on('error', () => undefined);
+  }
   return child;
 }
 
@@ -132,7 +153,10 @@ export class TunnelController {
         void this.stop().then(() => {
           if (this.state === 'stopped') {
             this.state = 'failed';
-            this.error = 'tunnel did not accept connections';
+            // ssh's stderr names the reason (key refused, host unknown,
+            // forward failure); without it the operator only learns that a
+            // port never opened.
+            this.error = stderrTail(child) || 'tunnel did not accept connections';
           }
         });
         return;
@@ -163,7 +187,7 @@ export class TunnelController {
         if (this.child !== child) return;
         this.child = undefined;
         if (this.state !== 'stopping') this.state = code === 0 ? 'stopped' : 'failed';
-        if (code !== 0 && this.state === 'failed') this.error = `ssh exited (${code ?? signal ?? 'unknown'})`;
+        if (code !== 0 && this.state === 'failed') this.error = stderrTail(child) || `ssh exited (${code ?? signal ?? 'unknown'})`;
       });
     } catch (error) {
       this.state = 'failed';
