@@ -309,7 +309,17 @@ $('refresh').addEventListener('click', refresh);
 document.querySelectorAll('nav [data-view]').forEach((button) => button.addEventListener('click', () => navigate(button.dataset.view)));
 $('create-open').addEventListener('click', () => { navigate('databases'); $('new-db').focus(); });
 $('detail-back').addEventListener('click', () => navigate('databases'));
-document.querySelectorAll('[role="tab"]').forEach((tab) => tab.addEventListener('click', () => { if (selectedDatabase) navigate('detail', selectedDatabase, tab.dataset.tab); }));
+document.querySelectorAll('[role="tab"]').forEach((tab) => tab.addEventListener('click', () => {
+  if (!selectedDatabase) return;
+  // Apply tab selection and panel visibility synchronously. The hash update
+  // below only reaches showView through the asynchronous `hashchange`
+  // event, so without this the clicked tab keeps aria-selected=false until
+  // that event lands — visible to keyboard and screen-reader users, and a
+  // race for anything that reads the state right after the click.
+  detailTab = tab.dataset.tab;
+  showView({ view: 'detail', tab: detailTab });
+  navigate('detail', selectedDatabase, detailTab);
+}));
 window.addEventListener('hashchange', () => { const route = parseHash(); showView(route); if (route.view === 'detail' && route.name && route.name !== selectedDatabase) void selectDatabase(route.name, route.tab); else if (route.view === 'detail' && route.name) { detailTab = route.tab; if (detailCache) renderDetail(detailCache, route.tab); } });
 $('grid-table').addEventListener('change', () => { gridState = { table: $('grid-table').value || null, offset: 0, hasMore: false }; void loadGridPage(); });
 $('grid-prev').addEventListener('click', () => { gridState.offset = Math.max(0, gridState.offset - GRID_PAGE_SIZE); void loadGridPage(); });
