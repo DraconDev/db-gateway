@@ -191,45 +191,45 @@ pub async fn request_with_semantics(
     let mut response = response;
     let mut bytes = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(|_| {
-        if read_only {
-            Error::new(502, "invalid_gateway_response", "response lost; the gateway response was interrupted")
+        if may_write {
+            Error::new(502, "outcome_unknown", "response lost; write outcome unknown")
         } else {
             Error::new(
                 502,
-                "outcome_unknown",
-                "response lost; write outcome unknown",
+                "invalid_gateway_response",
+                "response lost; the gateway response was interrupted",
             )
         }
     })? {
         if bytes.len() + chunk.len() > response_limit {
-            return Err(if read_only {
-                Error::new(
-                    502,
-                    "invalid_gateway_response",
-                    "response too large; the gateway response exceeded the configured limit",
-                )
-            } else {
+            return Err(if may_write {
                 Error::new(
                     502,
                     "outcome_unknown",
                     "response too large; write outcome unknown",
+                )
+            } else {
+                Error::new(
+                    502,
+                    "invalid_gateway_response",
+                    "response too large; the gateway response exceeded the configured limit",
                 )
             });
         }
         bytes.extend_from_slice(&chunk);
     }
     let value: Value = serde_json::from_slice(&bytes).map_err(|_| {
-        if read_only {
-            Error::new(
-                502,
-                "invalid_gateway_response",
-                "invalid response; the gateway returned invalid JSON",
-            )
-        } else {
+        if may_write {
             Error::new(
                 502,
                 "outcome_unknown",
                 "invalid response; write outcome unknown",
+            )
+        } else {
+            Error::new(
+                502,
+                "invalid_gateway_response",
+                "invalid response; the gateway returned invalid JSON",
             )
         }
     })?;
