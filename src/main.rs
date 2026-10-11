@@ -437,20 +437,48 @@ fn is_loopback_host(host: &str) -> bool {
         && parts[1..].iter().all(|octet| octet.parse::<u8>().is_ok())
 }
 
-/// Loopback-http gateway target (`host:port`) we may auto-start a server
-/// on. Anything else (https, non-loopback, unparsable) is left to the
-/// companion to report; this process never spawns remote listeners.
-fn gateway_target(server: &str) -> Option<String> {
+/// Loopback-http gateway this process may auto-start a server on: the
+/// `host:port` to bind and probe, plus the origin the companion should use.
+/// Anything else (https, non-loopback, unparsable) is left to the companion
+/// to report; this process never spawns remote listeners.
+///
+/// `localhost` is accepted the way `is_loopback_host` accepts it, but is
+/// bound as its `127.0.0.1` literal: the auto-start needs an address this
+/// process can bind and connect, and a hostname may resolve to `::1`, which
+/// a 127.0.0.1 listener never answers.
+struct GatewayTarget {
+    /// `host:port` to bind and probe.
+    bind: String,
+    /// Origin the companion talks to: the original when it was already a
+    /// literal, otherwise the `127.0.0.1` form actually bound.
+    origin: String,
+}
+
+fn gateway_target(server: &str) -> Option<GatewayTarget> {
     let url = reqwest::Url::parse(server).ok()?;
     if url.scheme() != "http" || url.path() != "/" {
         return None;
     }
     let host = url.host_str()?;
-    let ip: std::net::IpAddr = host.trim_matches(['[', ']']).parse().ok()?;
-    if !ip.is_loopback() {
-        return None;
-    }
-    Some(authority(host, url.port().unwrap_or(80)))
+    let port = url.port().unwrap_or(80);
+    let bind = if host.trim_matches(['[', ']']).eq_ignore_ascii_case("localhost") {
+        "127.0.0.1".to_string()
+    } else {
+        let ip: std::net::IpAddr = host.trim_matches(['[', ']']).parse().ok()?;
+        if !ip.is_loopback() {
+            return None;
+        }
+        host.to_string()
+    };
+    let origin = if bind == host {
+        server.to_string()
+    } else {
+        format!("http://127.0.0.1:{port}")
+    };
+    Some(GatewayTarget {
+        bind: authority(&bind, port),
+        origin,
+    })
 }
 
 /// Wait until `target` accepts TCP connections, the child exits, or the
@@ -486,28 +514,30 @@ async fn wait_for_listener(
 
 /// Auto-serve leg of `dg web`: when the loopback gateway is unreachable,
 /// start `dg serve` on it (this same executable) and wait for readiness.
-/// Returns the supervised child, or `None` when a gateway is already up
-/// or the target is not auto-startable.
+/// Returns the supervised child plus the origin the companion must use,
+/// which is `Some` only when a hostname server was rewritten to the literal
+/// this process bound. No child and no rewrite mean a gateway is already
+/// up or the target is not auto-startable.
 async fn ensure_gateway(
     server: &str,
     data_dir: &Path,
-) -> Result<Option<tokio::process::Child>, dg::error::Error> {
+) -> Result<(Option<tokio::process::Child>, Option<String>), dg::error::Error> {
     use dg::error::Error;
     let Some(target) = gateway_target(server) else {
-        return Ok(None);
+        return Ok((None, None));
     };
-    if tokio::net::TcpStream::connect(&target).await.is_ok() {
-        return Ok(None);
+    if tokio::net::TcpStream::connect(&target.bind).await.is_ok() {
+        return Ok((None, None));
     }
     let exe = std::env::current_exe().map_err(|_| Error::internal())?;
     let mut child = tokio::process::Command::new(exe)
-        .args(["serve", "--listen", &target, "--data-dir"])
+        .args(["serve", "--listen", &target.bind, "--data-dir"])
         .arg(data_dir)
         .stdin(std::process::Stdio::null())
         .spawn()
         .map_err(|_| Error::internal())?;
     wait_for_listener(
-        &target,
+        &target.bind,
         &mut child,
         Duration::from_secs(15),
         "auto-started gateway",
@@ -517,10 +547,12 @@ async fn ensure_gateway(
     )
     .await?;
     eprintln!(
-        "dg web: no gateway at {server}; started local gateway on {target} (data dir {})",
+        "dg web: no gateway at {server}; started local gateway on {} (data dir {})",
+        target.bind,
         data_dir.display()
     );
-    Ok(Some(child))
+    let origin = (target.origin != server).then_some(target.origin);
+    Ok((Some(child), origin))
 }
 
 /// Start the workstation console companion, print its loopback URL once
@@ -557,7 +589,12 @@ async fn run_console(
         ));
     }
     let entry = console_entry(entry)?;
-    let mut gateway = ensure_gateway(server, &data_dir).await?;
+    // `gateway_origin` is Some only when a hostname --server was rewritten
+    // to the literal this process bound: the companion then talks to
+    // exactly the auto-started listener instead of racing `localhost`'s
+    // possible ::1 answer.
+    let (mut gateway, gateway_origin) = ensure_gateway(server, &data_dir).await?;
+    let server = gateway_origin.as_deref().unwrap_or(server);
     // Past this point every exit path must stop the auto-started gateway:
     // tokio's Child has no kill_on_drop, so an early `?` orphans a `dg serve`
     // that keeps holding the data dir and the port. This is most reachable
