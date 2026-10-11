@@ -445,3 +445,51 @@ fn status_reports_per_database_usage_since_boot() {
     // Untouched databases stay absent.
     assert!(after.get("idle").is_none());
 }
+
+fn delete(address: &str, path: &str, cred: &str) -> (u16, Value) {
+    let response = reqwest::blocking::Client::new()
+        .delete(format!("http://{address}{path}"))
+        .bearer_auth(cred)
+        .timeout(Duration::from_secs(30))
+        .send()
+        .unwrap();
+    let status = response.status().as_u16();
+    let body = response.json().unwrap_or(Value::Null);
+    (status, body)
+}
+
+#[test]
+fn failed_owner_writes_pin_no_phantom_status_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let owner = init(dir.path());
+    let server = start(dir.path(), &[]);
+    // Three ways a name gets admitted and is then never created: a delete of
+    // a name with no registry row, a clone whose source is missing, and an
+    // import whose payload fails validation. Each is refused — and none may
+    // leave the per-name admission/usage state behind for /v1/status to
+    // report as a database that never existed.
+    let (status, _) = delete(&server.address, "/v1/databases/ghost", &owner);
+    assert_eq!(status, 404);
+    let (status, _) = post(
+        &server.address,
+        "/v1/databases/nosuch/clone",
+        &owner,
+        &json!({"destination": "ghost_clone"}),
+    );
+    assert_eq!(status, 404);
+    let (status, _) = post(
+        &server.address,
+        "/v1/databases/src/import",
+        &owner,
+        &json!({"name": "ghost_import", "data_base64": "bm90IGEgc3FsaXRlIGRhdGFiYXNl"}),
+    );
+    assert_eq!(status, 400);
+    let (status, body) = get(&server.address, "/v1/status", Some(&owner));
+    assert_eq!(status, 200);
+    for ghost in ["ghost", "ghost_clone", "ghost_import"] {
+        assert!(
+            body["databases"].get(ghost).is_none(),
+            "{ghost} pinned a phantom status row: {body}"
+        );
+    }
+}

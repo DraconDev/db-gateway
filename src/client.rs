@@ -241,3 +241,29 @@ pub async fn request_with_semantics(
     }
     Ok(value)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn semantics_separate_the_transfer_phase_from_writes() {
+        // The chunked transfer phase speaks POST/DELETE but commits nothing,
+        // so the caller must be able to say so: the method alone reports a
+        // possible committed write for `dg export`, whose only correct
+        // advice is to begin the transfer again.
+        assert_eq!(Semantics::from(&reqwest::Method::GET), Semantics::Read);
+        assert_eq!(Semantics::from(&reqwest::Method::POST), Semantics::Write);
+        let transfer = transport_failure(Semantics::Transfer);
+        assert_eq!(transfer.code(), 503);
+        assert!(
+            transfer
+                .to_string()
+                .contains("begin the transfer again"),
+            "transfer failure must name the remedy: {transfer}"
+        );
+        let write = transport_failure(Semantics::Write);
+        assert_eq!(write.code(), 502);
+        assert!(write.to_string().contains("outcome_unknown"));
+    }
+}
