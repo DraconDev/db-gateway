@@ -73,7 +73,7 @@ finish() {
   COMPLETED_AT="$(date -u +%s)"
   [ -n "$OUTCOME" ] || OUTCOME="error"
   if [ -d "$BACKUP_ROOT" ]; then
-    python3 - "$BACKUP_ROOT/attempts.jsonl" "$TS" "$STARTED_AT" "$COMPLETED_AT" "$OUTCOME" "$SET" "$DB_COUNT" "$STEP" <<'PY' || true
+    if ! python3 - "$BACKUP_ROOT/attempts.jsonl" "$TS" "$STARTED_AT" "$COMPLETED_AT" "$OUTCOME" "$SET" "$DB_COUNT" "$STEP" <<'PY'
 import json
 import os
 import sys
@@ -93,6 +93,13 @@ with open(path, "a", encoding="utf-8") as stream:
     stream.flush()
     os.fsync(stream.fileno())
 PY
+    then
+      # The published set is real; a silently missing ledger line is not.
+      # A monitor reading attempts.jsonl would see no run at all, which is
+      # indistinguishable from the backup never happening -- so say it out
+      # loud, on stderr, without changing this run's exit code.
+      echo "micro2-backup: WARNING: could not append the attempts.jsonl ledger for set '${SET:-unknown}' at step '${STEP:-?}'; this run is not recorded for failure visibility" >&2
+    fi
   fi
   if [ "$PUBLISHED" -eq 0 ] && [ -n "$STAGE" ]; then
     rm -rf -- "$STAGE" || true

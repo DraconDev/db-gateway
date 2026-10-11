@@ -29,9 +29,11 @@ docs/soak-starvation-evidence.log.
 """
 
 import argparse
+import atexit
 import json
 import os
 import queue
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -109,6 +111,11 @@ def main():
         ap.error("--readiness timeout must be positive")
 
     tmp = tempfile.mkdtemp(prefix="soak-")
+    # A soak holds a complete data dir (registry + every database it created).
+    # Leaving it in /tmp after every run -- including a PASS -- fills the same
+    # small disk the evidence log lives on. atexit covers the clean exit and
+    # any assertion/transport failure alike, as in wipe_restore.py.
+    atexit.register(shutil.rmtree, tmp, True)
     init = subprocess.run(
         [args.dg_bin, "init", "--data-dir", tmp], capture_output=True, text=True
     )
