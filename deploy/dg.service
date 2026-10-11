@@ -32,12 +32,14 @@ ReadWritePaths={{DG_DATA_DIR}}
 
 # MemoryMax: release-profile ceiling, measured 2026-10-10. The binding term
 # for the gateway process is the SQLite per-connection cache ceiling
-# (READ_PERMITS=8 + WRITE_PERMITS=4 connections, each pinned to
-# PRAGMA cache_size=-2048 = 2 MiB, ceiling 12 * 2 MiB = 24 MiB), not the
-# process base RSS (release profile measured 8 MiB idle / 9 MiB loaded /
-# 13 MiB peak under a 50-way concurrent INSERT burst on the dev host, plus
-# the supervised micro2 idle-after-drill sample of 8,292 KiB). MemoryMax is
-# set 4x above that ceiling so the burst the budget exists to absorb does
+# (READ_PERMITS=8 + WRITE_PERMITS=4 query connections, each pinned to
+# PRAGMA cache_size=-2048 = 2 MiB, ceiling 12 * 2 MiB = 24 MiB) plus the
+# three metadata connections (cache_size=-1024 = 1 MiB each, ceiling
+# 3 MiB, not on the request hot path), not the process base RSS (release
+# profile measured 8 MiB idle / 9 MiB loaded / 13 MiB peak under a 50-way
+# concurrent INSERT burst on the dev host, plus the supervised micro2
+# idle-after-drill sample of 8,292 KiB). MemoryMax is set 4x above the
+# query-connection ceiling so the burst the budget exists to absorb does
 # not become an OOM kill. The sidecar (litestream) runs in its own unit
 # with its own MemoryMax; the 1 GiB host budget is the sum of this cap
 # (96 MiB) plus the sidecar cap plus the OS, all of which fits. Evidence:
