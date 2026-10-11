@@ -75,3 +75,21 @@ impl From<rusqlite::Error> for Error {
     }
 }
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A full disk surfaces as SQLITE_FULL from SQLite; the gateway must
+    /// answer with the stable storage error, not a panic or a dropped
+    /// connection. (The integration half — writer death under growth
+    /// pressure plus restart recovery — lives in tests/disk_pressure.rs.)
+    #[test]
+    fn sqlite_full_maps_to_stable_internal_error() {
+        let full = rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(13), None);
+        assert_eq!(full.sqlite_error_code(), Some(rusqlite::ErrorCode::DiskFull));
+        let mapped = Error::from(full);
+        assert_eq!(mapped.status, 500);
+        assert_eq!(mapped.code, "internal_error");
+    }
+}

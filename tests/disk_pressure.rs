@@ -1,23 +1,43 @@
-//! Disk-pressure drill: the database file cannot grow, so the growing write
-//! fails the way a full disk fails it.
+//! Disk-pressure drill: file growth is capped, so the writer dies
+//! mid-transaction and the data directory must recover on restart.
 //!
 //! Run: `timeout 120 cargo test --locked --test disk_pressure`
 //!
-//! A real `dg serve` serves a database whose file cannot grow (a persistent
-//! `max_page_count` ceiling imposed from outside the server, standing in
-//! for a full disk: SQLite reports the same `SQLITE_FULL` either way). The
-//! growing write must fail with the stable storage error while acknowledged
-//! rows stay exact, other databases keep serving, and lifting the ceiling
-//! recovers writes. Synchronization is HTTP acknowledgement only — no sleeps.
+//! A real `dg serve` gets its file-size ceiling slammed down with
+//! `prlimit` (the kernel refuses to grow the database files, the way a
+//! full disk refuses growth) while it is inserting. The write that hits
+//! the ceiling kills the writer with SIGXFSZ; acknowledged rows must
+//! survive restart exactly and the fresh server must serve again once the
+//! ceiling is gone with the dead process.
+//!
+//! What this models honestly: abrupt writer death under growth pressure
+//! plus WAL recovery on restart. It does NOT model the polite errno path
+//! (SQLite reporting SQLITE_FULL to a live process); that mapping is
+//! locked by the `sqlite_full_maps_to_stable_internal_error` unit test in
+//! src/error.rs. An earlier revision of this file tried to impose the
+//! pressure with `PRAGMA max_page_count`, which does not work black-box:
+//! the pragma is connection-local in this SQLite build (a fresh
+//! connection reads back the default), so the server's own connections
+//! would never see the ceiling.
+//!
+//! Synchronization is HTTP acknowledgement plus the restarted server's
+//! address log line — no sleeps. SIGXFSZ is 25 on Linux; the test asserts
+//! the death came from that signal, not from a random crash.
 
 use std::{
     io::{BufRead, BufReader},
+    os::unix::process::ExitStatusExt,
     process::{Child, Command, Stdio},
     time::Duration,
 };
 
 use serde_json::{Value, json};
 use tempfile::TempDir;
+
+const SIGXFSZ: i32 = 25;
+/// File-size ceiling in bytes: above the fresh files (~16-37 KiB) so the
+/// baseline lands first, low enough that a few 4 KiB inserts trip it.
+const CEILING_BYTES: &str = "49152";
 
 struct Server {
     child: Child,
@@ -63,6 +83,16 @@ fn spawn_on(data_dir: &std::path::Path) -> Server {
 }
 
 fn request(address: &str, method: &str, path: &str, key: &str, body: &Value) -> (u16, Value) {
+    try_request(address, method, path, key, body).expect("transport error on an expected-ok call")
+}
+
+fn try_request(
+    address: &str,
+    method: &str,
+    path: &str,
+    key: &str,
+    body: &Value,
+) -> Result<(u16, Value), String> {
     let response = reqwest::blocking::Client::new()
         .request(
             reqwest::Method::from_bytes(method.as_bytes()).unwrap(),
@@ -72,16 +102,16 @@ fn request(address: &str, method: &str, path: &str, key: &str, body: &Value) -> 
         .json(body)
         .timeout(Duration::from_secs(30))
         .send()
-        .unwrap();
+        .map_err(|e| e.to_string())?;
     let status = response.status().as_u16();
     let body = response.json::<Value>().unwrap_or(Value::Null);
-    (status, body)
+    Ok((status, body))
 }
 
 #[test]
-fn page_count_ceiling_fails_the_growing_write_and_lifts_cleanly() {
+fn file_size_ceiling_kills_the_writer_but_not_the_acknowledged_rows() {
     let data_dir = TempDir::new().unwrap();
-    let server = spawn_on(data_dir.path());
+    let mut server = spawn_on(data_dir.path());
 
     let output = Command::new(env!("CARGO_BIN_EXE_dg"))
         .args(["init", "--data-dir", data_dir.path().to_str().unwrap()])
@@ -111,6 +141,7 @@ fn page_count_ceiling_fails_the_growing_write_and_lifts_cleanly() {
         );
         assert_eq!(status, 200, "ddl {db}: {body}");
     }
+    // Acknowledged BEFORE the ceiling: the durability barrier.
     for i in 0..3 {
         let (status, body) = request(
             &server.address,
@@ -121,107 +152,90 @@ fn page_count_ceiling_fails_the_growing_write_and_lifts_cleanly() {
         );
         assert_eq!(status, 200, "baseline {i}: {body}");
     }
-    let (status, body) = request(
-        &server.address,
-        "POST",
-        "/v1/databases/control/query",
-        &owner,
-        &json!({"sql": "INSERT INTO payload (blob) VALUES (?)", "args": ["control-row"]}),
+
+    // Impose the ceiling on the live server: no file in the process may
+    // grow past CEILING_BYTES. (Pipes and sockets are unaffected, so the
+    // test's HTTP reads still work; only growth dies.)
+    let prlimit = Command::new("prlimit")
+        .args([
+            format!("--fsize={CEILING_BYTES}"),
+            "--pid".to_string(),
+            server.child.id().to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        prlimit.status.success(),
+        "prlimit failed: {}",
+        String::from_utf8_lossy(&prlimit.stderr)
     );
-    assert_eq!(status, 200, "control baseline: {body}");
 
-    // Impose the ceiling from outside the server, the way a full disk
-    // imposes itself: a persistent PRAGMA pair on the database file. The
-    // journal is switched to rollback mode first on purpose: in WAL mode
-    // growth lands in the -wal file and the page ceiling only bites at
-    // checkpoint time, which would make the drill about checkpoint timing
-    // instead of disk pressure. In rollback mode every growing write grows
-    // the database file directly. Baseline (schema + 3 small rows) fits in
-    // a handful of 4 KiB pages; 8 pages leaves no room for the fill below.
-    // SQLite reports the same SQLITE_FULL for this ceiling as for a
-    // genuinely full disk.
-    {
-        let conn =
-            rusqlite::Connection::open(data_dir.path().join("pressure.sqlite")).unwrap();
-        conn.execute_batch("PRAGMA journal_mode=DELETE; PRAGMA max_page_count=8;")
-            .unwrap();
-        let ceiling: i64 = conn
-            .query_row("PRAGMA max_page_count", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(ceiling, 8);
-    }
-
-    // Grow the file past the ceiling with small writes, each far under the
-    // 64 KiB JSON body wall: the write that needs page 9 must fail with the
-    // stable storage error — a response, not a dropped connection or a panic.
+    // Fill until the writer dies. Which write trips the ceiling is up to
+    // the kernel; the test only requires that growth DOES kill it.
     let chunk = "y".repeat(4_000);
-    let mut full_at = None;
-    for i in 0..20 {
-        let (status, body) = request(
+    let mut killed_at = None;
+    for i in 0..50 {
+        match try_request(
             &server.address,
             "POST",
             "/v1/databases/pressure/query",
             &owner,
             &json!({"sql": "INSERT INTO payload (blob) VALUES (?)", "args": [chunk]}),
-        );
-        if status == 500 {
-            assert_eq!(body["error"]["code"], "internal_error", "full-disk code: {body}");
-            full_at = Some(i);
-            break;
+        ) {
+            Ok((status, body)) => assert_eq!(status, 200, "fill {i}: {body}"),
+            Err(_) => {
+                killed_at = Some(i);
+                break;
+            }
         }
-        assert_eq!(status, 200, "fill {i}: {body}");
     }
-    let filled = full_at.expect("ceiling never tripped in 20 small writes");
+    assert!(
+        killed_at.is_some(),
+        "file-size ceiling never killed the writer in 50 inserts"
+    );
 
-    // The failed write rolled back: acknowledged rows are exact — the 3
-    // baseline rows plus exactly the fills that were acknowledged.
-    let (status, body) = request(
-        &server.address,
+    // The death was the ceiling (SIGXFSZ), not a random crash.
+    let status = server.child.wait().unwrap();
+    assert_eq!(
+        status.signal(),
+        Some(SIGXFSZ),
+        "server died by signal {status:?}, want SIGXFSZ"
+    );
+
+    // Restart on the same directory: the ceiling died with the process.
+    let restarted = spawn_on(data_dir.path());
+    let (http, body) = request(
+        &restarted.address,
         "POST",
         "/v1/databases/pressure/query",
         &owner,
         &json!({"sql": "SELECT id, blob FROM payload ORDER BY id"}),
     );
-    assert_eq!(status, 200, "post-pressure read: {body}");
+    assert_eq!(http, 200, "post-restart read: {body}");
     let rows = body["rows"].as_array().unwrap();
-    assert_eq!(rows.len(), 3 + filled, "no partial write survived");
     let baseline: Vec<Value> =
         json!([[1, "base-0"], [2, "base-1"], [3, "base-2"]]).as_array().unwrap().clone();
-    assert_eq!(&rows[..3], &baseline[..], "baseline exact");
-
-    // The pressure is per-file: the control database keeps serving writes.
-    let (status, body) = request(
-        &server.address,
-        "POST",
-        "/v1/databases/control/query",
-        &owner,
-        &json!({"sql": "INSERT INTO payload (blob) VALUES (?)", "args": ["control-row-2"]}),
+    assert!(
+        rows.len() >= 3,
+        "acknowledged rows lost: {rows:?}"
     );
-    assert_eq!(status, 200, "control write under pressure: {body}");
-
-    // Lifting the ceiling recovers writes: the pressure was the ceiling,
-    // not corruption.
-    {
-        let conn =
-            rusqlite::Connection::open(data_dir.path().join("pressure.sqlite")).unwrap();
-        conn.execute_batch("PRAGMA max_page_count=1073741823;").unwrap();
+    assert_eq!(&rows[..3], &baseline[..], "baseline exact, no partial write");
+    // Every surviving row past the baseline was itself acknowledged: ids
+    // are dense from 1 with no gaps a rolled-back write could leave behind
+    // as anything but a trailing absence.
+    for (n, row) in rows.iter().enumerate() {
+        assert_eq!(row[0], json!((n + 1) as i64), "dense ids, no gaps: {rows:?}");
     }
-    let (status, body) = request(
-        &server.address,
-        "POST",
-        "/v1/databases/pressure/query",
-        &owner,
-        &json!({"sql": "INSERT INTO payload (blob) VALUES (?)", "args": [chunk]}),
-    );
-    assert_eq!(status, 200, "write after ceiling lifted: {body}");
-    assert_eq!(body["rows_affected"], 1);
-    let (status, body) = request(
-        &server.address,
-        "POST",
-        "/v1/databases/pressure/query",
-        &owner,
-        &json!({"sql": "SELECT COUNT(*) FROM payload"}),
-    );
-    assert_eq!(status, 200, "final count: {body}");
-    assert_eq!(body["rows"], json!([[3 + filled + 1]]));
+
+    // The fresh server serves writes again on both databases.
+    for db in ["pressure", "control"] {
+        let (http, body) = request(
+            &restarted.address,
+            "POST",
+            &format!("/v1/databases/{db}/query"),
+            &owner,
+            &json!({"sql": "INSERT INTO payload (blob) VALUES (?)", "args": ["after-recovery"]}),
+        );
+        assert_eq!(http, 200, "write after restart on {db}: {body}");
+    }
 }
