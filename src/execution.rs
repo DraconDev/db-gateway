@@ -374,6 +374,19 @@ fn has_write_keyword(sql: &str) -> bool {
     }
     false
 }
+/// Outcome of a statement execution, with the one bit the caller needs
+/// beyond the payload: whether the response was served from the
+/// idempotency-replay cache rather than by running the statements.
+///
+/// A replay commits nothing to the database, so a caller maintaining a
+/// per-database write marker must treat it as a rolled-back request rather
+/// than a successful write. See [`execute`].
+#[derive(Debug)]
+pub struct ExecuteOutcome {
+    pub value: Value,
+    pub replayed: bool,
+}
+
 pub fn execute(
     path: &Path,
     statements: &[Statement],
@@ -382,6 +395,21 @@ pub fn execute(
     principal: &str,
     key: Option<&str>,
 ) -> Result<Value> {
+    Ok(execute_detailed(path, statements, batch, read_only, principal, key)?.value)
+}
+
+/// Same as [`execute`], but reports whether the response was a replay. A
+/// replay hit committed nothing, so a caller that fenced the request with
+/// `begin_write` must undo the fence with `cancel_write` rather than close
+/// it with `finish_write` — see `api::execute`.
+pub fn execute_detailed(
+    path: &Path,
+    statements: &[Statement],
+    batch: bool,
+    read_only: bool,
+    principal: &str,
+    key: Option<&str>,
+) -> Result<ExecuteOutcome> {
     if statements.is_empty() || statements.len() > 32 {
         return Err(Error::invalid());
     }
@@ -450,7 +478,7 @@ pub fn execute(
                 let value: Value =
                     serde_json::from_str(&result).map_err(|_| Error::internal())?;
                 tx.commit()?;
-                return Ok(value);
+                return Ok(ExecuteOutcome { value, replayed: true });
             }
             Err(rusqlite::Error::QueryReturnedNoRows) => {}
             Err(error) => return Err(error.into()),
@@ -494,7 +522,7 @@ pub fn execute(
         )?;
     }
     tx.commit()?;
-    Ok(result)
+    Ok(ExecuteOutcome { value: result, replayed: false })
 }
 
 #[cfg(test)]

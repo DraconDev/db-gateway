@@ -657,7 +657,7 @@ async fn execute(
         if !read {
             s.begin_write(&name)?;
         }
-        let result = crate::execution::execute(
+        let result = crate::execution::execute_detailed(
             &path,
             &statements,
             batch,
@@ -665,16 +665,26 @@ async fn execute(
             &p.hash,
             key.as_deref(),
         );
-        if !read && result.is_ok() {
-            s.finish_write(&name);
-        } else if !read {
-            s.cancel_write(&name, previous_write);
+        if !read {
+            // A successful replay committed nothing to the database: the
+            // cached value came back from a previous request's transaction.
+            // Closing the fence with finish_write would push the freshness
+            // marker forward to now on every replay, muting the stale-backup
+            // digest for a database whose real write predates the newest
+            // backup. Restore the pre-request marker instead, the same as a
+            // rolled-back mutation.
+            let committed = result.as_ref().is_ok_and(|outcome| !outcome.replayed);
+            if committed {
+                s.finish_write(&name);
+            } else {
+                s.cancel_write(&name, previous_write);
+            }
         }
-        if let Ok(value) = result.as_ref() {
-            let (rows_read, rows_written) = execution_usage(value);
+        if let Ok(outcome) = result.as_ref() {
+            let (rows_read, rows_written) = execution_usage(&outcome.value);
             s.metrics.record_usage(&name, rows_read, rows_written);
         }
-        result.map(Json)
+        result.map(|outcome| Json(outcome.value))
     })
     .await
 }
