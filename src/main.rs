@@ -650,6 +650,15 @@ async fn run_console(
         let _ = child.wait().await;
         return Err(error);
     }
+    // Listeners before the ready line. A SIGTERM/SIGINT arriving between
+    // the companion accepting connections and the select! below used to kill
+    // this process by default disposition -- which both leaves an
+    // auto-started `dg serve` orphaned (the class 8e011e6 closed on the error
+    // paths) and makes a supervised shutdown look like a crash. tokio buffers
+    // a signal delivered after registration, so the select! below still sees
+    // one that lands during the print.
+    #[cfg(unix)]
+    let signals = install_signals(&mut gateway, &mut child).await?;
     println!("dg web ready: open http://{address} in a browser");
     if std::io::stdout().flush().is_err() {
         stop_gateway(&mut gateway).await;
@@ -659,25 +668,7 @@ async fn run_console(
     }
     #[cfg(unix)]
     {
-        use tokio::signal::unix::{SignalKind, signal};
-        let mut sigterm = match signal(SignalKind::terminate()) {
-            Ok(signal) => signal,
-            Err(_) => {
-                stop_gateway(&mut gateway).await;
-                terminate_child(&mut child).await;
-                let _ = child.wait().await;
-                return Err(Error::internal());
-            }
-        };
-        let mut sigint = match signal(SignalKind::interrupt()) {
-            Ok(signal) => signal,
-            Err(_) => {
-                stop_gateway(&mut gateway).await;
-                terminate_child(&mut child).await;
-                let _ = child.wait().await;
-                return Err(Error::internal());
-            }
-        };
+        let (mut sigterm, mut sigint) = signals;
         let gateway_exited = async {
             match gateway.as_mut() {
                 Some(child) => {
