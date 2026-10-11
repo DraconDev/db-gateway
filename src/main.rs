@@ -392,6 +392,37 @@ async fn stop_gateway(gateway: &mut Option<tokio::process::Child>) {
     *gateway = None;
 }
 
+/// Install the SIGTERM/SIGINT listeners, or stop both children and fail.
+/// This runs before the ready line is printed so no signal can reach this
+/// process while the OS default disposition is still in force.
+#[cfg(unix)]
+async fn install_signals(
+    gateway: &mut Option<tokio::process::Child>,
+    child: &mut tokio::process::Child,
+) -> Result<
+    (
+        tokio::signal::unix::Signal,
+        tokio::signal::unix::Signal,
+    ),
+    dg::error::Error,
+> {
+    use dg::error::Error;
+    use tokio::signal::unix::{SignalKind, signal};
+    let registered = (
+        signal(SignalKind::terminate()),
+        signal(SignalKind::interrupt()),
+    );
+    let (Ok(mut sigterm), Ok(mut sigint)) = registered else {
+        stop_gateway(gateway).await;
+        terminate_child(child).await;
+        let _ = child.wait().await;
+        return Err(Error::internal());
+    };
+    // Both streams are polled by the select! in the caller; returning them
+    // keeps the registrations alive for the supervised lifetime.
+    Ok((sigterm, sigint))
+}
+
 /// Ask the companion to stop gracefully (it closes its listener and any
 /// managed SSH tunnel), escalating only if it ignores SIGTERM.
 #[cfg(unix)]
