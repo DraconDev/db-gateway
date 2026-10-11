@@ -1,0 +1,76 @@
+{
+  "schema": "dg-cross-db-probe/1",
+  "admission": {
+    "acquire_timeout_ms": 500,
+    "read_permits": 8,
+    "write_permits": 4
+  },
+  "scan_rows": 4000,
+  "hot_readers": 10,
+  "verdict": {
+    "verdict": "COLD_OK",
+    "reason": "cold reject 0.000% -> 0.571% under 10-reader hot flood; hot flood intensity 0 rows read"
+  },
+  "baseline": {
+    "label": "baseline",
+    "seconds": 60,
+    "cold_writers": 2,
+    "hot_readers": 0,
+    "cold_attempts": 981,
+    "cold_ok": 981,
+    "cold_429": 0,
+    "cold_other": 0,
+    "cold_transport": 0,
+    "cold_reject_rate": 0.0,
+    "cold_p50_ms": 106.78,
+    "cold_p99_ms": 318.85,
+    "cold_max_ms": 515.14,
+    "cold_counters_delta": {
+      "queue_waits": 981,
+      "queue_wait_ms": 53938,
+      "queue_timeouts": 0,
+      "rows_read": 0,
+      "rows_written": 981
+    },
+    "hot_counters_delta": {
+      "queue_waits": 0,
+      "queue_wait_ms": 0,
+      "queue_timeouts": 0,
+      "rows_read": 0,
+      "rows_written": 0
+    },
+    "load1_before": 102.86,
+    "load1_after": 108.65
+  },
+  "flood": {
+    "label": "flood",
+    "seconds": 60,
+    "cold_writers": 2,
+    "hot_readers": 10,
+    "cold_attempts": 525,
+    "cold_ok": 522,
+    "cold_429": 3,
+    "cold_other": 0,
+    "cold_transport": 0,
+    "cold_reject_rate": 0.00571,
+    "cold_p50_ms": 201.0,
+    "cold_p99_ms": 569.48,
+    "cold_max_ms": 1470.34,
+    "cold_counters_delta": {
+      "queue_waits": 525,
+      "queue_wait_ms": 43901,
+      "queue_timeouts": 3,
+      "rows_read": 0,
+      "rows_written": 522
+    },
+    "hot_counters_delta": {
+      "queue_waits": 9551,
+      "queue_wait_ms": 819,
+      "queue_timeouts": 0,
+      "rows_read": 0,
+      "rows_written": 0
+    },
+    "load1_before": 108.65,
+    "load1_after": 115.56
+  }
+}
