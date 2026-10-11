@@ -1,6 +1,9 @@
 # Deployment configuration guide
 
 Template: `deploy/dg.service`. Validation: `scripts/validate-deploy.sh`.
+Related: `docs/upgrade-rollback.md` (binary upgrades and rollback),
+`docs/observability-contract.md` (monitoring), `docs/recovery-contract.md`
+(full host replacement and restore).
 Nothing here installs, enables, or starts a service, and this guide is not
 live-deploy authorization. The first supervised deploy to micro2 is recorded
 separately in `docs/first-deploy-micro2.md`; that record supplies the resolved

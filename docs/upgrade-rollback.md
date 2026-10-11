@@ -2,7 +2,9 @@
 
 Scope: replacing the `dg` binary on an existing data directory, and rolling
 back to a pre-upgrade snapshot. Local rehearsal only — no target host was
-touched. Steps that are destructive on a real target carry an explicit
+touched. Related: `docs/deployment.md` (install configuration),
+`docs/observability-contract.md` (monitoring), `docs/recovery-contract.md`
+(full host replacement and restore). Steps that are destructive on a real target carry an explicit
 **GATE** and require separate owner approval; the rehearsal below ran only
 the safe local equivalents in disposable directories.
 

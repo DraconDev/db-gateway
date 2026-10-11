@@ -17,6 +17,9 @@ a current policy or production guarantee. This document adds no endpoint,
 metric exporter, alert integration, or live host configuration. The first
 supervised micro2 deployment remains loopback-only and has no backup sidecar.
 Any implementation or live rollout requires separate owner approval.
+Related: `docs/deployment.md` (install configuration),
+`docs/upgrade-rollback.md` (binary upgrades and rollback),
+`docs/recovery-contract.md` (full host replacement and restore).
 
 ## 1. Signal classes
 
