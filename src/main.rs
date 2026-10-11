@@ -412,7 +412,7 @@ async fn install_signals(
         signal(SignalKind::terminate()),
         signal(SignalKind::interrupt()),
     );
-    let (Ok(mut sigterm), Ok(mut sigint)) = registered else {
+    let (Ok(sigterm), Ok(sigint)) = registered else {
         stop_gateway(gateway).await;
         terminate_child(child).await;
         let _ = child.wait().await;
