@@ -145,20 +145,30 @@ fn page_count_ceiling_fails_the_growing_write_and_lifts_cleanly() {
         assert_eq!(ceiling, 8);
     }
 
-    // The growing write fails with the stable storage error — a response,
-    // not a dropped connection or a panic.
-    let big = "x".repeat(100_000);
-    let (status, body) = request(
-        &server.address,
-        "POST",
-        "/v1/databases/pressure/query",
-        &owner,
-        &json!({"sql": "INSERT INTO payload (blob) VALUES (?)", "args": [big]}),
-    );
-    assert_eq!(status, 500, "full-disk write: {body}");
-    assert_eq!(body["error"]["code"], "internal_error", "full-disk code: {body}");
+    // Grow the file past the ceiling with small writes, each far under the
+    // 64 KiB JSON body wall: the write that needs page 9 must fail with the
+    // stable storage error — a response, not a dropped connection or a panic.
+    let chunk = "y".repeat(4_000);
+    let mut full_at = None;
+    for i in 0..20 {
+        let (status, body) = request(
+            &server.address,
+            "POST",
+            "/v1/databases/pressure/query",
+            &owner,
+            &json!({"sql": "INSERT INTO payload (blob) VALUES (?)", "args": [chunk]}),
+        );
+        if status == 500 {
+            assert_eq!(body["error"]["code"], "internal_error", "full-disk code: {body}");
+            full_at = Some(i);
+            break;
+        }
+        assert_eq!(status, 200, "fill {i}: {body}");
+    }
+    let filled = full_at.expect("ceiling never tripped in 20 small writes");
 
-    // The failed write rolled back: acknowledged rows are exact.
+    // The failed write rolled back: acknowledged rows are exact — the 3
+    // baseline rows plus exactly the fills that were acknowledged.
     let (status, body) = request(
         &server.address,
         "POST",
@@ -167,11 +177,11 @@ fn page_count_ceiling_fails_the_growing_write_and_lifts_cleanly() {
         &json!({"sql": "SELECT id, blob FROM payload ORDER BY id"}),
     );
     assert_eq!(status, 200, "post-pressure read: {body}");
-    assert_eq!(
-        body["rows"],
-        json!([[1, "base-0"], [2, "base-1"], [3, "base-2"]]),
-        "no partial write survived"
-    );
+    let rows = body["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 3 + filled, "no partial write survived");
+    let baseline: Vec<Value> =
+        json!([[1, "base-0"], [2, "base-1"], [3, "base-2"]]).as_array().unwrap().clone();
+    assert_eq!(&rows[..3], &baseline[..], "baseline exact");
 
     // The pressure is per-file: the control database keeps serving writes.
     let (status, body) = request(
@@ -195,7 +205,7 @@ fn page_count_ceiling_fails_the_growing_write_and_lifts_cleanly() {
         "POST",
         "/v1/databases/pressure/query",
         &owner,
-        &json!({"sql": "INSERT INTO payload (blob) VALUES (?)", "args": [big]}),
+        &json!({"sql": "INSERT INTO payload (blob) VALUES (?)", "args": [chunk]}),
     );
     assert_eq!(status, 200, "write after ceiling lifted: {body}");
     assert_eq!(body["rows_affected"], 1);
@@ -207,5 +217,5 @@ fn page_count_ceiling_fails_the_growing_write_and_lifts_cleanly() {
         &json!({"sql": "SELECT COUNT(*) FROM payload"}),
     );
     assert_eq!(status, 200, "final count: {body}");
-    assert_eq!(body["rows"], json!([[4]]));
+    assert_eq!(body["rows"], json!([[3 + filled + 1]]));
 }
