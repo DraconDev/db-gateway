@@ -1197,13 +1197,14 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             .map_err(Application)?;
             // Chunked download: freeze a snapshot, stream it piece by piece,
             // verify the whole-file hash, then publish atomically.
-            let begin = dg::client::request(
+            let begin = dg::client::request_with_semantics(
                 &cli.server,
                 &key,
                 Method::POST,
                 &format!("/v1/databases/{name}/export/begin"),
                 Some(json!({})),
                 None,
+                dg::client::Semantics::Transfer,
             )
             .await
             .map_err(Application)?;
@@ -1217,13 +1218,14 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 .ok_or(Application(Error::internal()))?
                 .to_string();
             let release_snapshot = || async {
-                let _ = dg::client::request(
+                let _ = dg::client::request_with_semantics(
                     &cli.server,
                     &key,
                     Method::DELETE,
                     &format!("/v1/snapshots/{snapshot}"),
                     None,
                     None,
+                    dg::client::Semantics::Transfer,
                 )
                 .await;
             };
@@ -1344,13 +1346,14 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                     "import exceeds bounded local file size",
                 )));
             }
-            let begin = dg::client::request(
+            let begin = dg::client::request_with_semantics(
                 &cli.server,
                 &key,
                 Method::POST,
                 &format!("/v1/databases/{name}/import/begin"),
                 Some(json!({})),
                 None,
+                dg::client::Semantics::Transfer,
             )
             .await
             .map_err(Application)?;
@@ -1391,13 +1394,14 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                         &base64::engine::general_purpose::STANDARD,
                         &buf[..n],
                     );
-                    let ack = dg::client::request(
+                    let ack = dg::client::request_with_semantics(
                         &cli.server,
                         &key,
                         Method::POST,
                         &format!("/v1/uploads/{upload}/chunk"),
                         Some(json!({"offset":offset,"data_base64":encoded})),
                         None,
+                        dg::client::Semantics::Transfer,
                     )
                     .await
                     .map_err(Application)?;
@@ -1430,13 +1434,14 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             if upload_result.is_err() {
                 // Abort is best effort: preserve the original import error and
                 // never make a cleanup transport failure hide its outcome.
-                let _ = dg::client::request(
+                let _ = dg::client::request_with_semantics(
                     &cli.server,
                     &key,
                     Method::DELETE,
                     &format!("/v1/uploads/{upload}"),
                     None,
                     None,
+                    dg::client::Semantics::Transfer,
                 )
                 .await;
             }
