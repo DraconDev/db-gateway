@@ -152,13 +152,20 @@ function renderBatchResults(target, results) {
   }).join('');
 }
 function parseHash() {
-  const parts = (window.location.hash || '#/databases').replace(/^#\//, '').split('/').map(decodeURIComponent);
-  if (parts[0] === 'status') return { view: 'status' };
-  if (parts[0] === 'databases' && parts[1]) {
-    const tab = parts[2] === 'data' || parts[2] === 'tokens' ? parts[2] : 'overview';
-    return { view: 'detail', name: parts[1], tab };
+  try {
+    const parts = (window.location.hash || '#/databases').replace(/^#\//, '').split('/').map(decodeURIComponent);
+    if (parts[0] === 'status') return { view: 'status' };
+    if (parts[0] === 'databases' && parts[1]) {
+      const tab = parts[2] === 'data' || parts[2] === 'tokens' ? parts[2] : 'overview';
+      return { view: 'detail', name: parts[1], tab };
+    }
+    return { view: 'databases' };
+  } catch (error) {
+    // A stray % in a pasted/shared URL (or a browser extension rewriting the
+    // hash) produces URIError from decodeURIComponent; fall back to the
+    // default view rather than crashing the page on a hashchange.
+    return { view: 'databases' };
   }
-  return { view: 'databases' };
 }
 function navigate(view, name = null, tab = 'overview') {
   if (view === 'status') window.location.hash = '#/status';
