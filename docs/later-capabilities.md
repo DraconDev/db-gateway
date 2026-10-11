@@ -351,3 +351,195 @@ parked: this document's deferral stands.
   the replay tier must not weaken.
 - `TASKS.md:199` — the source row in the "Later
   capabilities" list.
+
+## 3. Placement/movement of independent databases between hosts, only when required by measured workload
+
+**TASKS.md reference:** TASKS.md:200
+**Deferral decision date:** 2026-10-11
+**Decision:** DEFERRED — not part of the initial release, gated
+on measured workload.
+**Authority:** The initial release is single-host on micro2
+(1 GB RAM, 2 vCPU) and the canonical plan/architecture
+documents place multi-host placement in "later, only on
+measured need" phases — `docs/architecture.md` ("Later
+independent-database placement and ephemeral storage are not
+M0/M1 requirements"), `docs/plan-2026-09-22.md` Phase 5
+("Multi-host placement (needs Phase 3 ceiling + Phase 0
+topology targets)"), and `docs/personal-turso-megaplan.md`
+Phase 8 (optional resilience and product layers, post-core-
+path only). The verification contract is explicit: the
+feature is deferred **pending measurement**, not abandoned
+indefinitely — the box is closed when a measured workload
+says the durable tier cannot serve it on a single host.
+
+### Why deferred
+
+1. **The initial design is single-host by intent, not by
+   accident.** The product boundary (`docs/architecture.md`)
+   commits to a single owner, single gateway, single host.
+   Multi-host placement adds a coordination layer (placement
+   decisions, cross-host consistency, network latency
+   between gateway and database) that is not needed for the
+   1 GB micro2 target. Adding it before measurement says it
+   is needed is sequencing debt.
+2. **The capacity ceiling is unmeasured on the recorded
+   host.** `docs/deployment-readiness.md` gate 5 is "Not
+   ready" — `docs/resource-budget.md` is conditional not-
+   ready and the five target-host measurements (sustained
+   peak, OS baseline, backup sidecar, burst, disk growth)
+   are not yet collected. Multi-host placement is a
+   **response** to capacity pressure; capacity pressure
+   has not been demonstrated.
+3. **The "independence" property is not yet characterized.**
+   The task says "independent databases" but the
+   independence criteria (per-DB resource footprint? Per-DB
+   write contention? Per-DB latency SLO breach?) are not
+   defined. The placement decision is a function of those
+   criteria; defining them is part of the measurement,
+   not a precondition for the deferral.
+4. **A documented procedure without a workload is a
+   doorknob.** A "placement procedure" written today would
+   encode assumptions about the independence criteria and
+   the host topology that the measurement has not yet
+   constrained. A procedure written before the measurement
+   would either be vacuous (no specific number) or
+   premature (a specific number without evidence). The
+   verification contract explicitly allows the deferral
+   path precisely to avoid this.
+5. **The Turso cutover and durable-tier path are the
+   active work.** Adding a multi-host placement path is a
+   second-front expansion; sequencing discipline says
+   this stays parked.
+
+### Design space (when re-evaluated, this is the surface area)
+
+The feature is bounded by three orthogonal axes; a future
+implementation will need a concrete answer for each, with
+tests named against the same axes. These are **notes for a
+future designer**, not commitments.
+
+#### Independence criteria
+
+- "Independent" must be defined before placement can be
+  decided. Candidate criteria: (a) per-DB write rate above
+  the single-host per-DB fairness share; (b) per-DB
+  storage above a host-disk threshold; (c) per-DB
+  `queue_timeouts` growth (`docs/observability-contract.md`
+  §1) — the per-database writer starvation signal; (d)
+  per-DB latency SLO breach. The chosen criterion is the
+  trigger; the others are not reasons to move a database.
+- A criterion is met **at measurement time**, not at
+  design time. The measurement protocol is named when the
+  trigger is named: e.g., "30 consecutive minutes of
+  per-DB `queue_timeouts > N`" or "p99 latency on DB X
+  exceeds S for 1 h" — the operator's, not a default.
+- **Test axes for re-evaluation:** the chosen criterion
+  is observable via the existing observability contract
+  signals (`dg status` per-DB queue waits/timeouts,
+  `dg backup status` freshness); the trigger is recorded
+  in the soak log; a database that crosses the trigger is
+  flagged for placement review, not auto-moved.
+
+#### Placement procedure
+
+- A "placement" is `dg export DB --out <file>` on the
+  source host, transfer the file to the destination host,
+  `dg import DB --from <file>` on the destination, then
+  owner-side credential re-issuance to point applications
+  at the new host. The lifecycle routes in `docs/api.md`
+  Lifecycle (clone, export, import, delete, M2) are the
+  building blocks; no new export/import path is needed.
+- "Movement" is placement + retirement: after the
+  destination is verified, the source is tombstoned
+  (24 h purge per `docs/api.md`) so the name can be
+  reused on the destination if the operator chooses.
+  Re-tombstoning a moved name requires the new host to
+  coordinate with the old host's purge window, or
+  operator-side `dg delete` after the 24 h window.
+- A multi-database move is a sequence of single-database
+  moves; the gateway does not promise cross-database
+  atomicity, and a batch move has the same saga
+  requirement as a multi-database finalization
+  (`tests/match_finalization.rs` module docs).
+- **Test axes for re-evaluation:** an export on host A
+  followed by an import on host B reproduces the source
+  byte-for-byte (PRAGMA integrity_check, FK check,
+  protected-table check, exact rows); a tombstoned
+  source after 24 h purge does not block the destination
+  name; credentials re-issued for the destination do not
+  work on the source after the move.
+
+#### Network and access
+
+- A multi-host deployment is a **multi-gateway**
+  deployment, not a multi-data-dir one. Each host runs
+  its own `dg` instance; the placement procedure is
+  owner-initiated via each host's CLI over SSH or
+  loopback. The gateway does not implement a
+  "move database to peer" RPC; that is a host-side
+  orchestration concern.
+- The listen policy (loopback-only) and the access
+  policy (SSH tunnel or HTTPS edge per
+  `docs/architecture.md` M1) are unchanged. Placement
+  does not relax the listen policy; each host is
+  individually secure, and the application moves its
+  credential, not its network path.
+- **Test axes for re-evaluation:** two hosts running
+  the same version, each with its own owner key,
+  exchange an export over an out-of-band channel (file
+  transfer, not a gateway route); the destination
+  verifies integrity and publishes atomically; the
+  source tombstone is the only record on the source
+  side; the application uses the destination's URL
+  and key only.
+
+### Acceptance to re-open this decision
+
+A re-evaluation is permitted only when **all** of the
+following are true:
+
+- The durable tier has measured capacity on the recorded
+  host (gate 5 of `docs/deployment-readiness.md`
+  resolved).
+- The recovery contract is verified on a real bucket
+  with restore drills passing (gate 7 resolved).
+- The Turso cutover is past Stage 6 (soak complete, all
+  three sources' GATE 3 crossed) — or the owner
+  explicitly cancels the migration.
+- A **measured workload** triggers the chosen
+  independence criterion: the criterion is named, the
+  measurement is recorded, and the database(s) the
+  measurement points to are named. "We might want
+  multi-host someday" is not a measurement; a recorded
+  per-DB `queue_timeouts` trace over a representative
+  period is.
+
+A re-evaluation that arrives without all four is parked:
+this document's deferral stands. The verification
+contract's "deferred pending measurement" wording is the
+explicit allowance for this state.
+
+### Cross-references
+
+- `docs/architecture.md` M0/M1 design (single-host
+  product boundary; "Later independent-database
+  placement and ephemeral storage are not M0/M1
+  requirements").
+- `docs/plan-2026-09-22.md` Phase 5 ("Multi-host
+  placement (needs Phase 3 ceiling + Phase 0 topology
+  targets)").
+- `docs/personal-turso-megaplan.md` Phase 8 (optional
+  resilience and product layers, post-core-path only).
+- `docs/deployment-readiness.md` gate 5 (measured
+  resource budget, not ready).
+- `docs/observability-contract.md` §1 (per-database
+  queue waits/timeouts — the candidate placement
+  trigger signal).
+- `docs/api.md` Lifecycle: clone, export, import,
+  delete (the placement building blocks; no new path
+  needed).
+- `tests/match_finalization.rs` module docs
+  (cross-database atomicity is not promised; multi-DB
+  moves use the same saga pattern).
+- `TASKS.md:200` — the source row in the "Later
+  capabilities" list.
