@@ -437,7 +437,11 @@ async fn import(
                 "import exceeds bounded request size",
             ));
         }
-        let temp = s.import_staging(&name)?;
+        // The path segment is an informational source label (echoed back as
+        // "from"); only the body's `name` chooses the new database. Validate
+        // the body name up front and stage under it, so an invalid body name
+        // fails before the base64 has been decoded and written to disk.
+        let temp = s.import_staging(&body.name)?;
         std::fs::write(temp.path(), &bytes).map_err(|_| Error::internal())?;
         let _guard = s.acquire_queue(&body.name, true)?;
         let previous_write = s.last_write(&body.name);
