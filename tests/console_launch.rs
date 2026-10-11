@@ -145,7 +145,14 @@ fn sigterm_and_wait(mut child: std::process::Child) {
         .recv_timeout(Duration::from_secs(15))
         .expect("dg web exits after SIGTERM")
         .unwrap();
-    assert!(status.success(), "status: {status}");
+    // A signal-killed exit is the failure this contract pins: `dg web` owns
+    // its SIGTERM listener before the ready line, so the OS default
+    // disposition must never be what ends the process. (Accepting a signal
+    // exit as clean here would hide exactly that regression.)
+    assert!(
+        status.success(),
+        "dg web was ended by a signal instead of a supervised shutdown: {status}"
+    );
 }
 
 fn port_closed(port: u16) -> bool {
