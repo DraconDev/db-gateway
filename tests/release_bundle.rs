@@ -104,7 +104,14 @@ exit 44
     assert!(output.stdout.is_empty());
 }
 
+// `#[ignore]`d so `cargo test --workspace` does not run the full pinned-builder
+// build on a contributor without podman/docker. The contract is exercised in
+// CI by the `release-bundle` workflow that installs docker first and re-runs
+// this single test with `--ignored`. The three sibling tests in this file
+// still run on every PR and prove the script's failure modes (no engine,
+// builder drift, build/smoke failure) without needing a real container.
 #[test]
+#[ignore]
 fn micro2_pinned_container_builds_bundle_and_records_builder() {
     let output = run_release(None, "micro2");
     assert!(
