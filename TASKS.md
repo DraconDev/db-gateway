@@ -161,7 +161,7 @@ Done when: an end-to-end API write → OVH backup → restore to a separate data
 
 ## 8. Test failure handling and resource limits
 
-- [ ] Measure gateway, database, backup, and OS resource usage on a representative 1 GB budget. (PARTIAL 2026-10-11: gateway+DB+OS numbers on file are from a 32 GiB dev host with no claim of fit; only the sidecar ran under kernel-enforced 1G. BLOCKED ON: a run with the gateway workload under the 1G constraint — attempting a local MemoryMax=1G scope rerun; on-target micro2 run stays the final confirmation.)
+- [x] Measure gateway, database, backup, and OS resource usage on a representative 1 GB budget. (gateway+DB+OS under kernel-enforced MemoryMax=1G/CPUQuota=200%: docs/resource-report-release-1G-scope-2026-10-11.json via scripts/resource-report-release.sh, scope peak 169M, no OOM; backup sidecar under the same 1G enforcement: docs/sandbox-packet-2026-09-29-rehearsal.log gate 9; composed: docs/resource-budget.md; 1 GB fit claim still requires the supervised micro2 run per the packet budget_note)
 - [ ] Test slow/expensive queries, oversized results, bursts, and many active/idle databases.
 - [ ] Test crash/restart, low disk space, interrupted lifecycle operations, and bucket outage/recovery.
 - [ ] Verify a noisy development database does not monopolize the gateway; document limits of shared-host isolation.
