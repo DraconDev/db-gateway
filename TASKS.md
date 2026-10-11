@@ -173,7 +173,7 @@ Done when: bounded test results and known limitations are recorded, including re
 ## 9. Package and deploy to micro2
 
 - [x] Verify host architecture, persistent disk, available resources, and network approach before selecting release artifacts. (Supervised micro2 evidence is recorded in `docs/first-deploy-micro2.md`; long-term resource growth remains open.)
-- [ ] Package reproducible installation/configuration for the gateway and backup component.
+- [x] Package reproducible installation/configuration for the gateway and backup component. (scripts/setup.sh release+locked build; scripts/release-bundle.sh pinned Ubuntu-24.04-amd64 builder by digest with SHA-256 checksums; tests/release_bundle.rs re-run green 2026-10-11: 4 passed, 0 failed, 1 ignored)
 - [ ] Run under a dedicated non-root service account with restart policy, graceful shutdown, and resource limits.
 - [x] Configure HTTPS or private access, protected secrets, and restricted listening interfaces. (The supervised deployment uses loopback-only listening plus the accepted SSH tunnel; `/etc/dg/owner.key` is `0600`. No in-gateway TLS was added.)
 - [ ] Document upgrades, rollback, monitoring, and full host replacement/restore.
