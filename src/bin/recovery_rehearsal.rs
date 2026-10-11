@@ -554,3 +554,21 @@ fn main() -> AnyResult<()> {
     println!("{}", serde_json::to_string_pretty(&report)?);
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn corrupt_object_on_empty_snapshot_records_failure_not_panic() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut sink = LocalObjectStore::new(dir.path()).unwrap();
+        let source = dir.path().join("empty.sqlite");
+        fs::write(&source, b"").unwrap();
+        // The old `corrupt[len/2] ^= 1` indexed an empty buffer and aborted
+        // the drill with a panic instead of recording the integrity failure.
+        let result = sink.ship(&source, 7, Fault::CorruptObject);
+        assert_eq!(result, Err("checksum_or_integrity_failure".to_string()));
+        assert_eq!(sink.last_failure, Some("checksum_or_integrity_failure"));
+    }
+}
