@@ -43,7 +43,10 @@ fn help_documents_positional_arguments_and_flags() {
         "JSON array of bind parameters",
         "Replay key",
     ] {
-        assert!(text.contains(documented), "dg query --help lost {documented:?}: {text}");
+        assert!(
+            text.contains(documented),
+            "dg query --help lost {documented:?}: {text}"
+        );
     }
     let export = dg(&["export", "--help"]);
     let export_text = String::from_utf8_lossy(&export.stdout);

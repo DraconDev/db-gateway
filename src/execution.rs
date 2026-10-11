@@ -475,10 +475,12 @@ pub fn execute_detailed(
                 // the retention purge it already ran lives in this same
                 // transaction: commit first so expired rows are actually
                 // pruned instead of rolled back on every replayed key.
-                let value: Value =
-                    serde_json::from_str(&result).map_err(|_| Error::internal())?;
+                let value: Value = serde_json::from_str(&result).map_err(|_| Error::internal())?;
                 tx.commit()?;
-                return Ok(ExecuteOutcome { value, replayed: true });
+                return Ok(ExecuteOutcome {
+                    value,
+                    replayed: true,
+                });
             }
             Err(rusqlite::Error::QueryReturnedNoRows) => {}
             Err(error) => return Err(error.into()),
@@ -522,7 +524,10 @@ pub fn execute_detailed(
         )?;
     }
     tx.commit()?;
-    Ok(ExecuteOutcome { value: result, replayed: false })
+    Ok(ExecuteOutcome {
+        value: result,
+        replayed: false,
+    })
 }
 
 #[cfg(test)]
@@ -1065,7 +1070,7 @@ mod tests {
             Some("replay-det-1"),
         )
         .unwrap();
-        assert_eq!(fresh.replayed, false);
+        assert!(!fresh.replayed);
         assert_eq!(fresh.value["rows_affected"], 1);
         // Same key + same body: replayed is true and the value is the cached
         // JSON; nothing ran in this request.
@@ -1078,7 +1083,7 @@ mod tests {
             Some("replay-det-1"),
         )
         .unwrap();
-        assert_eq!(replay.replayed, true);
+        assert!(replay.replayed);
         assert_eq!(replay.value, fresh.value);
         // A non-keyed write reports replayed = false (no cache lookup).
         let unkeyed = execute_detailed(
@@ -1090,7 +1095,7 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(unkeyed.replayed, false);
+        assert!(!unkeyed.replayed);
         assert_eq!(unkeyed.value["rows_affected"], 1);
     }
 }

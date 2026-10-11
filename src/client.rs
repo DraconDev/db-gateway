@@ -178,7 +178,7 @@ pub async fn request_with_semantics(
     if let Some(key) = idempotency {
         req = req.header("Idempotency-Key", key);
     }
-    let response=req.send().await.map_err(|_|transport_failure(semantics))?;
+    let response = req.send().await.map_err(|_| transport_failure(semantics))?;
     let status = response.status();
     // A bounded read protects CLI memory even when pointed at a bad endpoint.
     let response_limit = if path.ends_with("/export") {
@@ -192,7 +192,11 @@ pub async fn request_with_semantics(
     let mut bytes = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(|_| {
         if may_write {
-            Error::new(502, "outcome_unknown", "response lost; write outcome unknown")
+            Error::new(
+                502,
+                "outcome_unknown",
+                "response lost; write outcome unknown",
+            )
         } else {
             Error::new(
                 502,

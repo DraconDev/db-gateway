@@ -387,8 +387,8 @@ fn console_launch_hostname_server_autostarts_and_rewrites_origin() {
     );
 
     // A real gateway was auto-started on the bound literal.
-    let live = reqwest::blocking::get(format!("http://127.0.0.1:{gateway_port}/health/live"))
-        .unwrap();
+    let live =
+        reqwest::blocking::get(format!("http://127.0.0.1:{gateway_port}/health/live")).unwrap();
     assert_eq!(live.status(), 200);
 
     let record: serde_json::Value =

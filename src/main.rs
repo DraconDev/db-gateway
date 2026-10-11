@@ -464,7 +464,10 @@ fn gateway_target(server: &str) -> Option<GatewayTarget> {
     // :80 fails EACCES for any non-root operator, and the child then dies
     // behind a message about diagnosing rather than about the port.
     let port = url.port()?;
-    let bind = if host.trim_matches(['[', ']']).eq_ignore_ascii_case("localhost") {
+    let bind = if host
+        .trim_matches(['[', ']'])
+        .eq_ignore_ascii_case("localhost")
+    {
         "127.0.0.1".to_string()
     } else {
         let ip: std::net::IpAddr = host.trim_matches(['[', ']']).parse().ok()?;

@@ -643,8 +643,7 @@ impl Store {
                     );
                 }
                 None => {
-                    let _ = conn
-                        .execute("DELETE FROM write_markers WHERE name=?", params![name]);
+                    let _ = conn.execute("DELETE FROM write_markers WHERE name=?", params![name]);
                 }
             }
         }
