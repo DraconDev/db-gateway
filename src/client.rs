@@ -255,15 +255,15 @@ mod tests {
         assert_eq!(Semantics::from(&reqwest::Method::GET), Semantics::Read);
         assert_eq!(Semantics::from(&reqwest::Method::POST), Semantics::Write);
         let transfer = transport_failure(Semantics::Transfer);
-        assert_eq!(transfer.code(), 503);
+        assert_eq!(transfer.status, 503);
+        assert_eq!(transfer.code, "transport_unavailable");
         assert!(
-            transfer
-                .to_string()
-                .contains("begin the transfer again"),
-            "transfer failure must name the remedy: {transfer}"
+            transfer.message.contains("begin the transfer again"),
+            "transfer failure must name the remedy: {}",
+            transfer.message
         );
         let write = transport_failure(Semantics::Write);
-        assert_eq!(write.code(), 502);
-        assert!(write.to_string().contains("outcome_unknown"));
+        assert_eq!(write.status, 502);
+        assert_eq!(write.code, "outcome_unknown");
     }
 }
