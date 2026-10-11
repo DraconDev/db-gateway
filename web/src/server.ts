@@ -324,5 +324,5 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     console.log(`DB Gateway console listening on http://${config.host}:${config.port}`);
     const stop = () => { void close().finally(() => process.exit(0)); };
     process.once('SIGINT', stop); process.once('SIGTERM', stop);
-  }).catch(() => { console.error('console failed to start'); process.exit(1); });
+  }).catch((error) => { console.error('console failed to start:', error instanceof Error ? error.message : error); process.exit(1); });
 }
