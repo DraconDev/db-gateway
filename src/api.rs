@@ -333,10 +333,10 @@ async fn remove(
 ) -> Result<Json<Value>> {
     work(store, headers, move |s, p| {
         p.owner()?;
-        // Admission proves the row exists first: queue() allocates on first
-        // sight, so a name no registry row carries would pin state forever.
-        s.path(&name)?;
         let _guard = s.acquire_queue(&name, true)?;
+        // No existence pre-check here: delete's own 404/409 answers are the
+        // contract, and the fenced write releases the per-name state again
+        // when the request fails without a live row.
         s.fenced_write(&name, |s| s.delete(&name, RETENTION_SECS))?;
         Ok(Json(
             json!({"deleted":true,"purge_after_seconds":RETENTION_SECS}),
