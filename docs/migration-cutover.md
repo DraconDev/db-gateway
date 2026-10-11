@@ -312,6 +312,142 @@ has been crossed; Turso decommission and any subscription change
 follow the Stage 6 conditions above and remain a separate explicit
 owner approval.
 
+## Pre-cancellation gate (before any Turso cancellation / downgrade)
+
+A Turso **cancellation or downgrade** is a separate, terminal action
+that lives one level above the cutover gates above. It is **never**
+implicit in a successful cutover or soak, and it is **never** part of
+the Stage 6 decommission. The two halves — Turso source decommission
+(deleting the database copy) and subscription cancellation (ending
+the platform relationship) — are both gated by the same pre-cancellation
+checks below, plus separate explicit owner approval. Crossing this gate
+removes the rollback floor; everything after is a deliberate
+single-direction move with no Turso copy to fall back to.
+
+The pre-cancellation gate has three blocks, all of which must pass
+before any cancellation/downgrade request is opened:
+
+### 1. Rollback-artifact retention rule
+
+The Turso-side export set taken in precondition 3 is the rollback
+floor. Before any cancellation/downgrade:
+
+- **Location and naming:** the export set is held in the agreed
+  off-host location (the Turso-side export path) with the agreed
+  naming convention (one directory per source: A, B, C) and a
+  recorded `manifest.json` listing every file with its size and
+  SHA-256.
+- **Retention period:** the export set is retained for at least
+  the soak period (gate 8 of `docs/deployment-readiness.md`) **plus
+  one additional owner-approved window** (a separate owner decision;
+  the soak-period length and the post-soak retention window are not
+  the same thing — the soak proves correctness, the retention
+  window is the operator's own insurance against late findings).
+  Early deletion requires an explicit owner decision recorded in
+  the soak log; the default is "retain through the post-soak
+  window, then re-decide."
+- **Integrity:** every export file's SHA-256 matches the
+  `manifest.json`; one restore drill on a randomly chosen export
+  per source returns the §4 Pass result (`docs/recovery-contract.md`).
+- **Coverage:** the export set covers every source named in the
+  per-production cutover plan (A, B, C); no source is cancelled
+  without its export present and verified.
+
+A cancellation request without a complete, integrity-checked,
+coverage-complete export set is **refused at the gate**, not
+deferred.
+
+### 2. Client-dependency confirmation (no live clients on Turso)
+
+Before any cancellation/downgrade, confirm that **no client still
+depends on the Turso copy** for any of the three sources. This is
+not "the cutover is done" — it is a concrete, observable state
+across the application set, the host, and the Turso side.
+
+- **Per-application env config:** every application's env file /
+  secret store no longer references the Turso URL
+  (`TURSO_EMAIL_URL`, `STUDIO_API_DB_URL`, `TURSO_BILLING_URL`,
+  and the matching token vars) — they reference the gateway
+  credentials only. Verified by reading each application's
+  authoritative env file on the live host and grepping for the
+  Turso URL strings; the result is recorded in the soak log.
+- **Per-application runtime check:** the running process for each
+  application (email-api, studio-api, billing-api) has open
+  connections only to the gateway, not to Turso. Verified by
+  `ss -tnp` (or equivalent) from each host: zero established
+  connections to the Turso URL/port attributable to the
+  application process. A 60 s wait and a second read is
+  recommended to catch slow pollers (Source B's poller is the
+  one to watch for).
+- **Turso-side access log:** the Turso platform's access log for
+  each source database shows **zero reads or writes** from any
+  client since GATE 3 of the source's cutover. This is the
+  definitive proof from the source side. Mechanism (UI vs API)
+  is the operator's; the *criterion* is the access log: zero
+  entries after the source's GATE 3 timestamp, with the
+  monitoring window at least the soak length.
+- **Edge crawlers / dashboards / cron jobs:** every external
+  reader (a Turso studio/CLI session, a cron-driven script, a
+  dashboard query) is inventoried in the migration-inventory
+  and explicitly retired or re-pointed at the gateway before
+  the cancellation request is opened. The inventory's
+  per-source writer list is the canonical reference; the
+  retirement record is the proof.
+
+Pass criterion: all four checks above pass. Any one failing —
+including a single Turso access log entry after the source's
+GATE 3 — is a hard hold: the cutover is not considered
+client-clean, and cancellation is refused.
+
+### 3. Separately authorized owner approval
+
+The cancellation/downgrade request is a **separate owner decision**,
+not a step in any cutover's lifecycle, and not a stage in this
+plan. The request must include, in writing:
+
+- The identity of the cancellation action (subscription tier
+  change, database deletion, group deletion, full platform
+  closure — whichever applies).
+- The retention-window decision (default: retain through the
+  post-soak window; non-default: an explicit shorter window
+  with the owner-signed reason).
+- The pass record for blocks 1 and 2 (export set integrity +
+  client-dependency confirmation) with dates and operator
+  signatures.
+- The list of source databases (A, B, C) the cancellation
+  applies to; partial cancellations (e.g. "downgrade but keep
+  the dev billing database") are allowed only when the
+  per-source coverage of blocks 1 and 2 is re-checked for
+  every kept source.
+
+A cancellation request that arrives without a written owner
+decision covering these four points is **not executable**;
+the operator escalates, does not improvise.
+
+### Refusal conditions (gate fails)
+
+The pre-cancellation gate fails — and the cancellation request
+is refused — if any of the following holds:
+
+- Any export file is missing, fails its SHA-256 check, or has
+  no recorded `manifest.json` entry.
+- A restore drill on any source's export returns anything
+  other than the recovery-contract §4 Pass result.
+- The per-application env config still references the Turso
+  URL for any source.
+- `ss -tnp` shows any established connection to the Turso
+  URL/port from the application host.
+- The Turso access log shows any read or write entry after the
+  source's GATE 3 timestamp inside the monitoring window.
+- An edge crawler, dashboard, or cron-driven reader is
+  unaccounted for in the per-source retirement record.
+- The owner decision is missing any of the four points above.
+
+In every refusal case, the Turso copy stays untouched and
+the cancellation is held until the gate is met; rolling the
+export set forward to a fresh capture resets only the
+integrity check, not blocks 2 and 3.
+
 ## Rollback conditions
 
 - Any verification mismatch in stage 3/4: stop, keep serving from Turso (it
