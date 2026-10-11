@@ -46,8 +46,14 @@ equivalent; queue writers must adopt keyed writes (risk 8)
 
 - gateway target name: (unassigned)
 - file size / row counts: UNVERIFIED (remote)
-- tables, code-grounded live set of 24 (production DDL only; the
-dropped `studio_youtube_oauth_states` is excluded — youtube.rs:176,826):
+- tables, code-grounded live set of **22** (production DDL only; the
+dropped `studio_youtube_oauth_states` is excluded — youtube.rs:176,826).
+  The CREATE statements at youtube.rs:304, 337, 352 and analytics.rs:42
+  are transient migration tables (`studio_youtube_tokens_v3`,
+  `studio_competitors_v2`, `studio_youtube_snapshots_v2`) created and
+  immediately renamed to the live name in the same `execute_batch` — not
+  counted as live schemas (youtube.rs:330-331, 345-346, 364-365;
+  analytics.rs:53-54). Live set:
   - state.rs:805–1404 (19 `CREATE TABLE IF NOT EXISTS`):
     `studio_competitors`, `studio_competitor_snapshots`,
     `studio_channel_presets`, `studio_research_saved`,
@@ -58,10 +64,11 @@ dropped `studio_youtube_oauth_states` is excluded — youtube.rs:176,826):
     `studio_sweep_state`, `studio_watch_groups`,
     `studio_watch_group_items`, `studio_saved_filters`,
     `studio_saved_comparisons`, `studio_last_seen`
-  - youtube.rs: `studio_youtube_tokens`, `studio_youtube_tokens_v3`
-    (plain `CREATE TABLE`, youtube.rs:304,337), `studio_youtube_preferences`
-  - analytics.rs:42: `studio_youtube_snapshots_v2` (plus the v1
-    `studio_youtube_snapshots` it versions)
+  - youtube.rs: `studio_youtube_tokens`, `studio_youtube_preferences`
+  - analytics.rs: `studio_youtube_snapshots` (v1)
+  Migration artifacts not counted: `studio_youtube_tokens_v3`
+  (youtube.rs:304,337), `studio_competitors_v2` (youtube.rs:352),
+  `studio_youtube_snapshots_v2` (analytics.rs:42).
 - denied objects (corrected — an earlier revision wrongly claimed
   production triggers): production `CREATE TRIGGER` = none; both
   studio-api trigger hits are test fixtures
@@ -74,14 +81,6 @@ dropped `studio_youtube_oauth_states` is excluded — youtube.rs:176,826):
   connection, via `libsql::Builder::new_remote` (state.rs:642, poller
   state.rs:680; URL from `STUDIO_API_DB_URL`, state.rs:619); dev-local
   fallback history (`:memory:?cache=shared` references)
-- libSQL-specific: Hrana remote protocol; no embedded-replica use found
-  in code
-- credentials to replace: `STUDIO_API_DB_URL` + token → gateway keys
-  (unassigned)
-- idempotency adoption: none yet (risk 8)
-- client/writers: `studio-api` handlers plus a dedicated poller
-  connection, via `libsql::Builder::new_remote` (state.rs); history of a
-  local fallback for dev (`:memory:?cache=shared` references)
 - libSQL-specific: Hrana remote protocol; no embedded-replica use found
   in code
 - credentials to replace: `STUDIO_API_DB_URL` + token → gateway keys

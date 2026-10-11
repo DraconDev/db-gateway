@@ -183,7 +183,7 @@ Done when: the installed service survives restart and can be recovered using the
 
 ## 10. Migrate from Turso safely
 
-- [ ] Inventory databases, schemas, clients, ongoing writers, and any libSQL-specific features. (REVERTED 2026-10-11 x4: Source B has duplicated bullets and double-counts transient migration tables. Cleaning duplication and reclassifying transient tables.)
+- [x] Inventory databases, schemas, clients, ongoing writers, and any libSQL-specific features. (docs/migration-inventory.md 2026-10-11: A email-api/email_queue + 3xALTER; B studio-api/22 live tables (19 state.rs:805-1404 + tokens/preferences/snapshots) plus 3 migration artifacts named separately and excluded; C billing/12 tables + DROP-COLUMN migration code; 14 dead DBs out of scope; Hrana-remote as the libSQL feature; remote sizes/rows UNVERIFIED; local-code-only, no tokens/rows touched)
 - [x] Export and validate databases while existing access remains available. (src/store.rs:1281 export_to with bounded online-backup + 250ms busy_timeout + 64 pages/step under MAX_TRANSFER_SIZE, 1676 export_begin retains a frozen snapshot for chunked transfer; concurrent_writes_do_not_turn_a_valid_export_into_a_false_busy_error store unit + twenty_export_import_cycles_with_corruption and migration_fixture suite re-run green 2026-10-11: 2+1+2 passed)
 - [ ] Pilot one development database and then one low-risk application.
 - [ ] Plan each production cutover with a write freeze/final export or another verified consistency mechanism; avoid accidental dual writers.
