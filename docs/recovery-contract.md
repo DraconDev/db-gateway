@@ -106,6 +106,23 @@ any replacement producer must hold it too:
 - **Retention.** After publication the producer prunes to `--keep` newest
   versioned sets (default 3). Only `YYYYMMDDTHHMMSSZ` directories match;
   staging dirs, `.backup.lock`, and `attempts.jsonl` are never pruned.
+- **Credentials.** The producer authenticates to the gateway with `--key-file`
+  (default `/etc/dg/owner.key`). Export is scoped-key authorized
+  (docs/api.md): a read-write key may export its own database, but only the
+  owner credential reaches every live database — hence the default. Key files
+  never enter the published set; the registry copy carries credential hashes,
+  not key material.
+- **Encryption.** Export sets are plaintext SQLite plus manifest/sidecars,
+  protected by owner-only filesystem permissions (`chmod 700` backup root,
+  `go-rwx` staging); the set format has no at-rest encryption and the
+  documented off-host leg is scp/rsync. The Litestream leg uses client-side
+  SSE-C, measured on the wire; the at-rest half is bucket decision 3, still
+  open (docs/backup-compatibility.md).
+- **Bucket unavailable.** The export producer has no bucket dependency: an
+  outage stops neither local snapshot publication nor the manifest chain; it
+  only ages the off-host second leg. For the Litestream leg, bucket outage
+  stops new recoverable points without stopping local writes, and the failure
+  must be visible (docs/recovery-decisions.md outage windows).
 - **Empty-listing refusal.** A run that lists zero live databases exits
   nonzero and publishes nothing: an empty listing is treated as a gateway
   fault, not as an empty backup.
