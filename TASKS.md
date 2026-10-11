@@ -183,7 +183,7 @@ Done when: the installed service survives restart and can be recovered using the
 
 ## 10. Migrate from Turso safely
 
-- [ ] Inventory databases, schemas, clients, ongoing writers, and any libSQL-specific features. (REVERTED 2026-10-11 x3: 15-table list was head-truncated, trigger hits were test fixtures. Full file:line census with prod-vs-test classification in progress.)
+- [x] Inventory databases, schemas, clients, ongoing writers, and any libSQL-specific features. (docs/migration-inventory.md full census 2026-10-11: A email-api/email_queue + 3xALTER; B studio-api/24 live tables with file:line + ALTER-only denied objects, test triggers excluded with cites; C billing/12 tables + DROP-COLUMN migration code; 14 dead DBs out of scope; Hrana-remote as the libSQL feature; remote sizes/rows UNVERIFIED; local-code-only, no tokens/rows touched)
 - [ ] Export and validate databases while existing access remains available.
 - [ ] Pilot one development database and then one low-risk application.
 - [ ] Plan each production cutover with a write freeze/final export or another verified consistency mechanism; avoid accidental dual writers.

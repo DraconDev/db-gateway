@@ -24,12 +24,13 @@ patterns (`@libsql/client`, `libsql/`) missed Rust `libsql =` deps and
 
 - gateway target name: (unassigned — Stage 1 has not run)
 - file size: UNVERIFIED (remote; no local copy)
-- tables: `email_queue` (code-grounded,
-  `apis/services/email-api/src/state.rs`); further remote tables, if any:
-  UNVERIFIED
-- denied objects: `ALTER TABLE` statements present in email-api state.rs
-  (migration path) — must be flattened to gateway-compatible DDL before
-  import (risk 3); views/triggers/virtual tables: none found in code
+- tables: `email_queue` (production DDL,
+  `apis/services/email-api/src/state.rs:337`); further remote tables, if
+  any: UNVERIFIED
+- denied objects: 3× `ALTER TABLE email_queue ADD COLUMN` in production
+  migration code (email-api state.rs:361,367,374) — must be flattened to
+  gateway-compatible DDL before import (risk 3); production views,
+  triggers, virtual tables: none found
 - client/writers: `email-api` via `api_core::db::SharedDb`
   (`build_connection`), with a connection supervisor that rebuilds the
   connection (comment in state.rs: server drops idle/rotated Hrana
@@ -45,18 +46,39 @@ equivalent; queue writers must adopt keyed writes (risk 8)
 
 - gateway target name: (unassigned)
 - file size / row counts: UNVERIFIED (remote)
-- tables (code-grounded, `CREATE TABLE IF NOT EXISTS` in studio-api
-  src): `studio_channel_growth`, `studio_channel_language`,
-  `studio_channel_presets`, `studio_channel_profile`,
-  `studio_competitors`, `studio_competitor_snapshots`,
-  `studio_daily_titles`, `studio_follows`, `studio_last_seen`,
-  `studio_research_saved`, `studio_saved_comparisons`,
-  `studio_saved_filters`, `studio_sweep_state`, `studio_video_latest`,
-  `studio_video_prev` (15 tables)
-- denied objects: `ALTER TABLE` in state.rs/youtube.rs/analytics.rs plus
-  2 `CREATE TRIGGER` in studio-api src — triggers MUST be redesigned
-  away before import (risk 3 fires for real here); remote-side views:
-  UNVERIFIED
+- tables, code-grounded live set of 24 (production DDL only; the
+dropped `studio_youtube_oauth_states` is excluded — youtube.rs:176,826):
+  - state.rs:805–1404 (19 `CREATE TABLE IF NOT EXISTS`):
+    `studio_competitors`, `studio_competitor_snapshots`,
+    `studio_channel_presets`, `studio_research_saved`,
+    `studio_video_snapshots`, `studio_daily_titles`,
+    `studio_video_latest`, `studio_video_prev`,
+    `studio_channel_language`, `studio_channel_growth`,
+    `studio_channel_profile`, `studio_video_profile`, `studio_follows`,
+    `studio_sweep_state`, `studio_watch_groups`,
+    `studio_watch_group_items`, `studio_saved_filters`,
+    `studio_saved_comparisons`, `studio_last_seen`
+  - youtube.rs: `studio_youtube_tokens`, `studio_youtube_tokens_v3`
+    (plain `CREATE TABLE`, youtube.rs:304,337), `studio_youtube_preferences`
+  - analytics.rs:42: `studio_youtube_snapshots_v2` (plus the v1
+    `studio_youtube_snapshots` it versions)
+- denied objects (corrected — an earlier revision wrongly claimed
+  production triggers): production `CREATE TRIGGER` = none; both
+  studio-api trigger hits are test fixtures
+  (`src/handlers/account_delete/tests.rs`, `src/memory_atomic_tests.rs`).
+  `CREATE VIEW` / virtual tables = none found. `ALTER TABLE` IS
+  production code (10× state.rs, 3× youtube.rs, 1× analytics.rs) and must
+  be flattened to gateway-compatible DDL before import (risk 3 fires via
+  ALTER, not triggers); remote-side views: UNVERIFIED
+- client/writers: `studio-api` handlers plus a dedicated poller
+  connection, via `libsql::Builder::new_remote` (state.rs:642, poller
+  state.rs:680; URL from `STUDIO_API_DB_URL`, state.rs:619); dev-local
+  fallback history (`:memory:?cache=shared` references)
+- libSQL-specific: Hrana remote protocol; no embedded-replica use found
+  in code
+- credentials to replace: `STUDIO_API_DB_URL` + token → gateway keys
+  (unassigned)
+- idempotency adoption: none yet (risk 8)
 - client/writers: `studio-api` handlers plus a dedicated poller
   connection, via `libsql::Builder::new_remote` (state.rs); history of a
   local fallback for dev (`:memory:?cache=shared` references)
@@ -71,10 +93,20 @@ equivalent; queue writers must adopt keyed writes (risk 8)
 - URLs (code-grounded, `apis/tools/migrate-turso-omega-cleanup.py`):
   `libsql://dracon-billing-dev-dracondev.aws-eu-west-1.turso.io`,
   `libsql://dracon-billing-dracondev.aws-eu-west-1.turso.io`
-- tables: `service_access`, `software_licenses` (from the one-shot
-  migration script operating on billing); full schema: UNVERIFIED
+- tables, code-grounded (billing-api state.rs `CREATE TABLE` set):
+  `ai_policies`, `ai_pool_accounting`, `ai_reservations`,
+  `ai_usage_accounting`, `current_usage`,
+  `entitlement_event_watermarks`, `failed_email_notifications`,
+  `processed_webhook_events`, `service_access`, `software_licenses`,
+  `tier_limits`, `users` (12 tables; full column lists + row counts:
+  UNVERIFIED)
+- denied objects: production `ALTER TABLE ... DROP COLUMN` migration
+  code (billing-api state.rs:847,866,932); production views/triggers:
+  none found; remote-side views: UNVERIFIED
 - client/writers: `billing-api` (`apis/services/billing-api/src/state.rs`
-  references dracon-billing); the migrate script is one-shot, not an
+  references the billing DB, state.rs:560; credentials `TURSO_BILLING_URL` /
+  `TURSO_BILLING_TOKEN` per apis/docs/archive/2026-06-15 deploy + audit
+  docs); the migrate script is one-shot, not an
   ongoing writer
 - libSQL-specific: Hrana remote protocol; rest UNVERIFIED
 - credentials, sizes, idempotency: UNVERIFIED / unassigned
