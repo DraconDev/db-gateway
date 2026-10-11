@@ -155,7 +155,7 @@ Done when: clones/exports remain consistent during writes, failed operations do 
 - [x] Automate per-database backup registration with distinct destinations; verify supported configuration/reload behaviour. (scripts/micro2-backup.sh per-DB export loop; reload proven by tests/backup_pipeline.rs restore_drill_from_versioned_set)
 - [x] Define retention, credential permissions, encryption requirements, and behaviour when the bucket is unavailable. (docs/recovery-contract.md producer bullets: retention default 3, owner-key default with scoped-key export, plaintext sets under owner-only perms, no bucket dependency; SSE-C measured + decision 3 open: docs/backup-compatibility.md; outage windows: docs/recovery-decisions.md)
 - [x] Expose backup health, last successful backup/recoverable point where available, and lag/staleness through API and CLI. (`GET /v1/backups` returns per-database `fresh`/`stale`/`unknown` plus `stale_after_secs`; `dg backup status` surfaces the same; durable write markers survive restart, so freshness is not process-local. Shipped 2026-09-23 per `docs/observability-contract.md` §2. Notification/delivery of failure alerts remains open in `docs/recovery-decisions.md` item 5.)
-- [ ] Restore into a separate target by default, with integrity and application-data verification.
+- [x] Restore into a separate target by default, with integrity and application-data verification. (docs/recovery-contract.md empty-target restoration with integrity and application-data checks; proven by tests/backup_pipeline.rs restore_drill_from_versioned_set)
 
 Done when: an end-to-end API write → OVH backup → restore to a separate database → verified read succeeds, and backup failures are visible.
 
