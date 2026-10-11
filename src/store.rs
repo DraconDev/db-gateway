@@ -1219,6 +1219,63 @@ impl Store {
         result
     }
 
+    /// Whether a live registry row exists for `name`. Fails closed to
+    /// `true`: callers use this to decide whether per-name state may be
+    /// released, and leaving the state alone is the safe answer when the
+    /// registry cannot be read.
+    pub fn registered(&self, name: &str) -> bool {
+        let Ok(meta) = self.meta() else {
+            return true;
+        };
+        meta.query_row(
+            "SELECT EXISTS(SELECT 1 FROM databases WHERE name=? AND deleted_at IS NULL)",
+            [name],
+            |r| r.get(0),
+        )
+        .unwrap_or(true)
+    }
+
+    /// Release the per-name admission and metric state for a name with no
+    /// live registry row. `queue()` allocates on first sight and only a
+    /// physical purge reclaims, so a name admitted by a request that then
+    /// failed without creating it (rejected delete, bad import payload,
+    /// missing clone source) would otherwise pin an `AdmissionQueue` and a
+    /// phantom `/v1/status` row forever; no later request revisits it.
+    /// Names that do exist are left alone.
+    pub fn release_unused(&self, name: &str) {
+        if self.registered(name) {
+            return;
+        }
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.remove(name);
+        }
+        self.metrics.forget(name);
+    }
+
+    /// Run a write under the freshness fence, releasing the per-name state
+    /// again when the operation failed without creating the database. Same
+    /// begin/finish/cancel sequence the route handlers ran inline, with the
+    /// release on every failure path (including a failed `begin_write`) so
+    /// the invariant holds in one place instead of at each handler.
+    pub fn fenced_write<F>(&self, name: &str, operation: F) -> Result<()>
+    where
+        F: FnOnce(&Self) -> Result<()>,
+    {
+        let previous_write = self.last_write(name);
+        if let Err(error) = self.begin_write(name) {
+            self.release_unused(name);
+            return Err(error);
+        }
+        let result = operation(self);
+        if result.is_ok() {
+            self.finish_write(name);
+        } else {
+            self.cancel_write(name, previous_write);
+            self.release_unused(name);
+        }
+        result
+    }
+
     /// SQLite online backup of `name` to `dest`, consistent during writes.
     /// Pages are copied in bounded steps so concurrent commits interleave;
     /// the snapshot reflects one committed point in time.
