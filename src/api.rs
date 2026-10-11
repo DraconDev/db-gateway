@@ -368,6 +368,11 @@ async fn clone_route(
         if p.role == "database_read_only" {
             return Err(Error::new(403, "forbidden", "read-only credential"));
         }
+        // The destination is a NEW database, so cloning is a creation
+        // primitive: a scoped app key could name-squat a valid name and burn
+        // slots out of the shared registry cap, exposing every other tenant.
+        // Owner-only, matching create and import (owner decision 2026-10-10).
+        p.owner()?
         let _guard = s.acquire_queue(&body.destination, true)?;
         let previous_write = s.last_write(&body.destination);
         s.begin_write(&body.destination)?;
