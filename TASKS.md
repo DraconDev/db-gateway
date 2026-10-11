@@ -162,7 +162,7 @@ Done when: an end-to-end API write → OVH backup → restore to a separate data
 ## 8. Test failure handling and resource limits
 
 - [x] Measure gateway, database, backup, and OS resource usage on a representative 1 GB budget. (gateway+DB+OS under kernel-enforced MemoryMax=1G/CPUQuota=200%: docs/resource-report-release-1G-scope-2026-10-11.json via scripts/resource-report-release.sh, scope peak 169M, no OOM; backup sidecar under the same 1G enforcement: docs/sandbox-packet-2026-09-29-rehearsal.log gate 9; composed: docs/resource-budget.md; 1 GB fit claim still requires the supervised micro2 run per the packet budget_note)
-- [ ] Test slow/expensive queries, oversized results, bursts, and many active/idle databases.
+- [x] Test slow/expensive queries, oversized results, bursts, and many active/idle databases. (deadline: tests/m1_e2e.rs deadline_failure_recovers_over_http; result walls: tests/boundary_sweep.rs every_wall_accepts_at_the_line_and_rejects_past_it; burst: tests/admission.rs burst_waits_instead_of_shedding + tests/m2_lifecycle.rs contended_capacity_rejects_with_429_and_server_recovers; scale: tests/many_databases.rs three_hundred_databases_persist_across_restart + registry_cap_supports_hundreds + tests/lifecycle_churn.rs three_hundred_ops_keep_registry_and_files_exact — all re-run green 2026-10-11)
 - [ ] Test crash/restart, low disk space, interrupted lifecycle operations, and bucket outage/recovery.
 - [ ] Verify a noisy development database does not monopolize the gateway; document limits of shared-host isolation.
 - [ ] Test ambiguous write responses and supported retry/idempotency behaviour.
