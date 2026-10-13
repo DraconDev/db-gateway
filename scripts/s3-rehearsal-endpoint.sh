@@ -145,9 +145,28 @@ start() {
     # `eval "$(scripts/s3-rehearsal-endpoint.sh start)"` in the same shell as
     # the packet run, and a second call in that shell must re-emit the same
     # exports rather than fail, or the rehearsal is unusable after a typo.
-    if [ -f "$STATE_DIR/pids" ] && kill -0 "$(head -1 "$STATE_DIR/pids")" 2>/dev/null; then
-        emit_exports
-        return 0
+    if [ -f "$STATE_DIR/pids" ]; then
+        # The endpoint is the proxy, not the store: the documented usage
+        # binds DG_REHEARSAL_S3_URL to the proxy, and a proxy that has died
+        # while the store still answers would silently re-emit a dead
+        # endpoint and every S3 gate would then fail with connection refused.
+        # Walk every recorded pid and require them all to be alive.
+        all_alive=1
+        while IFS= read -r pid; do
+            [ -n "$pid" ] || continue
+            kill -0 "$pid" 2>/dev/null || { all_alive=0; break; }
+        done < "$STATE_DIR/pids"
+        if [ "$all_alive" = 1 ]; then
+            emit_exports
+            return 0
+        fi
+        # Partial state: a pid is gone. Reap any survivors and fall through
+        # to a clean start so the caller's eval does not bind a dead URL.
+        while IFS= read -r pid; do
+            [ -n "$pid" ] || continue
+            kill "$pid" 2>/dev/null || true
+        done < "$STATE_DIR/pids"
+        rm -f "$STATE_DIR/pids"
     fi
     if [ ! -x "$GOFAKES3_BIN" ]; then
         echo "gofakes3 is not installed at $GOFAKES3_BIN" >&2
