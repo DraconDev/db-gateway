@@ -106,23 +106,27 @@ fn owner_malformed_path_name_report() {
     let bad = "!@#$";
     let mut report: Vec<(String, u16, String)> = Vec::new();
 
+    let q = json!({"sql": "SELECT 1"});
+    let b = json!({"statements": []});
+    let i = json!({"size": 0, "sha256": "x"});
+    let k = json!({"name": "k"});
     let cases: Vec<(&str, &str, Option<&Value>)> = vec![
-        ("query", "POST", Some(&json!({"sql": "SELECT 1"}))),
-        ("batch", "POST", Some(&json!({"statements": []}))),
+        ("query", "POST", Some(&q)),
+        ("batch", "POST", Some(&b)),
         ("export", "GET", None),
         ("export/begin", "POST", None),
-        ("import/begin", "POST", Some(&json!({"size": 0, "sha256": "x"}))),
+        ("import/begin", "POST", Some(&i)),
         ("", "DELETE", None),
         ("keys", "GET", None),
-        ("keys", "POST", Some(&json!({"name": "k"}))),
+        ("keys", "POST", Some(&k)),
     ];
-    for (path, method, body) in cases {
+    for (path, method, body) in &cases {
         let full = if path.is_empty() {
             format!("/v1/databases/{bad}")
         } else {
             format!("/v1/databases/{bad}/{path}")
         };
-        let (status, code) = hit(&client, a, &owner, method, &full, body);
+        let (status, code) = hit(&client, a, &owner, method, &full, *body);
         report.push((format!("{method} /v1/databases/{{name}}/{path}"), status, code));
     }
 
