@@ -97,10 +97,20 @@ export function configFromEnv(): ConsoleConfig {
     command: env('DG_SSH_COMMAND') || undefined,
   } : undefined;
   const gatewayUrl = env('DG_SERVER', tunnel ? `http://127.0.0.1:${localPort}` : 'http://127.0.0.1:7432');
-  // An unset HOME must leave the default empty so the guard below
-  // fires: join('', '.config/dg/key') is the non-empty *relative* path
-  // '.config/dg/key', which silently reads a key from the launch directory.
-  const keyFile = env('DG_KEY_FILE') || (process.env.HOME ? join(process.env.HOME, '.config/dg/key') : '');
+  // DG_KEY_FILE is explicit when set (even to ''): an empty value is the
+  // operator's "no key file" signal and must error out rather than fall
+  // through to a default they may not have intended. An unset HOME must
+  // leave the default empty so the guard below fires: join('',
+  // '.config/dg/key') is the non-empty *relative* path '.config/dg/key',
+  // which silently reads a key from the launch directory.
+  const dgKeyFile = process.env.DG_KEY_FILE;
+  let keyFile: string;
+  if (dgKeyFile !== undefined) {
+    if (dgKeyFile === '') throw new Error('DG_KEY_FILE is set to an empty value; unset it to use the default, or point it at a real file');
+    keyFile = dgKeyFile;
+  } else {
+    keyFile = process.env.HOME ? join(process.env.HOME, '.config/dg/key') : '';
+  }
   if (!keyFile) throw new Error('DG_KEY_FILE is required');
   return { host, port, gatewayUrl, keyFile, tunnel };
 }
