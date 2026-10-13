@@ -21,3 +21,34 @@ binary sha256: 200e4248a4cc83da2ca52babe66774f1a71afa993d31373adb0ce0fe12154647
 config reference: etc/litestream.yml shipped in the 0.5.17 tarball, read on 2026-10-13
 NOTE: the litestream on PATH is v0.3.13, which is NOT the pinned
 version. This packet used the pinned binary; the PATH one must not be used for §6.
+
+## gate 2: PASS -- rehearsal: replication advanced under 60 live writes with 0 busy/deadline failures
+rows before live writes: 200
+busy+capacity_exceeded+deadline after 60 live writes: 0
+replica advanced (new .ltx segment): yes
+NOT §6 GATE 2: file replica, not OVH; no 1 GB-shaped sandbox; no p50/p99 comparison yet.
+
+## gate 7: PASS -- rehearsal: a new database was replicated WITHOUT restarting litestream, via the control socket
+route (a) config edit + litestream start: FAILED -- Error: start failed: database not found: /tmp/dg-sandbox-pdwqY6/rehearsal/data/rehearsal_two.sqlite
+route (b) register over the control socket: WORKED
+remove side: litestream unregister: WORKED
+signal observed in the daemon log:
+  (no log line; replica root /tmp/dg-sandbox-pdwqY6/rehearsal/replica/rehearsal_two now holds .ltx segments for it)
+ANSWER for §6: the config FILE is read at startup only. Adding a database
+to a running daemon means 'litestream register -replica <url> <db-path>'
+over the control socket (or a restart). SIGHUP is not a reload signal:
+it terminates the process.
+NOT §6 GATE 7: file replica. The sandbox must repeat this against the
+bucket and confirm the deployed unit's own socket path and permissions.
+
+## gate 5: PASS -- rehearsal: restored to a separate path, row count matches the source exactly
+restore target: /tmp/dg-sandbox-pdwqY6/rehearsal/restore/rehearsal.sqlite (separate directory, not the data dir)
+rows in source: 260
+rows in restored copy: 260
+NOT §6 GATE 5: file replica; no gateway import validation of the restored
+file, no mid-history point, and no corrupt-artifact rejection case.
+
+## the S3 endpoint these gates ran against
+
+scheme://s3.uk.io.cloud.ovh.net  bucket=dg-sandbox  region=uk  path-style addressing
+service behind it: the S3 service itself (no local stand-in configured)
