@@ -96,3 +96,40 @@ NOTE: `replica.path` cannot carry a URL. `path: s3://...` fails with
 endpoint: https://s3.uk.io.cloud.ovh.net   region: uk
 TLS trust: SSL_CERT_FILE=/home/dracon/.config/dg/sandbox-tls/bundle.pem (system roots + the rehearsal endpoint's self-signed CA); verification stays ON, and AWS_CA_BUNDLE is deliberately NOT set because litestream 0.5.17 aborts on it
 certificate enforcement: proved -- the untrusted-ca variant was refused
+measured over a full cycle: initial snapshot, two databases, live writes,
+two forced syncs and two restores.
+
+total_requests=137 non_2xx=0 bytes_uploaded=16097 distinct_list_prefixes=22
+    112  GET list-type=2 (ListObjectsV2)
+     12  GET x-id
+      2  POST delete
+     11  PUT x-id
+
+operations litestream 0.5.17 issued, as a credential policy is written:
+  required: s3:GetObject, s3:PutObject, s3:ListBucket
+            scoped to the per-database prefix, e.g. dg-sandbox/sbx/*
+  NOT required, and NOT observed on this run:
+    multipart upload (LTX segments are single PUTs)
+    any object delete -- litestream never deletes, so retention is
+      entirely the bucket's lifecycle job (see gate 6)
+    any version read, lifecycle read or SSE header
+  the restore side adds s3:GetObject only.
+
+restore from the bucket: alice 200 rows, bob 150 rows
+  (source was 200 and 150; a wrong-but-200 restore was measured on 2026-09-28)
+
+## gate 4: PASS -- every S3 operation litestream 0.5.17 issued succeeded, and both databases restored from the bucket with exact row counts
+requests: 137, non-2xx: 0, distinct ListObjectsV2 prefixes: 22
+operations: GET list-type=2 (ListObjectsV2),GET x-id,POST delete,PUT x-id
+restored alice=200/200 bob=150/150
+
+## S3 request log, summarised by the proxy in front of the endpoint
+
+requests: 137
+    112  GET dg-sandbox/(bucket-level)*
+     12  GET dg-sandbox/sbx*
+      2  POST dg-sandbox/(bucket-level)*
+     11  PUT dg-sandbox/sbx*
+bytes uploaded: 16097
+distinct ListObjectsV2 prefixes probed: 22
+requests carrying server-side-encryption headers, in THIS cycle's log: 0 (no SSE-C or SSE header in the requests proxied for this window; gate 10's probe runs through its own proxy and is reported there)
