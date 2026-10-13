@@ -87,7 +87,10 @@ mod tests {
     #[test]
     fn sqlite_full_maps_to_stable_internal_error() {
         let full = rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(13), None);
-        assert_eq!(full.sqlite_error_code(), Some(rusqlite::ErrorCode::DiskFull));
+        assert_eq!(
+            full.sqlite_error_code(),
+            Some(rusqlite::ErrorCode::DiskFull)
+        );
         let mapped = Error::from(full);
         assert_eq!(mapped.status, 500);
         assert_eq!(mapped.code, "internal_error");

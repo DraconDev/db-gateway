@@ -149,7 +149,9 @@ fn retry_of_a_match_finalization_under_the_same_key_does_not_double_reward() {
     let (status, body) = reqwest::blocking::Client::new()
         .post(format!("http://{a}/v1/keys"))
         .bearer_auth(&owner)
-        .json(&json!({"name": "finalizer", "role": "database_read_write", "databases": ["league_a"]}))
+        .json(
+            &json!({"name": "finalizer", "role": "database_read_write", "databases": ["league_a"]}),
+        )
         .timeout(Duration::from_secs(30))
         .send()
         .map(|r| (r.status().as_u16(), r.json::<Value>().unwrap()))

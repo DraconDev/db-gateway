@@ -213,18 +213,25 @@ fn file_size_ceiling_kills_the_writer_but_not_the_acknowledged_rows() {
     );
     assert_eq!(http, 200, "post-restart read: {body}");
     let rows = body["rows"].as_array().unwrap();
-    let baseline: Vec<Value> =
-        json!([[1, "base-0"], [2, "base-1"], [3, "base-2"]]).as_array().unwrap().clone();
-    assert!(
-        rows.len() >= 3,
-        "acknowledged rows lost: {rows:?}"
+    let baseline: Vec<Value> = json!([[1, "base-0"], [2, "base-1"], [3, "base-2"]])
+        .as_array()
+        .unwrap()
+        .clone();
+    assert!(rows.len() >= 3, "acknowledged rows lost: {rows:?}");
+    assert_eq!(
+        &rows[..3],
+        &baseline[..],
+        "baseline exact, no partial write"
     );
-    assert_eq!(&rows[..3], &baseline[..], "baseline exact, no partial write");
     // Every surviving row past the baseline was itself acknowledged: ids
     // are dense from 1 with no gaps a rolled-back write could leave behind
     // as anything but a trailing absence.
     for (n, row) in rows.iter().enumerate() {
-        assert_eq!(row[0], json!((n + 1) as i64), "dense ids, no gaps: {rows:?}");
+        assert_eq!(
+            row[0],
+            json!((n + 1) as i64),
+            "dense ids, no gaps: {rows:?}"
+        );
     }
 
     // The fresh server serves writes again on both databases.
