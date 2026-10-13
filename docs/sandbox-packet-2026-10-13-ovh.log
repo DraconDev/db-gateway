@@ -1,6 +1,6 @@
 # Sandbox adoption packet (docs/backup-compatibility.md §6)
 
-date: 2026-10-13T12:01:52Z
+date: 2026-10-13T12:12:33Z
 host: Linux 7.1.2 x86_64
 litestream pinned: 0.5.17 (/home/dracon/.local/dg-sandbox/litestream-0.5.17)
 bucket: dg-sandbox
@@ -21,78 +21,3 @@ binary sha256: 200e4248a4cc83da2ca52babe66774f1a71afa993d31373adb0ce0fe12154647
 config reference: etc/litestream.yml shipped in the 0.5.17 tarball, read on 2026-10-13
 NOTE: the litestream on PATH is v0.3.13, which is NOT the pinned
 version. This packet used the pinned binary; the PATH one must not be used for §6.
-
-## gate 2: PASS -- rehearsal: replication advanced under 60 live writes with 0 busy/deadline failures
-rows before live writes: 200
-busy+capacity_exceeded+deadline after 60 live writes: 0
-replica advanced (new .ltx segment): yes
-NOT §6 GATE 2: file replica, not OVH; no 1 GB-shaped sandbox; no p50/p99 comparison yet.
-
-## gate 7: PASS -- rehearsal: a new database was replicated WITHOUT restarting litestream, via the control socket
-route (a) config edit + litestream start: FAILED -- Error: start failed: database not found: /tmp/dg-sandbox-zJrfCl/rehearsal/data/rehearsal_two.sqlite
-route (b) register over the control socket: WORKED
-remove side: litestream unregister: WORKED
-signal observed in the daemon log:
-  (no log line; replica root /tmp/dg-sandbox-zJrfCl/rehearsal/replica/rehearsal_two now holds .ltx segments for it)
-ANSWER for §6: the config FILE is read at startup only. Adding a database
-to a running daemon means 'litestream register -replica <url> <db-path>'
-over the control socket (or a restart). SIGHUP is not a reload signal:
-it terminates the process.
-NOT §6 GATE 7: file replica. The sandbox must repeat this against the
-bucket and confirm the deployed unit's own socket path and permissions.
-
-## gate 5: PASS -- rehearsal: restored to a separate path, row count matches the source exactly
-restore target: /tmp/dg-sandbox-zJrfCl/rehearsal/restore/rehearsal.sqlite (separate directory, not the data dir)
-rows in source: 260
-rows in restored copy: 260
-NOT §6 GATE 5: file replica; no gateway import validation of the restored
-file, no mid-history point, and no corrupt-artifact rejection case.
-
-## the S3 endpoint these gates ran against
-
-scheme://s3.uk.io.cloud.ovh.net  bucket=dg-sandbox  region=uk  path-style addressing
-service behind it: the S3 service itself (no local stand-in configured)
-variants tried (each: objects written / requests rejected):
-  working: FAILED -- 0 object(s) written, 0 rejected  [s3://dg-sandbox/gate3?endpoint=https://127.0.0.1:44177&region=uk]  
-  no-scheme: FAILED -- 46 object(s) written, 46 rejected  [s3://dg-sandbox/gate3?endpoint=127.0.0.1:32913&region=uk]  error="write ltx file: s3: put object gate3/0000/0000000000000001-0000000000000001.ltx: operation error S3: PutObject, https response error StatusCode: 403, Req
-  no-endpoint: FAILED -- 0 object(s) written, 0 rejected  [s3://dg-sandbox/gate3?region=uk]  error="check database behind replica: get replica position: operation error S3: ListObjectsV2, https response error StatusCode: 0, RequestID: , HostID: , reques
-  wrong-region: FAILED -- 0 object(s) written, 0 rejected  [s3://dg-sandbox/gate3?endpoint=https://127.0.0.1:33211&region=nowhere-1]  
-  no-region: FAILED -- 0 object(s) written, 0 rejected  [s3://dg-sandbox/gate3?endpoint=https://127.0.0.1:40613]  
-  path-style: FAILED -- 0 object(s) written, 0 rejected  [s3://dg-sandbox/gate3?endpoint=https://127.0.0.1:35795&region=uk]  
-  untrusted-ca: NOT RUN -- this endpoint's certificate chains to a public CA, so there is no rehearsal trust decision to withhold
-
-force-path-style: litestream 0.5.17 has no such replica option. It was
-  accepted as a replica URL query parameter in the 2026-09-28 file
-  rehearsal with no error and no observable effect, so it is recorded as
-  NOT SUPPORTED rather than tested. Addressing is decided by the URL host:
-  a bucket in the path is path-style, a bucket in the host is virtual-host.
-THE SCHEME IN endpoint= IS MANDATORY, and getting it wrong is silent.
-  Measured here: endpoint=https://<host>:<port> works; endpoint=<host>:<port>
-  with no scheme makes 0.5.17 speak PLAINTEXT http, so against an https
-  endpoint the request is rejected as a TLS error before the signature is
-  checked: 0 objects written, no rejected request, and nothing in
-  litestream's log naming the cause. Every SigV4-signed request in that
-  mode would also have carried the request signature in cleartext.
-skip-verify (TLS): NOT USED, and the packet now proves why it does not
-  need to be. 0.5.17 has a skip-verify replica option, and a rehearsal
-  could use it to accept the self-signed endpoint. It is deliberately
-  not used: the "untrusted-ca" variant above runs the SAME working URL
-  with the rehearsal CA removed, and a gate that only passes because
-  verification was switched off would then show up as a failure.
-  AWS_CA_BUNDLE is the documented AWS way to add a CA and 0.5.17 ABORTS
-  on it: "cannot load aws config: unable to add custom RootCAs
-  HTTPClient, has no WithTransportOptions". SSL_CERT_FILE is read by
-  Go instead and works. Trust in this run: system trust store (the endpoint's certificate chains to a public CA)
-
-minimal working replica URL (against the configured endpoint):
-  s3://dg-sandbox/gate3?endpoint=https://s3.uk.io.cloud.ovh.net&region=uk
-  i.e. the endpoint parameter carries the scheme. Without it, this URL
-  replicates nothing and says nothing about why.
-
-NOTE: `replica.path` cannot carry a URL. `path: s3://...` fails with
-  "replica path cannot be a url, please use the url field instead".
-
-## gate 3: FAIL -- no variant of the replica URL produced a single object write, or the endpoint was accepted with an untrusted certificate
-endpoint: https://s3.uk.io.cloud.ovh.net   region: uk
-TLS trust: system trust store (the endpoint's certificate chains to a public CA)
-certificate enforcement: NOT PROVED -- the untrusted-ca variant was accepted, or TLS trust was not exercised
