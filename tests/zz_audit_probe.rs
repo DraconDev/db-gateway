@@ -85,8 +85,7 @@ fn hit(
             let text = r.text().unwrap_or_default();
             let code = serde_json::from_str::<Value>(&text)
                 .ok()
-                .and_then(|v| v.get("code").cloned())
-                .and_then(|v| v.as_str().map(String::from))
+                .and_then(|v| v["error"]["code"].as_str().map(String::from))
                 .unwrap_or_else(|| "<no-code>".to_string());
             (status, code)
         }
