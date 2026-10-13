@@ -217,7 +217,15 @@ def resign_for_upstream(
     if len(credential_parts) == 5:
         region = credential_parts[2]
 
-    signed_headers = ["host", "x-amz-content-sha256", "x-amz-date"]
+    # Sign every x-amz-* header that will be forwarded: SigV4 requires all
+    # x-amz-* headers present in a request to be in SignedHeaders, and the
+    # forwarder below relays them all. A fixed 3-header set produces
+    # "AccessDenied: headers present which were not signed" on any client
+    # (boto3, recent AWS SDKs, litestream) that sends checksum headers.
+    signed_headers = sorted(
+        {"host", "x-amz-content-sha256", "x-amz-date"}
+        | {h for h in scoped if h.startswith("x-amz-")}
+    )
     canonical_headers = "".join(
         f"{h}:{' '.join(scoped[h].split())}\n" for h in signed_headers
     )
