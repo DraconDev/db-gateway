@@ -111,8 +111,13 @@ fn owner_malformed_path_name_report() {
     let q = json!({"sql": "SELECT 1"});
     let b = json!({"statements": []});
     let i = json!({"size": 0, "sha256": "x"});
-    let k = json!({"name": "k"});
-    let cases: Vec<(&str, &str, Option<&Value>)> = vec![
+    // Path-traversal, separator, and encoding shapes that survive URL
+    // construction. `#` is excluded on purpose: a client treats it as a
+    // fragment delimiter and never sends it, which measures the probe and
+    // not the server.
+    let bad_names = vec!["..", "../..", "..%2f..%2f", "a b", "a/b", "a;b", "a%00b", "x(1)"];
+
+    let suffixes: Vec<(&str, &str, Option<&Value>)> = vec![
         ("query", "POST", Some(&q)),
         ("batch", "POST", Some(&b)),
         ("export", "GET", None),
@@ -120,27 +125,28 @@ fn owner_malformed_path_name_report() {
         ("import/begin", "POST", Some(&i)),
         ("", "DELETE", None),
         ("keys", "GET", None),
-        ("keys", "POST", Some(&k)),
     ];
-    for (path, method, body) in &cases {
-        let full = if path.is_empty() {
-            format!("/v1/databases/{bad}")
-        } else {
-            format!("/v1/databases/{bad}/{path}")
-        };
-        let (status, code) = hit(&client, a, &owner, method, &full, *body);
-        report.push((format!("{method} /v1/databases/{{name}}/{path}"), status, code));
+    for bad in &bad_names {
+        for (path, method, body) in &suffixes {
+            let full = if path.is_empty() {
+                format!("/v1/databases/{bad}")
+            } else {
+                format!("/v1/databases/{bad}/{path}")
+            };
+            let (status, code) = hit(&client, a, &owner, method, &full, *body);
+            report.push((format!("{method} {full}"), status, code));
+        }
     }
 
     // A well-formed but nonexistent name, for comparison.
-    for (path, method, body) in cases.iter() {
+    for (path, method, body) in &suffixes {
         let full = if path.is_empty() {
             "/v1/databases/nope".to_string()
         } else {
             format!("/v1/databases/nope/{path}")
         };
-        let (status, code) = hit(&client, a, &owner, method, &full, body.as_ref().map(|v| &**v));
-        report.push((format!("{method} /v1/databases/{{nope}}/{path}"), status, code));
+        let (status, code) = hit(&client, a, &owner, method, &full, *body);
+        report.push((format!("{method} {full}"), status, code));
     }
 
     println!("\n===== OWNER PATH-NAME PROBE =====");
