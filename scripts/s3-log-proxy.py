@@ -803,8 +803,14 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     host, _, port = args.listen.rpartition(":")
-    up_host, _, up_port = args.upstream.rpartition(":")
-    UPSTREAM = (up_host, int(up_port))
+    up_host, sep, up_port = args.upstream.rpartition(":")
+    if not sep:
+        # Bare host (the packet's documented DG_SANDBOX_ENDPOINT shape).
+        # Default the port from the scheme instead of crashing on int(host).
+        up_host, up_port = args.upstream, 443 if args.upstream_scheme == "https" else 80
+    else:
+        up_port = int(up_port)
+    UPSTREAM = (up_host, up_port)
     UPSTREAM_TLS = args.upstream_scheme == "https"
     UPSTREAM_CA = args.upstream_ca_bundle
     EXPECTED_KEY = args.access_key_id
