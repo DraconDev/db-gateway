@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { readFile, stat } from 'node:fs/promises';
+import { lstat, readFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { isIP } from 'node:net';
 import { fileURLToPath } from 'node:url';
@@ -116,8 +116,13 @@ export function configFromEnv(): ConsoleConfig {
 }
 
 export async function readCredential(path: string): Promise<string> {
-  const metadata = await stat(path);
-  if (!metadata.isFile() || metadata.size > 4096) throw new Error('credential file must be a small regular file');
+  // lstat (not stat): a symlink at `path` would let a planted entry
+  // redirect the read to a different file between the mode check and the
+  // open. The user's config dir is operator-owned, so the risk is
+  // operator-introduced, but the TOCTOU closes for the same cost as the
+  // permission check that follows.
+  const metadata = await lstat(path);
+  if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > 4096) throw new Error('credential file must be a small regular file');
   if (process.platform !== 'win32' && (metadata.mode & 0o077) !== 0) throw new Error('credential file must not be accessible by group or others');
   const value = (await readFile(path, 'utf8')).trim();
   if (!/^[a-f0-9]{64}$/i.test(value)) throw new Error('credential file must contain one 64-character hex key');
