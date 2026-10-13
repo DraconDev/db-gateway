@@ -49,8 +49,10 @@ fn spawn(data_dir: &std::path::Path) -> (Server, String) {
     let mut address = String::new();
     for line in BufReader::new(stderr).lines() {
         let line = line.unwrap();
-        if let Some(rest) = line.split("listening on ").nth(1) {
-            address = rest.trim().to_string();
+        if let Ok(log) = serde_json::from_str::<Value>(&line)
+            && let Some(addr) = log["fields"]["address"].as_str()
+        {
+            address = addr.to_string();
             break;
         }
     }
