@@ -447,9 +447,12 @@ async fn export_begin(
     body: std::result::Result<Json<ExportRequest>, JsonRejection>,
 ) -> Result<Json<Value>> {
     json_body(body)?;
-    // Validate the path segment the same way import_begin does: a malformed
-    // name should answer 400 invalid_name here, not depend on a deeper
-    // handler to refuse it with a less specific code.
+    // Validate the path segment the same way import_begin does. The code is
+    // `invalid_request`, not `invalid_name`: `validate_name` returns
+    // `Error::invalid()` and this project has no `invalid_name` code anywhere
+    // (docs/api.md:69 documents `invalid_request` as the "bad name" code).
+    // Naming a code that does not exist here would invite a future reader to
+    // invent one and break the documented vocabulary.
     validate_name(&name)?;
     work_read(store, headers, move |s, p| {
         s.authorize(&p, &name)?;
