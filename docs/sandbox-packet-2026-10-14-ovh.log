@@ -52,3 +52,82 @@ file, no mid-history point, and no corrupt-artifact rejection case.
 
 scheme://s3.uk.io.cloud.ovh.net  bucket=dg-sandbox  region=uk  path-style addressing
 service behind it: the S3 service itself (no local stand-in configured)
+variants tried (each: objects written / requests rejected):
+  working: OK -- 3 object(s) written, 0 rejected  [s3://dg-sandbox/gate3?endpoint=http://127.0.0.1:40389&region=uk]
+  no-scheme: OK -- 3 object(s) written, 0 rejected  [s3://dg-sandbox/gate3?endpoint=127.0.0.1:42979&region=uk]
+  no-endpoint: FAILED -- 0 object(s) written, 0 rejected  [s3://dg-sandbox/gate3?region=uk]  error="check database behind replica: get replica position: operation error S3: ListObjectsV2, https response error StatusCode: 0, RequestID: , HostID: , reques
+  wrong-region: FAILED -- 0 object(s) written, 19 rejected  [s3://dg-sandbox/gate3?endpoint=http://127.0.0.1:38585&region=nowhere-1]  error="check database behind replica: get replica position: operation error S3: ListObjectsV2, https response error StatusCode: 400, RequestID: tx5234a52273c84a
+  no-region: OK -- 3 object(s) written, 0 rejected  [s3://dg-sandbox/gate3?endpoint=http://127.0.0.1:37277]
+  path-style: OK -- 2 object(s) written, 0 rejected  [s3://dg-sandbox/gate3?endpoint=http://127.0.0.1:46337&region=uk]
+  untrusted-ca: NOT RUN -- this endpoint's certificate chains to a public CA, so there is no rehearsal trust decision to withhold
+
+force-path-style: litestream 0.5.17 has no such replica option. It was
+  accepted as a replica URL query parameter in the 2026-09-28 file
+  rehearsal with no error and no observable effect, so it is recorded as
+  NOT SUPPORTED rather than tested. Addressing is decided by the URL host:
+  a bucket in the path is path-style, a bucket in the host is virtual-host.
+THE SCHEME IN endpoint= IS MANDATORY, and getting it wrong is silent.
+  Measured here: endpoint=http://<host>:<port> works; endpoint=<host>:<port>
+  with no scheme makes 0.5.17 speak PLAINTEXT http, so against an http
+  proxy the request is rejected as a TLS error before the signature is
+  checked: 0 objects written, no rejected request, and nothing in
+  litestream's log naming the cause. Every SigV4-signed request in that
+  mode would also have carried the request signature in cleartext.
+skip-verify (TLS): NOT USED, and the packet now proves why it does not
+  need to be. 0.5.17 has a skip-verify replica option, and a rehearsal
+  could use it to accept the self-signed endpoint. It is deliberately
+  not used: the "untrusted-ca" variant above runs the SAME working URL
+  with the rehearsal CA removed, and a gate that only passes because
+  verification was switched off would then show up as a failure.
+  AWS_CA_BUNDLE is the documented AWS way to add a CA and 0.5.17 ABORTS
+  on it: "cannot load aws config: unable to add custom RootCAs
+  HTTPClient, has no WithTransportOptions". SSL_CERT_FILE is read by
+  Go instead and works. Trust in this run: system trust store (the endpoint's certificate chains to a public CA)
+
+minimal working replica URL (against the configured endpoint):
+  s3://dg-sandbox/gate3?endpoint=https://s3.uk.io.cloud.ovh.net&region=uk
+  i.e. the endpoint parameter carries the scheme. Without it, this URL
+  replicates nothing and says nothing about why.
+
+NOTE: `replica.path` cannot carry a URL. `path: s3://...` fails with
+  "replica path cannot be a url, please use the url field instead".
+
+## gate 3: PASS -- explicit endpoint/region config works, and the same URL FAILS both without its scheme and without the rehearsal CA, so the pass is neither a transport artifact nor a disabled-verification artifact
+endpoint: https://s3.uk.io.cloud.ovh.net   region: uk
+TLS trust: system trust store (the endpoint's certificate chains to a public CA)
+certificate enforcement: not applicable to this endpoint
+measured over a full cycle: initial snapshot, two databases, live writes,
+two forced syncs and two restores.
+
+total_requests=117 non_2xx=0 bytes_uploaded=21141 distinct_list_prefixes=22
+    102  GET list-type=2 (ListObjectsV2)
+      4  GET x-id
+     11  PUT x-id
+
+operations litestream 0.5.17 issued, as a credential policy is written:
+  required: s3:GetObject, s3:PutObject, s3:ListBucket
+            scoped to the per-database prefix, e.g. dg-sandbox/sbx/*
+  NOT required, and NOT observed on this run:
+    multipart upload (LTX segments are single PUTs)
+    any object delete -- litestream never deletes, so retention is
+      entirely the bucket's lifecycle job (see gate 6)
+    any version read, lifecycle read or SSE header
+  the restore side adds s3:GetObject only.
+
+restore from the bucket: alice 200 rows, bob 150 rows
+  (source was 200 and 150; a wrong-but-200 restore was measured on 2026-09-28)
+
+## gate 4: PASS -- every S3 operation litestream 0.5.17 issued succeeded, and both databases restored from the bucket with exact row counts
+requests: 117, non-2xx: 0, distinct ListObjectsV2 prefixes: 22
+operations: GET list-type=2 (ListObjectsV2),GET x-id,PUT x-id
+restored alice=200/200 bob=150/150
+
+## S3 request log, summarised by the proxy in front of the endpoint
+
+requests: 117
+    102  GET dg-sandbox/(bucket-level)*
+      4  GET dg-sandbox/sbx*
+     11  PUT dg-sandbox/sbx*
+bytes uploaded: 21141
+distinct ListObjectsV2 prefixes probed: 22
+requests carrying server-side-encryption headers, in THIS cycle's log: 0 (no SSE-C or SSE header in the requests proxied for this window; gate 10's probe runs through its own proxy and is reported there)
