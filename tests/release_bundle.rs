@@ -107,10 +107,12 @@ exit 44
 // `#[ignore]`d so `cargo test --workspace` does not run the full pinned-builder
 // build on a contributor without podman/docker. The contract is exercised in
 // CI by the `check` job of `.github/workflows/ci.yml`, which installs docker
-// first and re-runs this single test with `--ignored`. The three sibling
-// tests in this file still run on every PR and prove the script's failure
-// modes (no engine, builder drift, build/smoke failure) without needing a
-// real container.
+// first and re-runs this single test with `--ignored`. The four sibling
+// tests in this file still run on every PR: the three fake-engine modes
+// (no engine, builder drift, build/smoke failure) prove the script's
+// failure modes without needing a real container, and
+// `explicit_host_bundle_never_claims_micro2_abi_verified` pins the
+// `DG_RELEASE_TARGET=host` contract on every PR.
 #[test]
 #[ignore]
 fn micro2_pinned_container_builds_bundle_and_records_builder() {

@@ -64,10 +64,14 @@ jobs:
         # The contract test (`micro2_pinned_container_builds_bundle_and_records_builder`)
         # is `#[ignore]`d so `cargo test --workspace` does not pay the cost on every
         # PR; the explicit `--ignored` here re-runs only it once the previous
-        # step has confirmed a working container engine. The three fake-engine
-        # tests in the same file still run as part of the standard
-        # `cargo test --workspace` step above and protect the script's failure
-        # modes without needing a real container.
+        # step has confirmed a working container engine. The four sibling
+        # tests in this file still run as part of the standard
+        # `cargo test --workspace` step above -- the three fake-engine
+        # modes (no engine, builder inspection fail, build/smoke fail)
+        # protect the script's failure modes without needing a real
+        # container, and `explicit_host_bundle_never_claims_micro2_abi_verified`
+        # pins the DG_RELEASE_TARGET=host guarantee that no container
+        # engine would otherwise catch.
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
