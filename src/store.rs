@@ -2012,7 +2012,11 @@ impl Store {
     /// upload look resumable until the next append/abort re-checks the TTL
     /// and 404s. A rejected name is recoverable; an expired upload is not,
     /// and the two must not look alike.
-    fn restore_open_after_failed_commit(&self, id: &str, transfers: &mut HashMap<String, Transfer>) {
+    fn restore_open_after_failed_commit(
+        &self,
+        id: &str,
+        transfers: &mut HashMap<String, Transfer>,
+    ) {
         self.purge_expired_locked(transfers);
         if let Some(transfer) = transfers.get_mut(id)
             && let TransferKind::Upload { state, .. } = &mut transfer.kind
@@ -2425,7 +2429,11 @@ mod tests {
         let TransferKind::Upload { state, .. } = &transfers.get(&live.id).unwrap().kind else {
             panic!("upload kind")
         };
-        assert_eq!(*state, UploadState::Open, "a live upload must stay retryable");
+        assert_eq!(
+            *state,
+            UploadState::Open,
+            "a live upload must stay retryable"
+        );
 
         // An expired upload: publication consumed the remaining TTL, so the
         // entry must NOT be revived. purge_expired_locked removes it, which
@@ -2437,7 +2445,8 @@ mod tests {
             let mut transfers = short.transfers.lock().unwrap();
             // created.elapsed() >= ttl (== 0) is true immediately, so the
             // entry is already expired at the moment publication returns.
-            let TransferKind::Upload { state, .. } = &mut transfers.get_mut(&expired.id).unwrap().kind
+            let TransferKind::Upload { state, .. } =
+                &mut transfers.get_mut(&expired.id).unwrap().kind
             else {
                 panic!("upload kind")
             };
