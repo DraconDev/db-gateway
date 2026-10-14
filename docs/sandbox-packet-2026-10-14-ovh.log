@@ -231,3 +231,70 @@ restore after the retention step: exit 0, 70|2485|70
 ## gate 6: FAIL -- the lifecycle policy was not stored
 put-lifecycle: {"ok": true, "status": 200, "rules": 2, "sent": [{"id": "frequent-recovery-points-7d", "status": "Enabled", "expiration_days": "7", "noncurrent_expiration_days": "7"}, {"id": "noncurrent-hard-cap-30d", "status": "Enabled", "expiration_days": "", "noncurrent_expiration_days": "30"}]}
 get-lifecycle: {"ok": true, "status": 200, "supported": true, "rules": [{"id": "frequent-recovery-points-7d", "status": "Enabled", "expiration_days": "", "noncurrent_expiration_days": ""}, {"id": "noncurrent-hard-cap-30d", "status": "Enabled", "expiration_days": "", "noncurrent_expiration_days": ""}], "count": 2}
+each failure was injected into the live replication path of the
+gateway's OWN database while writes continued, one at a time, then
+cleared. 'in-bucket' is the row count a RESTORE OUT OF THE BUCKET
+returns: the only reading of 'the backup is stale' that a healthy-
+looking process cannot produce.
+
+  healthy: live 20 -> 21, in-bucket 21, surfaces that carried it: none (proactive: no, restore-only: no), daemon signal after 73s [daemon's own backoff when it logged: n/a, wait bound 70s]
+  revoked-credentials: live 21 -> 22, in-bucket 21, surfaces that carried it: daemon-log,sync-cli (proactive: yes, restore-only: no), daemon signal after 1s [daemon's own backoff when it logged: n/a, wait bound 70s]
+  blocked-egress: live 22 -> 23, in-bucket 21, surfaces that carried it: sync-cli (proactive: yes, restore-only: no), daemon signal after 103s [daemon's own backoff when it logged: n/a, wait bound 70s]
+  near-quota: live 23 -> 24, in-bucket -1, surfaces that carried it: daemon-log (proactive: yes, restore-only: no), daemon signal after 9s [daemon's own backoff when it logged: n/a, wait bound 70s]
+
+faulted phases:                     revoked-credentials,blocked-egress,near-quota
+gateway writes kept being served:   4 of 4 phases (1 healthy + 3 faulted)
+faulted write absent from the bucket: 2 of 2 measurable faulted phases
+  (the near-quota phase injected a failure on LIST, which is the restore's own first call,
+   so 'absent from the bucket' is not measurable there and is not counted against it)
+the daemon logged a NEW error/warn for the phase it failed in: 2 of 3 faulted phases
+faults visible on NO surface at all:  0 
+faults visible only by trying a restore (no proactive surface): 0 
+false alarms in the healthy phase:  0
+the sync CLI reported the failure:  2 of 3 faulted phases
+
+which surface carried which failure (this is the answer to §6 gate 8's
+'record how each surfaces'; daemon-log/sync-cli/status-cli are proactive,
+restore-cli only fires when someone attempts a restore):
+  healthy -> none;revoked-credentials -> daemon-log,sync-cli;blocked-egress -> sync-cli;near-quota -> daemon-log
+
+injected 403s seen verbatim in the daemon log, whole drill: 3 (of which revoked-credentials: 2)
+
+new daemon signal lines, per phase (the delta the count above is made of):
+  time=2026-10-14T11:02:24.609+01:00 level=ERROR msg="monitor error" system=store db=sbfail.sqlite replica=s3 error="write ltx file: s3: put object sbx/g8/0000/0000000000000004-0000000000000004.ltx: operation error S3: PutObject, https response error StatusCode: 403, RequestID: proxy, HostID: , api error AccessDenied: injected revoked-credential fault" consecutive_errors=1 backoff=1s
+  time=2026-10-14T11:04:20.113+01:00 level=ERROR msg="enforce L0 time retention" system=store db=sbfail.sqlite error="close l1 iterator: operation error S3: ListObjectsV2, https response error StatusCode: 403, RequestID: proxy, HostID: , api error AccessDenied: injected quota fault"
+
+how long a stalled backup stays SILENT is the 'daemon signal after Ns' figure
+in each phase above, read next to the daemon's own declared backoff.
+litestream backs off exponentially on consecutive errors, so that number
+GROWS with each successive failure, and it is measured against a wait bound
+of 70s -- which is what makes a surface count as invisible.
+A surface that is silent for 30 s and one that is silent forever are
+different findings, and only the second is a reason to distrust the daemon
+log as an alerting source.
+
+sync command output, last 8 lines (the grep that decides sync-reported above):
+  db_path: /tmp/dg-sandbox-wEdHuV/gate8/data/sbfail.sqlite
+  txid: 2
+  Error: sync failed: sync database: replica sync: write ltx file: s3: put object sbx/g8/0000/0000000000000004-0000000000000004.ltx: operation error S3: PutObject, https response error StatusCode: 403, RequestID: proxy, HostID: , api error AccessDenied: injected revoked-credential fault
+  Error: sync failed: sync database: replica sync: write ltx file: s3: put object sbx/g8/0000/0000000000000004-0000000000000004.ltx: operation error S3: PutObject, request canceled, context deadline exceeded
+  db_path: /tmp/dg-sandbox-wEdHuV/gate8/data/sbfail.sqlite
+  txid: 8
+
+gateway backup freshness, as an operator reads it:
+  {"timestamp":"2026-10-14T10:04:37.302115Z","level":"ERROR","fields":{"message":"command failed","code":"transport_unavailable","detail":"transport_unavailable: transport failed; the gateway is unavailable"},"target":"dg"
+(unavailable)
+
+FINDING, NOT A GATE FAILURE -- and the most important paragraph in
+this gate. litestream 0.5.17 does not raise level=ERROR/WARN in the
+replicate daemon's log for every way the destination can break. What
+did surface it here: healthy -> none;revoked-credentials -> daemon-log,sync-cli;blocked-egress -> sync-cli;near-quota -> daemon-log.
+
+This is the substance behind owner decision 6, not a passing gate.
+
+## gate 8: PASS -- each of the three injected failures kept the gateway serving writes and kept the faulted write out of the bucket, every one of them surfaced on at least one operator-visible surface, the healthy control phase raised nothing false, and after the fault cleared the missing writes were in the bucket again
+checks: healthy: live 20 -> 21, in-bucket 21, surfaces that carried it: none (proactive: no, restore-only: no), daemon signal after 73s [daemon's own backoff when it logged: n/a, wait bound 70s] revoked-credentials: live 21 -> 22, in-bucket 21, surfaces that carried it: daemon-log,sync-cli (proactive: yes, restore-only: no), daemon signal after 1s [daemon's own backoff when it logged: n/a, wait bound 70s] blocked-egress: live 22 -> 23, in-bucket 21, surfaces that carried it: sync-cli (proactive: yes, restore-only: no), daemon signal after 103s [daemon's own backoff when it logged: n/a, wait bound 70s] near-quota: live 23 -> 24, in-bucket -1, surfaces that carried it: daemon-log (proactive: yes, restore-only: no), daemon signal after 9s [daemon's own backoff when it logged: n/a, wait bound 70s]
+surface map: healthy -> none;revoked-credentials -> daemon-log,sync-cli;blocked-egress -> sync-cli;near-quota -> daemon-log
+writes served: 4/4   faulted writes absent from the bucket: 2/2 measurable   new daemon error/warn per faulted phase: 2/3   faults on no surface: 0   faults with no proactive surface: 0   false alarms while healthy: 0
+the daemon log is NOT a complete surface here (2 of 3); see the finding above for what an operator has to watch instead
+recovered after the fault cleared: yes, a restore returns 25 rows against 24 live
