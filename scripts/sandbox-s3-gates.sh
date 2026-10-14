@@ -522,7 +522,7 @@ fi
     printf '  HTTPClient, has no WithTransportOptions". SSL_CERT_FILE is read by\n'
     printf '  Go instead and works. Trust in this run: %s\n' "$CA_NOTE"
     printf '\nminimal working replica URL (against the configured endpoint):\n'
-    printf '  s3://%s/gate3?endpoint=%s://%s&region=%s\n' "$BUCKET" "$SCHEME" "$ENDPOINT" "$REGION"
+    printf '  s3://%s/gate3?endpoint=%s://%s&region=%s\n' "$BUCKET" "$UPSTREAM_SCHEME" "$ENDPOINT" "$REGION"
     printf '  i.e. the endpoint parameter carries the scheme. Without it, this URL\n'
     printf '  replicates nothing and says nothing about why.\n'
     printf '\nNOTE: `replica.path` cannot carry a URL. `path: s3://...` fails with\n'
@@ -530,12 +530,12 @@ fi
 } >> "$OUT"
 if [ "$GATE3_OK" -ge 1 ] && { [ "$G3_TRUST_HELD" = "1" ] || [ "$G3_TRUST_HELD" = "not_applicable" ]; }; then
     record 3 PASS "explicit endpoint/region config works, and the same URL FAILS both without its scheme and without the rehearsal CA, so the pass is neither a transport artifact nor a disabled-verification artifact" \
-        "endpoint: $SCHEME://$ENDPOINT   region: $REGION" \
+        "endpoint: $UPSTREAM_SCHEME://$ENDPOINT   region: $REGION" \
         "TLS trust: $CA_NOTE" \
         "certificate enforcement: $([ "$G3_TRUST_HELD" = 1 ] && echo 'proved -- the untrusted-ca variant was refused' || echo 'not applicable to this endpoint')"
 else
     record 3 FAIL "no variant of the replica URL produced a single object write, or the endpoint was accepted with an untrusted certificate" \
-        "endpoint: $SCHEME://$ENDPOINT   region: $REGION" \
+        "endpoint: $UPSTREAM_SCHEME://$ENDPOINT   region: $REGION" \
         "TLS trust: $CA_NOTE" \
         "certificate enforcement: $([ "$G3_TRUST_HELD" = 1 ] && echo 'proved' || echo 'NOT PROVED -- the untrusted-ca variant was accepted, or TLS trust was not exercised')"
 fi
@@ -788,7 +788,7 @@ socket:
 dbs:
   - path: $G5_SRC
     replica:
-      url: s3://$BUCKET/$G5_PREFIX?endpoint=$SCHEME://$ENDPOINT&region=$REGION
+      url: s3://$BUCKET/$G5_PREFIX?endpoint=$UPSTREAM_SCHEME://$ENDPOINT&region=$REGION
 EOF
 g5_write() { # $1 = first id, $2 = count
     python3 - "$G5_SRC" "$1" "$2" <<'PY'
@@ -807,7 +807,7 @@ g5_restore() { # <label> <extra args...> -- restore to a fresh path, echo rc
 dbs:
   - path: $out
     replica:
-      url: s3://$BUCKET/$G5_PREFIX?endpoint=$SCHEME://$ENDPOINT&region=$REGION
+      url: s3://$BUCKET/$G5_PREFIX?endpoint=$UPSTREAM_SCHEME://$ENDPOINT&region=$REGION
 EOF
     local rc=0
     "${TIMEOUT_ARGV[@]}" "$LITESTREAM" restore -config "$G5_ROOT/restore-$label.yml" \
@@ -1444,7 +1444,7 @@ if [ -n "${G6_KEPT_TOTAL:-0}" ] && [ "${G6_KEPT_TOTAL:-0}" -gt 0 ] 2>/dev/null; 
 dbs:
   - path: $G6_EXPIRE_OUT
     replica:
-      url: s3://$BUCKET/sbx/g5?endpoint=$SCHEME://$ENDPOINT&region=$REGION
+      url: s3://$BUCKET/sbx/g5?endpoint=$UPSTREAM_SCHEME://$ENDPOINT&region=$REGION
 EOF
     G6_AFTER_RC=0
     "${TIMEOUT_ARGV[@]}" "$LITESTREAM" restore -config "$SANDBOX/gate6-restore.yml" \
@@ -2261,7 +2261,7 @@ logging:
 dbs:
   - path: $G9_SRC
     replica:
-      url: s3://$BUCKET/sbx/g9?endpoint=$SCHEME://$ENDPOINT&region=$REGION
+      url: s3://$BUCKET/sbx/g9?endpoint=$UPSTREAM_SCHEME://$ENDPOINT&region=$REGION
 EOF
 
 G9_MEMEVENTS=""
@@ -2871,10 +2871,10 @@ socket:
 dbs:
   - path: $G11_SRC/metadata.sqlite
     replica:
-      url: s3://$BUCKET/sbx/g11/metadata?endpoint=$SCHEME://$ENDPOINT&region=$REGION
+      url: s3://$BUCKET/sbx/g11/metadata?endpoint=$UPSTREAM_SCHEME://$ENDPOINT&region=$REGION
   - path: $G11_SRC/ledger_app.sqlite
     replica:
-      url: s3://$BUCKET/sbx/g11/ledger_app?endpoint=$SCHEME://$ENDPOINT&region=$REGION
+      url: s3://$BUCKET/sbx/g11/ledger_app?endpoint=$UPSTREAM_SCHEME://$ENDPOINT&region=$REGION
 EOF
     "$LITESTREAM" replicate -config "$G11_ROOT/litestream.yml" > "$G11_ROOT/replicate.log" 2>&1 &
     G11_LS_PID=$!
@@ -2893,7 +2893,7 @@ EOF
 dbs:
   - path: $G11_RCV/$f.sqlite
     replica:
-      url: s3://$BUCKET/sbx/g11/$f?endpoint=$SCHEME://$ENDPOINT&region=$REGION
+      url: s3://$BUCKET/sbx/g11/$f?endpoint=$UPSTREAM_SCHEME://$ENDPOINT&region=$REGION
 EOF
         "${TIMEOUT_ARGV[@]}" "$LITESTREAM" restore -config "$G11_ROOT/restore-$f.yml" \
             -o "$G11_RCV/$f.sqlite" "$G11_RCV/$f.sqlite" > "$G11_ROOT/restore-$f.log" 2>&1 || true
