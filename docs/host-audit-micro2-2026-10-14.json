@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "tool": "host-audit",
-  "started_at": "2026-10-14T19:08:49Z",
-  "finished_at": "2026-10-14T19:08:50Z",
+  "started_at": "2026-10-14T20:04:13Z",
+  "finished_at": "2026-10-14T20:04:15Z",
   "mode": "live",
   "target": "micro2",
   "repo_side": {
@@ -17,8 +17,8 @@
     },
     "dg_expected_sha256": {
       "status": "pass",
-      "value": "ca42d0b00da821428e8ee5bcb5aca4a82c3cdc6bfdefbe8de88d2f5c6ffc1175",
-      "bundle_dir": "/tmp/dg-fresh-bundle"
+      "value": "17f63e8ce8277939011e1c44303a66f45a72fe49626965a2d03083799c1bdaa0",
+      "bundle_dir": "/tmp/dg-final-bundle"
     },
     "bundle_sha256sums_verify": {
       "status": "pass",
@@ -32,8 +32,8 @@
     },
     "working_tree_clean": {
       "status": "observed",
-      "clean": true,
-      "dirty_files": 0
+      "clean": false,
+      "dirty_files": 1
     }
   },
   "host_side": {
@@ -42,8 +42,8 @@
     "checks": {
       "dg_binary_sha256": {
         "status": "pass",
-        "expected": "ca42d0b00da821428e8ee5bcb5aca4a82c3cdc6bfdefbe8de88d2f5c6ffc1175",
-        "actual": "ca42d0b00da821428e8ee5bcb5aca4a82c3cdc6bfdefbe8de88d2f5c6ffc1175",
+        "expected": "17f63e8ce8277939011e1c44303a66f45a72fe49626965a2d03083799c1bdaa0",
+        "actual": "17f63e8ce8277939011e1c44303a66f45a72fe49626965a2d03083799c1bdaa0",
         "mode": "755",
         "owner": "root:root"
       },
@@ -51,7 +51,7 @@
         "status": "pass",
         "active_state": "active",
         "user": "dg",
-        "main_start_timestamp": "Wed 2026-10-14 13:35:52 UTC"
+        "main_start_timestamp": "Wed 2026-10-14 20:04:03 UTC"
       },
       "dg_backup_timer": {
         "status": "pass",
@@ -69,9 +69,9 @@
       },
       "latest_set": {
         "status": "pass",
-        "set": "20261014T181702Z",
-        "created": "2026-10-14T18:17:02Z",
-        "age_seconds": 3108,
+        "set": "20261014T191717Z",
+        "created": "2026-10-14T19:17:17Z",
+        "age_seconds": 2817,
         "max_age_hours": 26
       },
       "backup_verify": {
@@ -87,7 +87,7 @@
           ],
           "has_registry": true,
           "ok": true,
-          "set": "20261014T181702Z"
+          "set": "20261014T191717Z"
         }
       },
       "owner_key_mode": {
