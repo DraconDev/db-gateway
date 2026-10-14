@@ -295,9 +295,6 @@ sys.exit(0 if s.connect_ex(('127.0.0.1',$PROXY_PORT))==0 else 1)" 2>/dev/null &&
         exit 1
     fi
 
-    cat <<EOF
-DG_SANDBOX_BUCKET=$BUCKET
-EOF
     # Disarm the startup cleanup trap: the children are now expected to live
     # until the operator runs `stop`. Without the disarm, every successful
     # `start` would also kill its own children when this function returns.
