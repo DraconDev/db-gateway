@@ -418,7 +418,7 @@ enum TransferKind {
     Upload { received: u64, state: UploadState },
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum UploadState {
     Open,
     Committing,
