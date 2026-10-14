@@ -303,3 +303,19 @@ surface map: healthy -> none;revoked-credentials -> daemon-log,sync-cli;blocked-
 writes served: 4/4   faulted writes absent from the bucket: 2/2 measurable   new daemon error/warn per faulted phase: 2/3   faults on no surface: 0   faults with no proactive surface: 0   false alarms while healthy: 0
 the daemon log is NOT a complete surface here (2 of 3); see the finding above for what an operator has to watch instead
 recovered after the fault cleared: yes, a restore returns 25 rows against 24 live
+database under test: 6893568 bytes, 120000 rows before the live writes
+memory budget:       constrained to 1G by a systemd transient scope (MemoryMax=1G), enforced by the kernel
+enforcement probe: PROVED -- a 512 MiB allocator under a 64 MiB cap was killed by the kernel, so the cap above is a constraint and not just a number written to a file. The child reached 0 MiB before dying (0 = it never printed its survival line, i.e. it was killed).
+
+steady replication  peak RSS 45576 KiB (4% of budget, kernel high-water mark)
+steady replication  CPU  5 ticks across the sampling window
+restore             2337 ms, 120030 rows restored, peak child RSS 35328 KiB (3% of budget)
+killed for exceeding the budget: no
+
+RSS samples (KiB, every 0.4s during replication):  45576 39100 39100 39108 39108 39116 39116 39116 39116 36304 36304 36268 36280 36280 35380 35380 35384 35164 35172 35172 35172 35376 35376 35376 35376 35376 35376 35380 35380 35380
+
+## gate 9: PASS -- gateway-sized database replicated and restored inside a kernel-enforced 1G budget: replication peak 44 MiB (4% of budget), restore peak 34 MiB (3% of budget) in 2337 ms, no OOM kill
+constraint: constrained to 1G by a systemd transient scope (MemoryMax=1G), enforced by the kernel
+database: 6893568 bytes, 120000 rows; restore returned 120030 rows, compared by count and not by exit status
+peaks are the kernel's VmHWM / getrusage high-water marks, not sampled maxima
+headroom against the sidecar budget in docs/resource-budget.md is the owner's decision 2, not this gate's
