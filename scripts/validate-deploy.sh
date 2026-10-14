@@ -85,10 +85,24 @@ e_phoff = struct.unpack_from(endian + "Q", d, 0x20)[0]
 e_phentsize = struct.unpack_from(endian + "H", d, 0x36)[0]
 e_phnum = struct.unpack_from(endian + "H", d, 0x38)[0]
 
+# Dynamic-section tags the parser understands, spelled as the glibc headers
+# define them (elf.h lines ~900/914/988/990) so the numbers are auditable
+# rather than magic: DT_RPATH is the deprecated 15, DT_RUNPATH the current 29,
+# and DT_VERNEED/DT_VERNEEDNUM live way up in the OS-specific range because
+# they are processed by the dynamic linker, not the assembler.
+DT_RPATH = 15          # deprecated but still honoured by a binary built with -Wl,-rpath
+DT_RUNPATH = 29        # what modern linkers emit
+DT_VERNEED = 0x6FFFFFFE
+DT_VERNEEDNUM = 0x6FFFFFFF
+
 interp = ""
+err = None
 dyn = None
 for i in range(e_phnum):
     o = e_phoff + i * e_phentsize
+    if o + 56 > len(d):
+        err = "program header %d is truncated" % i
+        break
     p_type = struct.unpack_from(endian + "I", d, o)[0]
     p_offset = struct.unpack_from(endian + "Q", d, o + 8)[0]
     p_filesz = struct.unpack_from(endian + "Q", d, o + 32)[0]
@@ -98,16 +112,26 @@ for i in range(e_phnum):
         dyn = (p_offset, p_filesz)
 
 runpath = ""
-if dyn:
+glibc_req = ""
+be_64 = d[4] == 2
+# 32-bit ELF would need 4-byte Elf32_Verneed/Vernaux (8 bytes each); this
+# repository only ever ships x86_64, so refuse rather than mis-read a struct
+# and report a wrong verdict with all the confidence of a right one.
+if not be_64:
+    err = err or "32-bit ELF: this parser supports x86_64 only"
+if dyn and not err:
     off, size = dyn
     ents = []
     for i in range(0, size, 16):
+        if off + i + 16 > len(d):
+            break
         tag, val = struct.unpack_from(endian + "qQ", d, off + i)
         if tag == 0:
             break
         ents.append((tag, val))
 
     def v2o(v):
+        # program-header vaddr -> file offset
         for i in range(e_phnum):
             o = e_phoff + i * e_phentsize
             pt = struct.unpack_from(endian + "I", d, o)[0]
@@ -127,9 +151,63 @@ if dyn:
             return d[base + idx:e].decode()
 
         for tag, val in ents:
-            if tag in (15, 29) and so is not None:
+            if tag in (DT_RPATH, DT_RUNPATH) and so is not None:
                 runpath = cstr(so, val)
-print(f"{interp}\t{runpath}")
+
+        # DT_VERNEED is the artifact's own declaration of the libc symbol
+        # versions it needs. This is the only place the real requirement is
+        # recorded: BUILD-INFO.txt in the bundle carries a self-declared
+        # builder_glibc string that a hand-assembled bundle could lie about,
+        # whereas this table is written by the linker and cannot be faked
+        # without changing the binary the target actually runs.
+        #
+        # Each Elf64_Verneed entry (16 B) points at Elf64_Vernaux siblings
+        # (16 B each) whose vna_name indexes .dynstr for strings like
+        # "GLIBC_2.39". Take the maximum: that is the target glibc ceiling.
+        vn = dict(ents)
+        if DT_VERNEED in vn and so is not None:
+            base = v2o(vn[DT_VERNEED])
+            total = vn.get(DT_VERNEEDNUM, 0)
+
+            def vkey(s):
+                try:
+                    return tuple(int(x) for x in s.split("_")[-1].split("."))
+                except ValueError:
+                    return ()
+
+            if base is not None:
+                o, seen = base, 0
+                while o is not None and o + 16 <= len(d) and seen < total:
+                    vn_cnt = struct.unpack_from(endian + "H", d, o + 2)[0]
+                    vn_aux = struct.unpack_from(endian + "I", d, o + 8)[0]
+                    vn_next = struct.unpack_from(endian + "I", d, o + 12)[0]
+                    a = o + vn_aux
+                    for _j in range(vn_cnt):
+                        if a + 16 > len(d):
+                            break
+                        vna_name = struct.unpack_from(endian + "I", d, a + 8)[0]
+                        vna_next = struct.unpack_from(endian + "I", d, a + 12)[0]
+                        try:
+                            s = cstr(so, vna_name)
+                        except ValueError:
+                            s = ""
+                        if s.startswith("GLIBC_") and vkey(s) > vkey(glibc_req):
+                            glibc_req = s
+                        if vna_next == 0:
+                            break
+                        a += vna_next
+                    seen += 1
+                    if vn_next == 0:
+                        break
+                    o += vn_next
+
+if err:
+    print("ERR\t%s\t" % err)
+    raise SystemExit(0)
+# Print nothing for the glibc field rather than the sentinel so a static
+# artifact is visibly "no glibc requirement" and the bash side can tell that
+# apart from "has one and it is fine".
+print(f"{interp}\t{runpath}\t{glibc_req}")
 PY
 )" || fail "portable-artifact check: could not read $bin"
     local interp runpath
