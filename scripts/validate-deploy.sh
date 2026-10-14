@@ -303,7 +303,15 @@ PY
 BUNDLE_DIR="${DG_RELEASE_BUNDLE_DIR:-}"
 if [ -n "$BUNDLE_DIR" ]; then
     log "checking the nominated release bundle is deployable"
-    [ -f "$BUNDLE_DIR/dg" ] || fail "DG_RELEASE_BUNDLE_DIR=$BUNDLE_DIR has no dg binary"
+    # `-x`, not `-f`: a staged binary can be present and still not be
+    # executable, because `cp` applies the builder's umask to the new file.
+    # A 644 dg inside a checksum-valid bundle passes every other check here
+    # (SHA256SUMS verifies and check_portable is content-only) and then
+    # fails to exec on the target. release-bundle.sh chmods its own copy
+    # to 755; this is the independent second line that catches a bundle
+    # staged by any other route. When no bundle is nominated the local
+    # build path below is checked by the same rule.
+    [ -x "$BUNDLE_DIR/dg" ] || fail "DG_RELEASE_BUNDLE_DIR=$BUNDLE_DIR has no executable dg binary"
     [ -f "$BUNDLE_DIR/SHA256SUMS" ] || fail "$BUNDLE_DIR has no SHA256SUMS"
     ( cd "$BUNDLE_DIR" && sha256sum -c SHA256SUMS >/dev/null ) \
         || fail "bundle SHA256SUMS does not verify; do not deploy it"

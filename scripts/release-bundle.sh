@@ -156,7 +156,14 @@ else
 fi
 
 log "staging bundle in $OUT"
+# The executable must be executable, and it must be executable *by the
+# target*, so the mode is pinned rather than inherited. `cp` applies the
+# builder's umask to the new file, so a bundle staged under `umask 0111`
+# ships a 644 dg that `validate-deploy.sh`'s `[ -f ]` accepts and the
+# target then fails to exec under User=dg. scripts/setup.sh already chmods
+# its install to 755; the release path must not be the odd one out.
 cp "$BINARY" "$OUT/dg"
+chmod 755 "$OUT/dg"
 cp "$ROOT/README.md" "$ROOT/LICENSE" "$OUT/"
 mkdir -p "$OUT/docs"
 cp "$ROOT/docs/api.md" "$ROOT/docs/architecture.md" "$OUT/docs/"
