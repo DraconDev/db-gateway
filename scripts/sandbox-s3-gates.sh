@@ -58,7 +58,10 @@ usage: scripts/sandbox-s3-gates.sh --out FILE --from-s3
 
   DG_SANDBOX_BUCKET          required; the test bucket
   DG_SANDBOX_ENDPOINT        required; e.g. s3.gra.io.cloud.ovh.net (host[:port])
-  DG_SANDBOX_SCHEME          https (default) or http, for a local endpoint
+  DG_SANDBOX_SCHEME          the scheme of the ENDPOINT (https default). The recording
+                            proxy's own listen scheme is derived separately: TLS only
+                            when DG_SANDBOX_TLS_CERT is set, else plain HTTP on
+                            loopback. Set this only to override both.
   DG_SANDBOX_REGION          default us-east-1
   DG_SANDBOX_ACCESS_KEY_ID   test-bucket key
   DG_SANDBOX_SECRET_KEY      test-bucket secret
@@ -126,7 +129,7 @@ for PRE_V in DG_SANDBOX_BUCKET DG_SANDBOX_ENDPOINT DG_SANDBOX_REGION \
     esac
 done
 
-SCHEME="${DG_SANDBOX_SCHEME:-https}"
+UPSTREAM_SCHEME="${DG_SANDBOX_SCHEME:-https}"
 # The scheme in `endpoint=` is the scheme of the RECORDING PROXY, not of the
 # endpoint. Those were the same variable until 2026-10-14, and conflating
 # them made gate 3 unreachable against a real endpoint: the proxy only
@@ -506,8 +509,8 @@ fi
     printf '  a bucket in the path is path-style, a bucket in the host is virtual-host.\n'
     printf 'THE SCHEME IN endpoint= IS MANDATORY, and getting it wrong is silent.\n'
     printf '  Measured here: endpoint=%s://<host>:<port> works; endpoint=<host>:<port>\n' "$SCHEME"
-    printf '  with no scheme makes 0.5.17 speak PLAINTEXT http, so against an https\n'
-    printf '  endpoint the request is rejected as a TLS error before the signature is\n'
+    printf '  with no scheme makes 0.5.17 speak PLAINTEXT http, so against an %s\n' "$SCHEME"
+    printf '  proxy the request is rejected as a TLS error before the signature is\n'
     printf '  checked: 0 objects written, no rejected request, and nothing in\n'
     printf '  litestream'"'"'s log naming the cause. Every SigV4-signed request in that\n'
     printf '  mode would also have carried the request signature in cleartext.\n'
