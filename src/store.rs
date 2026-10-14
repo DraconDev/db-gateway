@@ -1936,10 +1936,22 @@ impl Store {
 
         // A rejected target name or validation failure leaves the complete
         // upload available for a corrected retry, but never concurrent with
-        // another append/abort while publication was in progress.
+        // Re-check the TTL that publication just consumed before restoring
+        // Open. Without this, an upload whose TTL elapsed while import_from
+        // was running is revived on the error path, and the next
+        // upload_abort/upload_append call re-checks the TTL and correctly
+        // returns upload_missing -- so the entry looks resumable right up to
+        // the moment it is not, and the operator retries into a 404 instead
+        // of a clear expiry. purge_expired_locked (below) still removes the
+        // row from the map, so no data is lost either way; this only keeps
+        // the state transition honest. A rejected target name is
+        // recoverable in the normal case (the client fixes it and retries),
+        // and an expired upload is not, and the two must not look alike.
         let mut transfers = self.transfers.lock().map_err(|_| Error::internal())?;
+        self.purge_expired_locked(&mut transfers);
         if let Some(transfer) = transfers.get_mut(id)
             && let TransferKind::Upload { state, .. } = &mut transfer.kind
+            && transfer.created.elapsed() < self.transfer_ttl
         {
             *state = UploadState::Open;
         }
