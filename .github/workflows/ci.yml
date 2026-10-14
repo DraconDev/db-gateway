@@ -108,6 +108,12 @@ jobs:
       - name: Install systemd-analyze for the deploy-template gate
         run: sudo apt-get update -qq && sudo apt-get install -y -qq systemd
       - run: ./scripts/validate-deploy.sh
+      # The host-audit repo-side pass needs no host: it reads git HEAD and (if
+      # DG_RELEASE_BUNDLE_DIR is nominated) a bundle, and exits 0 when every
+      # repo-side invariant holds. Live runs set DG_AUDIT_TARGET and are done
+      # by an operator, never in CI. This gate catches a broken probe body or
+      # a scraping regression at the same place the deploy-template gate runs.
+      - run: ./scripts/host-audit.sh
       - run: python3 scripts/check_plan_consistency.py docs/personal-turso-megaplan.md
   audit:
     runs-on: ubuntu-latest

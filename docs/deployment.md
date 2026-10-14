@@ -114,3 +114,68 @@ sample (8,292 KiB) as the on-target bounds. Re-run
 record the on-target fact; if a later run rejects 96 MiB, lower the cap
 in the unit and commit the new report with the change. Items 4 and 5 of
 the release-blocking list in `docs/resource-budget.md` remain open.
+
+## Host verification (`scripts/host-audit.sh`)
+
+`scripts/host-audit.sh` is the read-only gate that proves a deployed host is
+in the state the repo describes. It emits one JSON object on stdout and
+exits non-zero when any invariant fails; diagnostics go to stderr.
+
+### Modes
+
+Set `DG_AUDIT_TARGET` to an ssh-config alias or `user@host` (never an IP or
+key path in the repo — credentials resolve from `~/.ssh/config` and the SSH
+agent). Set `DG_RELEASE_BUNDLE_DIR` to a `scripts/release-bundle.sh` output
+directory to nominate the exact binary the host is held to.
+
+- **No `DG_AUDIT_TARGET`** — repo-side only. Re-reads the deployed backup
+  script from `git HEAD:`, `bash -n`'s it, scrapes its path constants
+  (`BACKUP_ROOT` / `KEY_FILE` / `DATA_DIR`), and nominates the bundle digest.
+  `host_side.status` is `"skipped"` and the script exits 0. This is what CI
+  runs (`.github/workflows/ci.yml`, alongside `validate-deploy.sh`).
+- **`DG_AUDIT_TARGET` set, probe cannot run** — `host_side.status` is
+  `"unreachable"` and the script exits non-zero, naming the ssh failure.
+  This is the path that closes the "Permission denied" hole where a detached
+  audit could not reach the host and had to trust ad-hoc commands.
+- **`DG_AUDIT_TARGET` set, all probes answer** — `host_side.status` is
+  `"pass"` or `"fail"`; any failed check flips `verdict` to `"fail"` and the
+  exit code to non-zero.
+
+### What the live probe proves
+
+Binary sha256 matching the nominated bundle's `SHA256SUMS` (plus mode and
+owner), `dg.service` and `dg-backup.timer` `ActiveState` with `User=dg`,
+`/usr/local/bin/micro2-backup.sh` sha256 matching `git HEAD:`, zero stale
+`.staging*` directories under the backup root, the newest versioned set's
+manifest age under `DG_AUDIT_MAX_SET_AGE_HOURS` (default 26h — one hour
+past the hourly timer), and `dg backup verify latest` returning `ok:true`.
+The owner-key file's mode and ownership are recorded from `stat` only; the
+key bytes are never read.
+
+Anti-staleness: `is-active` alone is never sufficient. The probe closes the
+2026-09-22 outage shape where the timer reported active while no real
+backup had published for three weeks.
+
+### Cross-checking a pasted record
+
+An operator runs the live mode and pastes the JSON into the audit record.
+To verify a pasted record:
+
+```sh
+DG_AUDIT_TARGET=<alias> DG_RELEASE_BUNDLE_DIR=<bundle> \
+  scripts/host-audit.sh | tee record.json; echo "exit=$?"
+jq -e '.mode=="live" and .exit_code==0 and .verdict=="pass"
+       and ([.repo_side[]|.status]|all(.=="pass" or .=="observed"))
+       and .host_side.status=="pass"
+       and ([.host_side.checks[]|.status]|all(.=="pass"))
+       and .host_side.checks.dg_binary_sha256.expected
+         == .host_side.checks.dg_binary_sha256.actual
+       and .host_side.checks.stale_staging_dirs.count==0
+       and .host_side.checks.backup_verify.report.ok==true' record.json
+```
+
+`exit_code` is embedded in the report so the pasted record proves the
+script's own exit status. A record showing `"status": "skipped"` inside
+`host_side.checks` for a live run means that probe step found nothing to
+check (not that it passed); `owner_key_mode` is the only routinely-skipped
+check and it is skipped only when the key file is absent.
