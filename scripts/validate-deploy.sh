@@ -46,6 +46,136 @@ log "checking credential hygiene"
 grep -qE '^(Environment|EnvironmentFile)=' "$UNIT" && fail "unit must not carry secrets via Environment"
 grep -q 'Password\|Secret\|Token' "$UNIT" && fail "unit must not name secrets"
 
+# --------------------------------------------------------------------------
+# Portable-artifact gate.
+#
+# The recorded outage this gate exists to stop: a NixOS-built binary was
+# deployed to the Ubuntu micro2 target instead of the container-built release
+# bundle. Its RUNPATH carried /nix/store/<glibc-2.40>/lib, so on micro2 Ubuntu's
+# ld.so loaded Nix's glibc 2.40 -- a mismatched loader/libc pair -- and every
+# CLI invocation aborted with "*** stack smashing detected ***". Nothing in the
+# release path noticed, because scripts/release-bundle.sh was bypassed: that
+# script builds in the pinned Ubuntu 24.04 image (glibc 2.39, matching the
+# target) and is the only artifact docs/deployment.md authorises installing.
+#
+# The consequence was total: dg-backup.service failed 289 times between
+# 2026-10-02 and the fix, and no backup had published since 2026-09-22.
+#
+# So the gate checks the artifact that would actually be installed. Nominate
+# the container-built bundle with DG_RELEASE_BUNDLE_DIR. Without a nomination
+# it falls back to the local build, and FAILS if that build is not deployable
+# -- which is exactly the trap. A red result here is not a nuisance: on a
+# NixOS workstation the local build genuinely cannot be deployed, and the
+# message names the one command that produces an artifact that can.
+# --------------------------------------------------------------------------
+check_portable() {
+    local bin="$1"
+    [ -f "$bin" ] || fail "portable-artifact check: no such binary: $bin"
+    local facts
+    facts="$(python3 - "$bin" <<'PY'
+import struct, sys
+
+d = open(sys.argv[1], "rb").read()
+if d[:4] != b"\x7fELF":
+    print("NOT_ELF")
+    raise SystemExit
+is64 = d[4] == 2
+endian = "<" if d[5] == 1 else ">"
+e_phoff = struct.unpack_from(endian + "Q", d, 0x20)[0]
+e_phentsize = struct.unpack_from(endian + "H", d, 0x36)[0]
+e_phnum = struct.unpack_from(endian + "H", d, 0x38)[0]
+
+interp = ""
+dyn = None
+for i in range(e_phnum):
+    o = e_phoff + i * e_phentsize
+    p_type = struct.unpack_from(endian + "I", d, o)[0]
+    p_offset = struct.unpack_from(endian + "Q", d, o + 8)[0]
+    p_filesz = struct.unpack_from(endian + "Q", d, o + 32)[0]
+    if p_type == 3 and not interp:  # PT_INTERP
+        interp = d[p_offset:p_offset + p_filesz].split(b"\0")[0].decode()
+    if p_type == 2:  # PT_DYNAMIC
+        dyn = (p_offset, p_filesz)
+
+runpath = ""
+if dyn:
+    off, size = dyn
+    ents = []
+    for i in range(0, size, 16):
+        tag, val = struct.unpack_from(endian + "qQ", d, off + i)
+        if tag == 0:
+            break
+        ents.append((tag, val))
+
+    def v2o(v):
+        for i in range(e_phnum):
+            o = e_phoff + i * e_phentsize
+            pt = struct.unpack_from(endian + "I", d, o)[0]
+            pv = struct.unpack_from(endian + "Q", d, o + 16)[0]
+            pf = struct.unpack_from(endian + "Q", d, o + 32)[0]
+            po = struct.unpack_from(endian + "Q", d, o + 8)[0]
+            if pt == 1 and pv <= v < pv + pf:
+                return po + (v - pv)
+        return None
+
+    st = [v for t, v in ents if t == 5]
+    if st:
+        so = v2o(st[0])
+
+        def cstr(base, idx):
+            e = d.index(b"\0", base + idx)
+            return d[base + idx:e].decode()
+
+        for tag, val in ents:
+            if tag in (15, 29) and so is not None:
+                runpath = cstr(so, val)
+print(f"{interp}\t{runpath}")
+PY
+)" || fail "portable-artifact check: could not read $bin"
+    local interp runpath
+    interp="$(cut -f1 <<<"$facts")"
+    runpath="$(cut -f2 <<<"$facts")"
+    log "artifact: $bin"
+    log "  interpreter: ${interp:-<none, statically linked>}"
+    log "  runpath:     ${runpath:-<none>}"
+
+    # A Nix store path anywhere in the binary means it was built by Nix and
+    # resolves its libc from the builder's store, which does not exist on an
+    # Ubuntu target. Check the RUNPATH explicitly rather than grepping every
+    # string, so an unrelated embedded path in a data blob cannot fail a
+    # genuinely portable build.
+    case "$runpath" in
+        *"/nix/store/"*)
+            fail "$bin is not deployable: its RUNPATH resolves libraries from /nix/store, which does not exist on an Ubuntu target.
+  This is the exact defect that took the micro2 hourly backup down for three weeks.
+  Build the real artifact with: DG_RELEASE_TARGET=micro2 scripts/release-bundle.sh
+  then re-run: DG_RELEASE_BUNDLE_DIR=<bundle-dir> scripts/validate-deploy.sh" ;;
+    esac
+
+    # The guide records the target interpreter. A bundle built against a
+    # different one will not start, so this is checked for whatever artifact
+    # is nominated -- including the container bundle, which is where the
+    # container build itself would be caught if its image were ever changed.
+    if [ -n "$interp" ]; then
+        [ "$interp" = "/lib64/ld-linux-x86-64.so.2" ] \
+            || fail "$bin has interpreter '$interp'; docs/deployment.md records /lib64/ld-linux-x86-64.so.2 for the micro2 target"
+    fi
+    log "  portable-artifact check: clean"
+}
+
+BUNDLE_DIR="${DG_RELEASE_BUNDLE_DIR:-}"
+if [ -n "$BUNDLE_DIR" ]; then
+    log "checking the nominated release bundle is deployable"
+    [ -f "$BUNDLE_DIR/dg" ] || fail "DG_RELEASE_BUNDLE_DIR=$BUNDLE_DIR has no dg binary"
+    [ -f "$BUNDLE_DIR/SHA256SUMS" ] || fail "$BUNDLE_DIR has no SHA256SUMS"
+    ( cd "$BUNDLE_DIR" && sha256sum -c SHA256SUMS >/dev/null ) \
+        || fail "bundle SHA256SUMS does not verify; do not deploy it"
+    check_portable "$BUNDLE_DIR/dg"
+else
+    log "checking the local build is deployable (no DG_RELEASE_BUNDLE_DIR nominated)"
+    check_portable "$TARGET_DIR/debug/dg"
+fi
+
 # The cap is a measured decision (docs/resource-budget.md, set 2026-10-10), so
 # the gate checks the unit against the number the budget records rather than
 # demanding it stay unset. A hard "must be unset" rule here is what made this
