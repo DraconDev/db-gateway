@@ -1,0 +1,23 @@
+# Sandbox adoption packet (docs/backup-compatibility.md §6)
+
+date: 2026-10-14T09:30:35Z
+host: Linux 7.1.2 x86_64
+litestream pinned: 0.5.17 (/home/dracon/.local/dg-sandbox/litestream-0.5.17)
+bucket: dg-sandbox
+endpoint: s3.uk.io.cloud.ovh.net
+region: uk
+mode: owner-authorized run against a real endpoint
+
+Gates are PASS, FAIL or BLOCKED. BLOCKED means not executed and not
+evidence of anything; it is never a pass. A packet with a BLOCKED
+gate is not an adoption packet.
+
+## gate 1: PASS -- litestream 0.5.17, release tarball checksum matches the published checksums.txt
+$ litestream version
+0.5.17
+tarball sha256 (published): cfb371176d164437ae869f8351cfde49bd1804ae71c61923f75c9cba9c9c006d
+tarball sha256 (on disk)  : cfb371176d164437ae869f8351cfde49bd1804ae71c61923f75c9cba9c9c006d
+binary sha256: 200e4248a4cc83da2ca52babe66774f1a71afa993d31373adb0ce0fe12154647
+config reference: etc/litestream.yml shipped in the 0.5.17 tarball, read on 2026-10-14
+NOTE: the litestream on PATH is v0.3.13, which is NOT the pinned
+version. This packet used the pinned binary; the PATH one must not be used for §6.
