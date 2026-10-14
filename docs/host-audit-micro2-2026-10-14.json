@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "tool": "host-audit",
-  "started_at": "2026-10-14T18:37:09Z",
-  "finished_at": "2026-10-14T18:37:10Z",
+  "started_at": "2026-10-14T19:08:49Z",
+  "finished_at": "2026-10-14T19:08:50Z",
   "mode": "live",
   "target": "micro2",
   "repo_side": {
@@ -32,8 +32,8 @@
     },
     "working_tree_clean": {
       "status": "observed",
-      "clean": false,
-      "dirty_files": 1
+      "clean": true,
+      "dirty_files": 0
     }
   },
   "host_side": {
@@ -71,7 +71,7 @@
         "status": "pass",
         "set": "20261014T181702Z",
         "created": "2026-10-14T18:17:02Z",
-        "age_seconds": 1207,
+        "age_seconds": 3108,
         "max_age_hours": 26
       },
       "backup_verify": {
