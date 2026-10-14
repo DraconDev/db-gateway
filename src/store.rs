@@ -1706,7 +1706,7 @@ impl Store {
             Ok(SnapshotInfo { id, size, sha256 })
         })();
         if outcome.is_err() {
-            let _ = std::fs::remove_dir_all(&dir);
+            remove_staging_dir(&dir);
         }
         outcome
     }
@@ -1855,7 +1855,7 @@ impl Store {
                 let stale = transfers.remove(id);
                 drop(transfers);
                 if let Some(t) = stale {
-                    let _ = std::fs::remove_dir_all(&t.dir);
+                    remove_staging_dir(&t.dir);
                 }
                 return Err(upload_missing());
             }
@@ -1956,7 +1956,7 @@ impl Store {
             transfers.remove(id)
         };
         if let Some(transfer) = removed {
-            let _ = std::fs::remove_dir_all(transfer.dir);
+            remove_staging_dir(&transfer.dir);
         }
         Ok(())
     }
@@ -1997,7 +1997,7 @@ impl Store {
                 let stale = transfers.remove(id);
                 drop(transfers);
                 if let Some(t) = stale {
-                    let _ = std::fs::remove_dir_all(&t.dir);
+                    remove_staging_dir(&t.dir);
                 }
                 Ok(None)
             }
@@ -2034,7 +2034,7 @@ impl Store {
             .ok()
             .flatten();
         if let Some(t) = removed {
-            let _ = std::fs::remove_dir_all(&t.dir);
+            remove_staging_dir(&t.dir);
         }
     }
 
@@ -2047,7 +2047,7 @@ impl Store {
         let count = stale.len();
         for id in stale {
             if let Some(t) = transfers.remove(&id) {
-                let _ = std::fs::remove_dir_all(&t.dir);
+                remove_staging_dir(&t.dir);
             }
         }
         count
@@ -2087,6 +2087,32 @@ fn sweep_orphan_transfer_dirs(root: &Path) {
         {
             tracing::warn!(path = %entry.path().display(), error = %error, "orphaned staging dir not removed");
         }
+    }
+}
+
+/// Remove a transfer or lifecycle staging directory, recording a failure
+/// instead of discarding it.
+///
+/// A silently swallowed `remove_dir_all` error is the defect this closes:
+/// the caller has already removed the in-memory entry, so the directory is
+/// unreachable by any later `remove` of the same id, and the orphan sweep
+/// only runs at process start — so a single transient EACCES/EBUSY turned
+/// into a permanent leak of up to 128 MiB per transfer, with `MAX_TRANSFERS`
+/// counting only *live* entries and never noticing. Retrying is deliberately
+/// not attempted here (the caller may hold a lock and the caller's own error
+/// path must not be blocked by a filesystem retry), and the error is NOT
+/// propagated: a failed cleanup of a directory whose data is already
+/// unreachable must not fail the request that asked for the removal. What it
+/// must not do is be invisible, so it is logged at warn with both the path
+/// and the error, which is the same shape `sweep_orphan_transfer_dirs`
+/// already uses for the same class of failure.
+fn remove_staging_dir(dir: &Path) {
+    if let Err(error) = std::fs::remove_dir_all(dir) {
+        tracing::warn!(
+            path = %dir.display(),
+            error = %error,
+            "staging directory could not be removed; the orphan sweep at the next start reclaims it"
+        );
     }
 }
 
