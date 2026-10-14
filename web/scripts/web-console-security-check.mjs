@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { chromium } from 'playwright';
+import { resolveChromium } from './resolve-chromium.mjs';
 
 // This gate lives under web/ (not the repo-root scripts/ dir) so that the
 // bare `playwright` specifier resolves against web/node_modules, the one
@@ -54,7 +55,7 @@ try {
   assert.match(output, /DB Gateway console listening on http:\/\/127\.0\.0\.1:/);
   assert.equal(output.includes(key), false);
   await access(distServer, constants.R_OK);
-  const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_BROWSER_EXECUTABLE || '/run/current-system/sw/bin/chromium', args: ['--no-sandbox'] });
+  const browser = await chromium.launch({ headless: true, executablePath: resolveChromium(), args: ['--no-sandbox'] });
   try {
     const context = await browser.newContext();
     const page = await context.newPage();

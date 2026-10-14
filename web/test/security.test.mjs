@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { createServer as createHttpServer } from 'node:http';
 import { chromium } from 'playwright';
+import { resolveChromium } from '../scripts/resolve-chromium.mjs';
 
 const key = 'b'.repeat(64);
 const root = new URL('../../', import.meta.url).pathname;
