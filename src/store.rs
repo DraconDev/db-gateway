@@ -2406,6 +2406,52 @@ mod tests {
     }
 
     #[test]
+    fn failed_commit_restores_open_only_while_the_ttl_is_live() {
+        // A long-lived upload: a rejected target name must still restore
+        // Open so the client can retry with a corrected name.
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let live = store.upload_begin().unwrap();
+        {
+            let mut transfers = store.transfers.lock().unwrap();
+            let TransferKind::Upload { state, .. } = &mut transfers.get_mut(&live.id).unwrap().kind
+            else {
+                panic!("upload kind")
+            };
+            *state = UploadState::Committing;
+        }
+        let mut transfers = store.transfers.lock().unwrap();
+        store.restore_open_after_failed_commit(&live.id, &mut transfers);
+        let TransferKind::Upload { state, .. } = &transfers.get(&live.id).unwrap().kind else {
+            panic!("upload kind")
+        };
+        assert_eq!(*state, UploadState::Open, "a live upload must stay retryable");
+
+        // An expired upload: publication consumed the remaining TTL, so the
+        // entry must NOT be revived. purge_expired_locked removes it, which
+        // is what the old code allowed only by accident -- it set Open on a
+        // row the very next append/abort would then 404 for.
+        let short = Store::open_with_ttl(dir.path(), Duration::from_millis(0)).unwrap();
+        let expired = short.upload_begin().unwrap();
+        {
+            let mut transfers = short.transfers.lock().unwrap();
+            // created.elapsed() >= ttl (== 0) is true immediately, so the
+            // entry is already expired at the moment publication returns.
+            let TransferKind::Upload { state, .. } = &mut transfers.get_mut(&expired.id).unwrap().kind
+            else {
+                panic!("upload kind")
+            };
+            *state = UploadState::Committing;
+        }
+        let mut transfers = short.transfers.lock().unwrap();
+        short.restore_open_after_failed_commit(&expired.id, &mut transfers);
+        assert!(
+            transfers.get(&expired.id).is_none(),
+            "an upload whose TTL elapsed during publication must not be revived"
+        );
+    }
+
+    #[test]
     fn write_marker_contention_never_reports_freshness() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(dir.path()).unwrap();
