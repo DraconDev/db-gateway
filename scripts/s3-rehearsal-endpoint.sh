@@ -105,6 +105,14 @@ EOF
 # packet as a CA bundle so the rehearsal needs no skip-verify, and the
 # "minimal working replica URL" the packet reports stays exactly what OVH needs.
 make_cert() {
+    # The private key this cert signs is what every rehearsal endpoint
+    # trusts. The openssl branch (-keyout) and the python fallback
+    # (Path.write_bytes) both honour the process umask, and the default
+    # umask 022 yields a 0644 key.pem on a multi-user box -- a 2-minute
+    # read for anyone who can `ls`. The rest of the packet uses 0600
+    # for its credentials (sandbox-s3-gates.sh:1525); the rehearsal
+    # must match.
+    umask 077
     mkdir -p "$STATE_DIR/tls"
     if command -v openssl >/dev/null 2>&1; then
         openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
@@ -317,8 +325,23 @@ stop() {
 }
 
 status() {
+    # The same pids file start() walks with kill -0 -- a proxy that has
+    # died (SIGKILL, OOM, host crash) leaves a stale file and start()'s
+    # own comment says "a proxy that has died while the store still
+    # answers would silently re-emit a dead endpoint and every S3 gate
+    # would then fail with connection refused". status() must not lie
+    # about it.
     if [ -f "$STATE_DIR/pids" ]; then
-        echo "running (state $STATE_DIR, proxy port $(cat "$STATE_DIR/proxy_port" 2>/dev/null))"
+        local all_alive=1
+        while IFS= read -r pid; do
+            [ -n "$pid" ] || continue
+            kill -0 "$pid" 2>/dev/null || { all_alive=0; break; }
+        done < "$STATE_DIR/pids"
+        if [ "$all_alive" = 1 ]; then
+            echo "running (state $STATE_DIR, proxy port $(cat "$STATE_DIR/proxy_port" 2>/dev/null))"
+        else
+            echo "not running (state $STATE_DIR -- recorded pids no longer alive)"
+        fi
     else
         echo "not running (state $STATE_DIR)"
     fi
