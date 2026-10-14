@@ -19,11 +19,21 @@ placeholders for future/repeated deployments.
    The container installs the toolchain from `rust-toolchain.toml`, runs the
    locked release build, executes `dg --version` and a disposable `dg init`,
    verifies the x86-64 ELF interpreter is `/lib64/ld-linux-x86-64.so.2`, and
-   refuses a `GD_RELEASE_TARGET=micro2` bundle whose glibc requirement exceeds
+   refuses a `DG_RELEASE_TARGET=micro2` bundle whose glibc requirement exceeds
    `EXPECTED_GLIBC` (`scripts/release-bundle.sh`; currently 2.39), stages that
-   container-built binary.   Copy the resulting bundle to the target and verify `SHA256SUMS` there. Use
+   container-built binary.
+   Copy the resulting bundle to the target and verify `SHA256SUMS` there. Use
    `DG_RELEASE_TARGET=host` only for an explicitly local, non-micro2 bundle;
    that path is never labelled micro2 ABI-verified.
+
+   Nominate a built bundle for the deploy-time guard with
+   `DG_RELEASE_BUNDLE_DIR=<bundle-dir> scripts/validate-deploy.sh`. The guard
+   inspects the nominated `dg`: it re-verifies that bundle's `SHA256SUMS`, then
+   checks the ELF's interpreter, that neither `DT_RPATH` (tag 15) nor
+   `DT_RUNPATH` (tag 29) resolves from `/nix/store`, and that the glibc ceiling
+   recorded in `DT_VERNEED` does not exceed `EXPECTED_GLIBC`. Without a
+   nomination it falls back to the local build, which fails on a NixOS
+   workstation precisely because a Nix build cannot be deployed to Ubuntu.
 
    Container selection is automatic: set `DG_CONTAINER_ENGINE=podman` or
    `DG_CONTAINER_ENGINE=docker` to choose explicitly. The micro2 path fails
