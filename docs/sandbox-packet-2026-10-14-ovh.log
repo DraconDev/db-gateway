@@ -96,3 +96,142 @@ NOTE: `replica.path` cannot carry a URL. `path: s3://...` fails with
 endpoint: https://s3.uk.io.cloud.ovh.net   region: uk
 TLS trust: system trust store (the endpoint's certificate chains to a public CA)
 certificate enforcement: not applicable to this endpoint
+measured over a full cycle: initial snapshot, two databases, live writes,
+two forced syncs and two restores.
+
+total_requests=108 non_2xx=0 bytes_uploaded=7144 distinct_list_prefixes=22
+     97  GET list-type=2 (ListObjectsV2)
+      4  GET x-id
+      7  PUT x-id
+
+operations litestream 0.5.17 issued, as a credential policy is written:
+  required: s3:GetObject, s3:PutObject, s3:ListBucket
+            scoped to the per-database prefix, e.g. dg-sandbox/sbx/*
+  NOT required, and NOT observed on this run:
+    multipart upload (LTX segments are single PUTs)
+    any object delete -- litestream never deletes, so retention is
+      entirely the bucket's lifecycle job (see gate 6)
+    any version read, lifecycle read or SSE header
+  the restore side adds s3:GetObject only.
+
+restore from the bucket: alice 200 rows, bob 150 rows
+  (source was 200 and 150; a wrong-but-200 restore was measured on 2026-09-28)
+
+## gate 4: PASS -- every S3 operation litestream 0.5.17 issued succeeded, and both databases restored from the bucket with exact row counts
+requests: 108, non-2xx: 0, distinct ListObjectsV2 prefixes: 22
+operations: GET list-type=2 (ListObjectsV2),GET x-id,PUT x-id
+restored alice=200/200 bob=150/150
+
+## S3 request log, summarised by the proxy in front of the endpoint
+
+requests: 108
+     97  GET dg-sandbox/(bucket-level)*
+      4  GET dg-sandbox/sbx*
+      7  PUT dg-sandbox/sbx*
+bytes uploaded: 7144
+distinct ListObjectsV2 prefixes probed: 22
+requests carrying server-side-encryption headers, in THIS cycle's log: 0 (no SSE-C or SSE header in the requests proxied for this window; gate 10's probe runs through its own proxy and is reported there)
+comparisons are (rows, sum(id), distinct notes) plus PRAGMA integrity_check.
+A count alone cannot see a restore that returns the right number of wrong
+rows, and a well-formed database can still be the wrong one.
+
+  source:                      70|2485|70   (30 rows, then 40 more)  integrity: ok
+  content captured at the mid-history position, before the next batch existed:
+                               30|465|30   integrity: ok
+  segments in the replica:      3
+  1. latest restore, exit 0:     70|2485|70   integrity: ok
+  2. mid-history -txid 0000000000000002, exit 0: 30|465|30   integrity: ok
+     point-in-time -timestamp 2026-10-14T10:12:08Z, exit 0: 30|465|30   integrity: ok
+     both must equal the content captured at that position. Comparing them
+     with EACH OTHER is not the same check: two selectors can agree on the
+     same wrong earlier point, and only the captured digest rules that out.
+     selectors-agree: 1 (1 = the two restores agree).
+     the point is the SECOND segment, not the first. The first row of
+     `litestream ltx` is the base snapshot, whose max_txid is the very start
+     of history: -txid against it restores an EMPTY database (0 rows) with
+     exit 0. That is a correct restore of the wrong point, and reading it as
+     a broken drill is what a first pass here did.
+     the boundary: -timestamp equal to a segment's own created time answers
+     "no matching backup files available". Measured, and it is not an empty
+     replica -- the same replica restores fully one second later.
+
+  3. corrupt-artifact cases, over the bucket's own objects
+     (4 downloaded through the signed API; the service's copy untouched):
+     one byte flipped deep inside the newest level-0 artifact: rejected|1|missing
+     an artifact truncated to 10%:                            rejected|1|missing
+     every artifact reduced to two bytes:                     rejected|1|missing
+     every artifact BUT the newest, one byte flipped in each:  rejected|1|missing
+
+     4 of 4 were REJECTED, 0 matched the source digest, and
+     0 produced a database that was not the source.
+     what a refusal actually said, from the restore's own log:
+      Error: no matching backup files available
+      Error: no matching backup files available
+     damage to REDUNDANT artifacts is NOT survivable here: with the newest artifact intact and only older ones damaged, the restore still refused (nonzero exit, no output file). A replica is therefore all-or-nothing in practice -- a single unreadable artifact can take a restore with it, which is a reason to keep more than one copy rather than to trust a partial one.
+     The three newest-artifact cases measure whether damage is DETECTED; the
+     fourth measures what a surviving restore is worth. The distinction
+     matters because the first three have no substitute available, so they
+     cannot tell 'checksum verified' apart from 'gave up'.
+     What no case produced is the outcome that would be undetectable: a
+     restore that exited 0 with a database that is not the source.
+
+     THE OPERATIONAL CONSEQUENCE, which is why this is a gate and not a note:
+     a restore's success cannot be read off litestream's exit status, in either
+     direction. It has to be read off the CONTENT of the restored file, which is
+     what (rows, sum, distinct) plus PRAGMA integrity_check is for -- and this
+     gate runs both, on the source and on every restored file, instead of
+     naming them in prose.
+
+## gate 5: PASS -- bucket-backed restore drill: the latest restore is digest-identical to the source, a mid-history point and a point-in-time target both restore the content that position actually held (not merely the same as each other), and all 4 corrupt-artifact cases either matched the source or were refused, with none producing a database that was not the source
+source 70|2485|70 (integrity ok) over 3 segments; latest 70|2485|70 (integrity ok, exit 0)
+mid-history -txid 0000000000000002 -> 30|465|30 (exit 0), matching the content captured at that position: 30|465|30
+point-in-time -timestamp 2026-10-14T10:12:08Z -> 30|465|30 (exit 0), same captured content
+corrupt artifacts (4 downloaded through the signed API): rejected|1|missing | rejected|1|missing | rejected|1|missing | rejected|1|missing
+supersedes the earlier file-replica gate 5 line above, which could not answer mid-history or corruption
+gateway import validation of the restored file is gate 11
+candidate policy, as sent to the bucket:
+{
+  "rules": [
+    { "id": "frequent-recovery-points-7d", "status": "Enabled", "filter_prefix": "sbx/",
+      "expiration_days": 7, "noncurrent_expiration_days": 7 },
+    { "id": "noncurrent-hard-cap-30d", "status": "Enabled", "filter_prefix": "sbx/",
+      "noncurrent_expiration_days": 30 }
+  ]
+}
+
+put-lifecycle: {"ok": true, "status": 200, "rules": 2, "sent": [{"id": "frequent-recovery-points-7d", "status": "Enabled", "expiration_days": "7", "noncurrent_expiration_days": "7"}, {"id": "noncurrent-hard-cap-30d", "status": "Enabled", "expiration_days": "", "noncurrent_expiration_days": "30"}]}
+get-lifecycle: {"ok": true, "status": 200, "supported": true, "rules": [{"id": "frequent-recovery-points-7d", "status": "Enabled", "expiration_days": "7", "noncurrent_expiration_days": "7"}, {"id": "noncurrent-hard-cap-30d", "status": "Enabled", "expiration_days": "", "noncurrent_expiration_days": "30"}], "count": 2}
+
+rules read back that MATCH what was sent, on id + status + both day counts:
+  2 of 2
+  a read-back is compared, never counted. A service that does not implement
+  ?lifecycle can answer a GET with 200 and a document that is not a lifecycle
+  configuration -- the rehearsal store answers with a plain object listing --
+  and counting the children of that document is how a PUT that failed with
+  409 was once reported as a policy stored and read back.
+
+the policy's arithmetic against the ages the service reports:
+  {"versions_enumerated": 11, "versions_with_parsed_age": 11, "unparsed_timestamps": 0, "oldest_version_age_days": 0, "newest_version_age_days": 0, "as_is": {"kept": 11, "expired_current": 0, "expired_noncurrent": 0}, "if_everything_were_31_days_older": {"kept": 0, "expired_current": 11, "expired_noncurrent": 0}, "policy_days": {"current": 7, "noncurrent": 30}}
+
+  read that as: 11 versions exist now, all between 0 and
+  0 day(s) old. A 7-day current / 30-day noncurrent policy applied to
+  them as they stand keeps 11 of them. Shift every age 31 days into
+  the past -- a month of real backups -- and the same policy keeps
+  0. The two differ, which is the property that matters: the policy
+  keeps the recent side and drops the aged side, rather than dropping both.
+
+  This is ARITHMETIC ON MEASURED AGES, not a retention observation. Whether
+  the service EXECUTES the expiry, on what schedule, and whether its clock is
+  the one the policy is evaluated against, are the service's answers to give.
+
+restore after the retention step: exit 0, 70|2485|70
+  (source was 70|2485|70). Retention that breaks restore is worse than no
+  retention, and this is the check that notices.
+
+## gate 6: PASS -- candidate 7/30-day lifecycle policy stored and read back MATCHING (2 of 2 rules matched on id, status and day counts), its arithmetic measured against the service's own object ages (11 versions now, 11 kept as-is, 0 kept if they were 31 days older), and a restore from the bucket after the retention step still returns the exact source
+put: {"ok": true, "status": 200, "rules": 2, "sent": [{"id": "frequent-recovery-points-7d", "status": "Enabled", "expiration_days": "7", "noncurrent_expiration_days": "7"}, {"id": "noncurrent-hard-cap-30d", "status": "Enabled", "expiration_days": "", "noncurrent_expiration_days": "30"}]}
+get: {"ok": true, "status": 200, "supported": true, "rules": [{"id": "frequent-recovery-points-7d", "status": "Enabled", "expiration_days": "7", "noncurrent_expiration_days": "7"}, {"id": "noncurrent-hard-cap-30d", "status": "Enabled", "expiration_days": "", "noncurrent_expiration_days": "30"}], "count": 2}
+object versions under the test prefix: 11, ages 0-0 days
+projection: {"versions_enumerated": 11, "versions_with_parsed_age": 11, "unparsed_timestamps": 0, "oldest_version_age_days": 0, "newest_version_age_days": 0, "as_is": {"kept": 11, "expired_current": 0, "expired_noncurrent": 0}, "if_everything_were_31_days_older": {"kept": 0, "expired_current": 11, "expired_noncurrent": 0}, "policy_days": {"current": 7, "noncurrent": 30}}
+restore after retention: 70|2485|70 (exit 0) vs source 70|2485|70
+STILL OVH'S TO ANSWER: whether the service EXECUTES the expiry on its own schedule, and against whose clock. Storing a rule and doing arithmetic about it is not the same observation as watching a week-old object disappear.
