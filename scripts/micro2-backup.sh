@@ -117,7 +117,13 @@ chmod 700 "$BACKUP_ROOT"
 STEP="lock"
 exec 9>"$BACKUP_ROOT/.backup.lock"
 flock -n 9 || { echo "another backup is already running" >&2; exit 1; }
-for stale in "$BACKUP_ROOT"/.staging.*; do
+# The glob is deliberately .staging* with no separating dot: this script stages
+# as .staging.XXXXXX (mktemp), while the 2026-09-22 script - and therefore
+# 522 leftovers on the recorded micro2 host - staged as .staging-<TIMESTAMP>.
+# The narrower .staging.* matched only the first spelling, so the cleanup
+# reported nothing and removed nothing, silently, because an unmatched glob
+# leaves the literal pattern and the -d guard skips it.
+for stale in "$BACKUP_ROOT"/.staging*; do
   if [ -d "$stale" ]; then
     echo "removing stale staging directory: $stale" >&2
     rm -rf -- "$stale"
