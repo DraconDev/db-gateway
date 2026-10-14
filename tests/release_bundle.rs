@@ -196,3 +196,111 @@ fn explicit_host_bundle_never_claims_micro2_abi_verified() {
     assert!(info.contains("abi_verified: false"));
     assert!(info.contains("micro2 ABI is not verified"));
 }
+
+// The bundle's `dg` must be executable, and the deploy gate must be the
+// independent second line that enforces it. `cp` applies the builder's
+// umask to the new file, so a bundle staged under `umask 0111` (or a
+// hand-staged artifact from a non-exec source) ships a 0644 `dg` that
+// still passes `sha256sum -c` and the content-only portability checks --
+// and then fails to exec under `User=dg` on the target. This is the same
+// defect class as the RUNPATH check that closed the 2026-09-22 outage, so
+// it is pinned here rather than left to the two chmod call sites staying
+// in step by luck.
+#[test]
+fn staged_dg_must_be_executable_and_the_gate_enforces_it() {
+    let _guard = release_lock();
+    let dir = tempdir();
+    let bundle = dir.path().join("bundle");
+    fs::create_dir_all(&bundle).unwrap();
+
+    // Build the bundle the way an operator does, then prove the shipped
+    // artifact is executable by the target's own rule (mode 755, not just
+    // "has some exec bit").
+    let built = {
+        let mut command = Command::new("timeout");
+        command.args(["550", "scripts/release-bundle.sh"]).arg(&bundle);
+        command.env("DG_RELEASE_TARGET", "host");
+        let output = command.output().expect("run host release bundle");
+        assert!(
+            output.status.success(),
+            "host bundle failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        bundle.clone()
+    };
+
+    let mode = fs::metadata(built.join("dg")).unwrap().permissions().mode() & 0o777;
+    assert_eq!(
+        mode & 0o111,
+        0o111,
+        "bundled dg is not executable (mode {mode:o}); release-bundle.sh must chmod it"
+    );
+
+    // Now prove the deploy gate discriminates: the same bundle with the
+    // exec bit cleared must be refused by the gate's own check, not by
+    // any later portability failure. Clearing the mode keeps every byte
+    // identical, so SHA256SUMS no longer verifies -- re-stamp it so the
+    // mode check is the ONLY thing that can fail.
+    fs::set_permissions(built.join("dg"), fs::Permissions::from_mode(0o644)).unwrap();
+    let sums = {
+        let mut command = Command::new("bash");
+        command
+            .arg("-c")
+            .arg(format!("cd {} && sha256sum dg > SHA256SUMS", built.display()));
+        command.output().expect("re-stamp SHA256SUMS")
+    };
+    assert!(sums.status.success(), "re-stamping SHA256SUMS failed");
+
+    let output = {
+        let mut command = Command::new("timeout");
+        command.args(["60", "scripts/validate-deploy.sh"]);
+        command.env("DG_RELEASE_BUNDLE_DIR", &built);
+        command.output().expect("run validate-deploy.sh")
+    };
+    assert!(
+        !output.status.success(),
+        "the deploy gate accepted a non-executable bundle: {}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("has no executable dg binary"),
+        "the gate failed for the wrong reason:\n{combined}"
+    );
+
+    // And the executable copy is accepted by the same mode check (it may
+    // still fail later on this dev box's NixOS RUNPATH, which is correct
+    // and is why only the mode verdict is asserted here).
+    fs::set_permissions(built.join("dg"), fs::Permissions::from_mode(0o755)).unwrap();
+    let sums = {
+        let mut command = Command::new("bash");
+        command
+            .arg("-c")
+            .arg(format!(
+                "cd {} && sha256sum dg > SHA256SUMS",
+                built.display()
+            ));
+        command.output().expect("re-stamp SHA256SUMS")
+    };
+    assert!(sums.status.success(), "re-stamping SHA256SUMS failed");
+    let output = {
+        let mut command = Command::new("timeout");
+        command.args(["60", "scripts/validate-deploy.sh"]);
+        command.env("DG_RELEASE_BUNDLE_DIR", &built);
+        command.output().expect("run validate-deploy.sh")
+    };
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !combined.contains("has no executable dg binary"),
+        "the mode gate refused an executable bundle:\n{combined}"
+    );
+}
