@@ -24,7 +24,24 @@ fn invalid_configuration_fails_without_binding() {
             .status
             .success()
     );
-    let public = dg(&["serve", "--listen", "0.0.0.0:7432"]);
+    // The public-bind check is a policy, not a port-number, test: a real
+    // local `dg serve` typically sits on 7432 (the documented default
+    // and the systemd unit's hardcoded value), so binding that port here
+    // would steal it for the duration of the test and make the assertion
+    // unable to distinguish "policy correctly refused" from "the bind
+    // failed for some other reason". Probe an ephemeral port from the
+    // kernel and bind that instead.
+    let ephemeral = std::net::TcpListener::bind("127.0.0.1:0")
+        .expect("ephemeral probe")
+        .local_addr()
+        .expect("ephemeral addr");
+    drop(ephemeral); // release the port; the test only cares about the address
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .expect("ephemeral probe 2")
+        .local_addr()
+        .expect("ephemeral addr 2")
+        .port();
+    let public = dg(&["serve", "--listen", &format!("0.0.0.0:{port}")]);
     assert!(!public.status.success());
     let log: serde_json::Value = serde_json::from_slice(&public.stderr).unwrap();
     assert_eq!(log["fields"]["code"], "invalid_listen_address");
