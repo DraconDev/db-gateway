@@ -380,3 +380,40 @@ recovered into an empty directory: metadata.sqlite 40960 bytes, ledger_app.sqlit
 gateway started on the recovered directory: the pre-loss scoped key authenticated and read 60 rows (live was 60)
 scope still enforced after recovery: reachable ['ledger_app'], other_app refused: yes (exit nonzero, as required)
 what remains OVH's: whether the OVH test bucket stores and returns these same two files byte-for-byte, and whether its lifecycle rules would expire the registry before the data files it describes
+objects found under the packet prefixes (LIST ?list-type=2): 0
+versions found (?versions): 68
+deleted: 68   still listed afterwards: 0 (versions 0, current keys 0)
+enumeration: {'list-versions': 'supported', 'list-objects-v2': 'supported'}
+delete-bucket: {"ok": true, "deleted": true, "status": 204}
+independent re-check -- does the bucket still answer: yes
+
+local residue:
+  sandbox tree: /tmp/dg-sandbox-wEdHuV (created by sandbox-packet.sh, which removes it on its own exit; this script does not)
+  litestream config, keys and logs all lived inside it
+  no credential was written outside /tmp/dg-sandbox-wEdHuV
+
+## gate 12: PASS -- every test object and version deleted (68 deleted, 0 remaining) and the bucket no longer answers: yes
+delete: {"ok": true, "enumeration": {"list-versions": "supported", "list-objects-v2": "supported"}, "versions_found": 68, "objects_found": 0, "deleted": 68, "errors": [], "versions_remaining": 0, "objects_remaining": 0, "residue_remaining": 0}
+delete-bucket: {"ok": true, "deleted": true, "status": 204}
+independent re-check: {"ok": false, "error": {"status": 404, "code": "Unknown", "message": ""}}
+local sandbox /tmp/dg-sandbox-wEdHuV is created by sandbox-packet.sh, which removes it on its own exit; this script does not
+
+## summary
+gates recorded: 12  pass: 11  blocked: 0  fail: 1
+  gate  1  PASS     litestream 0.5.17, release tarball checksum matches the published checksums.txt
+  gate  2  PASS     rehearsal: replication advanced under 60 live writes with 0 busy/deadline failures
+  gate  3  PASS     explicit endpoint/region config works, and the same URL FAILS both without its scheme and withou
+  gate  4  PASS     every S3 operation litestream 0.5.17 issued succeeded, and both databases restored from the buck
+  gate  5  PASS     bucket-backed restore drill: the latest restore is digest-identical to the source, a mid-history
+  gate  6  FAIL     the lifecycle policy was not stored
+  gate  7  PASS     rehearsal: a new database was replicated WITHOUT restarting litestream, via the control socket
+  gate  8  PASS     each of the three injected failures kept the gateway serving writes and kept the faulted write o
+  gate  9  PASS     gateway-sized database replicated and restored inside a kernel-enforced 1G budget: replication p
+  gate 10  PASS     a canary written with SSE-C was refused on read-back WITHOUT the customer key, which is proof th
+  gate 11  PASS     the registry and the data file were both restored out of the bucket into an empty directory, and
+  gate 12  PASS     every test object and version deleted (68 deleted, 0 remaining) and the bucket no longer answers
+
+failed gates: 6
+
+THIS IS NOT AN ADOPTION PACKET. A blocked gate is not a pass, and a
+failed gate is a reason not to adopt. The remaining gates are named above.
