@@ -18,8 +18,10 @@ placeholders for future/repeated deployments.
    image (Ubuntu 24.04 amd64, glibc 2.39), matching the recorded micro2 target.
    The container installs the toolchain from `rust-toolchain.toml`, runs the
    locked release build, executes `dg --version` and a disposable `dg init`,
-   verifies the x86-64 ELF interpreter, and stages that container-built binary.
-   Copy the resulting bundle to the target and verify `SHA256SUMS` there. Use
+   verifies the x86-64 ELF interpreter is `/lib64/ld-linux-x86-64.so.2`, and
+   refuses a `GD_RELEASE_TARGET=micro2` bundle whose glibc requirement exceeds
+   `EXPECTED_GLIBC` (`scripts/release-bundle.sh`; currently 2.39), stages that
+   container-built binary.   Copy the resulting bundle to the target and verify `SHA256SUMS` there. Use
    `DG_RELEASE_TARGET=host` only for an explicitly local, non-micro2 bundle;
    that path is never labelled micro2 ABI-verified.
 
