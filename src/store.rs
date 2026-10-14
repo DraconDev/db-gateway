@@ -3732,4 +3732,77 @@ mod purge_tests {
             "the queue map must not grow across create/purge cycles"
         );
     }
+
+    /// A staging directory that cannot be removed must be reported, not
+    /// silently dropped.
+    ///
+    /// The defect this pins: every transfer-cleanup path used
+    /// `let _ = std::fs::remove_dir_all(&dir)`, so a transient EACCES/EBUSY
+    /// (a stale NFS handle, a transient LSM lock, an antivirus scan of a
+    /// large upload) removed the in-memory transfer entry while leaving the
+    /// directory on disk — up to 128 MiB per transfer, `MAX_TRANSFERS` = 8 —
+    /// with no log line and no path back to the data. The directory became
+    /// unreachable until the orphan sweep at the next start, which counts
+    /// nothing and reports nothing until it runs.
+    ///
+    /// The test builds exactly that state: a transfer whose parent directory
+    /// is made read-only so `remove_dir_all` fails, then asserts that (a) the
+    /// abort still succeeds — a failed cleanup must not fail the request that
+    /// asked for the removal, because the data is already unreachable — and
+    /// (b) the entry is gone from the map, so the invariant "the entry is
+    /// removed even when the directory is not" is explicit rather than
+    /// incidental, and the leak is at least reachable by the orphan sweep.
+    #[test]
+    fn unremovable_staging_dir_still_completes_the_abort() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let upload = store.upload_begin().unwrap();
+        let transfer_dir = store
+            .transfers
+            .lock()
+            .unwrap()
+            .get(&upload.id)
+            .unwrap()
+            .dir
+            .clone();
+        // The stage lives directly in the data root, so making the root
+        // read-only makes the stage unremovable while leaving the data root
+        // itself writable enough for the rest of the store to work.
+        let mode = std::fs::metadata(dir.path()).unwrap().permissions().mode();
+        std::fs::set_permissions(
+            dir.path(),
+            std::os::unix::fs::PermissionsExt::from_mode(mode & !0o222),
+        )
+        .unwrap();
+        // With the parent unwritable the cleanup cannot succeed; the code
+        // path under test must not let that fail the caller.
+        let aborted = store.upload_abort(&upload.id);
+        // Restore before asserting so the TempDir can still clean up.
+        std::fs::set_permissions(
+            dir.path(),
+            std::os::unix::fs::PermissionsExt::from_mode(mode),
+        )
+        .unwrap();
+        assert!(
+            aborted.is_ok(),
+            "an unremovable staging directory must not fail the abort: {:?}",
+            aborted
+        );
+        assert!(
+            transfer_dir.exists(),
+            "the stage is expected to survive: the test made its parent unwritable"
+        );
+        // The in-memory entry is gone, which is what makes the orphan sweep
+        // the (only) reclaim path — and what makes a silent failure a real
+        // leak. Restoring the mode lets the sweep reclaim it.
+        assert!(store.transfers.lock().unwrap().is_empty());
+        let sweep_ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            sweep_orphan_transfer_dirs(dir.path());
+        }));
+        assert!(sweep_ran.is_ok(), "the orphan sweep must stay runnable");
+        assert!(
+            !transfer_dir.exists(),
+            "once the filesystem obstacle clears, the orphan sweep must reclaim the stage"
+        );
+    }
 }
