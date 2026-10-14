@@ -473,6 +473,25 @@ def op_put_lifecycle(c: S3Client, rules_path: str) -> dict[str, Any]:
     }
 
 
+def _child(el: ET.Element, name: str) -> ET.Element | None:
+    """Find a child element by LOCAL name, namespaced or not.
+
+    `Element.find("Expiration")` cannot match a namespaced element, and
+    every real S3 service -- OVH included -- returns its lifecycle document
+    with the standard xmlns. The lookup then yields None and the caller
+    reports the field as an empty string, which reads as "the policy was not
+    stored" when it was stored and echoed back with its days intact.
+    Measured against s3.uk.io.cloud.ovh.net on 2026-10-14: the raw XML
+    carries <Expiration><Days>7</Days></Expiration> and
+    <NoncurrentVersionExpiration><NoncurrentDays>7</NoncurrentDays>
+    while this function's caller reported both as "". `_text` above already
+    tries both spellings for text; the element lookup needs the same
+    treatment, and the two have to agree or the gate measures the reader.
+    """
+    found = el.find(name)
+    return found if found is not None else el.find(f"{{{S3_NS}}}{name}")
+
+
 def op_get_lifecycle(c: S3Client) -> dict[str, Any]:
     """Read the stored lifecycle configuration back, strictly.
 
@@ -530,16 +549,14 @@ def op_get_lifecycle(c: S3Client) -> dict[str, Any]:
     for r in list(root):
         if r.tag.split("}")[-1] != "Rule":
             continue
+        expiration = _child(r, "Expiration")
+        noncurrent = _child(r, "NoncurrentVersionExpiration")
         rules.append(
             {
                 "id": _text(r, "ID"),
                 "status": _text(r, "Status"),
-                "expiration_days": _text(r.find("Expiration"), "Days") if r.find("Expiration") is not None else "",
-                "noncurrent_expiration_days": _text(
-                    r.find("NoncurrentVersionExpiration"), "NoncurrentDays"
-                )
-                if r.find("NoncurrentVersionExpiration") is not None
-                else "",
+                "expiration_days": _text(expiration, "Days") if expiration is not None else "",
+                "noncurrent_expiration_days": _text(noncurrent, "NoncurrentDays") if noncurrent is not None else "",
             }
         )
     return {"ok": True, "status": status, "supported": True, "rules": rules, "count": len(rules)}
