@@ -192,6 +192,24 @@ EOF
         exit 1
     fi
 
+    # Mirror stop()'s ownership refusal (line 305-311) instead of
+    # silently `rm -rf`ing the shared default $STATE_DIR. A second
+    # concurrent `start` would otherwise clobber the pids, the tls/ dir and
+    # the fault file the first run is mid-gate against, and a later `stop`
+    # from the first run would then remove the directory the second run is
+    # still using. The rehearsal driver already gives each run its own
+    # mktemp -d via DG_REHEARSAL_STATE, so this only bites a hand-run
+    # `start`; refusing is still the correct contract. The liveness test is
+    # the same one stop() uses, so a stale owner.pid from a crashed run
+    # (pid reused, or the long-gone original) is taken over instead of
+    # permanently wedging the script.
+    local owner
+    owner="$(state_owner)"
+    if [ -n "$owner" ] && [ "$owner" != "$$" ] && kill -0 "$owner" 2>/dev/null; then
+        audit "start REFUSED (owned by live pid $owner)"
+        echo "refusing to start: $STATE_DIR belongs to the live process $owner, not this one" >&2
+        return 0
+    fi
     rm -rf "$STATE_DIR"
     mkdir -p "$STATE_DIR/data" "$STATE_DIR/log"
     echo "$$" > "$STATE_DIR/owner.pid"
