@@ -30,16 +30,12 @@ fn invalid_configuration_fails_without_binding() {
     // would steal it for the duration of the test and make the assertion
     // unable to distinguish "policy correctly refused" from "the bind
     // failed for some other reason". Probe an ephemeral port from the
-    // kernel and bind that instead.
-    let ephemeral = std::net::TcpListener::bind("127.0.0.1:0")
+    // kernel and bind that instead -- the socket is dropped (releasing
+    // the port) and only its number is kept.
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
         .expect("ephemeral probe")
         .local_addr()
-        .expect("ephemeral addr");
-    drop(ephemeral); // release the port; the test only cares about the address
-    let port = std::net::TcpListener::bind("127.0.0.1:0")
-        .expect("ephemeral probe 2")
-        .local_addr()
-        .expect("ephemeral addr 2")
+        .expect("ephemeral addr")
         .port();
     let public = dg(&["serve", "--listen", &format!("0.0.0.0:{port}")]);
     assert!(!public.status.success());
