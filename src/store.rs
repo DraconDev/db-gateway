@@ -1833,7 +1833,7 @@ impl Store {
             },
         );
         if outcome.is_err() {
-            let _ = std::fs::remove_dir_all(&dir);
+            remove_staging_dir(&dir);
         }
         outcome?;
         Ok(UploadInfo { id })
