@@ -641,7 +641,7 @@ async fn execute(
             &path,
             &statements,
             batch,
-            p.role == "database_read_only",
+            read,
             &p.hash,
             key.as_deref(),
         );

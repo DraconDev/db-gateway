@@ -324,7 +324,17 @@ export async function serve(config: ConsoleConfig): Promise<{ close: () => Promi
       }
     }
   });
-  await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(config.port, config.host, resolve); });
+  await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(config.port, config.host, resolve); })
+    .catch(async (error) => {
+      // The listen was rejected (EADDRINUSE most commonly: a stale console,
+      // a second `dg web`, or any unrelated listener on the configured
+      // port). The ssh tunnel was started before listen; without this
+      // unwind the tunnel child outlives the exited console and keeps
+      // its loopback forward bound. Stop the tunnel and surface the
+      // original listen error.
+      if (config.tunnel) await tunnel.stop();
+      throw error;
+    });
   return {
     server,
     close: () => new Promise<void>((resolve) => {
