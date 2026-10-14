@@ -79,8 +79,7 @@ The 0600-mode check is enforced by the CLI, not documented folklore.
 
 ## Left for later (not this deploy)
 
-- `MemoryMax=` stays commented (single 8 MiB idle sample is not a
-  measured budget; see `docs/resource-budget.md` items 1–5).
+- `MemoryMax=` was left commented at this deploy's time (a single 8 MiB idle sample was not a measured budget; see `docs/resource-budget.md` items 1–5). **Superseded 2026-10-10:** the unit now ships `MemoryMax=96M` (4× the SQLite per-connection cache ceiling, with the dev-host burst peak and the supervised micro2 idle-after-drill sample as bounds) — see the `MemoryMax` section of `docs/resource-budget.md` and `docs/deployment.md`. The owner decision's R10 formula (peak RSS × 1.5) was not the one applied; the applied value is derived from the connection-pool bound, and R10 is recorded as superseded in `docs/owner-decisions-2026-09-21.md` rather than edited in place.
 - No backup sidecar, no TLS terminator, no monitoring; loopback-only
   access, SSH tunnel for remote CLI per gate 3.
 - No secrets in this record; the owner key exists only on micro2.
