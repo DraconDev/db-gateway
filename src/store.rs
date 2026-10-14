@@ -3768,6 +3768,7 @@ mod purge_tests {
         // The stage lives directly in the data root, so making the root
         // read-only makes the stage unremovable while leaving the data root
         // itself writable enough for the rest of the store to work.
+        use std::os::unix::fs::PermissionsExt as _;
         let mode = std::fs::metadata(dir.path()).unwrap().permissions().mode();
         std::fs::set_permissions(
             dir.path(),
