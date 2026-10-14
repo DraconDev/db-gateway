@@ -127,6 +127,19 @@ for PRE_V in DG_SANDBOX_BUCKET DG_SANDBOX_ENDPOINT DG_SANDBOX_REGION \
 done
 
 SCHEME="${DG_SANDBOX_SCHEME:-https}"
+# The scheme in `endpoint=` is the scheme of the RECORDING PROXY, not of the
+# endpoint. Those were the same variable until 2026-10-14, and conflating
+# them made gate 3 unreachable against a real endpoint: the proxy only
+# serves TLS when a certificate is configured (a rehearsal), so against a
+# public-CA endpoint it listens plain HTTP while the canonical URL was
+# built with the endpoint's https -- litestream then failed a TLS handshake
+# against a plain-HTTP listener, wrote 0 objects, and logged nothing naming
+# the cause. Measured directly: the no-scheme variant wrote real .ltx
+# segments into the bucket in the same run.
+#
+# UPSTREAM_SCHEME is the leg that must match the endpoint. SCHEME is now
+# only ever the proxy's listen scheme, derived from whether it has a cert.
+UPSTREAM_SCHEME="${DG_SANDBOX_SCHEME:-https}"
 REGION="${DG_SANDBOX_REGION:-us-east-1}"
 BUCKET="$DG_SANDBOX_BUCKET"
 ENDPOINT="$DG_SANDBOX_ENDPOINT"
@@ -220,6 +233,17 @@ PROXY_PID=""
 # proxy would be measuring a transport nothing else in the run uses.
 TLS_CERT="${DG_SANDBOX_TLS_CERT:-}"
 TLS_KEY="${DG_SANDBOX_TLS_KEY:-}"
+# The proxy speaks TLS if and only if it was given a certificate. Every
+# replica URL this packet builds points at the proxy, so this is the scheme
+# those URLs must carry. On loopback plain HTTP is the right choice when
+# there is no cert: the signed request never leaves the host, and the leg
+# that does leave it -- proxy to endpoint -- keeps UPSTREAM_SCHEME below.
+# Override with DG_SANDBOX_SCHEME only when you know the proxy's own listen
+# scheme, which is the rehearsal's case.
+SCHEME="${DG_SANDBOX_SCHEME:-}"
+if [ -z "$SCHEME" ]; then
+    SCHEME="$( [ -n "$TLS_CERT" ] && echo https || echo http )"
+fi
 start_proxy() {
     local name="$1" reqlog="$2" faultfile="$3"
     local portfile="$SANDBOX/$name.port"
@@ -228,7 +252,7 @@ start_proxy() {
         --access-key-id "$DG_SANDBOX_ACCESS_KEY_ID" --secret-access-key "$DG_SANDBOX_SECRET_KEY" \
         --region "$REGION" --log "$reqlog" --faults "$faultfile" --port-file "$portfile" \
         ${TLS_CERT:+--tls-cert "$TLS_CERT" --tls-key "$TLS_KEY"} \
-        --upstream-scheme "$SCHEME" \
+        --upstream-scheme "$UPSTREAM_SCHEME" \
         ${DG_SANDBOX_CA_BUNDLE:+--upstream-ca-bundle "$DG_SANDBOX_CA_BUNDLE"} \
         >/dev/null 2>&1 &
     local pid=$!
@@ -259,7 +283,7 @@ export AWS_SECRET_ACCESS_KEY="$DG_SANDBOX_SECRET_KEY"
 unset AWS_SESSION_TOKEN AWS_SECURITY_TOKEN AWS_ROLE_ARN AWS_WEB_IDENTITY_TOKEN_FILE || true
 
 S3PROBE=( python3 "$REPO/scripts/s3probe.py"
-    --endpoint "$ENDPOINT" --scheme "$SCHEME" --bucket "$BUCKET" --region "$REGION"
+    --endpoint "$ENDPOINT" --scheme "$UPSTREAM_SCHEME" --bucket "$BUCKET" --region "$REGION"
     --access-key-id "$DG_SANDBOX_ACCESS_KEY_ID" --secret-access-key "$DG_SANDBOX_SECRET_KEY"
     "${CA_ARGS[@]}" )
 PROXY="$REPO/scripts/s3-log-proxy.py"
