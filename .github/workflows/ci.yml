@@ -83,7 +83,10 @@ jobs:
       # Pin the browser suite to Playwright's own chromium instead of the
       # runner-imaged system Chrome, whose major version drifts
       # independently of the playwright dependency and breaks launch
-      # pairing. The fixture honors PLAYWRIGHT_BROWSER_EXECUTABLE first.
+      # pairing. The shared `web/scripts/resolve-chromium.mjs` helper
+      # honors PLAYWRIGHT_BROWSER_EXECUTABLE first, so this env var
+      # overrides the helper's own bundled-browser lookup and the
+      # NixOS-only fallback the maintainer's dev box uses.
       - run: npx playwright install chromium --with-deps
         working-directory: web
       - run: echo "PLAYWRIGHT_BROWSER_EXECUTABLE=$(node -e "const {chromium}=require('playwright'); console.log(chromium.executablePath())")" >> $GITHUB_ENV

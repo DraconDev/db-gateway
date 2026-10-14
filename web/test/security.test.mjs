@@ -73,7 +73,7 @@ async function startAdversarialCompanion() {
 
 test('adversarial upstream errors and extra fields never reach browser DOM, network, or logs', async () => {
   const stack = await startAdversarialCompanion();
-  const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_BROWSER_EXECUTABLE || '/run/current-system/sw/bin/chromium', args: ['--no-sandbox'] });
+  const browser = await chromium.launch({ headless: true, executablePath: resolveChromium(), args: ['--no-sandbox'] });
   try {
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -112,7 +112,7 @@ test('behavioral security canary keeps the owner key server-side and binds only 
     while (!output.includes('console listening') && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 25));
     assert.match(output, /DB Gateway console listening on http:\/\/127\.0\.0\.1:/);
     assert.equal(output.includes(key), false);
-    const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_BROWSER_EXECUTABLE || '/run/current-system/sw/bin/chromium', args: ['--no-sandbox'] });
+    const browser = await chromium.launch({ headless: true, executablePath: resolveChromium(), args: ['--no-sandbox'] });
     try {
       const context = await browser.newContext();
       const page = await context.newPage();
