@@ -15,11 +15,37 @@ TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/.cargo/target}"
 UNIT="$ROOT/deploy/dg.service"
 GUIDE="$ROOT/docs/deployment.md"
 BUDGET="$ROOT/docs/resource-budget.md"
+RELEASE="$ROOT/scripts/release-bundle.sh"
 fail() { echo "[validate-deploy] FAIL: $*" >&2; exit 1; }
 log() { echo "[validate-deploy] $*" >&2; }
 
+# The target's glibc ceiling, read from the one place that pins it so the gate
+# and the release build can never disagree about what "the target" means.
+# Sourced, not hardcoded here: release-bundle.sh owns the digest-fixed builder
+# image whose glibc this is, and a second copy of the number in this file is a
+# second thing to update when the target OS moves.
+EXPECTED_GLIBC="$(sed -n "s/^EXPECTED_GLIBC=[\"']\([0-9][0-9.]*\)[\"'].*/\1/p" "$RELEASE" | head -1)"
+[ -n "$EXPECTED_GLIBC" ] || fail "cannot read EXPECTED_GLIBC from $RELEASE"
+
+# Dotted numeric comparison without depending on sort -V (GNU-only): 0 when
+# $1 < $2. awk is POSIX and every target this script runs on has it.
+ver_lt() {
+    awk -v a="$1" -v b="$2" 'BEGIN {
+        na = split(a, x, "."); nb = split(b, y, ".")
+        n = (na > nb ? na : nb)
+        for (i = 1; i <= n; i++) {
+            xi = (i <= na ? x[i] : 0) + 0
+            yi = (i <= nb ? y[i] : 0) + 0
+            if (xi < yi) exit 0
+            if (xi > yi) exit 1
+        }
+        exit 1
+    }'
+}
+
 [ -f "$UNIT" ] || fail "missing $UNIT"
 [ -f "$GUIDE" ] || fail "missing $GUIDE"
+[ -f "$RELEASE" ] || fail "missing $RELEASE"
 
 log "checking placeholders are documented"
 placeholders="$(grep -o '{{[A-Z_]*}}' "$UNIT" | sort -u)"
@@ -210,18 +236,31 @@ if err:
 print(f"{interp}\t{runpath}\t{glibc_req}")
 PY
 )" || fail "portable-artifact check: could not read $bin"
-    local interp runpath
+    local interp runpath glibc_req
     interp="$(cut -f1 <<<"$facts")"
     runpath="$(cut -f2 <<<"$facts")"
+    glibc_req="$(cut -f3 <<<"$facts")"
+    # A parser that could not even read the artifact has no opinion worth
+    # having; fail loudly rather than let the remaining clauses run against
+    # empty fields and pass by default.
+    [ "$interp" != "ERR" ] || fail "portable-artifact check: $runpath"
+    # Drop the GLIBC_ prefix to get just the version number, e.g. 2.39.
+    local glibc_ver=""
+    case "$glibc_req" in
+        GLIBC_*) glibc_ver="${glibc_req#GLIBC_}" ;;
+    esac
     log "artifact: $bin"
     log "  interpreter: ${interp:-<none, statically linked>}"
     log "  runpath:     ${runpath:-<none>}"
+    log "  max glibc:   ${glibc_ver:-<none, statically linked>}"
 
     # A Nix store path anywhere in the binary means it was built by Nix and
     # resolves its libc from the builder's store, which does not exist on an
     # Ubuntu target. Check the RUNPATH explicitly rather than grepping every
     # string, so an unrelated embedded path in a data blob cannot fail a
-    # genuinely portable build.
+    # genuinely portable build. Both spellings are read: DT_RPATH (15) is
+    # deprecated but still honoured, DT_RUNPATH (29) is what modern linkers
+    # emit, and the outage was found in the RUNPATH one.
     case "$runpath" in
         *"/nix/store/"*)
             fail "$bin is not deployable: its RUNPATH resolves libraries from /nix/store, which does not exist on an Ubuntu target.
@@ -236,7 +275,27 @@ PY
     # container build itself would be caught if its image were ever changed.
     if [ -n "$interp" ]; then
         [ "$interp" = "/lib64/ld-linux-x86-64.so.2" ] \
-            || fail "$bin has interpreter '$interp'; docs/deployment.md records /lib64/ld-linux-x86-64.so.2 for the micro2 target"
+            || fail "$bin has interpreter '$interp'; the micro2 target is a
+  standard Ubuntu amd64 layout, so the loader must be /lib64/ld-linux-x86-64.so.2.
+  Build the real artifact with: DG_RELEASE_TARGET=micro2 scripts/release-bundle.sh"
+    fi
+
+    # The glibc ceiling, measured off the artifact rather than taken from
+    # BUILD-INFO.txt: glibc 2.39 and 2.41 share the same loader path, so a
+    # bundle built in a newer container passes every check above and still
+    # dies on the older target with the same loader/libc mismatch as the Nix
+    # build. The linker writes the versions the binary actually needs into
+    # DT_VERNEED, so that cannot be mis-declared.
+    if [ -n "$glibc_ver" ]; then
+        if ver_lt "$EXPECTED_GLIBC" "$glibc_ver"; then
+            fail "$bin requires glibc $glibc_ver ($glibc_req), but the target provides $EXPECTED_GLIBC.
+  That is the same failure mode as the Nix build -- a loader/libc mismatch -- reached with
+  an ordinary loader path, so it is invisible to every other check in this gate.
+  Build against the target's glibc with: DG_RELEASE_TARGET=micro2 scripts/release-bundle.sh"
+        fi
+        log "  glibc ceiling: $glibc_ver <= target $EXPECTED_GLIBC (ok)"
+    else
+        log "  glibc ceiling: none required (statically linked)"
     fi
     log "  portable-artifact check: clean"
 }
