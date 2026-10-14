@@ -319,3 +319,46 @@ constraint: constrained to 1G by a systemd transient scope (MemoryMax=1G), enfor
 database: 6893568 bytes, 120000 rows; restore returned 120030 rows, compared by count and not by exit status
 peaks are the kernel's VmHWM / getrusage high-water marks, not sampled maxima
 headroom against the sidecar budget in docs/resource-budget.md is the owner's decision 2, not this gate's
+1. The configuration an operator reaches for first:
+   replica.sse-customer-key: <random 32 bytes>
+   litestream started: YES, with no error
+   and on the wire, from the proxy that signed and forwarded its requests:
+     the daemon uploaded 3 object(s) and 3 of them carried x-amz-server-side-encryption-customer-algorithm/-key/-key-md5 inside the signature: litestream 0.5.17 SENDS SSE-C. Whether the stored bytes are encrypted is the SERVICE's answer, not litestream's
+
+2. What the SERVICE reports about the objects it actually stored:
+   x-amz-server-side-encryption:        (not reported)
+   x-amz-server-side-encryption-customer-algorithm: (not echoed)
+   across every object under the prefix: (none reported)
+   -> these two are different observations. A service that applies SSE-C
+      echoes the customer-algorithm and may report no sse at all; reading
+      only `sse` would call that service plaintext, which is the one way
+      this check could produce a false negative on OVH. Both are read here.
+   AND NEITHER IS PROOF. A header is the service's claim about itself:
+   the rehearsal store echoes the SSE-C algorithm while storing the object
+   body in plaintext. The observation that separates the two is below.
+
+3. Restore with no ambient credentials (env -i, empty AWS config files,
+   sandbox key only): 100 rows, source has 100
+
+4. Key-loss case: restore with the credentials withdrawn
+   exit 0, message: Error: get v0.3.x time bounds: s3: list generations: operation error S3: ListObjectsV2, get identity: get credentials: failed to refresh cached credentials, no EC2 IMDS role found, operation error ec2
+   -> for SSE-C this is the case that must be handled by policy, and it
+      cannot be tested here unless the service applies SSE-C itself.
+
+5. THE PROOF, not the header: a canary written with SSE-C, read back
+   WITHOUT the customer key.
+   verdict: ENFORCED
+   {"ok": true, "key": "sbx/g10/ssec/canary/17bf20b8eede.canary", "canary_bytes": 63, "put_status": 200, "verdict": "ENFORCED", "reason": "the read without the customer key was refused for an encryption reason (InvalidRequest: The object was stored using a form of Server Side Encryption. The correct parameters must be provided to retrieve the object.), which is the proof that the stored bytes are ciphertext rather than the service merely recording the header", "readback_without_key_status": 400}
+   -> ENFORCED is a proof: the service refused the keyless read, so the
+      stored bytes are ciphertext. NOT-ENCRYPTED is a finding, not a
+      limitation: the service echoed the algorithm and handed the
+      plaintext back. Anything else is INDETERMINATE and is reported as
+      such, never as success. This test says nothing about SSE-S3/SSE-OMK,
+      where a transparent decrypt makes a round-trip succeed whatever is
+      at rest -- for those modes the header is all a client can see.
+
+## gate 10: PASS -- a canary written with SSE-C was refused on read-back WITHOUT the customer key, which is proof the stored bytes are ciphertext rather than a claim from a header; and a restore with the sandbox key returned all 100 rows
+proof, not assertion: {"ok": true, "key": "sbx/g10/ssec/canary/17bf20b8eede.canary", "canary_bytes": 63, "put_status": 200, "verdict": "ENFORCED", "reason": "the read without the customer key was refused for an encryption reason (InvalidRequest: The object was stored using a form of Server Side Encryption. The correct parameters must be provided to retrieve the object.), which is the proof that the stored bytes are ciphertext rather than the service merely recording the header", "readback_without_key_status": 400}
+reported headers, for the record: sse='' sse-c-algorithm=''
+restore with the sandbox key only: 100/100 rows
+withdrawn-credential restore (litestream-level): exit 0, Error: get v0.3.x time bounds: s3: list generations: operation error S3: ListObjectsV2, get identity: get credentials: failed to refresh cached credentials, no EC2 IMDS role found, operation error ec2
