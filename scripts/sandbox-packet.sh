@@ -375,7 +375,6 @@ LITESTREAM_PID=$!
 track_daemon "$LITESTREAM_PID"
 sleep 2
 
-STATUS_BEFORE="$("${DG[@]}" status --json 2>/dev/null || echo '{}')"
 for i in $(seq 1 60); do
     "${DG[@]}" query rehearsal \
         "INSERT INTO ledger (note, amount) VALUES ('live-$i', $i)" >/dev/null 2>&1 || true
