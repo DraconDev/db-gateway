@@ -1,0 +1,149 @@
+Off-host replication (litestream) — live verification record
+Goal: Wire continuous off-host replication for the micro2 db-gateway backup.
+Target: micro2 (145.241.238.20)   Recorded: 2026-10-15 (~17:50 UTC)
+
+Each section below is verbatim stdout from the stated command except where
+noted. No credential value appears anywhere in this record; the only-copy
+check (section 6) reads the secret inside the host process and prints only
+a verdict.
+
+== 1. Credential provisioning (goal task 1) ===========================
+
+$ ssh micro2 'sudo stat -c "%a %U:%G %n" /etc/dg/litestream.env'
+600 dg:dg /etc/dg/litestream.env
+
+$ ssh micro2 'sudo sed -n "s/=.*//p" /etc/dg/litestream.env'   # key NAMES only
+LITESTREAM_S3_ACCESS_KEY_ID
+LITESTREAM_S3_SECRET_ACCESS_KEY
+LITESTREAM_S3_BUCKET
+LITESTREAM_S3_ENDPOINT
+LITESTREAM_S3_REGION
+
+== 2. Sidecar install + configuration (goal task 3) ====================
+
+$ ssh micro2 '/usr/local/bin/litestream version'
+0.5.17
+
+$ ssh micro2 'systemctl show dg-litestream -p ActiveState -p User -p Restart -p EnvironmentFiles'
+ActiveState=active
+User=dg
+Restart=on-failure
+EnvironmentFiles=/etc/dg/litestream.env (ignore_errors=no)
+
+$ ssh micro2 'systemctl is-enabled dg-litestream'
+enabled
+
+Rendered /etc/litestream.yml (config references only; credentials arrive
+via EnvironmentFile=):
+dbs:
+  - path: /var/lib/dg/verify_probe.sqlite
+    replicas:
+      - url: s3://dg-sandbox/verify_probe?endpoint=s3.uk.io.cloud.ovh.net
+        region: uk
+        access-key-id: ${LITESTREAM_S3_ACCESS_KEY_ID}
+        secret-access-key: ${LITESTREAM_S3_SECRET_ACCESS_KEY}
+        force-path-style: true
+
+Live-database definition (from scripts/install-litestream.sh, unchanged):
+the set registered in the gateway's own registry, `dg list` -- the
+metadata.sqlite registry itself is excluded by design because the running
+gateway writes it in WAL mode and the hourly on-host backup set already
+protects it:
+
+$ ssh micro2 'sudo -n -u dg /usr/local/bin/dg --key-file /etc/dg/owner.key list'
+{"databases":["verify_probe"]}
+
+== 3. Replication health and .ltx segments in the bucket ===============
+
+$ ssh micro2 'sudo -n -u dg /usr/local/bin/litestream status'
+database                         status  local txid        wal size
+/var/lib/dg/verify_probe.sqlite  ok      0000000000000001  4.2 kB
+
+$ ssh micro2 'sudo -n -u dg /usr/local/bin/litestream ltx -level all /var/lib/dg/verify_probe.sqlite'
+level  min_txid          max_txid          size  created
+0      0000000000000001  0000000000000001  893   2026-10-15T14:16:08Z
+1      0000000000000001  0000000000000001  893   2026-10-15T14:16:09Z
+2      0000000000000001  0000000000000001  893   2026-10-15T14:20:00Z
+3      0000000000000001  0000000000000001  893   2026-10-15T15:01:53Z
+9      0000000000000001  0000000000000001  893   2026-10-15T14:16:08Z
+
+Segments exist under the live database's bucket prefix, including a
+level-0 segment and compaction through level 3 (snapshot at level 9).
+
+== 4. Restore round-trip (goal task 4) ==================================
+
+$ scripts/litestream-restore.sh          # operator host
+[litestream-restore] checking /etc/dg/litestream.env and LITESTREAM_S3_BUCKET on micro2 (as dg)
+[litestream-restore] listing registered live databases on micro2
+[litestream-restore] restore output directory: /tmp/lit-restore (local; scratch on micro2: /var/tmp/lit-restore-1792085191)
+[litestream-restore] [verify_probe] litestream restore (as dg, /etc/litestream.yml) -> /var/tmp/lit-restore-1792085191/verify_probe.sqlite on micro2
+[litestream-restore] [verify_probe] pulling the restored file back for inspection
+[litestream-restore] [verify_probe] OK: integrity_check=ok, all 1 table row counts match
+[litestream-restore] removing the scratch dir on micro2
+[litestream-restore] summary: 1 ok, 0 failed (of 1 registered db(s): verify_probe)
+[litestream-restore] all live db(s) restored; local copies kept in /tmp/lit-restore (mode 0700)
+rc=0
+
+The comparison covers the user tables (the gateway-served data): SQLite
+sqlite_* plus the internal _dg_* / _litestream_* families are excluded on
+both sides because the dg CLI answers sql_forbidden (403) for internal
+tables by design; PRAGMA integrity_check covers the whole restored file.
+
+$ cargo test --test litestream_restore
+running 4 tests
+test integrity_check_passes_on_a_fresh_db ... ok
+test integrity_check_fails_on_a_corrupted_db ... ok
+test row_counts_diverge_when_a_row_is_missing ... ok
+test row_counts_match_when_the_copies_are_identical ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+
+== 5. Monitoring (objective clause "monitor it") ========================
+
+scripts/host-audit.sh now probes dg-litestream.service (active, User=dg,
+Restart=on-failure), so a dead or mis-configured replicator is a live
+verdict=fail in the read-only fleet audit instead of silent staleness.
+
+$ DG_AUDIT_TARGET=micro2 scripts/host-audit.sh
+verdict: pass | host_side: pass
+  dg_binary_sha256: pass
+  dg_service: pass
+  dg_backup_timer: pass
+  dg_litestream_service: pass
+  micro2_backup_script_sha256: pass
+  stale_staging_dirs: pass
+  latest_set: pass
+  backup_verify: pass
+  owner_key_mode: pass
+failures: []
+
+== 6. Credential confinement ============================================
+
+$ scripts/check-litestream-secret.sh        # ~5 min: reads every file under the scanned roots
+[check-litestream-secret] only copy verified: /etc/dg/litestream.env (roots: /etc /home /root /opt /srv /var/lib /var/backups /var/tmp) (target: micro2)
+
+The secret is read only inside the host process, into a mode-0600 file in
+/run (tmpfs, outside the scanned roots), matched with `grep -ralFf
+PATTERN_FILE`, and the pattern file removed; no secret passes through
+argv, so sudo's COMMAND= journal never sees it.
+
+== Script correctness notes (what this goal fixed in the staged artefacts) ==========
+
+* litestream 0.5.17 `restore` rejects -config together with a replica URL
+  ("cannot specify a replica URL and the -config flag"), and URL mode
+  reads litestream's own env names rather than this deployment's
+  LITESTREAM_S3_* names. The script now restores by DB_PATH with -config,
+  so the ${LITESTREAM_S3_*} references expand from the sidecar env exactly
+  as the running service does.
+* The restore script's live-db discovery was a `*.sqlite` glob, which
+  picks up metadata.sqlite -- the one database with no replica by design.
+  It now uses the registry (`dg list`), matching the installer.
+* dg CLI calls ship the SQL base64-encoded over ssh; plain embedding let
+  the two shell layers eat the SQL's inner double quotes (surfaced as an
+  opaque dg api_error).
+* The restored file is pulled back with `sudo cat` over ssh rather than
+  scp: the remote copy stays 0600 in a 0700 directory instead of being
+  loosened so the login user can read it.
+* check-litestream-secret.sh previously read every file fully in python
+  and could not finish inside any operator timeout (>5 min, ~6GB/~380k
+  files); it now greps the same bytes with the same leak-free pattern
+  handling.
