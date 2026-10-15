@@ -1,0 +1,55 @@
+[RTO_START] 1792108528
+[SET] 20261015T231717Z
+[ONHOST_VERIFY] {"databases":[{"file":"verify_probe.sqlite","name":"verify_probe","sha256":"66222dd0c7a305e84ac12e6da13df8af5ea1c21f7ab841a29b892cd431bb251d","size":24576}],"has_registry":true,"ok":true,"set":"20261015T231717Z"}
+onhost-verify-ok: 20261015T231717Z
+[MANIFEST] {
+  "completed_at": 1792106237,
+  "created": "2026-10-15T23:17:17Z",
+  "databases": [
+    {
+      "file": "verify_probe.sqlite",
+      "name": "verify_probe",
+      "sha256": "66222dd0c7a305e84ac12e6da13df8af5ea1c21f7ab841a29b892cd431bb251d",
+      "size": 24576
+    }
+  ],
+  "dg_version": "0.1.0",
+  "registry": {
+    "file": "metadata.sqlite.bak",
+    "sha256": "32def6fdc675492079136584dba0eeb13294842361bae5df064c93cff0562160",
+    "size": 32768
+  },
+  "registry_captured_at": 1792106237,
+  "started_at": 1792106237,
+  "timestamp": "20261015T231717Z",
+  "tool": "dg export",
+  "verification": "validated_before_publication"
+}
+[SIDECAR_SHA] 66222dd0c7a305e84ac12e6da13df8af5ea1c21f7ab841a29b892cd431bb251d
+[RECOMPUTED_SHA] 66222dd0c7a305e84ac12e6da13df8af5ea1c21f7ab841a29b892cd431bb251d
+[SHA_CHAIN] match
+[LOCAL_VERIFY] {"databases":[{"file":"verify_probe.sqlite","name":"verify_probe","sha256":"66222dd0c7a305e84ac12e6da13df8af5ea1c21f7ab841a29b892cd431bb251d","size":24576}],"has_registry":true,"ok":true,"set":"20261015T231717Z"}
+local-verify-ok: 20261015T231717Z
+[VERIFY_EPOCH] 1792108531
+[SET_STARTED] 1792106237
+[RPO_LAG_SECS] 2294
+[LIVE_COUNT] {"columns":["count(*)"],"rows":[[5]],"rows_affected":0}
+[LIVE_ROWS] {"columns":["id","note"],"rows":[[1,"row-1"],[2,"row-2"],[3,"row-3"],[4,"row-4"],[5,"row-5"]],"rows_affected":0}
+[TARGET] 127.0.0.1:44655
+[IMPORT] {"imported":"verify_probe"}
+[RESTORED_COUNT] {"columns":["count(*)"],"rows":[[5]],"rows_affected":0}
+[RESTORED_ROWS] {"columns":["id","note"],"rows":[[1,"row-1"],[2,"row-2"],[3,"row-3"],[4,"row-4"],[5,"row-5"]],"rows_affected":0}
+[EXPORT_JSON] {"name":"verify_probe","out":"/tmp/dg-m3-drill-XwcjHz/restored.sqlite","sha256":"66222dd0c7a305e84ac12e6da13df8af5ea1c21f7ab841a29b892cd431bb251d","size":24576}
+[INTEGRITY] ok
+[FK_VIOLATIONS] 0
+[DG_TABLES] [('_dg_replay',)]
+[EXPORT_ROWS] [(1, 'row-1'), (2, 'row-2'), (3, 'row-3'), (4, 'row-4'), (5, 'row-5')]
+[SCOPED_READ] http=200 {"columns":["count(*)"],"rows":[[5]],"rows_affected":0}
+[SCOPED_WRITE_DENIED] http=403 {"error":{"code":"sql_forbidden","message":"SQL operation not permitted"}}
+[UNSCOPED_DENIED] http=401 {"error":{"code":"invalid_credential","message":"valid bearer credential required"}}
+[RESTORED_WRITE] {"columns":[],"rows":[],"rows_affected":1}
+[RESTORED_COUNT_AFTER] {"columns":["count(*)"],"rows":[[6]],"rows_affected":0}
+[LIVE_COUNT_AFTER] {"columns":["count(*)"],"rows":[[5]],"rows_affected":0}
+[RTO_END] 1792108533
+[RTO_SECS] 5
+[VERDICT] pass
