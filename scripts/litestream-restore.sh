@@ -81,11 +81,13 @@ command -v python3 >/dev/null || fail "python3 not on PATH (parses the dg CLI's 
 
 # --- helpers -----------------------------------------------------------
 
-# dg CLI output is JSON ({"columns":[...],"rows":[[...],...]}); there is
-# no jq on the operator host, so a 3-line python parses it. `dg rows`
-# flattens every row to a single joined line for set comparison; `dg
-# cell` takes the first cell of the first row for scalar counts.
+# The dg CLI speaks JSON: `list` returns {"databases":[...]} while `query`
+# returns {"columns":[...],"rows":[[...],...]}; there is no jq on the operator
+# host, so tiny inline pythons parse both. `dg_rows` flattens query rows
+# to lines for set comparison; `dg` lists registry names; `dg_cell`
+# takes the first cell of the first row for scalar counts.
 dg_rows() { python3 -c 'import sys,json; [print("\n".join(str(c) for c in r)) for r in json.load(sys.stdin).get("rows",[])]'; }
+dg()      { python3 -c 'import sys,json; [print(x) for x in json.load(sys.stdin)["databases"]]'; }
 dg_cell() { python3 -c 'import sys,json; d=json.load(sys.stdin); r=d.get("rows") or [[None]]; print(r[0][0] if r[0] else "")'; }
 
 # Query through the gateway CLI as the dg user on the target host: the
@@ -104,7 +106,7 @@ BUCKET=$(ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" \
 
 log "listing registered live databases on ${TARGET}"
 mapfile -t DBS < <(ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" \
-  "sudo -n -u dg ${DG_BIN} --key-file ${KEY_FILE} list" | dg_rows)
+  "sudo -n -u dg ${DG_BIN} --key-file ${KEY_FILE} list" | dg)
 [ "${#DBS[@]}" -gt 0 ] || fail "no registered databases returned by dg list on ${TARGET}"
 
 # --- 1. prepare a clean restore target (operator host, mode 0700). -----
