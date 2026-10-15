@@ -23,13 +23,20 @@ ExecStart=/usr/local/bin/litestream replicate -config /etc/litestream.yml
 EnvironmentFile=/etc/dg/litestream.env
 Restart=on-failure
 RestartSec=5s
-# MemoryMax: the supervised micro2 sidecar cap. Set to the per-connection
-# cache ceiling (1 MiB) times 4x, same shape as the dg.service policy, so
-# the host's 1 GiB split is dg.service (96 MiB) + this (8 MiB) + OS budget.
-# The `MemoryMax=` lines in this unit are the only references to memory
-# policy here; the cache ceiling itself lives in src/store.rs and is
-# measured by scripts/resource-report-release.sh on the dev host.
-MemoryMax=8M
+# MemoryMax: the supervised sidecar cap. The measured figure is the
+# dg-sandbox packet's gate-9 run: 45,632 KiB replication peak (34,576 KiB
+# restore) under a kernel-enforced 1 GiB scope. This cap is set at 96 MiB,
+# matching the gateway's own cap in dg.service and giving >2x headroom
+# over the measured replication peak, so a larger workload peak degrades
+# gracefully instead of being OOM-killed. An early revision of this unit
+# carried 8 MiB, derived by analogy from the gateway's SQLite cache
+# ceiling -- the wrong model for litestream, whose memory is the S3
+# transfer and compaction working set rather than a page cache -- and the
+# sidecar was OOM-killed on its first start. The 1 GiB host budget is
+# dg.service (96 MiB) + this (96 MiB) + OS, which fits with room.
+# Evidence: docs/sandbox-packet-2026-09-29-rehearsal.log gate 9, and the
+# dg-litestream journal's oom-kill + restart counter from the 8 MiB cap.
+MemoryMax=96M
 
 [Install]
 WantedBy=multi-user.target
