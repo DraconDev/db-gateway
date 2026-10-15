@@ -42,16 +42,16 @@ fn row_counts_match_when_the_copies_are_identical() {
 
 #[test]
 fn row_counts_diverge_when_a_row_is_missing() {
-    let (source, mut restored, _dir) = build_mirror_pair(2, 4);
+    let (source, restored, _dir) = build_mirror_pair(2, 4);
     // The "restored" copy missed one row; the comparison must catch it.
-    delete_row(&mut restored, "t0", 1).unwrap();
+    delete_row(&restored, "t0", 1).unwrap();
     let (src, cmp) = count_per_table(&source, &restored);
     assert_ne!(src, cmp, "a missing row must be detected by the comparison");
 }
 
 #[test]
 fn integrity_check_fails_on_a_corrupted_db() {
-    let (_source, mut restored, _dir) = build_mirror_pair(2, 3);
+    let (_source, restored, _dir) = build_mirror_pair(2, 3);
     // Truncate the file: simulates a torn write or a corrupted copy.
     std::fs::write(&restored, b"not a sqlite database").unwrap();
     // A non-sqlite file must either fail to open, or open and report a
@@ -111,7 +111,11 @@ fn delete_row(
     Ok(())
 }
 
-fn count_per_table(a: &Path, b: &Path) -> (Vec<(String, i64)>, Vec<(String, i64)>) {
+/// Per-table row counts, ordered by table name, so two mirrors can be
+/// compared with a single equality check.
+type TableCounts = Vec<(String, i64)>;
+
+fn count_per_table(a: &Path, b: &Path) -> (TableCounts, TableCounts) {
     let ca = Connection::open(a).unwrap();
     let cb = Connection::open(b).unwrap();
     let mut out_a = vec![];

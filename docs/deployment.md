@@ -179,3 +179,53 @@ script's own exit status. A record showing `"status": "skipped"` inside
 `host_side.checks` for a live run means that probe step found nothing to
 check (not that it passed); `owner_key_mode` is the only routinely-skipped
 check and it is skipped only when the key file is absent.
+
+## Off-host replication (`dg-litestream.service`)
+
+The same-disk backup root protects against logical loss only. A disk
+failure takes the databases and their backups together. `dg-litestream`
+is the second leg: a systemd service that replicates every live `.sqlite`
+under `/var/lib/dg/` to the recorded object store using
+litestream 0.5.17, with its credentials in `/etc/dg/litestream.env` (mode
+0600, owner `dg:dg`) — the only copy on the host — and nothing in the
+unit, the config, or the repository carrying a secret (the config uses
+`${LITESTREAM_S3_*}` env-var references populated by systemd's
+`EnvironmentFile=`).
+
+### Installing
+
+```sh
+# 1. The operator (or the bucket-creation runbook) writes the credential
+#    file once. scripts/install-litestream.sh refuses to run without it,
+#    and never reads or echoes its contents:
+#    /etc/dg/litestream.env, mode 0600, owner dg:dg, containing:
+#      LITESTREAM_S3_BUCKET=...
+#      LITESTREAM_S3_ENDPOINT=...
+#      LITESTREAM_S3_REGION=...
+#      LITESTREAM_S3_ACCESS_KEY_ID=...
+#      LITESTREAM_S3_SECRET_ACCESS_KEY=...
+scripts/install-litestream.sh        # installs, renders config, drops unit
+ssh micro2 'sudo systemctl enable --now dg-litestream'
+ssh micro2 'sudo journalctl -u dg-litestream -n 50 --no-pager'
+```
+
+The install script verifies the litestream tarball's SHA-256 against the
+upstream `checksums.txt` for the pinned release tag before installing,
+and is idempotent — a re-run detects the installed binary and reuses it.
+Nothing is started automatically: the operator chooses when the sidecar
+first begins replicating.
+
+### Proving a restore round-trip
+
+```sh
+scripts/litestream-restore.sh
+```
+
+For every live database the script runs `litestream restore` into a
+0700 temp directory, asserts `PRAGMA integrity_check` is `ok`, enumerates
+every user table, and asserts each `count(*)` matches what the live
+gateway is serving. Non-zero exit on the first mismatch. The same
+comparison logic is pinned by `tests/litestream_restore.rs`, which runs
+against a synthetic mirror pair so the contract clause — "row counts plus
+PRAGMA integrity_check match the live sources exactly" — is checkable
+without a bucket.
