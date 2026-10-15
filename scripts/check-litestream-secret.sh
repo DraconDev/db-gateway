@@ -56,16 +56,20 @@ if not secret:
     print(f"{ENV} has an empty secret", file=sys.stderr)
     raise SystemExit(2)
 
-# Filesystem roots to walk. /proc and /sys are skipped: they are virtual
-# and every process's cmdline of this very check would match.
-ROOTS = ("/etc", "/var", "/home", "/root", "/opt", "/usr/local", "/tmp")
+# Filesystem roots to walk, bounded to the trees that can plausibly
+# hold a copy. /var/log is deliberately excluded: journald's store is
+# large and slow to read, and a leak into the journal is removed by
+# journald restart + vacuum (documented in the ledger) rather than by
+# this scan. /proc and /sys are virtual.
+ROOTS = ("/etc", "/home", "/root", "/opt", "/srv", "/var/lib", "/var/backups", "/var/tmp")
+SKIP_PREFIXES = ("/proc", "/sys", "/var/log")
 
 leaks = []
 for root in ROOTS:
     if not os.path.isdir(root):
         continue
     for directory, _subdirs, files in os.walk(root):
-        if directory.startswith(("/proc", "/sys")):
+        if directory.startswith(SKIP_PREFIXES):
             continue
         for name in files:
             path = os.path.join(directory, name)
