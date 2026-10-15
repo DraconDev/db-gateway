@@ -73,7 +73,9 @@ fi
 # this script's stdout/stderr or the repo.
 
 # --- 1. litestream binary: download, verify, install. Idempotent. ---
-elif [ -x "${INSTALL_PATH}" ]; then
+if ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
+  "test -x ${INSTALL_PATH}" 2>/dev/null
+then
   # `litestream version` prints a bare version string ("0.5.17"), with no
   # program name and no leading 'v'. Normalise both forms so a re-run
   # recognises the same pin instead of failing on the parse.
