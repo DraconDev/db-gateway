@@ -106,7 +106,7 @@ set -e
 
 if [ "$RC" -ne 0 ] || [ -z "$OUTPUT" ]; then
     echo "[$SELF] FAIL: the replication credential is not confined to ${ENV_PATH} on ${TARGET}" >&2
-    echo "[$SELF]       ${OUTPUT:-<no output>" >&2
+    echo "[$SELF]       ${OUTPUT:-<no output>}" >&2
     exit 1
 fi
 
