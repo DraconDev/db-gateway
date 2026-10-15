@@ -185,6 +185,24 @@ if [ -f /etc/systemd/system/dg-backup.timer ]; then
 fi
 add "\"dg_backup_timer\":$dg_timer"
 
+# 3b) dg-litestream.service -- the off-host replication sidecar. The
+# objective's "monitor it" clause: the sidecar joins this audit, so a
+# dead or mis-configured replicator is a verdict=fail here instead of
+g# silent backup staleness. Also asserts the two unit properties the
+# verification contract names explicitly: Restart=on-failure and User=dg.
+dg_litestream='{"status":"skipped"}'
+if [ -f /etc/systemd/system/dg-litestream.service ]; then
+    s="$(systemctl show dg-litestream.service --value --property=ActiveState 2>/dev/null || echo unknown)"
+    u="$(systemctl show dg-litestream.service --value --property=User 2>/dev/null || echo unknown)"
+    r="$(systemctl show dg-litestream.service --value --property=Restart 2>/dev/null || echo unknown)"
+    if [ "$s" = "active" ] && [ "$u" = "dg" ] && [ "$r" = "on-failure" ]; then
+        dg_litestream="$(printf '{"status":"pass","active_state":"%s","user":"%s","restart":"%s"}' "$s" "$u" "$r")"
+    else
+        dg_litestream="$(printf '{"status":"fail","active_state":"%s","user":"%s","restart":"%s"}' "$s" "$u" "$r")"
+    fi
+fi
+add "\"dg_litestream_service\":$dg_litestream"
+
 # 4) /usr/local/bin/micro2-backup.sh sha256
 backup_script='{"status":"skipped"}'
 if [ -e /usr/local/bin/micro2-backup.sh ]; then
@@ -310,6 +328,7 @@ try:
 except Exception:
     raise SystemExit(2)
 required = ["dg_binary_sha256","dg_service","dg_backup_timer",
+            "dg_litestream_service",
             "micro2_backup_script_sha256","stale_staging_dirs",
             "latest_set","backup_verify","owner_key_mode"]
 missing = [k for k in required if k not in obj]
