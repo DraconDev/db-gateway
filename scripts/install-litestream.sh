@@ -220,7 +220,7 @@ scp -o BatchMode=yes -q -i "$MICRO2_KEY" \
   "$ROOT/deploy/dg-litestream.service" "ubuntu@${MICRO2_HOST}:/tmp/dg-litestream.service" \
   || fail "scp of the unit to ${MICRO2_HOST} failed"
 ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
-  "sudo install -m 0644 /tmp/dg-litestream.service /etc/systemd/system/dg-litestream.service && sudo rm /tmp/dg-litestream.service && sudo systemctl daemon-reload"
+  "sudo install -m 0644 /tmp/dg-litestream.service /etc/systemd/system/dg-litestream.service && sudo rm /tmp/dg-litestream.service && sudo systemctl daemon-reload" \
   || fail "installing the unit on ${TARGET} failed"
 log "unit installed and daemon-reloaded"
 
