@@ -300,6 +300,49 @@ if sudo -n -u dg test -e "$kf"; then
 fi
 add "\"owner_key_mode\":$owner_key"
 
+# 9) litestream_replication_status -- `litestream status` must report
+# status=ok for every replicated database. This is the replication-lag
+# half of G4: the dg-litestream.service check (3b) proves the sidecar is
+# running with the right user/restart policy, but a running sidecar with
+# a wedged replica would still pass it. `litestream status` reads the
+# local replication state; every non-header line must carry status ok.
+# Missing binary -> skipped (not a fail on hosts without the sidecar).
+litestream_rep='{"status":"skipped","reason":"no litestream binary"}'
+if [ -x /usr/local/bin/litestream ]; then
+    if lit_out="$(sudo -n -u dg /usr/local/bin/litestream status 2>/dev/null)"; then
+        # Drop the header line; every remaining non-empty line must
+        # contain the ok status token.
+        bad="$(printf '%s\n' "$lit_out" | tail -n +2 | grep -v '^[[:space:]]*$' | grep -vc '[[:space:]]ok[[:space:]]' || true)"
+        nlines="$(printf '%s\n' "$lit_out" | tail -n +2 | grep -vc '^[[:space:]]*$' || true)"
+        if [ "$nlines" = "0" ]; then
+            litestream_rep='{"status":"fail","reason":"no databases in litestream status"}'
+        elif [ "$bad" = "0" ]; then
+            litestream_rep="$(printf '{"status":"pass","databases":%s}' "$nlines")"
+        else
+            litestream_rep="$(printf '{"status":"fail","databases":%s,"not_ok":%s}' "$nlines" "$bad")"
+        fi
+    else
+        litestream_rep='{"status":"fail","reason":"litestream status exited non-zero"}'
+    fi
+fi
+add "\"litestream_replication_status\":$litestream_rep"
+
+# 10) api_auth_enforced -- the gateway must answer unauthenticated
+# GET /v1/databases with 401 (server up, auth enforced). 401 proves
+# both liveness and the auth boundary in one byte; any other code
+# (404 = wrong route, 000 = not listening, 200 = auth missing) fails.
+# Missing curl -> skipped.
+api_auth='{"status":"skipped","reason":"no curl"}'
+if command -v curl >/dev/null 2>&1; then
+    code="$(curl -sS -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:7432/v1/databases 2>/dev/null || echo 000)"
+    if [ "$code" = "401" ]; then
+        api_auth='{"status":"pass","code":401}'
+    else
+        api_auth="$(printf '{"status":"fail","code":"%s"}' "$code")"
+    fi
+fi
+add "\"api_auth_enforced\":$api_auth"
+
 emit "{${checks}}"
 PROBE_EOF
     chmod +x "$PROBE_BODY"
@@ -330,7 +373,8 @@ except Exception:
 required = ["dg_binary_sha256","dg_service","dg_backup_timer",
             "dg_litestream_service",
             "micro2_backup_script_sha256","stale_staging_dirs",
-            "latest_set","backup_verify","owner_key_mode"]
+            "latest_set","backup_verify","owner_key_mode",
+            "litestream_replication_status","api_auth_enforced"]
 missing = [k for k in required if k not in obj]
 if missing:
     raise SystemExit(3)
