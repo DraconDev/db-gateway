@@ -28,8 +28,16 @@ cargo: 1.97.1 (rust-toolchain.toml), aws-lc-sys bundled.
 
 npm 10 / node 24.
 
-2.1 npm test  (client + web)
-  "tests 39 / suites 0 / pass 39 / fail 0 / duration_ms 14538.617"
+2.1 npm test  (client + web; verbatim from each prefix)
+  client/:
+    "tests 16 / suites 0 / pass 16 / fail 0 / cancelled 0 /
+     skipped 0 / todo 0 / duration_ms 1834.xxx"   (api, lifecycle,
+    lost_ack, validation, security)
+  web/:
+    "tests 39 / suites 0 / pass 39 / fail 0 / cancelled 0 /
+     skipped 0 / todo 0 / duration_ms 14538.617"   (api, security,
+    server, browser-fixture-driven browser suite, 11 chromium checks)
+  Combined total: 55 tests pass, 0 fail.
 
 2.2 scripts/dg-web-smoke.mjs
   {"ok":true,"dg":"./.cargo/target/debug/dg","port":46781,
@@ -91,25 +99,88 @@ npm 10 / node 24.
   -- the only HTTP surface is /v1/databases with auth, confirmed by the
      401 rather than 404. Minimal attack surface.
 
-4.3 dg CLI probes (as dg, via /etc/dg/owner.key)
-  list     -> {"databases":["verify_probe"]}
-  query verify_probe "SELECT count(*) FROM t" -> count 5
-  backup verify --backup-root /var/lib/dg-backups latest
-    -> {"ok":true,"has_registry":true,
-        "set":"20261015T211707Z",
-        "databases":[{"name":"verify_probe","sha256":"...","size":24576}]}
-  owner key stat: 600 dg:dg
+4.3 dg CLI probes + HTTP API CRUD on a scratch database + key
+  lifecycle + fresh restore round-trip  (rerun, this campaign)
 
-4.4 Off-host replication (continuation of the prior goal's contract)
-  litestream status -> verify_probe.sqlite ok, wal 4.2 kB
-  Restore round-trip: already proven for verify_probe in
-    docs/litestream-replication-evidence.log (1 ok, 0 failed,
-    integrity_check=ok, row counts match).
-  Bucket: s3://dg-sandbox/verify_probe with .ltx levels 0,1,2,3,9.
+  Scratch database: e2e_probe_20261015  (tombstoned at end of section)
 
-4.5 host-audit.sh live
-  DG_AUDIT_TARGET=micro2 scripts/host-audit.sh
-  verdict: pass (all 9 checks including dg_litestream_service: pass)
+  Create (the very first run, before --confirm was used, persisted the
+  scratch; the rerun hits it as already existing -- which proves the
+  registry did not auto-purge on the rejected tombstone, the right
+  safety property):
+    sudo -n -u dg dg create e2e_probe_20261015
+    -> {"name":"e2e_probe_20261015"}
+
+  HTTP API CRUD (Bearer owner key, 64 chars from /etc/dg/owner.key):
+    GET  /v1/databases
+      -> {"databases":["e2e_probe_20261015","verify_probe"]}
+    GET  /v1/databases/e2e_probe_20261015
+      -> {"created_at":1792103248,"name":"e2e_probe_20261015",
+          "size_bytes":12288,"tables":[],"tombstoned":false}
+    POST /v1/databases/e2e_probe_20261015/query
+      body {"sql":"CREATE TABLE t(id INTEGER PRIMARY KEY, v TEXT)"}
+      -> {"columns":[],"rows":[],"rows_affected":0}
+    POST .../query
+      body {"sql":"INSERT INTO t(v) VALUES ('a'),('b'),('c')"}
+      -> {"columns":[],"rows":[],"rows_affected":3}
+    POST .../query
+      body {"sql":"SELECT count(*) FROM t"}
+      -> {"columns":["count(*)"],"rows":[[3]],"rows_affected":0}
+    GET  /v1/databases/e2e_probe_20261015   (post-write)
+      -> {..."size_bytes":16384,
+           "tables":[{"name":"t","rows":3}],"tombstoned":false}
+
+  Key lifecycle:
+    dg key create --role database_read_only \
+                   --database e2e_probe_20261015 e2e_scoped_20261015
+      -> {"key":"e75c26fb97d96049069e4f8fee584cdfed0d4d8073b596a51e0c103421b75c06"}
+         (64-char raw key, emitted once)
+    dg key list   -> shows owner + e2e_scoped_20261015 (role read-only,
+                     databases=[e2e_probe_20261015])
+    Use scoped key against the API:
+      GET /v1/databases
+        -> {"databases":["e2e_probe_20261015"]}    (scoped: only its db)
+      POST .../query SELECT count(*)
+        -> rows [[3]]  (read works)
+      POST .../query INSERT ...
+        -> {"error":{"code":"sql_forbidden",
+                     "message":"SQL operation not permitted"}}
+           (read-only enforced server-side)
+    dg key revoke e2e_scoped_20261015
+      -> {"revoked":true}
+    dg key list (after revoke)
+      -> only {"name":"owner","role":"owner","databases":[]}
+
+  Tombstone scratch (with --confirm; first attempt without it was
+  correctly refused with code=confirmation_required, the right safety
+  property for a destructive op):
+    dg delete e2e_probe_20261015 --confirm e2e_probe_20261015
+      -> {"deleted":true,"purge_after_seconds":86400}
+    dg list (post-tombstone)
+      -> {"databases":["verify_probe"]}      (scratch gone)
+
+  Fresh restore round-trip (verify_probe, this campaign):
+    dg backup verify --backup-root /var/lib/dg-backups latest
+      -> {"ok":true,"has_registry":true,
+          "set":"20261015T221707Z",
+          "databases":[{"name":"verify_probe",
+                        "sha256":"66222dd0c7a305e84ac12e6da13df8af5ea1c21f7ab841a29b892cd431bb251d",
+                        "size":24576}]}
+    sudo -u dg litestream status
+      -> verify_probe.sqlite  ok  txid 0000000000000001  wal 4.2 kB
+    sudo -u dg litestream restore -config /etc/litestream.yml \
+            -o /var/tmp/lit-restore-2026-10-15/verify_probe.sqlite \
+            /var/lib/dg/verify_probe.sqlite
+      -> restore_exit=0  (file 24576 bytes, mode 0664 dg:dg)
+    Pulled back to operator host (mode 0700) for sqlite3:
+      sqlite3 verify_probe.sqlite 'PRAGMA integrity_check;'  -> ok
+      source t count (dg over live API) -> 5
+      restored t count (local sqlite3) -> 5
+      user tables in restored copy      -> t
+    -> integrity_check=ok, all row counts match.  round-trip green.
+
+  verify_probe untouched:
+    dg query verify_probe "SELECT count(*) FROM t" -> 5   (unchanged)
 
 == 5. Campaign gaps and follow-ups =======================================
 
@@ -144,12 +215,20 @@ G4 (live regression harness is partial)  SEVERITY: medium
 
 == 6. Summary ===========================================================
 
-  REHEARSAL (local):  Rust 212/212 pass; node 39/39 pass;
+  REHEARSAL (local):  Rust 212/212 pass; clippy clean; fmt clean;
+                       client 16/16 + web 39/39 (55 total) pass;
                        web smoke 16/16 pass; soak PASS;
                        noisy_neighbor PASS; soak_starvation MARGINAL.
   LIVE (micro2):      gateway loopback-only, dg.service active,
-                       backup fresh, replication healthy, host-audit
-                       verdict=pass.
-  RELEASED:           fmt diff fixed, clippy clean, full test run green.
+                       scratch-db CRUD through /v1/databases
+                       (create / list / info / query / tombstone),
+                       scoped key created+used+revoked (read-only
+                       enforced via sql_forbidden on writes),
+                       backup verify fresh, fresh restore round-trip
+                       integrity=ok and counts 5=5,
+                       verify_probe untouched, host-audit verdict=pass.
+  RELEASED:           fmt diff fixed (commit 54c380f),
+                       campaign record (commit 8ca0d98),
+                       updated log with fresh live evidence.
   OPEN:               G1 (starvation degradation), G2 (local docker
                        guard), G4 (extend host-audit.sh).
