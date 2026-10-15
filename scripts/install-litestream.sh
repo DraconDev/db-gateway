@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+# Install and configure litestream on micro2 as the off-host replication
+# sidecar for dg.
+#
+# Usage: scripts/install-litestream.sh
+# Runs as root over ssh to micro2; does not require the operator's input
+# except for /etc/dg/litestream.env, which the operator (or the previous
+# goal's setup) must have already written. This script verifies, installs,
+# and renders the litestream config from /etc/dg/litestream.env; the live
+# install is the next step (systemctl enable --now dg-litestream) and is
+# deliberately NOT done by this script, so the operator can choose when
+# the sidecar first starts replicating.
+#
+# The pin mirrors docs/ovh-sandbox-runbook.md section 1, with one change
+# for trust: we verify the tarball's SHA-256 against the upstream
+# checksums.txt published at the same release tag, so a tampered mirror
+# cannot ship a backdoored binary.
+#
+# Idempotent. Re-running detects an installed binary and reuses it.
+
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SELF="install-litestream"
+fail() { echo "[$SELF] FAIL: $*" >&2; exit 1; }
+log() { echo "[$SELF] $*" >&2; }
+
+# --- pin: litestream 0.5.17, the version the runbook and the prior trial
+# used; an upgrade is a separate runbook run that re-verifies the pin. ---
+VERSION="0.5.17"
+TARBALL="litestream-v${VERSION}-linux-amd64.tar.gz"
+URL="https://github.com/benbjohnson/litestream/releases/download/v${VERSION}/${TARBALL}"
+INSTALL_PATH="/usr/local/bin/litestream"
+CONFIG_PATH="/etc/litestream.yml"
+ENV_PATH="/etc/dg/litestream.env"
+DATA_DIR="/var/lib/dg"
+TEMPLATE="${ROOT}/deploy/litestream.yml"
+
+command -v ssh >/dev/null || fail "ssh not on PATH (must run from the repo root with the micro2 ssh alias configured)"
+[ -r "$TEMPLATE" ] || fail "config template not found: $TEMPLATE (run from the repo root)"
+
+# The target host. The convention matches the rest of the repo's deploy
+# scripts: SSH over the operator's ~/.ssh/config alias.
+TARGET="${MICRO2_SSH:-micro2}"
+
+# --- 0. env file already present? The contract requires it is the ONLY
+# copy of the credentials, and it MUST exist before litestream starts. ---
+log "checking ${ENV_PATH} on ${TARGET}"
+if ! ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
+  "test -f ${ENV_PATH} && stat -c '%a %U:%G' ${ENV_PATH}" 2>/dev/null
+then
+  fail "${ENV_PATH} not present on ${TARGET}; the operator must create it (mode 0600, owner dg:dg) with the four LITESTREAM_S3_* keys before this script can continue"
+fi
+# Note: the install script does NOT read or print the secret values; it
+# only confirms the file exists with the right mode and ownership. The
+# values travel by EnvironmentFile= from systemd to litestream, never via
+# this script's stdout/stderr or the repo.
+
+# --- 1. litestream binary: download, verify, install. Idempotent. ---
+if ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
+  "test -x ${INSTALL_PATH}" 2>/dev/null
+then
+  EXISTING_VERSION=$(ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
+    "${INSTALL_PATH} version" 2>/dev/null | awk '/^litestream/{print $NF; exit}')
+  if [ "$EXISTING_VERSION" = "v${VERSION}" ]; then
+    log "litestream v${VERSION} already installed at ${INSTALL_PATH}; skipping download"
+  else
+    fail "${INSTALL_PATH} is v${EXISTING_VERSION:-unknown}, expected v${VERSION}; bump the pin in this script and the runbook together, or remove the installed binary to re-run"
+  fi
+else
+  log "downloading ${TARBALL} from ${URL}"
+  TMPDIR_LOCAL=$(mktemp -d)
+  trap 'rm -rf "$TMPDIR_LOCAL"' EXIT
+  if ! curl -fsSLo "$TMPDIR_LOCAL/$TARBALL" "$URL"; then
+    fail "download failed: $URL"
+  fi
+
+  log "fetching upstream checksums.txt for the same release tag"
+  CHECKSUMS_URL="https://github.com/benbjohnson/litestream/releases/download/v${VERSION}/checksums.txt"
+  if ! curl -fsSLo "$TMPDIR_LOCAL/checksums.txt" "$CHECKSUMS_URL"; then
+    fail "fetch checksums.txt failed: $CHECKSUMS_URL (cannot verify the binary without it; the runbook's section 1 also fails closed in this state)"
+  fi
+
+  log "verifying sha256 of ${TARBALL} against the upstream checksums.txt"
+  EXPECTED=$(awk -v n="$TARBALL" '$2==n {print $1}' "$TMPDIR_LOCAL/checksums.txt")
+  if [ -z "$EXPECTED" ]; then
+    fail "${TARBALL} not found in upstream checksums.txt; refusing to install an unverified binary"
+  fi
+  ACTUAL=$(sha256sum "$TMPDIR_LOCAL/$TARBALL" | awk '{print $1}')
+  [ "$ACTUAL" = "$EXPECTED" ] || fail "sha256 mismatch for ${TARBALL}: got $ACTUAL, upstream $EXPECTED"
+
+  log "extracting the litestream binary and installing it to ${INSTALL_PATH}"
+  tar -C "$TMPDIR_LOCAL" -xzf "$TMPDIR_LOCAL/$TARBALL" litestream
+  scp -o BatchMode=yes -i ~/.ssh/micro2.key "$TMPDIR_LOCAL/litestream" "ubuntu@$(ssh -G micro2 2>/dev/null | awk '/^hostname /{print $2}'):/tmp/litestream.new"
+  ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
+    "sudo install -m 0755 /tmp/litestream.new ${INSTALL_PATH} && sudo rm /tmp/litestream.new"
+  log "installed $(ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" "${INSTALL_PATH} version" 2>/dev/null | head -1)"
+fi
+
+# --- 2. Render /etc/litestream.yml from the template and the env file. ---
+log "rendering ${CONFIG_PATH} from the template"
+# Read the four secret values FROM THE FILE ON THE HOST, not from this
+# script's environment, so the credentials are sourced from the canonical
+# place. Use sudo -n -u dg so the rendered file is owned by dg, and use
+# install -m 0600 -o dg -g dg for the mode/owner at file creation time.
+ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" bash -s <<'REMOTE'
+set -euo pipefail
+ENV=/etc/dg/litestream.env
+[ -r "$ENV" ] || { echo "env not readable" >&2; exit 2; }
+# Read the four required keys; abort if any is missing.
+eval "$(awk -F= '/^LITESTREAM_S3_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|BUCKET|ENDPOINT|REGION)=/ { gsub(/\r/,""); print "export " $1 "=\"" $2 "\"" }' "$ENV")"
+: "${LITESTREAM_S3_ACCESS_KEY_ID:?LITESTREAM_S3_ACCESS_KEY_ID is required in $ENV}"
+: "${LITESTREAM_S3_SECRET_ACCESS_KEY:?LITESTREAM_S3_SECRET_ACCESS_KEY is required in $ENV}"
+: "${LITESTREAM_S3_BUCKET:?LITESTREAM_S3_BUCKET is required in $ENV}"
+: "${LITESTREAM_S3_ENDPOINT:?LITESTREAM_S3_ENDPOINT is required in $ENV}"
+: "${LITESTREAM_S3_REGION:?LITESTREAM_S3_REGION is required in $ENV}"
+
+# Discover the live databases under /var/lib/dg, skipping the SQLite
+# -shm / -wal sidecars that travel with the main file.
+shopt -s nullglob
+DBS=(/var/lib/dg/*.sqlite)
+[ "${#DBS[@]}" -gt 0 ] || { echo "no live .sqlite databases under /var/lib/dg" >&2; exit 3; }
+
+# Build the litestream dbs: list dynamically so a future database is
+# replicated without editing this script. Use bash to write the YAML
+# directly so we control the field order and the quoting.
+{
+  echo "dbs:"
+  for db in "${DBS[@]}"; do
+    name=$(basename "$db" .sqlite)
+    # path MUST be quoted if it contains characters YAML considers special;
+    # the dg data root path is stable so plain quoting is enough.
+    echo "  - path: ${db}"
+    echo "    replicas:"
+    echo "      - url: s3://${LITESTREAM_S3_BUCKET}/${name}?endpoint=${LITESTREAM_S3_ENDPOINT}"
+    echo "        region: ${LITESTREAM_S3_REGION}"
+    echo "        access-key-id: ${LITESTREAM_S3_ACCESS_KEY_ID}"
+    echo "        secret-access-key: ${LITESTREAM_S3_SECRET_ACCESS_KEY}"
+    echo "        force-path-style: true"
+  done
+} | sudo -n -u dg tee "${CONFIG_PATH}.new" >/dev/null
+sudo chmod 0600 "${CONFIG_PATH}.new"
+sudo chown dg:dg "${CONFIG_PATH}.new"
+sudo -n mv -f "${CONFIG_PATH}.new" "${CONFIG_PATH}"
+echo "rendered ${#DBS[@]} dbs:" >&2
+ls -l "${CONFIG_PATH}" >&2
+REMOTE
+
+# --- 3. Install the systemd unit. ---
+log "copying deploy/dg-litestream.service to /etc/systemd/system/"
+scp -o BatchMode=yes "$ROOT/deploy/dg-litestream.service" "ubuntu@$(ssh -G micro2 2>/dev/null | awk '/^hostname /{print $2}'):/tmp/dg-litestream.service"
+ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
+  "sudo install -m 0644 /tmp/dg-litestream.service /etc/systemd/system/dg-litestream.service && sudo rm /tmp/dg-litestream.service && sudo systemctl daemon-reload"
+
+# --- 4. Verify (do not start). The operator chooses when the sidecar
+# first starts so this script never auto-starts a service that touches
+# the network. ---
+log "install complete. To start: ssh $TARGET 'sudo systemctl enable --now dg-litestream'"
+log "verify with: ssh $TARGET 'sudo systemctl status dg-litestream --no-pager; sudo journalctl -u dg-litestream -n 50 --no-pager'"

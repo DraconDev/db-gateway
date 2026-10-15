@@ -1,0 +1,26 @@
+# litestream config template for off-host replication of the dg data root.
+#
+# This file is a *template*. scripts/install-litestream.sh renders it at
+# install time, listing every live *.sqlite under /var/lib/dg (skipping
+# -shm and -wal sidecars) and substituting the four credential values
+# from /etc/dg/litestream.env into the per-db replicas. The rendered
+# file is what lands at /etc/litestream.yml on the host, mode 0600 dg:dg.
+#
+# Credentials are read from the sidecar's environment, not from this file.
+# `access-key-id` and `secret-access-key` here are *config keys*; their
+# *values* are the env-var references that systemd's EnvironmentFile=
+# populates from /etc/dg/litestream.env. The four env names match the
+# AWS / OVH standard (`AWS_*`-style) so the same env file works for both
+# litestream and any sibling tool that wants the S3 creds.
+#
+# Force-path-style is required: the OVH S3 endpoint is path-style, and
+# every gate in scripts/sandbox-s3-gates.sh uses it for the same reason.
+
+dbs:
+  - path: /var/lib/dg/verify_probe.sqlite
+    replicas:
+      - url: s3://${LITESTREAM_S3_BUCKET}/verify_probe?endpoint=${LITESTREAM_S3_ENDPOINT}
+        region: ${LITESTREAM_S3_REGION}
+        access-key-id: ${LITESTREAM_S3_ACCESS_KEY_ID}
+        secret-access-key: ${LITESTREAM_S3_SECRET_ACCESS_KEY}
+        force-path-style: true

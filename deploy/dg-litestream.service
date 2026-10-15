@@ -1,0 +1,35 @@
+# Off-host replication sidecar for dg.
+#
+# Copy to /etc/systemd/system/dg-litestream.service on the target host, then
+#   systemctl daemon-reload
+# Nothing in this repository installs, enables, or starts this unit.
+#
+# The credentials never appear here. /etc/dg/litestream.env is the only copy
+# of the secret on the host (mode 0600, owner dg:dg) and is loaded by
+# systemd at ExecStart time via EnvironmentFile=; nothing else on the host
+# is permitted to read it.
+
+[Unit]
+Description=db-gateway off-host replication sidecar (litestream)
+After=network.target
+Wants=dg.service
+After=dg.service
+
+[Service]
+Type=simple
+User=dg
+Group=dg
+ExecStart=/usr/local/bin/litestream replicate -config /etc/litestream.yml
+EnvironmentFile=/etc/dg/litestream.env
+Restart=on-failure
+RestartSec=5s
+# MemoryMax: the supervised micro2 sidecar cap. Set to the per-connection
+# cache ceiling (1 MiB) times 4x, same shape as the dg.service policy, so
+# the host's 1 GiB split is dg.service (96 MiB) + this (8 MiB) + OS budget.
+# The `MemoryMax=` lines in this unit are the only references to memory
+# policy here; the cache ceiling itself lives in src/store.rs and is
+# measured by scripts/resource-report-release.sh on the dev host.
+MemoryMax=8M
+
+[Install]
+WantedBy=multi-user.target
