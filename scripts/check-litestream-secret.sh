@@ -36,8 +36,7 @@ command -v ssh >/dev/null || { echo "[$SELF] ssh not on PATH" >&2; exit 1; }
 # the terminator line, with the closing quote of the command substitution
 # after it.
 set +e
-OUTPUT="$(ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" \
-    sudo -n python3 - 2>&1 <<'PY'
+OUTPUT="$(ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" sudo -n python3 - 2>&1 <<'PY'
 import os
 import sys
 
