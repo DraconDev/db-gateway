@@ -73,13 +73,14 @@ fi
 # this script's stdout/stderr or the repo.
 
 # --- 1. litestream binary: download, verify, install. Idempotent. ---
-if ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
-  "test -x ${INSTALL_PATH}" 2>/dev/null
-then
+elif [ -x "${INSTALL_PATH}" ]; then
+  # `litestream version` prints a bare version string ("0.5.17"), with no
+  # program name and no leading 'v'. Normalise both forms so a re-run
+  # recognises the same pin instead of failing on the parse.
   EXISTING_VERSION=$(ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
-    "${INSTALL_PATH} version" 2>/dev/null | awk '/^litestream/{print $NF; exit}')
-  if [ "$EXISTING_VERSION" = "v${VERSION}" ]; then
-    log "litestream v${VERSION} already installed at ${INSTALL_PATH}; skipping download"
+    "${INSTALL_PATH} version" 2>/dev/null | head -1 | tr -d '\r' | sed -E 's/^(litestream )?v?//')
+  if [ "${EXISTING_VERSION}" = "${VERSION}" ]; then
+    log "litestream ${VERSION} already installed at ${INSTALL_PATH}; skipping download"
   else
     fail "${INSTALL_PATH} is v${EXISTING_VERSION:-unknown}, expected v${VERSION}; bump the pin in this script and the runbook together, or remove the installed binary to re-run"
   fi
