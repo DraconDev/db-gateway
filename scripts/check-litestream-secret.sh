@@ -61,10 +61,14 @@ chmod 0600 "$PAT"
 # is prohibitively slow); /proc and /sys are virtual; /usr and /nix are
 # package/build stores, implausible for a hand-copied credential.
 ROOTS="/etc /home /root /opt /srv /var/lib /var/backups /var/tmp"
-grep -ralFf "$PAT" $ROOTS 2>/dev/null | grep -v "^${ENV}$" | grep -v "^${PAT}$"
-RCF="${PIPESTATUS[0]}"
-if [ "$RCF" = "0" ]; then
-  echo "SECRET LEAK beyond $ENV" >&2
+# Capture the FILTERED list and test IT for emptiness. An earlier
+# revision tested PIPESTATUS[0] of the first grep -- but that grep exits
+# 0 because the env file itself legitimately matches, so the check cried
+# leak while printing no paths. The verdict is: does anything survive
+# the env-file (and pattern-file) exclusion?
+LEAKS="$(grep -ralFf "$PAT" $ROOTS 2>/dev/null | grep -v "^${ENV}$\|^${PAT}$")"
+if [ -n "$LEAKS" ]; then
+  echo "SECRET LEAK beyond $ENV: $LEAKS" >&2
   exit 1
 fi
 echo "only copy verified: $ENV (roots: $ROOTS)"
