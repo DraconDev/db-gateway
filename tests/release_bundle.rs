@@ -105,9 +105,14 @@ exit 44
 }
 
 // `#[ignore]`d so `cargo test --workspace` does not run the full pinned-builder
-// build on a contributor without podman/docker. The contract is exercised in
-// CI by the `check` job of `.github/workflows/ci.yml`, which installs docker
-// first and re-runs this single test with `--ignored`. The four sibling
+// build on every invocation (it costs ~90s in a container build). The contract
+// is exercised in CI by the `check` job of `.github/workflows/ci.yml`, which
+// installs docker first and re-runs this single test with `--ignored`.
+// Run it locally with:
+//   cargo test --locked --test release_bundle -- --ignored micro2_pinned
+// The script auto-selects the engine (podman preferred, docker fallback;
+// override with DG_CONTAINER_ENGINE=podman|docker). Verified 2026-10-15:
+// 1 passed, EXIT=0 via auto-detect. The four sibling
 // tests in this file still run on every PR: the three fake-engine modes
 // (no engine, builder drift, build/smoke failure) prove the script's
 // failure modes without needing a real container, and
