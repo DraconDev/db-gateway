@@ -121,51 +121,64 @@ fi
 
 # --- 2. Render /etc/litestream.yml from the template and the env file. ---
 log "rendering ${CONFIG_PATH} from the template"
-# Read the four secret values FROM THE FILE ON THE HOST, not from this
-# script's environment, so the credentials are sourced from the canonical
-# place. Use sudo -n -u dg so the rendered file is owned by dg, and use
-# install -m 0600 -o dg -g dg for the mode/owner at file creation time.
-ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" bash -s <<'REMOTE'
+# The whole render runs as root: /etc/dg is mode 0750 root:dg, so the ssh
+# login user cannot even traverse into it, and /var/lib/dg is 0700 dg:dg.
+# Reading the values under sudo -n keeps the single copy of the secret on
+# the host authoritative. The values are read with a regex-anchored parse
+# rather than `eval`, so a secret containing shell metacharacters cannot
+# execute or misparse; and they are never echoed -- the template's own
+# ${VAR} references are left intact in the rendered file, which is what
+# litestream expands from the sidecar's own environment.
+ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" sudo -n bash -s <<'REMOTE'
 set -euo pipefail
 ENV=/etc/dg/litestream.env
-[ -r "$ENV" ] || { echo "env not readable" >&2; exit 2; }
-# Read the four required keys; abort if any is missing.
-eval "$(awk -F= '/^LITESTREAM_S3_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|BUCKET|ENDPOINT|REGION)=/ { gsub(/\r/,""); print "export " $1 "=\"" $2 "\"" }' "$ENV")"
-: "${LITESTREAM_S3_ACCESS_KEY_ID:?LITESTREAM_S3_ACCESS_KEY_ID is required in $ENV}"
-: "${LITESTREAM_S3_SECRET_ACCESS_KEY:?LITESTREAM_S3_SECRET_ACCESS_KEY is required in $ENV}"
-: "${LITESTREAM_S3_BUCKET:?LITESTREAM_S3_BUCKET is required in $ENV}"
-: "${LITESTREAM_S3_ENDPOINT:?LITESTREAM_S3_ENDPOINT is required in $ENV}"
-: "${LITESTREAM_S3_REGION:?LITESTREAM_S3_REGION is required in $ENV}"
+CONFIG=/etc/litestream.yml
+DATA=/var/lib/dg
+[ -r "$ENV" ] || { echo "env not readable by root" >&2; exit 2; }
 
-# Discover the live databases under /var/lib/dg, skipping the SQLite
-# -shm / -wal sidecars that travel with the main file.
+# Anchored, non-eval parse. Only the five exact keys are accepted; any
+# other line in the env file is ignored, so the parse cannot be poisoned
+# by an unrelated export.
+KID=$(sed -n 's/^LITESTREAM_S3_ACCESS_KEY_ID=\(.*\)$/\1/p' "$ENV")
+SEC=$(sed -n 's/^LITESTREAM_S3_SECRET_ACCESS_KEY=\(.*\)$/\1/p' "$ENV")
+BUC=$(sed -n 's/^LITESTREAM_S3_BUCKET=\(.*\)$/\1/p' "$ENV")
+END=$(sed -n 's/^LITESTREAM_S3_ENDPOINT=\(.*\)$/\1/p' "$ENV")
+REG=$(sed -n 's/^LITESTREAM_S3_REGION=\(.*\)$/\1/p' "$ENV")
+[ -n "$KID" ]  || { echo "LITESTREAM_S3_ACCESS_KEY_ID missing/empty" >&2; exit 2; }
+[ -n "$SEC" ]  || { echo "LITESTREAM_S3_SECRET_ACCESS_KEY missing/empty" >&2; exit 2; }
+[ -n "$BUC" ]  || { echo "LITESTREAM_S3_BUCKET missing/empty" >&2; exit 2; }
+[ -n "$END" ]  || { echo "LITESTREAM_S3_ENDPOINT missing/empty" >&2; exit 2; }
+[ -n "$REG" ]  || { echo "LITESTREAM_S3_REGION missing/empty" >&2; exit 2; }
+
+# Live databases under the data root, skipping SQLite's -shm / -wal
+# sidecar files, which travel with the main file and are not databases.
 shopt -s nullglob
-DBS=(/var/lib/dg/*.sqlite)
-[ "${#DBS[@]}" -gt 0 ] || { echo "no live .sqlite databases under /var/lib/dg" >&2; exit 3; }
+DBS=("$DATA"/*.sqlite)
+[ "${#DBS[@]}" -gt 0 ] || { echo "no live .sqlite databases under $DATA" >&2; exit 3; }
 
-# Build the litestream dbs: list dynamically so a future database is
-# replicated without editing this script. Use bash to write the YAML
-# directly so we control the field order and the quoting.
+# Write atomically as the dg user, mode 0600, so a partial render never
+# leaves a config the sidecar could read. The rendered file keeps the
+# ${...} env references rather than inlining the secret: the sidecar's
+# environment is populated from /etc/dg/litestream.env by systemd at
+# start, so the credential exists on disk in exactly one place.
+TMP=$(mktemp /etc/litestream.yml.XXXXXX)
 {
   echo "dbs:"
   for db in "${DBS[@]}"; do
     name=$(basename "$db" .sqlite)
-    # path MUST be quoted if it contains characters YAML considers special;
-    # the dg data root path is stable so plain quoting is enough.
     echo "  - path: ${db}"
     echo "    replicas:"
-    echo "      - url: s3://${LITESTREAM_S3_BUCKET}/${name}?endpoint=${LITESTREAM_S3_ENDPOINT}"
-    echo "        region: ${LITESTREAM_S3_REGION}"
-    echo "        access-key-id: ${LITESTREAM_S3_ACCESS_KEY_ID}"
-    echo "        secret-access-key: ${LITESTREAM_S3_SECRET_ACCESS_KEY}"
+    echo "      - url: s3://${BUC}/${name}?endpoint=${END}"
+    echo "        region: ${REG}"
+    echo "        access-key-id: \${LITESTREAM_S3_ACCESS_KEY_ID}"
+    echo "        secret-access-key: \${LITESTREAM_S3_SECRET_ACCESS_KEY}"
     echo "        force-path-style: true"
   done
-} | sudo -n -u dg tee "${CONFIG_PATH}.new" >/dev/null
-sudo chmod 0600 "${CONFIG_PATH}.new"
-sudo chown dg:dg "${CONFIG_PATH}.new"
-sudo -n mv -f "${CONFIG_PATH}.new" "${CONFIG_PATH}"
-echo "rendered ${#DBS[@]} dbs:" >&2
-ls -l "${CONFIG_PATH}" >&2
+} > "$TMP"
+chmod 0600 "$TMP"
+chown dg:dg "$TMP"
+mv -f "$TMP" "$CONFIG"
+echo "rendered ${#DBS[@]} db(s) into $CONFIG" >&2
 REMOTE
 
 # --- 3. Install the systemd unit. ---
