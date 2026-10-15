@@ -93,9 +93,18 @@ dg_cell() { python3 -c 'import sys,json; d=json.load(sys.stdin); r=d.get("rows")
 # Query through the gateway CLI as the dg user on the target host: the
 # same SQL surface the production gateway enforces, so the source counts
 # are what the gateway serves, not a second opinion about a file.
+#
+# The SQL travels base64-encoded: it contains both quote styles (e.g.
+# SELECT count(*) FROM "table"), and either of them would be eaten by
+# one of the two shell-quoting layers between here and the CLI's argv
+# (that mangling once produced `FROM _dg_replay`, which the gateway
+# rejected with an opaque api_error). Encoding makes the delivered argv
+# byte-exact for any SQL, and nothing sensitive is in the payload.
 dg_query() { # $1 = db name, $2 = SQL
+  local b64
+  b64=$(printf '%s' "$2" | base64 -w0)
   ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" \
-    "sudo -n -u dg ${DG_BIN} --key-file ${KEY_FILE} query '$1' \"$2\""
+    "sudo -n -u dg ${DG_BIN} --key-file ${KEY_FILE} query '$1' \"\$(printf '%s' '$b64' | base64 -d)\""
 }
 
 # --- 0. sanity: env file readable, bucket set, registry non-empty ------
@@ -158,10 +167,12 @@ for name in "${DBS[@]}"; do
   fi
 
   # --- 2b. row counts per user table, both sides of the same name. ---
-  # Source tables (canonical set) through the gateway CLI.
+  # Source tables (canonical set) through the gateway CLI. A dg CLI
+  # error here (its JSON error object, not a result set) must surface
+  # as this script's own failure, never as a silently-empty table list.
   src_tables=$(dg_query "$name" \
     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'" \
-    | dg_rows | LC_ALL=C sort -u)
+    | dg_rows | LC_ALL=C sort -u) || fail "[${name}] source table listing failed (dg CLI error)"
   # Tables in the restored copy, read locally.
   cmp_tables=$(sqlite3 "$out" \
     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';" 2>/dev/null | LC_ALL=C sort -u)
@@ -176,7 +187,7 @@ for name in "${DBS[@]}"; do
   cmp_ok=1
   while read -r table; do
     [ -n "$table" ] || continue
-    src_n=$(dg_query "$name" "SELECT count(*) FROM \"${table}\"" | dg_cell)
+    src_n=$(dg_query "$name" "SELECT count(*) FROM \"${table}\"" | dg_cell) || fail "[${name}] source count for table '${table}' failed (dg CLI error)"
     cmp_n=$(sqlite3 "$out" "SELECT count(*) FROM \"${table}\";" 2>/dev/null | tr -d '[:space:]')
     if [ "$src_n" != "$cmp_n" ]; then
       echo "[$SELF] FAIL: [${name}] table '${table}' row count src=${src_n} restored=${cmp_n}" >&2
