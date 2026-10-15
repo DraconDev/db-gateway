@@ -1,0 +1,32 @@
+{
+  "drills": {
+    "baseline": {
+      "backup_state": "fresh"
+    },
+    "revoke": {
+      "scoped_write_before_revoke_http": 200,
+      "revoked_write_http": 401,
+      "revoked_write_code": "invalid_credential",
+      "owner_write_after_revoke_http": 200,
+      "backup_state": "stale"
+    },
+    "egress": {
+      "backup_exit": 1,
+      "attempt_outcome": "error",
+      "attempt_step": "list",
+      "write_during_outage_http": 200,
+      "backup_state": "stale"
+    },
+    "disk": {
+      "count_before": 4,
+      "fill_attempt_http": "000",
+      "writer_fate": "died",
+      "count_after_restart": 20,
+      "rows_nondecreasing": true,
+      "write_after_recovery_http": 200,
+      "backup_state": "stale"
+    }
+  },
+  "final_row_count": 21,
+  "verdict": "pass"
+}

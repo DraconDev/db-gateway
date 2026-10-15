@@ -110,6 +110,16 @@ log "baseline: create + seed + backup"
 call POST /v1/databases '{"name":"drill"}' "$WORKDIR/o.json" >/dev/null
 call POST /v1/databases/drill/query '{"sql":"CREATE TABLE t(id INTEGER PRIMARY KEY, v TEXT)"}' "$WORKDIR/o.json" >/dev/null
 call POST /v1/databases/drill/query '{"sql":"INSERT INTO t(v) VALUES ('"'"'a'"'"')"}' "$WORKDIR/o.json" >/dev/null
+# Freshness compares sub-second write markers against a one-second
+# manifest boundary, so a backup in the same second as the last write is
+# conservatively stale (see wait_next_second in tests/backup_pipeline.rs).
+# Cross into a fresh second for a deterministic fresh baseline.
+python3 - <<'EOF'
+import time
+s = int(time.time())
+while int(time.time()) == s:
+    time.sleep(0.05)
+EOF
 if ! DG_BIN="$DG" bash "$ROOT/scripts/micro2-backup.sh" --server "$BASE" \
         --key-file "$WORKDIR/owner.key" --data-dir "$DATA" \
         --backup-root "$BACKUPS" --keep 3 >/dev/null 2>"$WORKDIR/backup1.err"; then
@@ -158,17 +168,20 @@ CEIL_BYTES=$(( CUR_BYTES + 49152 ))
 prlimit --fsize="$CEIL_BYTES:$CEIL_BYTES" --pid "$SERVER_PID" 2>/dev/null \
     || { log "prlimit failed"; exit 7; }
 set +e
-timeout 60 curl -s -o "$WORKDIR/dfill.json" -w '%{http_code}' "${AUTH_OWNER[@]}" \
-    -d '{"sql":"INSERT INTO t(v) SELECT printf('"'"'x%08d'"'"', random()) FROM (SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8) a, (SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8) b"}' \
-    "$BASE/v1/databases/drill/query" >"$WORKDIR/dfill.code" 2>/dev/null
-D_FILL_CODE="$(cat "$WORKDIR/dfill.code")"
-# The ceiling kills the process (SIGXFSZ=25), the same death the committed
-# disk_pressure test asserts; a polite SQLITE_FULL with a stable code is the
-# alternate visible surface. Either is evidence; silence is not.
-sleep 2
-if kill -0 "$SERVER_PID" 2>/dev/null; then D_DEATH="survived"; else
-    wait "$SERVER_PID" 2>/dev/null || true; D_DEATH="died"
-fi
+D_DEATH="survived"; D_FILL_CODE="none"
+# Small parameterized inserts (4 KiB args, well under the 64 KiB body
+# cap), the committed tests/disk_pressure.rs pattern: each commit grows
+# the file until the kernel refuses growth with SIGXFSZ.
+D_CHUNK="$(python3 -c 'print("y"*4000)')"
+for _ in $(seq 1 50); do
+    python3 -c 'import json,sys; print(json.dumps({"sql":"INSERT INTO t(v) VALUES (?)","args":[sys.argv[1]]}))' "$D_CHUNK" >"$WORKDIR/darg.json"
+    timeout 30 curl -s -o "$WORKDIR/dfill.json" -w '%{http_code}' "${AUTH_OWNER[@]}" \
+        -d @"$WORKDIR/darg.json" \
+        "$BASE/v1/databases/drill/query" >"$WORKDIR/dfill.code" 2>/dev/null
+    D_FILL_CODE="$(cat "$WORKDIR/dfill.code")"
+    sleep 0.2
+    if ! kill -0 "$SERVER_PID" 2>/dev/null; then D_DEATH="died"; break; fi
+done
 set -e
 kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; SERVER_PID=""
 # restart without ceiling, verify acknowledged rows + serving writes + stale
@@ -179,8 +192,8 @@ D_WRITE="$(call POST /v1/databases/drill/query '{"sql":"INSERT INTO t(v) VALUES 
 D_STATE="$(curl -s "${AUTH_OWNER[@]}" "$BASE/v1/backups" | python3 -c 'import json,sys; print(json.load(sys.stdin)["per_database"]["drill"]["state"])')"
 D_ROWS_NONDECREASING="$(python3 -c "print(str($D_COUNT_AFTER >= $D_COUNT_BEFORE).lower())")"
 record disk "{\"count_before\":$D_COUNT_BEFORE,\"fill_attempt_http\":\"$D_FILL_CODE\",\"writer_fate\":\"$D_DEATH\",\"count_after_restart\":$D_COUNT_AFTER,\"rows_nondecreasing\":$D_ROWS_NONDECREASING,\"write_after_recovery_http\":$D_WRITE,\"backup_state\":\"$D_STATE\"}"
-[ "$D_ROWS_NONDECREASING" = "true" ] && [ "$D_WRITE" = "200" ] && [ "$D_STATE" = "stale" ] \
-    || { log "drill D unexpected"; exit 8; }
+[ "$D_DEATH" = "died" ] && [ "$D_ROWS_NONDECREASING" = "true" ] && [ "$D_WRITE" = "200" ] && [ "$D_STATE" = "stale" ] \
+    || { log "drill D unexpected: fate=$D_DEATH rows=$D_COUNT_BEFORE->$D_COUNT_AFTER write=$D_WRITE state=$D_STATE"; exit 8; }
 
 # --- final: row counts + evidence ---
 FINAL_COUNT="$(call POST /v1/databases/drill/query '{"sql":"SELECT count(*) FROM t"}' "$WORKDIR/df.json" >/dev/null; python3 -c 'import json; print(json.load(open("'"$WORKDIR"'/df.json"))["rows"][0][0])')"

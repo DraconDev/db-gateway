@@ -1,0 +1,74 @@
+{
+  "schema": "dg-resource-report-release/1",
+  "timestamp": "2026-10-15T23:38:51Z",
+  "host": {
+    "os": "Linux",
+    "arch": "x86_64",
+    "kernel": "7.1.2",
+    "cpu_count": 2,
+    "mem_total_kib": 31914628
+  },
+  "build": {
+    "profile": "release",
+    "locked": true,
+    "binary_bytes": 14277560
+  },
+  "workload": {
+    "description": "3 databases, each one table with 100 small rows, then 20 sequential single-row SELECTs, then a 4 s 50-way concurrent INSERT burst on w1",
+    "databases": 3,
+    "rows_per_db": 100,
+    "latency_probes": 20,
+    "burst_concurrent_workers": 50,
+    "burst_window_seconds": 4
+  },
+  "memory_rss_kib": {
+    "idle": 8236,
+    "loaded": 8604,
+    "peak_under_burst": 11192,
+    "post_burst_settle": 8976,
+    "vm_size_idle_kib": 217852,
+    "vm_hwm_idle_kib": 8236,
+    "vm_size_loaded_kib": 217852,
+    "vm_hwm_loaded_kib": 8604,
+    "vm_hwm_under_burst_kib": 11208
+  },
+  "os_memory_kib": {
+    "cold_total": 31914628,
+    "cold_available": 2616240,
+    "cold_cached": 2218636,
+    "hot_cached": 1716516,
+    "hot_available": 1783776,
+    "data_dir_page_cache_delta": -502120
+  },
+  "sqlite_cache_ceiling_kib": 24576,
+  "memory_constraint": {
+    "enforced": true,
+    "scope_cgroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/run-p176704-i620333938.scope",
+    "memory_max": "1073741824",
+    "cpu_quota": "200%"
+  },
+  "sidecar_peak_kib": {
+    "replication": 45632,
+    "restore": 34576,
+    "source": "docs/sandbox-packet-2026-09-29-rehearsal.log gate 9"
+  },
+  "binding_term_kib": 45632,
+  "suggested_memory_max_kib": 91264,
+  "latency_ms": {
+    "min": 1.192,
+    "p50": 1.662,
+    "max": 7.615
+  },
+  "disk_bytes": 4464096,
+  "workdir": "/tmp/dg-resource-release-HKS7Bk",
+  "limitations": [
+    "Dev host has 32 GiB RAM and 16 CPUs; the binding terms on a 1 GiB / 2 vCPU micro2 target will differ.",
+    "Burst is single-process, loopback, no TLS terminator, no real workload, no realistic schema.",
+    "Page cache delta is whole-host Cached minus cold; includes any unrelated files the kernel happened to cache during the run, not just the data dir.",
+    "Single run, not a statistical sample; rerun to compare, not to certify.",
+    "Item 2 (sidecar) is sourced from the rehearsal packet, not re-measured here. Re-run scripts/sandbox-s3-gates.sh on a new packet to update the sidecar row.",
+    "Item 4 (target-host burst under capacity-reject regime) and item 5 (disk growth projection) are not in scope; the supervised micro2 run is the right place to record them.",
+    "Gateway workload ran under a kernel-enforced memory ceiling (see memory_constraint); host page-cache terms and CPU count still reflect the dev host."
+  ],
+  "budget_note": "This report is one input to the MemoryMax value, not a claim of fit. A 1 GB fit claim requires the supervised micro2 run with the same workload and the same page-cache methodology; the suggested_memory_max_kib field is a starting ceiling, not a number the host has run under."
+}
