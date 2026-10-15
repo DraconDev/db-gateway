@@ -154,10 +154,27 @@ REG=$(sed -n 's/^LITESTREAM_S3_REGION=\(.*\)$/\1/p' "$ENV")
 [ -n "$REG" ]  || { echo "LITESTREAM_S3_REGION missing/empty" >&2; exit 2; }
 
 # Live databases under the data root, skipping SQLite's -shm / -wal
-# sidecar files, which travel with the main file and are not databases.
+# sidecar files (which travel with the main file and are not databases)
+# and skipping the REGISTRY itself. metadata.sqlite is the gateway's own
+# registry, owned by the running gateway and written by it in WAL mode;
+# replicating a database another process is actively writing would hand
+# litestream a file it must not checkpoint, and the registry is already
+# protected on-host by the hourly backup set. The dollar-paren keeps this
+# a glob under bash (not sh), which is why the render runs under bash.
 shopt -s nullglob
-DBS=("$DATA"/*.sqlite)
-[ "${#DBS[@]}" -gt 0 ] || { echo "no live .sqlite databases under $DATA" >&2; exit 3; }
+DBS=("$DATA"/verify_*.sqlite "$DATA"/*.sqlite)
+# Filter to the registered, live databases: ask the gateway itself, so a
+# tombstoned or unregistered leftover file is never replicated. The dg
+# CLI needs the owner credential (mode 0600 dg:dg) -- as the dg user.
+LIVE="$(sudo -n -u dg /usr/local/bin/dg --key-file /etc/dg/owner.key list 2>/dev/null \
+  | sed -n 's/.*"databases":\[\(.*\)\].*/\1/p' | tr -d '" ' | tr ',' ' ')"
+[ -n "$LIVE" ] || { echo "no registered live databases (dg list returned none)" >&2; exit 3; }
+KEEP=()
+for name in $LIVE; do
+  [ -f "$DATA/${name}.sqlite" ] && KEEP+=("$DATA/${name}.sqlite")
+done
+[ "${#KEEP[@]}" -gt 0 ] || { echo "none of the registered databases has a .sqlite file under $DATA" >&2; exit 3; }
+DBS=("${KEEP[@]}")
 
 # Write atomically as the dg user, mode 0600, so a partial render never
 # leaves a config the sidecar could read. The rendered file keeps the
