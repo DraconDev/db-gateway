@@ -4,24 +4,50 @@
 #
 # Usage: scripts/litestream-restore.sh [--out DIR] [--config PATH]
 #
+# "Live database" means REGISTERED database -- what the gateway itself
+# serves: `dg --key-file /etc/dg/owner.key list`. That set deliberately
+# excludes metadata.sqlite, the gateway's own registry, which the
+# installer (scripts/install-litestream.sh) also excludes from
+# replication: the running gateway writes it in WAL mode, so litestream
+# must never checkpoint it, and the on-host hourly backup set already
+# protects it. A plain `*.sqlite` glob would pick the registry up and
+# fail the round-trip on the one database that is *meant* to have no
+# replica. The registry is the contract's "live database" list; the
+# replica set and this restore set are the same list by construction.
+#
 # Reads the bucket name from /etc/dg/litestream.env (the only copy of
-# the credentials on the host, mode 0600, owner dg:dg) and uses the
-# /etc/litestream.yml installed by scripts/install-litestream.sh as the
-# litestream config. The default --out DIR is /tmp/lit-restore and is
-# created with mode 0700 so the restored files are not readable by any
-# other user. For each live *.sqlite under /var/lib/dg the script:
-#   1) runs `litestream restore` into $OUT_DIR/<db>.sqlite,
-#   2) copies the restored file back to the operator host for inspection,
+# the credentials on the host, mode 0600, owner dg:dg, populated into
+# the sidecar's environment by systemd) and uses the /etc/litestream.yml
+# installed by scripts/install-litestream.sh as the litestream config.
+# The default --out DIR is /tmp/lit-restore, mode 0700: the restored
+# files stay on the operator host, readable by nobody else. For each
+# registered database the script:
+#   1) runs `litestream restore` on micro2 (as dg) into a mode-0700
+#      scratch dir, pulling the credentials from /etc/dg/litestream.env
+#      exactly the way the sidecar itself does,
+#   2) streams the restored file back over ssh (sudo cat) so sqlite3 on
+#      this host can read it -- the remote copy is never loosened past
+#      0600 in a 0700 directory,
 #   3) runs `PRAGMA integrity_check` and asserts the result is 'ok',
-#   4) iterates every user table and asserts count(*) matches the source
-#      exactly.
+#   4) compares the per-table row counts of the restored file against
+#      the live source, counted through the gateway's own dg CLI.
 # A non-zero exit on the first mismatch.
+#
+# LITESTREAM 0.5.17 INVOCATION NOTE (why the call below looks the way it
+# does): `litestream restore` accepts either a DB_PATH or a bare REPLICA
+# URL, but NOT -config together with a replica URL ("cannot specify a
+# replica URL and the -config flag"). The URL mode also reads credentials
+# from litestream's own env names (LITESTREAM_ACCESS_KEY_ID et al.), not
+# the LITESTREAM_S3_* names this deployment uses, so URL mode would need
+# the keys renamed. DB_PATH + -config is the mode that expands
+# ${LITESTREAM_S3_*} from the sidecar env, so the restore uses the same
+# credentials, the same config, and the same live-db selection the
+# running sidecar uses -- one code path, no second place to get wrong.
 #
 # This is the live proof for the goal's verification contract clause
 # "litestream restore of every live database into a temp path succeeds,
 # and row counts plus PRAGMA integrity_check match the live sources
-# exactly." It is also a sandbox-packet gate; the same script is safe to
-# run as a one-off drill on micro2 from a real shell.
+# exactly."
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -40,106 +66,127 @@ while [ $# -gt 0 ]; do
 done
 
 TARGET="${MICRO2_SSH:-micro2}"
+ENV_PATH="/etc/dg/litestream.env"
+KEY_FILE="/etc/dg/owner.key"
+DATA_DIR="/var/lib/dg"
+LITESTREAM="/usr/local/bin/litestream"
+DG_BIN="/usr/local/bin/dg"
+REMOTE_OUT="/var/tmp/lit-restore-$(date +%s)"
+DG_QUERY_CACHE="$(mktemp)"
+trap 'rm -f "$DG_QUERY_CACHE"' EXIT
+
 command -v ssh >/dev/null || fail "ssh not on PATH"
 command -v sqlite3 >/dev/null || fail "sqlite3 not on PATH (needed to read the restored copy on this host)"
+command -v python3 >/dev/null || fail "python3 not on PATH (parses the dg CLI's JSON output)"
 
-# --- 0. sanity: the source data is readable and the bucket is in env. ---
-log "reading LITESTREAM_S3_BUCKET from /etc/dg/litestream.env on ${TARGET}"
-BUCKET=$(ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
-  'set -e; . /etc/dg/litestream.env; printf "%s" "$LITESTREAM_S3_BUCKET"' 2>/dev/null)
-[ -n "$BUCKET" ] || fail "LITESTREAM_S3_BUCKET not set in /etc/dg/litestream.env on ${TARGET}"
+# --- helpers -----------------------------------------------------------
 
-log "listing live dg databases on ${TARGET}"
-mapfile -t DBS < <(ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
-  'set -e; shopt -s nullglob; for db in /var/lib/dg/*.sqlite; do basename "$db" .sqlite; done' 2>/dev/null)
-[ "${#DBS[@]}" -gt 0 ] || fail "no live .sqlite databases under /var/lib/dg on ${TARGET}"
+# dg CLI output is JSON ({"columns":[...],"rows":[[...],...]}); there is
+# no jq on the operator host, so a 3-line python parses it. `dg rows`
+# flattens every row to a single joined line for set comparison; `dg
+# cell` takes the first cell of the first row for scalar counts.
+dg_rows() { python3 -c 'import sys,json; [print("\n".join(str(c) for c in r)) for r in json.load(sys.stdin).get("rows",[])]'; }
+dg_cell() { python3 -c 'import sys,json; d=json.load(sys.stdin); r=d.get("rows") or [[None]]; print(r[0][0] if r[0] else "")'; }
 
-# --- 1. prepare a clean restore target. ---
+# Query through the gateway CLI as the dg user on the target host: the
+# same SQL surface the production gateway enforces, so the source counts
+# are what the gateway serves, not a second opinion about a file.
+dg_query() { # $1 = db name, $2 = SQL
+  ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" \
+    "sudo -n -u dg ${DG_BIN} --key-file ${KEY_FILE} query '$1' \"$2\""
+}
+
+# --- 0. sanity: env file readable, bucket set, registry non-empty ------
+log "checking ${ENV_PATH} and LITESTREAM_S3_BUCKET on ${TARGET} (as dg)"
+BUCKET=$(ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" \
+  "sudo -n -u dg bash -c \"set -e; . ${ENV_PATH}; printf '%s' \\\"\\\$LITESTREAM_S3_BUCKET\\\"\"" 2>/dev/null)
+[ -n "$BUCKET" ] || fail "LITESTREAM_S3_BUCKET not set in ${ENV_PATH} on ${TARGET} (read as dg; /etc/dg is not readable by the login user)"
+
+log "listing registered live databases on ${TARGET}"
+mapfile -t DBS < <(ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" \
+  "sudo -n -u dg ${DG_BIN} --key-file ${KEY_FILE} list" | dg_rows)
+[ "${#DBS[@]}" -gt 0 ] || fail "no registered databases returned by dg list on ${TARGET}"
+
+# --- 1. prepare a clean restore target (operator host, mode 0700). -----
 rm -rf "$OUT_DIR"
 mkdir -m 0700 -p "$OUT_DIR"
-log "restore output directory: $OUT_DIR"
+log "restore output directory: ${OUT_DIR} (local; scratch on micro2: ${REMOTE_OUT})"
 
-# Discover the operator-host ssh target name (the hostname portion of
-# the SSH config alias) so we can scp the restored file back to inspect
-# it with sqlite3 on the operator host.
-SSH_HOST=$(ssh -G "$TARGET" 2>/dev/null | awk '/^hostname /{print $2; exit}')
-[ -n "$SSH_HOST" ] || fail "could not resolve the ssh hostname of the ${TARGET} alias (does your ~/.ssh/config define it?)"
-
-# --- 2. for each live db, restore into $OUT_DIR and compare. ---
+# --- 2. for each live db, restore on micro2, pull back, compare. -------
 ok_count=0
 fail_count=0
 for name in "${DBS[@]}"; do
+  case "$name" in
+    *[!a-zA-Z0-9_-]*) fail "registry name '$name' contains unexpected characters; refusing to build a path from it" ;;
+  esac
   out="${OUT_DIR}/${name}.sqlite"
-  log "[${name}] litestream restore -> ${out}"
-  ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
-    "sudo -n -u dg /usr/local/bin/litestream restore -config '${CONFIG}' -o '${out}' 's3://${BUCKET}/${name}'" \
-    >/dev/null 2>&1 || { echo "[$SELF] FAIL: litestream restore for ${name} did not exit 0" >&2; fail_count=$((fail_count+1)); continue; }
-
-  # Pull the restored file back so sqlite3 on the operator host can
-  # read it. The file is already mode 0600 dg:dg on micro2, but the
-  # scp path is /tmp on the operator host (operator-only), and we delete
-  # the copy as soon as the integrity_check + row-counts are done.
-  cmp_path="${OUT_DIR}/_cmp_${name}.sqlite"
-  scp -o BatchMode=yes -q "ubuntu@${SSH_HOST}:${out}" "$cmp_path" 2>/dev/null
-
-  # --- 2a. PRAGMA integrity_check on the restored copy. ---
-  integrity=$(sqlite3 "$cmp_path" 'PRAGMA integrity_check;' 2>/dev/null | tail -1)
-  if [ "$integrity" != "ok" ]; then
-    echo "[$SELF] FAIL: [${name}] restored copy PRAGMA integrity_check = '$integrity' (expected 'ok')" >&2
-    fail_count=$((fail_count+1))
-    rm -f "$cmp_path"
-    continue
+  log "[${name}] litestream restore (as dg, ${CONFIG}) -> ${REMOTE_OUT}/${name}.sqlite on ${TARGET}"
+  # One remote script as dg: load the env file (the only credential
+  # copy), make a 0700 scratch dir, restore from the DB_PATH so the
+  # config's ${LITESTREAM_S3_*} references expand against the same env
+  # the sidecar runs with. stdout suppressed -- exit code is the signal.
+  if ! ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" \
+    "sudo -n -u dg bash -c \"set -a; . ${ENV_PATH}; set +a; mkdir -p -m 0700 ${REMOTE_OUT}; ${LITESTREAM} restore -config ${CONFIG} -o ${REMOTE_OUT}/${name}.sqlite ${DATA_DIR}/${name}.sqlite\"" \
+    >/dev/null 2>&1; then
+    echo "[$SELF] FAIL: [${name}] litestream restore did not exit 0 (config ${CONFIG}, env ${ENV_PATH} as dg)" >&2
+    fail_count=$((fail_count+1)); continue
   fi
 
-  # --- 2b. row counts per user table. List tables on both sides, then
-  # count(*) for each. Use sqlite3 on the operator host for the
-  # restored copy, and the dg CLI on micro2 for the source (it speaks
-  # the same SQL the gateway enforces, so the count is the one the
-  # production process is serving). ---
-  # Tables present in the source (the canonical set).
-  src_tables=$(ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
-    "sudo -n -u dg /usr/local/bin/dg --key-file /etc/dg/owner.key query '${name}' \"SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'\"" 2>/dev/null \
-    | sed -n 's/^|\([a-zA-Z0-9_]\{1,\}\)|.*$/\1/p' | sort -u)
-  # Tables present in the restored copy.
-  cmp_tables=$(sqlite3 "$cmp_path" \
-    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';" 2>/dev/null | sort -u)
+  # Stream the restored file back over ssh: sudo cat keeps the remote
+  # copy 0600 in a 0700 directory while the operator host inspects it in
+  # its own 0700 OUT_DIR. (scp as the login user cannot read it, and
+  # loosening the remote mode just to copy a db out is worse than cat.)
+  log "[${name}] pulling the restored file back for inspection"
+  ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" \
+    "sudo -n cat ${REMOTE_OUT}/${name}.sqlite" > "$out" 2>/dev/null \
+    || { echo "[$SELF] FAIL: [${name}] could not pull the restored file back" >&2; fail_count=$((fail_count+1)); continue; }
+  [ -s "$out" ] || { echo "[$SELF] FAIL: [${name}] restored file is empty" >&2; fail_count=$((fail_count+1)); continue; }
 
-  table_set_ok=1
-  # Disjoint set comparison: the table NAMES must match.
+  # --- 2a. PRAGMA integrity_check on the restored copy. --------------
+  integrity=$(sqlite3 "$out" 'PRAGMA integrity_check;' 2>/dev/null | tail -1)
+  if [ "$integrity" != "ok" ]; then
+    echo "[$SELF] FAIL: [${name}] restored copy PRAGMA integrity_check = '${integrity}' (expected 'ok')" >&2
+    fail_count=$((fail_count+1)); continue
+  fi
+
+  # --- 2b. row counts per user table, both sides of the same name. ---
+  # Source tables (canonical set) through the gateway CLI.
+  src_tables=$(dg_query "$name" \
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'" \
+    | dg_rows | LC_ALL=C sort -u)
+  # Tables in the restored copy, read locally.
+  cmp_tables=$(sqlite3 "$out" \
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';" 2>/dev/null | LC_ALL=C sort -u)
+
   if [ "$src_tables" != "$cmp_tables" ]; then
     only_src=$(comm -23 <(printf '%s\n' "$src_tables") <(printf '%s\n' "$cmp_tables"))
     only_cmp=$(comm -13 <(printf '%s\n' "$src_tables") <(printf '%s\n' "$cmp_tables"))
-    echo "[$SELF] FAIL: [${name}] table set differs; only-in-source: [$only_src]; only-in-restored: [$only_cmp]" >&2
-    table_set_ok=0
+    echo "[$SELF] FAIL: [${name}] table set differs; only-in-source: [${only_src}]; only-in-restored: [${only_cmp}]" >&2
+    fail_count=$((fail_count+1)); continue
   fi
 
-  # For each table present in both, count must match.
   cmp_ok=1
   while read -r table; do
     [ -n "$table" ] || continue
-    # escape single quotes for the dg CLI's SQL argument; the dg CLI
-    # accepts the SQL as a single positional arg.
-    esc=$(printf "%s" "$table" | sed "s/'/''/g")
-    src_n=$(ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
-      "sudo -n -u dg /usr/local/bin/dg --key-file /etc/dg/owner.key query '${name}' \"SELECT count(*) FROM \\\"${esc}\\\"\"" 2>/dev/null \
-      | sed -n 's/^|\([0-9]\{1,\}\)|.*$/\1/p' | head -1)
-    cmp_n=$(sqlite3 "$cmp_path" "SELECT count(*) FROM \"${esc}\";" 2>/dev/null | tr -d '[:space:]')
+    src_n=$(dg_query "$name" "SELECT count(*) FROM \"${table}\"" | dg_cell)
+    cmp_n=$(sqlite3 "$out" "SELECT count(*) FROM \"${table}\";" 2>/dev/null | tr -d '[:space:]')
     if [ "$src_n" != "$cmp_n" ]; then
       echo "[$SELF] FAIL: [${name}] table '${table}' row count src=${src_n} restored=${cmp_n}" >&2
       cmp_ok=0
     fi
   done <<< "$src_tables"
 
-  if [ "$table_set_ok" = "1" ] && [ "$cmp_ok" = "1" ]; then
-    log "[${name}] OK: integrity_check=ok, all row counts match"
+  if [ "$cmp_ok" = "1" ]; then
+    log "[${name}] OK: integrity_check=ok, all ${#} row counts match"
     ok_count=$((ok_count+1))
   else
     fail_count=$((fail_count+1))
   fi
-  rm -f "$cmp_path"
 done
 
-# --- 3. summary. ---
-log "summary: ${ok_count} ok, ${fail_count} failed (of ${#DBS[@]} dbs)"
+# --- 3. cleanup + summary. ---------------------------------------------
+log "removing the scratch dir on ${TARGET}"
+ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" "sudo -n rm -rf ${REMOTE_OUT}" >/dev/null 2>&1 || true
+log "summary: ${ok_count} ok, ${fail_count} failed (of ${#DBS[@]} registered db(s): ${DBS[*]})"
 [ "$fail_count" = "0" ] || fail "${fail_count} database(s) failed restore + row-count comparison"
-log "all dbs restored; restored copies in ${OUT_DIR}"
+log "all live db(s) restored; local copies kept in ${OUT_DIR} (mode 0700)"
