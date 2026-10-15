@@ -27,12 +27,25 @@ log() { echo "[$SELF] $*" >&2; }
 # --- pin: litestream 0.5.17, the version the runbook and the prior trial
 # used; an upgrade is a separate runbook run that re-verifies the pin. ---
 VERSION="0.5.17"
-TARBALL="litestream-v${VERSION}-linux-amd64.tar.gz"
+# The upstream asset is named litestream-<version>-linux-x86_64.tar.gz -- with
+# NO 'v' on the version in the FILENAME, even though the release tag and the
+# URL path segment both use v0.5.17. The runbook documented the wrong name
+# (litestream-v0.5.17-linux-amd64.tar.gz) and 404s; the correct name is
+# verified here by the checksum in Litestream's own checksums.txt at the
+# same release tag. Verified 2026-10-15: HTTP 206 for this name, 404 for
+# the runbook's.
+TARBALL="litestream-${VERSION}-linux-x86_64.tar.gz"
 URL="https://github.com/benbjohnson/litestream/releases/download/v${VERSION}/${TARBALL}"
-INSTALL_PATH="/usr/local/bin/litestream"
+CHECKSUMS_URL="https://github.com/benbjohnson/litestream/releases/download/v${VERSION}/checksums.txt"
+# An operator with a checksum-verified tarball already staged locally can
+# point this at it; the script still verifies it against CHECKSUMS_URL
+# before installing, so a local mirror buys offline reachability and
+# nothing else. NEVER bypass the checksum.
+LOCAL_TARBALL="${DG_LITESTREAM_TARBALL:-}"
 CONFIG_PATH="/etc/litestream.yml"
 ENV_PATH="/etc/dg/litestream.env"
 DATA_DIR="/var/lib/dg"
+INSTALL_PATH="/usr/local/bin/litestream"
 TEMPLATE="${ROOT}/deploy/litestream.yml"
 
 command -v ssh >/dev/null || fail "ssh not on PATH (must run from the repo root with the micro2 ssh alias configured)"
@@ -45,8 +58,12 @@ TARGET="${MICRO2_SSH:-micro2}"
 # --- 0. env file already present? The contract requires it is the ONLY
 # copy of the credentials, and it MUST exist before litestream starts. ---
 log "checking ${ENV_PATH} on ${TARGET}"
+# The check must run as root: /etc/dg is mode 0750 root:dg, so the ssh
+# login user cannot stat inside it. Testing as the login user would report
+# "not present" for a file that is there, which is the failure this
+# precheck just had.
 if ! ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
-  "test -f ${ENV_PATH} && stat -c '%a %U:%G' ${ENV_PATH}" 2>/dev/null
+  "sudo test -f ${ENV_PATH} && sudo stat -c '%a %U:%G' ${ENV_PATH}" 2>/dev/null
 then
   fail "${ENV_PATH} not present on ${TARGET}; the operator must create it (mode 0600, owner dg:dg) with the four LITESTREAM_S3_* keys before this script can continue"
 fi
@@ -67,18 +84,24 @@ then
     fail "${INSTALL_PATH} is v${EXISTING_VERSION:-unknown}, expected v${VERSION}; bump the pin in this script and the runbook together, or remove the installed binary to re-run"
   fi
 else
-  log "downloading ${TARBALL} from ${URL}"
   TMPDIR_LOCAL=$(mktemp -d)
   trap 'rm -rf "$TMPDIR_LOCAL"' EXIT
-  if ! curl -fsSLo "$TMPDIR_LOCAL/$TARBALL" "$URL"; then
-    fail "download failed: $URL"
+
+  # A staged, checksum-verified tarball may be nominated instead of a
+  # download; the checksum below is still enforced, so a mirror cannot
+  # smuggle a different binary.
+  if [ -n "$LOCAL_TARBALL" ]; then
+    [ -r "$LOCAL_TARBALL" ] || fail "DG_LITESTREAM_TARBALL=$LOCAL_TARBALL is not readable"
+    log "using staged tarball ${LOCAL_TARBALL}"
+    cp "$LOCAL_TARBALL" "$TMPDIR_LOCAL/$TARBALL"
+  else
+    log "downloading ${TARBALL} from ${URL}"
+    curl -fsSLo "$TMPDIR_LOCAL/$TARBALL" "$URL" || fail "download failed: $URL"
   fi
 
   log "fetching upstream checksums.txt for the same release tag"
-  CHECKSUMS_URL="https://github.com/benbjohnson/litestream/releases/download/v${VERSION}/checksums.txt"
-  if ! curl -fsSLo "$TMPDIR_LOCAL/checksums.txt" "$CHECKSUMS_URL"; then
-    fail "fetch checksums.txt failed: $CHECKSUMS_URL (cannot verify the binary without it; the runbook's section 1 also fails closed in this state)"
-  fi
+  curl -fsSLo "$TMPDIR_LOCAL/checksums.txt" "$CHECKSUMS_URL" \
+    || fail "fetch checksums.txt failed: $CHECKSUMS_URL (cannot verify the binary without it; the runbook's section 1 also fails closed in this state)"
 
   log "verifying sha256 of ${TARBALL} against the upstream checksums.txt"
   EXPECTED=$(awk -v n="$TARBALL" '$2==n {print $1}' "$TMPDIR_LOCAL/checksums.txt")
