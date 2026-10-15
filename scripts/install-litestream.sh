@@ -115,10 +115,18 @@ else
   [ "$ACTUAL" = "$EXPECTED" ] || fail "sha256 mismatch for ${TARBALL}: got $ACTUAL, upstream $EXPECTED"
 
   log "extracting the litestream binary and installing it to ${INSTALL_PATH}"
-  tar -C "$TMPDIR_LOCAL" -xzf "$TMPDIR_LOCAL/$TARBALL" litestream
-  scp -o BatchMode=yes -i ~/.ssh/micro2.key "$TMPDIR_LOCAL/litestream" "ubuntu@$(ssh -G micro2 2>/dev/null | awk '/^hostname /{print $2}'):/tmp/litestream.new"
+  tar -C "$TMPDIR_LOCAL" -xzf "$TMPDIR_LOCAL/$TARBALL" litestream \
+    || fail "extract failed: ${TARBALL} has no top-level litestream binary"
+  # scp resolves the ssh alias's hostname but does not inherit the
+  # IdentityFile the way plain ssh does, so name the key explicitly.
+  MICRO2_HOST=$(ssh -G "$TARGET" 2>/dev/null | awk '/^hostname /{print $2; exit}')
+  MICRO2_KEY="${MICRO2_SSH_KEY:-$HOME/.ssh/micro2.key}"
+  [ -r "$MICRO2_KEY" ] || fail "cannot read the ssh key $MICRO2_KEY (set MICRO2_SSH_KEY to your micro2 key)"
+  scp -o BatchMode=yes -q -i "$MICRO2_KEY" "$TMPDIR_LOCAL/litestream" "ubuntu@${MICRO2_HOST}:/tmp/litestream.new" \
+    || fail "scp of the binary to ${MICRO2_HOST} failed"
   ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
-    "sudo install -m 0755 /tmp/litestream.new ${INSTALL_PATH} && sudo rm /tmp/litestream.new"
+    "sudo install -m 0755 /tmp/litestream.new ${INSTALL_PATH} && sudo rm /tmp/litestream.new" \
+    || fail "installing the binary at ${INSTALL_PATH} failed"
   log "installed $(ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" "${INSTALL_PATH} version" 2>/dev/null | head -1)"
 fi
 
@@ -203,9 +211,18 @@ REMOTE
 
 # --- 3. Install the systemd unit. ---
 log "copying deploy/dg-litestream.service to /etc/systemd/system/"
-scp -o BatchMode=yes "$ROOT/deploy/dg-litestream.service" "ubuntu@$(ssh -G micro2 2>/dev/null | awk '/^hostname /{print $2}'):/tmp/dg-litestream.service"
+# scp resolves the ssh alias's hostname but does not inherit the
+# IdentityFile the way plain ssh does, so name the key explicitly.
+MICRO2_HOST=$(ssh -G "$TARGET" 2>/dev/null | awk '/^hostname /{print $2; exit}')
+MICRO2_KEY="${MICRO2_SSH_KEY:-$HOME/.ssh/micro2.key}"
+[ -r "$MICRO2_KEY" ] || fail "cannot read the ssh key $MICRO2_KEY (set MICRO2_SSH_KEY to your micro2 key)"
+scp -o BatchMode=yes -q -i "$MICRO2_KEY" \
+  "$ROOT/deploy/dg-litestream.service" "ubuntu@${MICRO2_HOST}:/tmp/dg-litestream.service" \
+  || fail "scp of the unit to ${MICRO2_HOST} failed"
 ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
   "sudo install -m 0644 /tmp/dg-litestream.service /etc/systemd/system/dg-litestream.service && sudo rm /tmp/dg-litestream.service && sudo systemctl daemon-reload"
+  || fail "installing the unit on ${TARGET} failed"
+log "unit installed and daemon-reloaded"
 
 # --- 4. Verify (do not start). The operator chooses when the sidecar
 # first starts so this script never auto-starts a service that touches
