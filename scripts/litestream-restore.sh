@@ -100,8 +100,14 @@ dg_query() { # $1 = db name, $2 = SQL
 
 # --- 0. sanity: env file readable, bucket set, registry non-empty ------
 log "checking ${ENV_PATH} and LITESTREAM_S3_BUCKET on ${TARGET} (as dg)"
-BUCKET=$(ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" \
-  "sudo -n -u dg bash -c \"set -e; . ${ENV_PATH}; printf '%s' \\\"\\\$LITESTREAM_S3_BUCKET\\\"\"" 2>/dev/null)
+# The remote script is piped over stdin (no quoting layers in argv): the
+# unquoted heredoc expands ${ENV_PATH} locally and keeps the dollar of the
+# remote variable literal, so the credential value is read on the host by
+# the dg user only and never crosses into the command line.
+BUCKET=$(ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" 'sudo -n -u dg bash -s' <<REMOTE 2>/dev/null
+set -a; . ${ENV_PATH}; printf %s "\$LITESTREAM_S3_BUCKET"
+REMOTE
+)
 [ -n "$BUCKET" ] || fail "LITESTREAM_S3_BUCKET not set in ${ENV_PATH} on ${TARGET} (read as dg; /etc/dg is not readable by the login user)"
 
 log "listing registered live databases on ${TARGET}"
@@ -179,7 +185,8 @@ for name in "${DBS[@]}"; do
   done <<< "$src_tables"
 
   if [ "$cmp_ok" = "1" ]; then
-    log "[${name}] OK: integrity_check=ok, all ${#} row counts match"
+    tbl_count=$(printf '%s\n' "$src_tables" | grep -c . || true)
+    log "[${name}] OK: integrity_check=ok, all ${tbl_count} table row counts match"
     ok_count=$((ok_count+1))
   else
     fail_count=$((fail_count+1))
