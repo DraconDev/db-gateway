@@ -188,7 +188,7 @@ add "\"dg_backup_timer\":$dg_timer"
 # 3b) dg-litestream.service -- the off-host replication sidecar. The
 # objective's "monitor it" clause: the sidecar joins this audit, so a
 # dead or mis-configured replicator is a verdict=fail here instead of
-g# silent backup staleness. Also asserts the two unit properties the
+# silent backup staleness. Also asserts the two unit properties the
 # verification contract names explicitly: Restart=on-failure and User=dg.
 dg_litestream='{"status":"skipped"}'
 if [ -f /etc/systemd/system/dg-litestream.service ]; then
