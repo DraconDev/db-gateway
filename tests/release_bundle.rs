@@ -218,7 +218,9 @@ fn staged_dg_must_be_executable_and_the_gate_enforces_it() {
     // "has some exec bit").
     let built = {
         let mut command = Command::new("timeout");
-        command.args(["550", "scripts/release-bundle.sh"]).arg(&bundle);
+        command
+            .args(["550", "scripts/release-bundle.sh"])
+            .arg(&bundle);
         command.env("DG_RELEASE_TARGET", "host");
         let output = command.output().expect("run host release bundle");
         assert!(
@@ -244,9 +246,10 @@ fn staged_dg_must_be_executable_and_the_gate_enforces_it() {
     fs::set_permissions(built.join("dg"), fs::Permissions::from_mode(0o644)).unwrap();
     let sums = {
         let mut command = Command::new("bash");
-        command
-            .arg("-c")
-            .arg(format!("cd {} && sha256sum dg > SHA256SUMS", built.display()));
+        command.arg("-c").arg(format!(
+            "cd {} && sha256sum dg > SHA256SUMS",
+            built.display()
+        ));
         command.output().expect("re-stamp SHA256SUMS")
     };
     assert!(sums.status.success(), "re-stamping SHA256SUMS failed");
@@ -279,12 +282,10 @@ fn staged_dg_must_be_executable_and_the_gate_enforces_it() {
     fs::set_permissions(built.join("dg"), fs::Permissions::from_mode(0o755)).unwrap();
     let sums = {
         let mut command = Command::new("bash");
-        command
-            .arg("-c")
-            .arg(format!(
-                "cd {} && sha256sum dg > SHA256SUMS",
-                built.display()
-            ));
+        command.arg("-c").arg(format!(
+            "cd {} && sha256sum dg > SHA256SUMS",
+            built.display()
+        ));
         command.output().expect("re-stamp SHA256SUMS")
     };
     assert!(sums.status.success(), "re-stamping SHA256SUMS failed");

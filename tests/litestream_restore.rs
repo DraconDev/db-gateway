@@ -74,7 +74,10 @@ fn integrity_check_fails_on_a_corrupted_db() {
     );
 }
 
-fn build_mirror_pair(tables: usize, rows_per_table: usize) -> (std::path::PathBuf, std::path::PathBuf, tempfile::TempDir) {
+fn build_mirror_pair(
+    tables: usize,
+    rows_per_table: usize,
+) -> (std::path::PathBuf, std::path::PathBuf, tempfile::TempDir) {
     // Return the TempDir alongside the paths so the caller keeps it alive;
     // the test fixture would otherwise be deleted when the helper returns
     // and every subsequent read would race a missing file.
@@ -89,11 +92,8 @@ fn build_mirror_pair(tables: usize, rows_per_table: usize) -> (std::path::PathBu
         ))
         .unwrap();
         for r in 0..rows_per_table {
-            conn.execute(
-                &format!("INSERT INTO {name}(v) VALUES ('v{r}')"),
-                [],
-            )
-            .unwrap();
+            conn.execute(&format!("INSERT INTO {name}(v) VALUES ('v{r}')"), [])
+                .unwrap();
         }
     }
     drop(conn);
@@ -101,11 +101,7 @@ fn build_mirror_pair(tables: usize, rows_per_table: usize) -> (std::path::PathBu
     (source, restored, dir)
 }
 
-fn delete_row(
-    path: &Path,
-    table: &str,
-    row_id: i64,
-) -> rusqlite::Result<()> {
+fn delete_row(path: &Path, table: &str, row_id: i64) -> rusqlite::Result<()> {
     let conn = Connection::open(path)?;
     conn.execute(&format!("DELETE FROM {table} WHERE id = ?1"), [row_id])?;
     Ok(())
@@ -122,13 +118,17 @@ fn count_per_table(a: &Path, b: &Path) -> (TableCounts, TableCounts) {
     let mut out_b = vec![];
     for table in tables(&ca) {
         let n: i64 = ca
-            .query_row(&format!("SELECT count(*) FROM \"{table}\""), [], |r| r.get(0))
+            .query_row(&format!("SELECT count(*) FROM \"{table}\""), [], |r| {
+                r.get(0)
+            })
             .expect("count on source");
         out_a.push((table.clone(), n));
     }
     for table in tables(&cb) {
         let n: i64 = cb
-            .query_row(&format!("SELECT count(*) FROM \"{table}\""), [], |r| r.get(0))
+            .query_row(&format!("SELECT count(*) FROM \"{table}\""), [], |r| {
+                r.get(0)
+            })
             .expect("count on restored");
         out_b.push((table.clone(), n));
     }
