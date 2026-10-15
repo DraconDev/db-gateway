@@ -33,6 +33,19 @@
 #      the live source, counted through the gateway's own dg CLI.
 # A non-zero exit on the first mismatch.
 #
+# WHAT "MATCH" COMPARES: the USER tables. SQLite's own sqlite_* plus the
+# two internal families (_dg_*, the gateway's replay bookkeeping, and
+# _litestream_*, litestream's own sync state) are excluded from the
+# table-set comparison on BOTH sides. The source side must exclude them:
+# the dg CLI answers sql_forbidden (403) for internal tables by design,
+# so counting them through the gateway is impossible, not merely
+# awkward -- and the contract's "row counts match the live sources"
+# means the data the gateway serves. The restored copy does contain the
+# internal tables (a faithful page-level restore reproduces them), so
+# the comparison stays exact over the same named set on both sides.
+# PRAGMA integrity_check still covers the whole restored file, internals
+# included.
+#
 # LITESTREAM 0.5.17 INVOCATION NOTE (why the call below looks the way it
 # does): `litestream restore` accepts either a DB_PATH or a bare REPLICA
 # URL, but NOT -config together with a replica URL ("cannot specify a
@@ -171,11 +184,12 @@ for name in "${DBS[@]}"; do
   # error here (its JSON error object, not a result set) must surface
   # as this script's own failure, never as a silently-empty table list.
   src_tables=$(dg_query "$name" \
-    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'" \
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*' AND name NOT GLOB '_dg_*' AND name NOT GLOB '_litestream_*'" \
     | dg_rows | LC_ALL=C sort -u) || fail "[${name}] source table listing failed (dg CLI error)"
-  # Tables in the restored copy, read locally.
+  # Tables in the restored copy, read locally. The same internal-table
+  # exclusion, so the compared set is the same set on both sides.
   cmp_tables=$(sqlite3 "$out" \
-    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';" 2>/dev/null | LC_ALL=C sort -u)
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*' AND name NOT GLOB '_dg_*' AND name NOT GLOB '_litestream_*';" 2>/dev/null | LC_ALL=C sort -u)
 
   if [ "$src_tables" != "$cmp_tables" ]; then
     only_src=$(comm -23 <(printf '%s\n' "$src_tables") <(printf '%s\n' "$cmp_tables"))
