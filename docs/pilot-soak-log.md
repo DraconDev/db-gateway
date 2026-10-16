@@ -112,3 +112,12 @@ Hourly dg-backup.timer fired automatically (systemd OnCalendar *-*-* *:17:00) wh
 /var/lib/dg/billing_dev_pilot.sqlite  ok      0000000000000002  16 kB
 ```
 Hourly dg-backup.timer fired automatically (systemd OnCalendar *-*-* *:17:00) while the agent session was paused. attempts.jsonl trailing 59 entries: 59 outcome ok, 17 with databases=2 (post-launch sets).
+
+## 2026-10-16T21:17:17Z
+```
+{"completed_at": 1792185437, "databases": 2, "outcome": "ok", "set": "20261016T211717Z", "started_at": 1792185437, "step": "prune", "ts": "20261016T211717Z"}
+===
+/var/lib/dg/verify_probe.sqlite       ok      0000000000000001  4.2 kB
+/var/lib/dg/billing_dev_pilot.sqlite  ok      0000000000000002  16 kB
+```
+Hourly dg-backup.timer fired automatically (systemd OnCalendar *-*-* *:17:00) while the agent session was paused. attempts.jsonl trailing 60 entries: 60 outcome ok, 18 with databases=2 (post-launch sets).
