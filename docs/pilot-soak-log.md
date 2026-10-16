@@ -94,3 +94,12 @@ database                              status  local txid        wal size
 /var/lib/dg/billing_dev_pilot.sqlite  ok      0000000000000002  16 kB
 ```
 Manual mid-hour probe fired through /usr/local/bin/micro2-backup.sh while the dg-backup timer is still on its 50-minute runway to 19:17. Set published, registry validated_before_publication, both DB checksums recorded. attempts.jsonl trailing 57 entries: 57 outcome ok, 15 with databases=2 (post-launch sets).
+
+## 2026-10-16T19:17:17Z
+```
+{"completed_at": 1792178237, "databases": 2, "outcome": "ok", "set": "20261016T191717Z", "started_at": 1792178237, "step": "prune", "ts": "20261016T191717Z"}
+===
+/var/lib/dg/verify_probe.sqlite       ok      0000000000000001  4.2 kB
+/var/lib/dg/billing_dev_pilot.sqlite  ok      0000000000000002  16 kB
+```
+Hourly dg-backup.timer fired automatically (systemd OnCalendar *-*-* *:17:00) while the agent session was paused. attempts.jsonl trailing 58 entries: 58 outcome ok, 16 with databases=2 (post-launch sets), max 7d gap 1.21h.
