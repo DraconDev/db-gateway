@@ -83,3 +83,14 @@ database                              status  local txid        wal size
 /var/lib/dg/verify_probe.sqlite       ok      0000000000000001  4.2 kB
 /var/lib/dg/billing_dev_pilot.sqlite  ok      0000000000000002  16 kB
 ```
+
+## 2026-10-16T18:29:39Z
+```
+{"completed_at": 1792175379, "databases": 2, "outcome": "ok", "set": "20261016T182939Z", "started_at": 1792175379, "step": "prune", "ts": "20261016T182939Z"}
+===
+{"billing_dev_pilot.sha256":"5631dfb63e49f024ea259fd34ca7371f8278364f4268c0c40963342459ff4641","size":20480,"verify_probe.sha256":"66222dd0c7a305e84ac12e6da13df8af5ea1c21f7ab841a29b892cd431bb251d","size":24576,"registry.metadata.sqlite.bak.sha256":"a2b5d08a139cabc3be2bf8917e814a8664d21a1b5ad9485de371f4c116ff86d2","size":32768,"timestamp":"20261016T182939Z","verification":"validated_before_publication"}
+===
+/var/lib/dg/verify_probe.sqlite       ok      0000000000000001  4.2 kB
+/var/lib/dg/billing_dev_pilot.sqlite  ok      0000000000000002  16 kB
+```
+Manual mid-hour probe fired through /usr/local/bin/micro2-backup.sh while the dg-backup timer is still on its 50-minute runway to 19:17. Set published, registry validated_before_publication, both DB checksums recorded. attempts.jsonl trailing 57 entries: 57 outcome ok, 15 with databases=2 (post-launch sets).
