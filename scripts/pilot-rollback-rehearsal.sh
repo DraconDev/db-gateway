@@ -12,12 +12,13 @@
 set -euo pipefail
 
 WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/dg-pilot-rollback-XXXXXX")"
-SERVERS=()
+PIDFILE="$WORKDIR/pids"; : >"$PIDFILE"
+N=0
 cleanup() {
-    for pid in ${SERVERS[@]:-}; do
+    while read -r pid; do
         kill "$pid" 2>/dev/null || true
         wait "$pid" 2>/dev/null || true
-    done
+    done <"$PIDFILE" 2>/dev/null || true
     rm -rf "$WORKDIR"
 }
 trap cleanup EXIT
@@ -31,16 +32,21 @@ DG="${DG_BIN:-$ROOT/.cargo/target/debug/dg}"
 [ -x "$DG" ] || { log "no executable at $DG (set DG_BIN=)"; exit 3; }
 
 say() { echo "[$1] $2"; }
-serve() { # data-dir -> prints address; appends pid to SERVERS
-    local dir="$1" err="$WORKDIR/stderr-$#.log"
+serve() { # data-dir addrfile: start server directly (no command
+    # substitution: a $( ) subshell would inherit the EXIT trap and
+    # clean the workdir out from under the server on return).
+    local dir="$1" addrfile="$2"
+    N=$(( N + 1 ))
+    local err="$WORKDIR/stderr-$N.log"
     "$DG" serve --listen 127.0.0.1:0 --data-dir "$dir" 2>"$err" &
-    SERVERS+=($!)
-    python3 - "$err" <<'EOF'
+    echo $! >>"$PIDFILE"
+    python3 - "$err" "$addrfile" <<'EOF'
 import json, sys, time
+errfile, addrfile = sys.argv[1], sys.argv[2]
 deadline = time.time() + 30
 while time.time() < deadline:
     try:
-        with open(sys.argv[1]) as f:
+        with open(errfile) as f:
             for line in f:
                 line = line.strip()
                 if not line.startswith("{"):
@@ -51,7 +57,7 @@ while time.time() < deadline:
                     continue
                 addr = entry.get("fields", {}).get("address")
                 if addr:
-                    print(addr)
+                    open(addrfile, "w").write(addr + "\n")
                     raise SystemExit(0)
     except FileNotFoundError:
         pass
@@ -65,7 +71,8 @@ mkdir -p "$WORKDIR/live" "$WORKDIR/fresh"
 "$DG" init --data-dir "$WORKDIR/live" >"$WORKDIR/live.json" 2>/dev/null
 LIVE_KEY="$(python3 -c 'import json; print(json.load(open("'"$WORKDIR"'/live.json"))["owner_key"])')"
 printf '%s\n' "$LIVE_KEY" >"$WORKDIR/live.key"; chmod 600 "$WORKDIR/live.key"
-LIVE_ADDR="$(serve "$WORKDIR/live")"
+serve "$WORKDIR/live" "$WORKDIR/live.addr"
+LIVE_ADDR="$(cat "$WORKDIR/live.addr")"
 say LIVE "$LIVE_ADDR"
 LIVE=( "$DG" --server "http://$LIVE_ADDR" --key-file "$WORKDIR/live.key" )
 
@@ -92,7 +99,8 @@ say EXPORT2_SHA "$(sha256sum "$WORKDIR/rb2.sqlite" | awk '{print $1}')"
 "$DG" init --data-dir "$WORKDIR/fresh" >"$WORKDIR/fresh.json" 2>/dev/null
 FRESH_KEY="$(python3 -c 'import json; print(json.load(open("'"$WORKDIR"'/fresh.json"))["owner_key"])')"
 printf '%s\n' "$FRESH_KEY" >"$WORKDIR/fresh.key"; chmod 600 "$WORKDIR/fresh.key"
-FRESH_ADDR="$(serve "$WORKDIR/fresh")"
+serve "$WORKDIR/fresh" "$WORKDIR/fresh.addr"
+FRESH_ADDR="$(cat "$WORKDIR/fresh.addr")"
 say FRESH "$FRESH_ADDR"
 FRESH=( "$DG" --server "http://$FRESH_ADDR" --key-file "$WORKDIR/fresh.key" )
 say IMPORT "$("${FRESH[@]}" import pilotdb --from "$WORKDIR/rb2.sqlite")"
