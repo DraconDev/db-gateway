@@ -18,7 +18,7 @@ Commands are reproducible; rerun them rather than trusting these numbers.
 | M3 | Concurrency and per-request caps (code-derived bounds) | `src/store.rs:36-37` (`READ_PERMITS=8`, `WRITE_PERMITS=4`), `src/store.rs:762-763` (the two `Semaphore` lanes), `src/store.rs:1159` (`acquire_queue`: many readers share, one writer excludes, per database), `src/execution.rs:39-50` (`open`: one connection per query, no pool, `cache_size=-2048` at :42), `docs/api.md` limits table | Worst-case concurrent query executions: 8 readers + 4 writers across the two admission lanes, plus maintenance purge; per-request memory bounded by 64 KiB body / 256 KiB or 1000-row results / 8 MiB export. Per-process SQLite cache ceiling: 12 connections x 2 MiB = 24 MiB; not the 10 MiB a single-lane reading would imply (the 2026-09-27 audit correction this goal is built on). |
 | M4 | Supervised micro2 idle-after-drill sample | `docs/first-deploy-micro2.md` § Procedure evidence; `docs/first-deploy-micro2-evidence.log` | 8292 KiB gateway `VmRSS` after the smoke, restart, and throwaway export/import drill; one idle sample, not a host-budget acceptance |
 | M5 | Local Profile C filesystem rehearsal | `cargo run --locked --bin recovery_rehearsal`; durable output `docs/recovery-rehearsal-evidence.json` | baseline separate-target restore 101 ms; fallback restore 92 ms; WAL held under reader 939,392 bytes; no Litestream or sidecar, so this is not a host-fit measurement |
-| M6 | micro2 steady-state + restore, 1G-scope local rerun (2026-10-15) | `docs/m4-micro2-headroom-2026-10-15.md`; `docs/resource-report-release-1G-scope-2026-10-15.json` via `scripts/resource-report-release.sh` under `systemd-run --user --scope -p MemoryMax=1G` | gateway 6620 KiB rock-steady (6 samples / ~5 min), sidecar ~20740 KiB steady / 36240 HWM, host ~430 MiB free of 954, zero error/queue_timeout counters; litestream restore 759 ms, 24576 bytes, integrity ok, 5=5 rows; local enforced rerun idle 8236 / loaded 8604 / burst peak 11192 / settle 8976 KiB, p50 1.66 ms, no OOM |
+| M6 | micro2 steady-state + restore with raw transcript (2026-10-16) | `scripts/m4-micro2-sampling.sh`; transcript `docs/m4-micro2-sampling-2026-10-16.log`; prior summary `docs/m4-micro2-headroom-2026-10-15.md`; `docs/resource-report-release-1G-scope-2026-10-15.json` | gateway 6696 KiB steady (3 passes), sidecar ~21300 KiB steady / 36240 HWM, host ~432 MiB free of 954, zero error/queue_timeout counters; litestream restore 392–938 ms across runs, 24576 bytes, integrity ok, 5=5 rows; local enforced rerun idle 8236 / burst peak 11192 KiB, p50 1.66 ms, no OOM |
 | M7 | Local failure-visibility drill: revoke / egress / disk (2026-10-15) | `scripts/m4-failure-visibility-drill.sh`; evidence `docs/m4-failure-visibility-2026-10-15.json` (+ `.log`) | revoked key writes 401 `invalid_credential` while owner writes 200; backup-to-unreachable fails exit 1 with `attempts.jsonl` outcome error/step list while writes 200; prlimit ceiling kills writer (SIGXFSZ surface) with acknowledged rows 4→20 surviving restart and post-recovery writes 200; `/v1/backups` reports `stale` (never false fresh) in all three |
 
 M2 is a manual spot check, not a harness run: `scripts/resource-report.sh`
@@ -49,14 +49,16 @@ host shape (or an equivalent VM), with the release profile:
 > budget is ~24 MiB (8 readers + 4 writers x ~2 MiB), not the ~10 MiB an
 > earlier single-lane reading implied.
 >
-> **Set 2026-10-10:** the owner-supervised `deploy/dg.service` now sets
-> `MemoryMax=96M`. The justification is the four-times-the-cache-ceiling
-> formula, with the ceiling measured from source (M3, 24 MiB), the gateway peak
-> under burst measured on the dev host (M2r, 13 MiB), and the sidecar peak
-> measured in the rehearsal packet (item 2, 44 MiB; the sidecar runs in its
-> own unit). The supervised micro2 run is the place to record the on-target
-> fact under the same cap; if that measurement rejects 96 MiB, lower it
-> there and commit the new packet with the unit change.
+> **Set 2026-10-10, revised 2026-10-16:** the owner-supervised `deploy/dg.service` sets
+> `MemoryMax=64M`, matching what the micro2 host already enforces (67108864).
+> The 2026-10-10 justification was the four-times-the-cache-ceiling
+> formula (ceiling from source M3, 24 MiB; gateway burst peak 13 MiB dev-host;
+> sidecar peak 44 MiB in its own unit). The 2026-10-16 on-target record
+> (`docs/m4-micro2-sampling-2026-10-16.log`: gateway steady 6696 KiB,
+> local enforced burst peak 11192 KiB) supports 64M: ~2.7x the cache ceiling
+> and ~6x the measured burst peak. An earlier template revision said 96M
+> while the host ran 64M; this revision resolves that drift toward the host
+> fact rather than carrying two values.
 
 1. Release-profile RSS under a realistic workload (owner's actual database
    sizes and query mix), idle and sustained.
@@ -147,32 +149,34 @@ host shape (or an equivalent VM), with the release profile:
 
 ## Conditional readiness conclusion
 
-**Items 1, 2, 3, and the 4-half of the burst (5 remains) are measured as of
-2026-10-10 and re-confirmed on-target 2026-10-15 (M6).** The 1 GiB envelope is composed of:
+**Steady-idle inputs 1, 2, 3 and the local-burst 4-half are measured as of
+2026-10-16 (M6); target-host burst at the 429 edge and disk-growth item 5
+remain open, so the budget position is "no claim of fit" (see below).**
+The 1 GiB envelope so far is composed of:
 
 - Gateway process RSS: 13 MiB peak under burst (release, dev host) or
   8 MiB idle-after-drill (supervised micro2 sample), re-confirmed as
-  6.5 MiB steady on micro2 and 11 MiB burst peak under a 1 GiB-enforced
-  local rerun (2026-10-15, M6). Worst-case ceiling
+  6696 KiB steady on micro2 (raw transcript
+  `docs/m4-micro2-sampling-2026-10-16.log`, reproducible by
+  `scripts/m4-micro2-sampling.sh`) and 11 MiB burst peak under a
+  1 GiB-enforced local rerun (2026-10-15, M6). Worst-case ceiling
   from code: 24 MiB SQLite cache (8+4 connections x 2 MiB).
 - Litestream sidecar: 44 MiB peak replication, 33 MiB restore (1 GiB
-  enforced scope, rehearsal packet gate 9); on micro2 steady ~20 MiB /
-  35 MiB HWM with a 759 ms verified restore (2026-10-15, M6).
+  enforced scope, rehearsal packet gate 9); on micro2 steady ~21 MiB /
+  35 MiB HWM with a verified restore (392–938 ms across runs,
+  integrity ok, 5=5 rows — same transcript).
 - OS + page cache: budget remainder (the supervised micro2 run is where
   this is observed under real pressure).
 
-Drift recorded 2026-10-15 (M6): the on-host gateway cap is 64M while
-`deploy/dg.service` says 96M. The 64M value still clears every
-measurement by ~6x; the next unit change should set one value in both
-places.
+Drift resolved 2026-10-16: template and host agree on `MemoryMax=64M`
+for the gateway (the host already enforced 67108864; the template now
+says 64M with the on-target measurement as justification). The sidecar
+keeps its own 96M cap in its own unit.
 
-`MemoryMax=96M` in `deploy/dg.service` is the gateway cap; the sidecar runs
-in its own unit with its own `MemoryMax`. The 96 MiB is 4x the cache
-ceiling (the worst case) and ~7x the measured burst peak; it is 1/10 of
-the 1 GiB host and leaves the OS + sidecar with the remaining 880+ MiB.
-The supervised micro2 run is the place to confirm this value under the
-target host shape; if it is rejected by an OOM kill or a near-miss,
-lower the cap there and commit the new packet with the unit change.
+`MemoryMax=64M` in `deploy/dg.service` is the gateway cap; the sidecar runs
+in its own unit with its own `MemoryMax`. The 64 MiB is ~2.7x the cache
+ceiling (the worst case) and ~6x the measured burst peak; it is ~1/15 of
+the 1 GiB host and leaves the OS + sidecar with the remaining ~890 MiB.
 
 Item 5 (disk growth projection) and the target-host item-4 burst (429
 capacity-reject regime) are not yet measured. The local rehearsal is

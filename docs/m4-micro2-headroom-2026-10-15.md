@@ -1,10 +1,13 @@
-# M4 headroom evidence — micro2 steady-state + restore (2026-10-15)
+# M4 headroom evidence — micro2 steady-state + restore (2026-10-15/16)
 
-All numbers below were sampled live from micro2 (145.241.238.20) over
-SSH between 23:22 and 23:31 UTC, read-only except for a restore into a
-disposable `/var/tmp` staging dir (removed after verification). No
-production data was touched: the only database read was `verify_probe`
-(row count), and the restore target was a temp copy.
+Superseding note (2026-10-16): the table below was first recorded from
+ad-hoc SSH sampling. It has since been re-collected by the checked-in
+script `scripts/m4-micro2-sampling.sh`, whose verbatim transcript is
+`docs/m4-micro2-sampling-2026-10-16.log` (3 passes, gateway 6696 KiB
+steady, sidecar ~21300 KiB, restore 446 ms, integrity ok, 5=5). Treat
+the transcript as the inspectable record; this file remains the human
+summary. Read-only throughout except a restore into disposable `/var/tmp`
+staging (removed after verification).
 
 ## Host context
 
@@ -62,7 +65,12 @@ the env sourced but run from `/` it fails creating its temp path
 (`permission denied`, exit 1). The restore needs the service env plus a
 writable CWD — an operator note, not a defect.
 
-## Headroom vs docs/resource-budget.md
+## Headroom vs docs/resource-budget.md — conditional, not a fit claim
+
+This section records steady-idle inputs only. Target-host burst at the
+429 capacity edge (budget item 4) and disk-growth projection (item 5)
+are not measured here, so the budget position stays "no claim of fit"
+(`docs/resource-budget.md`, conditional conclusion). What is recorded:
 
 | Term | This run | Budget reference |
 |---|---|---|
@@ -77,14 +85,29 @@ Composed worst case under the enforced caps: 64M (gateway unit) + 96M
 at idle — roughly 5x headroom over the caps, ~35x over measured steady
 RSS (~27 MiB combined). The SQLite cache ceiling (24 MiB, M3) remains
 the binding gateway term; the measured burst peak (11 MiB) sits under
-half of it.
+half of it. None of this certifies the host under burst or growth — it
+puts the idle fact next to the local-burst fact so the remaining
+measurements have a baseline to beat.
 
-## Drift note (action for the next deploy change)
+## Failure-visibility scope (local proxies + one live revoke)
 
-The on-host gateway cap is **64M** (`systemctl show dg.service
--MemoryMax`), while `deploy/dg.service` in-tree says `MemoryMax=96M`.
-The 64M value still clears every measurement above by ~6x, so nothing
-is at risk, but the template and the host disagree and the budget doc
-quotes 96M. The next change that touches the unit should set one value
-in both places and re-record this file's table. This file reports the
-host fact; it does not resolve the drift.
+The revoke/egress/disk triple in `docs/m4-failure-visibility-2026-10-15.json`
+(exit 0, re-runnable by `scripts/m4-failure-visibility-drill.sh`) runs
+against a disposable local gateway by safety necessity: blocking egress
+means firewall changes and filling disk means host-wide pressure, and
+neither is an acceptable unattended action on the live host. The one
+failure that was exercised on micro2 itself is key revocation — the
+e2e campaign created, used, and revoked a scoped key against the live
+gateway (`docs/e2e-test-campaign-2026-10-15.log` §4.3: read-only
+role enforced via `sql_forbidden`, revoked key denied, owner writes
+unaffected). Egress and disk visibility therefore rest on local
+proxies honestly labeled as such in the drill script.
+
+## Drift note (resolved 2026-10-16)
+
+The on-host gateway cap was **64M** while `deploy/dg.service` in-tree
+said `MemoryMax=96M`. Resolved toward the host fact: the template now
+sets `MemoryMax=64M` with the on-target measurement as justification
+(~2.7x cache ceiling, ~6x measured burst peak), and the budget's
+owner-decision note records the revision. The sidecar keeps its own
+96M cap in its own unit.

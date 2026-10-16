@@ -30,28 +30,32 @@ ReadWritePaths={{DG_DATA_DIR}}
 # `dg init` (output redirected to a 0600 file), and client keys travel in
 # 0600 --key-file files owned by {{DG_USER}}. No Environment= secrets.
 
-# MemoryMax: release-profile ceiling, measured 2026-10-10. The binding term
-# for the gateway process is the SQLite per-connection cache ceiling
-# (READ_PERMITS=8 + WRITE_PERMITS=4 query connections, each pinned to
-# PRAGMA cache_size=-2048 = 2 MiB, ceiling 12 * 2 MiB = 24 MiB) plus the
-# three metadata connections (cache_size=-1024 = 1 MiB each, ceiling
-# 3 MiB, not on the request hot path), not the process base RSS (release
-# profile measured 8 MiB idle / 9 MiB loaded / 13 MiB peak under a 50-way
-# concurrent INSERT burst on the dev host, plus the supervised micro2
-# idle-after-drill sample of 8,292 KiB). MemoryMax is set 4x above the
-# query-connection ceiling so the burst the budget exists to absorb does
-# not become an OOM kill. The sidecar (litestream) runs in its own unit
-# with its own MemoryMax; the 1 GiB host budget is the sum of this cap
-# (96 MiB) plus the sidecar cap plus the OS, all of which fits. Evidence:
-# `docs/first-resource-report-release-2026-10-10.json` (this run,
-# reproducible by `scripts/resource-report-release.sh`),
+# MemoryMax: release-profile ceiling, re-measured on-target 2026-10-16.
+# The binding term for the gateway process is the SQLite per-connection
+# cache ceiling (READ_PERMITS=8 + WRITE_PERMITS=4 query connections, each
+# pinned to PRAGMA cache_size=-2048 = 2 MiB, ceiling 12 * 2 MiB = 24 MiB)
+# plus the three metadata connections (cache_size=-1024 = 1 MiB each,
+# ceiling 3 MiB, not on the request hot path), not the process base RSS
+# (micro2 steady 6696 KiB across repeated samples; release burst peak
+# 11192 KiB under a 1 GiB-enforced 50-way concurrent INSERT harness).
+# MemoryMax is set ~2.7x above the query-connection ceiling and ~6x above
+# the measured burst peak, so the burst the budget exists to absorb does
+# not become an OOM kill. This value matches what the micro2 host already
+# enforces (MemoryMax=67108864, recorded in
+# `docs/m4-micro2-sampling-2026-10-16.log`); an earlier revision shipped
+# 96M in this template while the host ran 64M, and this edit resolves that
+# drift toward the host fact. The sidecar (litestream) runs in its own
+# unit with its own MemoryMax (96M on-host); the 1 GiB host budget is the
+# sum of this cap (64 MiB) plus the sidecar cap plus the OS, all of which
+# fits. Evidence: `docs/m4-micro2-sampling-2026-10-16.log` (on-target
+# steady-state + restore, reproducible by `scripts/m4-micro2-sampling.sh`),
+# `docs/resource-report-release-1G-scope-2026-10-15.json` (1 GiB-enforced
+# local burst, reproducible by `scripts/resource-report-release.sh`),
 # `docs/sandbox-packet-2026-09-29-rehearsal.log` gate 9 (sidecar peaks
 # 45,632 KiB replication / 34,576 KiB restore under a kernel-enforced
 # 1 GiB scope), and `src/store.rs:36-37` / `src/execution.rs:39-50` for the
-# cache ceiling itself. The supervised micro2 run is the place to record
-# the on-target fact under the same cap; if that measurement rejects this
-# value, lower it there and commit the new packet with the unit change.
-MemoryMax=96M
+# cache ceiling itself.
+MemoryMax=64M
 
 [Install]
 WantedBy=multi-user.target

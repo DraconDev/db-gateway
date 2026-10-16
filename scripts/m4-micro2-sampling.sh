@@ -31,7 +31,7 @@ say() { echo "[$1] $2"; }
 say SAMPLE_EPOCH "$(date -u +%s)"
 say UNAME "$(uname -a)"
 say NPROC "$(nproc)"
-say MEMINFO "$(awk '/^(MemTotal|MemAvailable):/ {printf \"%s=%sKiB \", $1, $2}' /proc/meminfo)"
+say MEMINFO "$(awk '/^(MemTotal|MemAvailable):/ {printf "%s%sKiB ", $1, $2}' /proc/meminfo)"
 say DF_ROOT "$(df -h / | tail -n 1)"
 say LOADAVG "$(cat /proc/loadavg)"
 for u in dg.service dg-litestream.service; do

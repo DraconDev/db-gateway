@@ -1,0 +1,44 @@
+--- PASS 1 ---
+[SAMPLE_EPOCH] 1792109580
+[UNAME] Linux micro2 6.17.0-1019-oracle #19~24.04.3-Ubuntu SMP Thu Jul 16 17:39:35 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+[NPROC] 2
+[MEMINFO] MemTotal:977088KiB MemAvailable:427988KiB 
+[DF_ROOT] /dev/sda1        45G   19G   26G  42% /
+[LOADAVG] 0.01 0.03 0.00 2/227 506689
+[UNIT] dg.service ActiveState=active MainPID=439701 MemoryMax=67108864
+[UNIT] dg-litestream.service ActiveState=active MainPID=479600 MemoryMax=100663296
+[TIMER] dg-backup.timer ActiveState=active
+[GW_STATUS] VmSize:	  287452 kB VmHWM:	    9260 kB VmRSS:	    6696 kB Threads:	5 
+[GW_CPU_TICKS] 6194
+[SC_STATUS] VmSize:	 1266952 kB VmHWM:	   36240 kB VmRSS:	   21304 kB Threads:	8 
+[SC_CPU_TICKS] 5327
+[LITESTREAM_STATUS] database                         status  local txid        wal size;/var/lib/dg/verify_probe.sqlite  ok      0000000000000001  4.2 kB;
+[BACKUP_VERIFY] {"databases":[{"file":"verify_probe.sqlite","name":"verify_probe","sha256":"66222dd0c7a305e84ac12e6da13df8af5ea1c21f7ab841a29b892cd431bb251d","size":24576}],"has_registry":true,"ok":true,"set":"20261015T231717Z"}
+[GW_STATUS_API] {"admission":{"acquire_timeout_ms":500,"read_permits":8,"write_permits":4},"databases":{"e2e_probe_20261015":{"queue_timeouts":0,"queue_wait_ms":0,"queue_waits":9,"rows_read":3,"rows_written":6},"verify_probe":{"queue_timeouts":0,"queue_wait_ms":0,"queue_waits":44,"rows_read":72,"rows_written":0}},"requests":{"capacity_exceeded":0,"internal_error":0,"query_deadline_exceeded":0,"total":210},"uptime_secs":101337,"version":"0.1.0"}
+[LIVE_COUNT] {"columns":["count(*)"],"rows":[[5]],"rows_affected":0}
+[LIVE_ROWS] {"columns":["id","note"],"rows":[[1,"row-1"],[2,"row-2"],[3,"row-3"],[4,"row-4"],[5,"row-5"]],"rows_affected":0}
+[LIVE_KEYS] {"keys":[{"databases":[],"name":"owner","role":"owner"}]}
+[RESTORE_DIR] /var/tmp/m4-sample-restore-20261016T001300Z
+RESTORE_EXIT=0
+RESTORE_ELAPSED_MS=446
+[RESTORED_INTEGRITY] ok
+[RESTORED_FK] 0
+[RESTORED_COUNT] 5
+[RESTORED_ROWS] [(1, 'row-1'), (2, 'row-2'), (3, 'row-3'), (4, 'row-4'), (5, 'row-5')]
+[RESTORED_BYTES] 24576
+[RESTORE_CLEANED] yes
+--- PASS 2 ---
+[SAMPLE_EPOCH] 1792109621
+[GW_RSS] 6696
+[GW_CPU_TICKS] 6196
+[SC_RSS] 21304
+[SC_CPU_TICKS] 5329
+[MEMAVAIL] 423436
+--- PASS 3 ---
+[SAMPLE_EPOCH] 1792109662
+[GW_RSS] 6696
+[GW_CPU_TICKS] 6198
+[SC_RSS] 21508
+[SC_CPU_TICKS] 5331
+[MEMAVAIL] 425960
+[SCRIPT_DONE] scripts/m4-micro2-sampling.sh
