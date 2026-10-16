@@ -11,3 +11,11 @@ database                              status  local txid        wal size
 /var/lib/dg/verify_probe.sqlite       ok      0000000000000001  4.2 kB
 /var/lib/dg/billing_dev_pilot.sqlite  ok      0000000000000002  16 kB
 ```
+
+## 2026-10-16T10:17:16Z
+```
+{"completed_at": 1792145824, "databases": 2, "outcome": "ok", "set": "20261016T101704Z", "started_at": 1792145824, "step": "prune", "ts": "20261016T101704Z"}
+===
+/var/lib/dg/verify_probe.sqlite       ok      0000000000000001  4.2 kB
+/var/lib/dg/billing_dev_pilot.sqlite  ok      0000000000000002  16 kB
+```
