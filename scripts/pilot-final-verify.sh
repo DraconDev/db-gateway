@@ -94,9 +94,10 @@ raise SystemExit("no listen address")
 EOF
 ADDR="$(cat "$WORKDIR/addr")"
 T=( "$DG" --server "http://$ADDR" --key-file "$WORKDIR/target.key" )
+ssh -o BatchMode=yes micro2 "sudo -n rm -f /tmp/pilot-final.sqlite" 2>/dev/null
 ssh -o BatchMode=yes micro2 "sudo -n -u dg dg --server http://127.0.0.1:7432 --key-file /etc/dg/owner.key export --out /tmp/pilot-final.sqlite billing_dev_pilot" >/dev/null 2>&1
-scp -q -o BatchMode=yes micro2:/tmp/pilot-final.sqlite "$WORKDIR/live.sqlite"
-ssh -o BatchMode=yes micro2 "shred -u /tmp/pilot-final.sqlite" 2>/dev/null || true
+ssh -o BatchMode=yes micro2 "sudo -n -u dg cat /tmp/pilot-final.sqlite" >"$WORKDIR/live.sqlite" 2>/dev/null
+ssh -o BatchMode=yes micro2 "sudo -n -u dg shred -u /tmp/pilot-final.sqlite" 2>/dev/null || true
 say EXPORT_SHA "$(sha256sum "$WORKDIR/live.sqlite" | awk '{print $1}')"
 say IMPORT "$("${T[@]}" import billing_dev_pilot --from "$WORKDIR/live.sqlite")"
 say LIVE_COUNT "$(python3 -c 'import sqlite3; print(sqlite3.connect("'"$WORKDIR"'/live.sqlite").execute("SELECT count(*) FROM sqlite_master").fetchone()[0])')"
