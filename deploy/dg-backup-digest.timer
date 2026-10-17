@@ -1,0 +1,17 @@
+# DB Gateway daily backup-health digest timer template (non-installing).
+#
+# Copy to /etc/systemd/system/dg-backup-digest.timer on the target host
+# alongside dg-backup-digest.service, then
+#   systemctl daemon-reload && systemctl enable --now dg-backup-digest.timer
+# Fires after the hourly backup window settles and clear of the :17
+# producer slot, so the digest always reads a completed set.
+
+[Unit]
+Description=Daily DB Gateway backup-health digest
+
+[Timer]
+OnCalendar=*-*-* 06:45:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

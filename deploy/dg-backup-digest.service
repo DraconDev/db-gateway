@@ -1,0 +1,27 @@
+# DB Gateway daily backup-health digest template (non-installing).
+#
+# Copy to /etc/systemd/system/dg-backup-digest.service on the target host,
+# replace every braced placeholder, then
+#   systemctl daemon-reload
+# Nothing in this repository installs, enables, or starts this unit.
+#
+# Runs `dg backup digest` offline against the data directory and backup
+# root. LogSink renders through stderr, so every digest and every failure
+# notice lands in the journal under this unit. Exits nonzero when any
+# database is stale or unknown.
+
+[Unit]
+Description=DB Gateway daily backup-health digest
+After=dg-backup.service
+
+[Service]
+Type=oneshot
+User={{DG_USER}}
+Group={{DG_USER}}
+ExecStart={{DG_BINARY}} backup digest --data-dir {{DG_DATA_DIR}} --backup-root {{DG_BACKUP_ROOT}}
+WorkingDirectory={{DG_BACKUP_ROOT}}
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths={{DG_BACKUP_ROOT}}
