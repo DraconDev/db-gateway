@@ -1,0 +1,26 @@
+# Repo suite results — extensive pet-trio wave (2026-10-16)
+
+Full workspace + TS client suites run after the 9-section workout passed.
+
+## npm test (TypeScript client: typecheck + build + integration vs real serve)
+```
+exit=0 tests=39 pass=39 fail=0 (duration ~14s)
+```
+
+## cargo test --workspace --locked (all Rust suites, disposable servers)
+```
+exit=0 suites=28 passed=212 failed=0
+```
+Includes admission, backup_pipeline, boundary_sweep, chunked_transfer,
+cli_*, clone_marathon, crash_restart, disk_pressure, fleet_*, garbage_sweep,
+generation_auth, import_export_torture, key_chaos, key_rotation,
+kill_gauntlet, kill_midwrite_10x, lifecycle_churn, litestream_restore,
+m1_e2e, m2_lifecycle, many_databases, match_finalization,
+recovery_drill/rehearsal, replay_deep, shell_e2e, status, tombstone_purge.
+
+## Pet-trio app layer (this wave)
+- `docs/pet-trio-2026-10-16.log` — basic trio VERDICT pass
+- `docs/pet-trio-extensive-2026-10-16.log` — 9/9 sections VERDICT pass
+  (800 concurrent appends zero-loss, replay dedupe, atomic rollback,
+  4 denial codes, clone independence, chunked export match, SIGKILL
+  restart zero-loss, 2000-burst p50 ~10-27ms, backup set verify ok:true)
