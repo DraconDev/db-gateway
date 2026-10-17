@@ -1,0 +1,12 @@
+[litestream-restore] checking /etc/dg/litestream.env and LITESTREAM_S3_BUCKET on micro2 (as dg)
+[litestream-restore] listing registered live databases on micro2
+[litestream-restore] restore output directory: /tmp/lit-restore-20261017 (local; scratch on micro2: /var/tmp/lit-restore-1792259747)
+[litestream-restore] [billing_dev_pilot] litestream restore (as dg, /etc/litestream.yml) -> /var/tmp/lit-restore-1792259747/billing_dev_pilot.sqlite on micro2
+[litestream-restore] [billing_dev_pilot] pulling the restored file back for inspection
+[litestream-restore] [billing_dev_pilot] OK: integrity_check=ok, all 0 table row counts match
+[litestream-restore] [verify_probe] litestream restore (as dg, /etc/litestream.yml) -> /var/tmp/lit-restore-1792259747/verify_probe.sqlite on micro2
+[litestream-restore] [verify_probe] pulling the restored file back for inspection
+[litestream-restore] [verify_probe] OK: integrity_check=ok, all 1 table row counts match
+[litestream-restore] removing the scratch dir on micro2
+[litestream-restore] summary: 2 ok, 0 failed (of 2 registered db(s): billing_dev_pilot verify_probe)
+[litestream-restore] all live db(s) restored; local copies kept in /tmp/lit-restore-20261017 (mode 0700)
