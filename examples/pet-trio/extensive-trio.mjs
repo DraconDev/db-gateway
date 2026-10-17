@@ -158,16 +158,16 @@ try {
   await section('T3_ATOMIC_ROLLBACK', async () => {
     const db = board();
     const before = (await db.execute('SELECT count(*) FROM players')).rows[0][0];
-    await expectCode(
-      db.batch([
+    let rejected = null;
+    try {
+      await db.batch([
         { sql: 'INSERT INTO players (name) VALUES (?)', args: ['ghost'] },
         { sql: 'INSERT INTO missing_table VALUES (1)' },
-      ]),
-      undefined // any GatewayError code; assert below that nothing persisted
-    ).catch((e) => {
-      if (!/expected/.test(e.message)) throw e; // batch rejected as required
-      throw new Error('bad batch unexpectedly succeeded');
-    });
+      ]);
+    } catch (error) {
+      rejected = error;
+    }
+    assert(rejected instanceof GatewayError, 'bad batch unexpectedly succeeded');
     const after = (await db.execute('SELECT count(*) FROM players')).rows[0][0];
     assert(after === before, `partial batch persisted: ${before} -> ${after}`);
     return { before, after };
