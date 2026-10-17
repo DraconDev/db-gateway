@@ -42,4 +42,20 @@ After restart + 60s:
 /var/lib/dg/pet_events_live.sqlite    ok  txid 02
 ```
 
-## Task 4 — hourly backup proof (pending: next fire 22:17 UTC)
+## Task 4 — hourly backup proof (set 20261017T221711Z)
+```
+{"completed_at": 1792275431, "databases": 5, "outcome": "ok", "set": "20261017T221711Z"}
+```
+Set contains billing_dev_pilot, pet_board_live, pet_events_live,
+pet_todo_live, verify_probe + registry (validated_before_publication).
+`dg backup verify 20261017T221711Z` → ok:true has_registry:true.
+Litestream ok all 5 (pilot txid 02, pets txid 01/02/02).
+
+## Task 5 — tombstone + restore (2026-10-17T22:32Z)
+- `delete --confirm` ×3 → deleted:true, purge_after 86400s (retention by
+  design); `list` back to [billing_dev_pilot, verify_probe].
+- Keys live_todo_app/live_board_app/live_events_app revoked ×3.
+- /etc/litestream.yml restored from .bak-livefire-20261017 (2 paths),
+  sidecar restarted → pilot-only ok (txid 01/02).
+- Local: key files shredded, tunnel closed, scratch removed.
+- No secrets in repo (only counts, hashes, names).
