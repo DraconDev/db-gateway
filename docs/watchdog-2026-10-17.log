@@ -1,0 +1,40 @@
+# Backup watchdog on micro2 — transcript (2026-10-17/18)
+
+Goal: daily digest via LogSink on a systemd timer + failure drill proving
+the alarm fires. Pre-state: hourly dg-backup.timer healthy; pilot soak DBs
+fresh; 3 tombstoned pet DBs (live-fire residue, purge ~2026-10-18T22:32Z).
+
+## Units (repo-committed templates, installed concrete)
+- deploy/dg-backup-digest.service + deploy/dg-backup-digest.timer
+- Installed: /etc/systemd/system/dg-backup-digest.{service,timer}, enabled,
+  next fire Sun 2026-10-18 06:45:00 UTC. Daily 06:45: clear of the :17
+  producer slot, reads a completed set.
+- Fix during install: first revision carried ProtectSystem=strict et al;
+  the service died with internal_error before rendering (manual identical
+  command as dg worked). Minimal profile mirrors proven dg-backup.service
+  (User/Group/NoNewPrivileges only) — full table + backup_unhealthy in
+  journal after the change. Rule: match the proven unit's sandboxing for
+  sibling units; strict-first is a debugging cost, not a default.
+
+## Baseline (manual + journal, 23:20–23:21Z)
+Digest truthfully reports the transient: 2 fresh (pilot, probe) + 3 stale
+(tombstoned pets, last set 221711Z). Journal under
+dg-backup-digest.service holds the table + backup_unhealthy + bounded
+action. Exit 1 surfaces as unit FAILURE — that IS the alarm channel.
+
+## Failure drill (aged scratch copy, live root untouched)
+- Copied set 20261017T231717Z to /var/tmp/digest-drill, rewound manifest
+  timestamp/created/started_at/completed_at/registry_captured_at by 2 days.
+- `dg backup digest --backup-root /var/tmp/digest-drill` → 1 fresh,
+  1 stale: pilot stale (its live-fire writes postdate the rewound
+  coverage boundary), probe fresh (last write predates it). Mechanism per
+  src/backup_health.rs:131-197: last_write >= coverage boundary → stale.
+- Alarm in journal under tag dg-digest-drill: pilot named stale +
+  bounded action + backup_unhealthy, exit nonzero. attempts.jsonl shows
+  no gap from the drill (live timer never touched).
+- Scratch removed. Live backup root and hourly timer untouched throughout.
+
+## Pending: green cycle after purge (~2026-10-18T22:32Z → fire 2026-10-19 06:45Z)
+If the digest still lists the purged pets as stale/unknown after purge,
+that is a real finding (digest-side handling of purged DBs), not a
+failure of this watchdog — record and fix forward.

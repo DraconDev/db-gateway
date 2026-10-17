@@ -21,7 +21,3 @@ Group={{DG_USER}}
 ExecStart={{DG_BINARY}} backup digest --data-dir {{DG_DATA_DIR}} --backup-root {{DG_BACKUP_ROOT}}
 WorkingDirectory={{DG_BACKUP_ROOT}}
 NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-PrivateTmp=true
-ReadWritePaths={{DG_BACKUP_ROOT}}
