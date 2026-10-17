@@ -9,3 +9,9 @@ dg init: the owner key is on stdout and is shown only once -- redirect it to a m
 [T6_CHUNKED_EXPORT_MATCH_PASS] {"size":36864,"sha16":"588ad2e0c3e8cf34","rows":801}
 [RELISTEN] http://127.0.0.1:42645
 [T7_SIGKILL_RESTART_PASS] {"stress_events":801,"stress_board":2,"board_copy":2,"relisten":"http://127.0.0.1:42645"}
+[T8_LOAD_BURST_PASS] {"n":2000,"p50_ms":10,"p99_ms":37,"total":2802}
+backup set: /tmp/dg-stress-backups-lJ1XUz/20261017T170234Z (kept latest 3)
+[T9_BACKUP_SET_VERIFY_PASS] {"set":"20261017T170234Z","databases":["board_copy","events_restored","stress_board","stress_events","stress_todo"],"ok":true}
+[FAILURES] none
+[END_EPOCH] 1792256554
+[VERDICT] pass
