@@ -55,15 +55,37 @@ action. Exit 1 surfaces as unit FAILURE — that IS the alarm channel.
   @20261017T221711Z. Service unit FAILURE with backup_unhealthy is
   the alarm channel — verified again.
 
+## First scheduled fire (Sun 2026-10-18 06:45:00 UTC, journal captured 07:02Z)
+The timer fired on its OnCalendar trigger with no operator action.
+Journal under dg-backup-digest.service since 06:30:
+  Oct 18 06:45:00 systemd[1]: Starting dg-backup-digest.service ...
+  Oct 18 06:45:00 dg[620139]: state                    | backup digest: 2 fresh, 3 stale, 0 unknown
+  Oct 18 06:45:00 dg[620139]: backup billing_dev_pilot | fresh @ 20261018T061717Z (1662s ago)
+  Oct 18 06:45:00 dg[620139]: backup pet_board_live    | stale @ 20261017T221711Z (30468s ago)
+  Oct 18 06:45:00 dg[620139]: backup pet_events_live   | stale @ 20261017T221711Z (30468s ago)
+  Oct 18 06:45:00 dg[620139]: backup pet_todo_live     | stale @ 20261017T221711Z (30468s ago)
+  Oct 18 06:45:00 dg[620139]: backup verify_probe      | fresh @ 20261018T061717Z (1662s ago)
+  Oct 18 06:45:00 dg[620139]: action                   | run `dg backup status` for the per-database ages, then `dg backup verify --backup-root /var/lib/dg-backups latest`
+  Oct 18 06:45:00 dg[620139]: ERROR ... code=backup_unhealthy ...
+  Oct 18 06:45:00 systemd[1]: dg-backup-digest.service: Main process exited, code=exited, status=1/FAILURE
+
+Shape matches the 23:21Z manual fire and the 01:03Z replay: same
+billing+probe fresh at the newest set, same pets stale at 221711Z. The
+service FAILURE with backup_unhealthy IS the alarm channel — fired
+without operator action on systemd's clock. Hourly dg-backup.timer kept
+firing through the wait (05:17:07Z 06:17:17Z both ok; attempts.jsonl
+continuous). No gap on the live backup root.
+
 ## Pending: green cycle after purge (~2026-10-18T22:32Z → fire 2026-10-19 06:45Z)
-If the digest still lists the purged pets as stale/unknown after purge,
-that is a real finding (digest-side handling of purged DBs), not a
-failure of this watchdog — record and fix forward. Run with
+The watchdog's contract is now proven end-to-end except for the one
+green cycle. Today's 06:45Z fire won't be green (pets are still in
+set 20261017T221711Z). After the 22:32Z purge, run with
 `dg backup digest --data-dir /var/lib/dg --backup-root /var/lib/dg-backups`
-on resume (2026-10-19 07:30Z) and compare to the 01:03Z shape above:
+and inspect `sudo journalctl -u dg-backup-digest.service --since "2026-10-19 06:40" --no-pager -o short`:
 - If only billing_dev_pilot and verify_probe appear, both fresh → green.
+  Update this section, mark task 2 complete, call complete_goal.
 - If pet_*_live still appear as stale or unknown, the union logic in
   src/backup_health.rs snapshot() (names = list_all() ∪ names_in_sets)
-  is resurrecting tombstoned/purged names from history; the digest
-  needs a follow-up that excludes them. Capture the journal line,
-  file the finding, then complete this goal: the watchdog is correct.
+  is resurrecting tombstoned/purged names from history. Append the
+  journal line and file the digest-logic follow-up; the watchdog
+  itself is correct as deployed.
