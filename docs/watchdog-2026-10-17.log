@@ -76,16 +76,32 @@ without operator action on systemd's clock. Hourly dg-backup.timer kept
 firing through the wait (05:17:07Z 06:17:17Z both ok; attempts.jsonl
 continuous). No gap on the live backup root.
 
-## Pending: green cycle after purge (~2026-10-18T22:32Z → fire 2026-10-19 06:45Z)
-The watchdog's contract is now proven end-to-end except for the one
-green cycle. Today's 06:45Z fire won't be green (pets are still in
-set 20261017T221711Z). After the 22:32Z purge, run with
-`dg backup digest --data-dir /var/lib/dg --backup-root /var/lib/dg-backups`
-and inspect `sudo journalctl -u dg-backup-digest.service --since "2026-10-19 06:40" --no-pager -o short`:
-- If only billing_dev_pilot and verify_probe appear, both fresh → green.
-  Update this section, mark task 2 complete, call complete_goal.
-- If pet_*_live still appear as stale or unknown, the union logic in
-  src/backup_health.rs snapshot() (names = list_all() ∪ names_in_sets)
-  is resurrecting tombstoned/purged names from history. Append the
-  journal line and file the digest-logic follow-up; the watchdog
-  itself is correct as deployed.
+## Retention checkpoint (2026-10-18 08:41 UTC)
+Read-only SSH inspection corrected the earlier assumption that physical
+pet-file purge controls the green cycle. snapshot() unions live names
+with retained-set names. dg-backup.service runs micro2-backup.sh --keep 24;
+the root currently contains exactly the hourly sets 20261017T091717Z
+through 20261018T081717Z. The last pet-containing set, 20261017T221711Z,
+should naturally rotate out at the 2026-10-18 22:17 producer run. No
+backup deletion, retention change, or freshness-logic change is needed.
+
+Observed on micro2:
+- Installed digest units still match the concrete configuration above;
+  next fire Mon 2026-10-19 06:45:00 UTC, last Sun 2026-10-18 06:45 UTC.
+- Hourly timer next fire Sun 2026-10-18 09:17 UTC; last 08:17:17 UTC.
+- /var/tmp/digest-drill absent (sudo test ! -e succeeded).
+- journalctl -t dg-digest-drill still contains the 2026-10-17 23:22:33
+  alarm: billing_dev_pilot stale, verify_probe fresh, backup_unhealthy,
+  and action: run `dg backup status`, then
+  `dg backup verify --backup-root /var/tmp/digest-drill latest`.
+- attempts.jsonl tail: 051707Z, 061717Z, 071711Z, 081717Z, all outcome=ok,
+  databases=2, step=prune. Hourly producer continues unaffected.
+
+## Pending: green service cycle after normal 22:17 retention rotation
+At/after 2026-10-18 22:25 UTC, inspect the root and attempt ledger, then
+start dg-backup-digest.service (not the producer) and capture its journal.
+Require all databases fresh and successful service exit. Keep both timers
+and the live backup root unchanged. If not green, diagnose rather than
+claiming completion or treating a follow-up as satisfying this contract.
+The green receipt, final continuity check, fresh-context reviewer rehearsal,
+and committed/pushed final transcript remain required.
