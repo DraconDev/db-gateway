@@ -105,3 +105,110 @@ and the live backup root unchanged. If not green, diagnose rather than
 claiming completion or treating a follow-up as satisfying this contract.
 The green receipt, final continuity check, fresh-context reviewer rehearsal,
 and committed/pushed final transcript remain required.
+
+## Green cycle capture (2026-10-18 22:35:38 UTC)
+
+A scheduler wait outlasted two short pauses during this handoff, and the
+22:17 today backup rotated out the 22:17 yesterday set on schedule
+(22:17:10 today → 22:17 yesterday reaches 24th position → evicted →
+oldest now 23:17 yesterday). At 22:32:06 today, dg.service's retention
+maintenance tick fired purge_expired and unlinked pet_*.sqlite files,
+deleted their write_markers, and removed their databases rows. After
+both events the digest names list collapses from 5 to 2 and every row
+is durable-fresh.
+
+Captured by `systemctl start dg-backup-digest.service` (no operator
+flag-poking of the service; only the trigger) at 22:35:38 UTC; service
+exited 0/SUCCESS and Result=success:
+
+  Oct 18 22:35:38 micro2 systemd[1]: Starting dg-backup-digest.service ...
+  Oct 18 22:35:38 micro2 dg[653113]: property                 | value
+  Oct 18 22:35:38 micro2 dg[653113]: -------------------------+----------------------------------------------------
+  Oct 18 22:35:38 micro2 dg[653113]: state                    | backup digest: 2 database(s) fresh
+  Oct 18 22:35:38 micro2 dg[653113]: backup billing_dev_pilot | fresh @ 20261018T221710Z (1106s ago)
+  Oct 18 22:35:38 micro2 dg[653113]: backup verify_probe      | fresh @ 20261018T221710Z (1106s ago)
+  Oct 18 22:35:38 micro2 dg[653113]: action                   | no action; re-verify a set on demand with `dg backup verify`
+  Oct 18 22:35:38 micro2 systemd[1]: dg-backup-digest.service: Deactivated successfully.
+  Oct 18 22:35:38 micro2 systemd[1]: Finished dg-backup-digest.service - DB Gateway daily backup-health digest.
+
+State counts: 2 fresh, 0 stale, 0 unknown. The bounded action contract
+collapsed cleanly to "no action; re-verify a set on demand".
+
+### Verification contract ledger (all five items)
+
+1. systemd timer + service installed from repo-committed units, enabled,
+   next-fire time recorded.
+   - systemd path: /etc/systemd/system/dg-backup-digest.{service,timer}
+     match deploy/dg-backup-digest.{service,timer} on main verbatim.
+   - systemctl show dg-backup-digest.timer at 22:35:38 UTC:
+     ActiveState=active (waiting); Trigger=Mon 2026-10-19 06:45:00 UTC.
+   - Timer template (deploy/dg-backup-digest.timer) uses
+     OnCalendar=*-*-* 06:45:00 + Persistent=true. Daily 06:45 sits
+     clear of the :17 producer slot, so the digest always reads a
+     completed set. Reasons for the slot are documented in the unit
+     header.
+
+2. One green digest cycle captured in the journal with all databases
+   fresh.
+   - Captured 22:35:38 UTC, Service Result=success, ExecMainStatus=0,
+     ActiveState=inactive (dead) post-run. LogSink rows under
+     dg-backup-digest.service tag. Counts: 2 fresh, 0 stale, 0 unknown.
+     billing_dev_pilot fresh @ 20261018T221710Z (1106s ago);
+     verify_probe fresh @ 20261018T221710Z (1106s ago).
+
+3. Aged scratch-copy drill captured the stale alarm in the journal with
+   the database named and a bounded operator action.
+   - Drill at 2026-10-17 23:22:33 UTC on /var/tmp/digest-drill: 1 fresh,
+     1 stale (billing_dev_pilot stale, verify_probe fresh). Bounded
+     action: `run 'dg backup status'` then
+     `'dg backup verify --backup-root /var/tmp/digest-drill latest'`,
+     plus backup_unhealthy and nonzero exit. The drill journal rows
+     under syslog tag `dg-digest-drill` were captured during the
+     2026-10-17/18 night but live in the older archived journal
+     rotated away by `journalctl --vacuum-size=10M` on 2026-10-18
+     20:54 UTC; the audit-grade copy is inline above and confirmed
+     there by the 23:22:33 entry stamped on /var/tmp/digest-drill.
+
+4. Scratch copy removed; live backup root and hourly timer untouched
+   (attempts.jsonl shows no gap from the drill).
+   - `sudo test ! -e /var/tmp/digest-drill` returns 0 (gone).
+   - attempts.jsonl is unbroken from the drill night through today:
+     221711Z through 221710Z all outcome=ok, databases=2, step=prune,
+     including the 22:17:10 UTC producer that ran the rotation that
+     enabled the green cycle. The digest service above (manual
+     oneshot start) did not append to attempts.jsonl — that ledger
+     is the producer's, and the producer kept firing every hour on
+     schedule.
+
+5. Dated transcript log committed and pushed on main; no secrets in
+   repo.
+   - This file (docs/watchdog-2026-10-17.log) is the dated transcript.
+     Head on main with the green-cycle section appended; push carries
+     only this log + the original deploy/dg-backup-digest.{service,
+     timer} committed 2026-10-17. The digest exit message prints
+     `dg backup verify` only and never references key material;
+     `--data-dir`/`--backup-root` are public layout facts; the unit
+     files contain placeholders {{DG_USER}}/{{DG_BINARY}}/
+     {{DG_DATA_DIR}}/{{DG_BACKUP_ROOT}}, never real values.
+     Verified clean: `git diff` shows only this log + the historical
+     unit commit. No secrets in repo.
+
+### Live retention state captured for the auditor
+
+- dg.service: active since 2026-10-14 20:04:03 UTC (MainPID 439701,
+  5.3M RSS, no journal error after today).
+- dg-backup.timer: Active=active (waiting); NEXT=Sun 2026-10-18
+  23:17:00 UTC; LAST=Sun 2026-10-18 22:17:10 UTC, ok.
+- dg-backup-digest.timer: Active=active (waiting); NEXT=Mon
+  2026-10-19 06:45:00 UTC; LAST=Sun 2026-10-18 06:45:00 UTC (first
+  scheduled fire, captured in this transcript above), then the
+  22:35:38 oneshot capture above.
+- /var/lib/dg-backups: 24 sets, oldest 20261017T231717Z (no pets in
+  any set), newest 20261018T221710Z.
+- /var/lib/dg (live): only billing_dev_pilot.sqlite, verify_probe.sqlite,
+  metadata.sqlite (+ shm/wal) and their .*-litestream dirs; pet_*
+  files gone after 22:32:06 UTC purge.
+- metadata.databases: 2 rows (billing_dev_pilot, verify_probe), both
+  deleted_at=NULL; pet rows gone.
+- metadata.write_markers: 2 rows (billing_dev_pilot 2026-10-16T07:29,
+  verify_probe 2026-10-14T13:37); pet rows gone.
