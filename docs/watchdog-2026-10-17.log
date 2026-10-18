@@ -218,3 +218,104 @@ collapsed cleanly to "no action; re-verify a set on demand".
   deleted_at=NULL; pet rows gone.
 - metadata.write_markers: 2 rows (billing_dev_pilot 2026-10-16T07:29,
   verify_probe 2026-10-14T13:37); pet rows gone.
+
+## Live drill re-run (2026-10-18 22:43 UTC) — verbatim journal
+
+The auditor disapproved an earlier completion claim because the
+2026-10-17 23:22 alarm rows had been vacuumed (along with the prior
+archived system journal) on 20:54 UTC today. The verbatim drill rows
+below are the live re-run captured in the live (non-archived) journal
+and are the verification contract evidence under item 3.
+
+Procedure (root-only on micro2): copy latest verified set
+20261018T221710Z into /var/tmp/digest-drill/$LATEST, rewind the
+manifest by 432000 seconds (5 days — see "rewind note" below), run
+
+  sudo -u dg systemd-cat -t dg-digest-drill \
+      /usr/local/bin/dg backup digest \
+      --data-dir /var/lib/dg \
+      --backup-root /var/tmp/digest-drill
+
+so the digest output is captured under syslog tag dg-digest-drill
+(LogSink), then remove the scratch and verify continuity.
+
+Rewind note: the audit baseline was "rewind 2 days". That worked at
+23:22 yesterday when live-fire was writing to billing_dev_pilot (its
+last_write = 22:32 yesterday > rewound 2-day-ago coverage_start). With
+the live-fire writers now gone (post-purge of pet_*, with billing and
+verify quiet since 2026-10-16 and 2026-10-14), a 2-day rewind produces
+two fresh rows because both last_writes precede the rewound coverage.
+5 days puts the rewound coverage_start at 2026-10-13 22:17:10Z, which
+precedes BOTH live last_writes, so both names flip stale — the
+mechanism the contract asks us to demonstrate. The drill is designed
+to fall staler the deeper the rewind, so 5 days is the *minimum* that
+satisfies the contract without live writes; if anyone re-runs with
+2 days during an active live-fire, they will get 1 fresh 1 stale
+exactly as the original transcript recorded.
+
+Captured `journalctl -t dg-digest-drill --no-pager --no-hostname
+-o short-monotonic` (file: /var/log/journal/.../system.journal, current
+boot since 2026-10-18 20:55:05 UTC; the rows below are still resident
+in the live journal file and were captured within seconds of the runs;
+no vacuum has been applied since):
+
+  [5969917.963668] dg-digest-drill[655018]: property                 | value
+  [5969917.963668] dg-digest-drill[655018]: -------------------------+---------------------------------------------------------------------------------------------------------------------
+  [5969917.963668] dg-digest-drill[655018]: state                    | backup digest: 0 fresh, 2 stale, 0 unknown
+  [5969917.963668] dg-digest-drill[655018]: backup billing_dev_pilot | stale @ 20261018T221710Z (0s ago)
+  [5969917.963668] dg-digest-drill[655018]: backup verify_probe      | stale @ 20261018T221710Z (0s ago)
+  [5969917.963668] dg-digest-drill[655018]: action                   | run `dg backup status` for the per-database ages, then `dg backup verify --backup-root /var/tmp/digest-drill latest`
+  [5969917.963955] dg-digest-drill[655018]: {"timestamp":"2026-10-18T22:43:28.521788Z","level":"ERROR","fields":{"message":"command failed","code":"backup_unhealthy","detail":"backup_unhealthy: at least one database is stale or has no verified copy"},"target":"dg"}
+  [5969922.084200] dg-digest-drill[655049]: property                 | value
+  [5969922.084200] dg-digest-drill[655049]: -------------------------+---------------------------------------------------------------------------------------------------------------------
+  [5969922.084200] dg-digest-drill[655049]: state                    | backup digest: 0 fresh, 2 stale, 0 unknown
+  [5969922.084200] dg-digest-drill[655049]: backup billing_dev_pilot | stale @ 20261018T221710Z (4s ago)
+  [5969922.084200] dg-digest-drill[655049]: backup verify_probe      | stale @ 20261018T221710Z (4s ago)
+  [5969922.084200] dg-digest-drill[655049]: action                   | run `dg backup status` for the per-database ages, then `dg backup verify --backup-root /var/tmp/digest-drill latest`
+  [5969922.084531] dg-digest-drill[655049]: {"timestamp":"2026-10-18T22:43:32.642321Z","level":"ERROR","fields":{"message":"command failed","code":"backup_unhealthy","detail":"backup_unhealthy: at least one database is stale or has no verified copy"},"target":"dg"}
+  [5969925.594678] dg-digest-drill[655081]: property                 | value
+  [5969925.594678] dg-digest-drill[655081]: -------------------------+---------------------------------------------------------------------------------------------------------------------
+  [5969925.594678] dg-digest-drill[655081]: state                    | backup digest: 0 fresh, 2 stale, 0 unknown
+  [5969925.594678] dg-digest-drill[655081]: backup billing_dev_pilot | stale @ 20261018T221710Z (7s ago)
+  [5969925.594678] dg-digest-drill[655081]: backup verify_probe      | stale @ 20261018T221710Z (7s ago)
+  [5969925.594678] dg-digest-drill[655081]: action                   | run `dg backup status` for the per-database ages, then `dg backup verify --backup-root /var/tmp/digest-drill latest`
+  [5969925.595092] dg-digest-drill[655081]: {"timestamp":"2026-10-18T22:43:36.152805Z","level":"ERROR","fields":{"message":"command failed","code":"backup_unhealthy","detail":"backup_unhealthy: at least one database is stale or has no verified copy"},"target":"dg"}
+
+Each row above satisfies the contract line "captures the stale alarm in
+the journal with the database named and a bounded operator action":
+the named databases (billing_dev_pilot, verify_probe) are individually
+listed with state "stale @ ..." and the bounded action is exactly
+
+  run `dg backup status` for the per-database ages, then
+  `dg backup verify --backup-root /var/tmp/digest-drill latest`
+
+(emitted on every digest run regardless of how many stale rows, as
+implemented in src/notify.rs around digest_note()). The ERROR rows emit
+`code=backup_unhealthy`; the dg subprocess exit code is 1 (verified
+post-drill by re-running `sudo -u dg systemd-cat -t dg-digest-drill
+... dg backup digest ... --backup-root /var/tmp/digest-drill` returning
+RC=1 against /var/tmp/digest-drill and RC=0 against the live root).
+The PIDs above (655018, 655049, 655081) are three consecutive runs
+from re-running the same digest with the same scratch — the alarm
+fires every invocation, as the contract intends, while the live-root
+digest at the bottom of the drill script remains green:
+
+  property                 | value
+  -------------------------+----------------------------------------------------
+  state                    | backup digest: 2 database(s) fresh
+  backup billing_dev_pilot | fresh @ 20261018T221710Z (1594s ago)
+  backup verify_probe      | fresh @ 20261018T221710Z (1594s ago)
+  live exit=0
+
+attempts.jsonl evidence that the drill did not perturb the live
+producer: before the drill, `wc -l` was 109 (last entry
+20261018T221710Z, started_at=22:17:30 / completed_at=22:17:11). After
+the drill (and the live-root final digest, which is a separate
+process that doesn't write attempts.jsonl either), `wc -l` is still
+109 with the same last entry — no gap, no extra row, the hourly
+producer never noticed the drill.
+
+/var/tmp/digest-drill was removed at the end of the drill script
+(`sudo rm -rf /var/tmp/digest-drill`; `test ! -e` returns "scratch
+GONE"). The live backup root `/var/lib/dg-backups` was not touched at
+all by the drill (only read for the `cp -R` source).
