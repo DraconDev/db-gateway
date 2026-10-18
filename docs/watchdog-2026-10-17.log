@@ -34,7 +34,36 @@ action. Exit 1 surfaces as unit FAILURE — that IS the alarm channel.
   no gap from the drill (live timer never touched).
 - Scratch removed. Live backup root and hourly timer untouched throughout.
 
+## Mid-watch health (manual, 2026-10-18 01:03Z)
+- dg-backup-digest.timer: loaded, enabled, Active: active (waiting);
+  next fire Sun 2026-10-18 06:45:00 UTC (~5h 41min). systemd unit
+  placement is the contract proof: a scheduled fire WILL happen on its
+  OnCalendar trigger without operator action.
+- Hourly dg-backup.timer: healthy since enablement; fires at :17 each
+  hour, manifest published, attempts.jsonl appended, deactivated. Tail
+  entries since the drill window:
+    20261017T221711Z  outcome=ok  databases=5  step=prune
+    20261017T231717Z  outcome=ok  databases=2  step=prune
+    20261018T001717Z  outcome=ok  databases=2  step=prune
+  No gap from the drill — the 22:17 entry is the livefire residue
+  itself; 23:17 and 00:17 are post-drill, hourly cadence intact.
+- Replay `dg backup digest` now reads the same 2-fresh-3-stale shape
+  as the 23:21Z manual fire: billing_dev_pilot and verify_probe are
+  the live set; pet_*_live stay reported because the 22:17 set still
+  names them (sets are immutable; purge of the live files does not
+  rewrite history). Last fresh @20261018T001717Z, last stale
+  @20261017T221711Z. Service unit FAILURE with backup_unhealthy is
+  the alarm channel — verified again.
+
 ## Pending: green cycle after purge (~2026-10-18T22:32Z → fire 2026-10-19 06:45Z)
 If the digest still lists the purged pets as stale/unknown after purge,
 that is a real finding (digest-side handling of purged DBs), not a
-failure of this watchdog — record and fix forward.
+failure of this watchdog — record and fix forward. Run with
+`dg backup digest --data-dir /var/lib/dg --backup-root /var/lib/dg-backups`
+on resume (2026-10-19 07:30Z) and compare to the 01:03Z shape above:
+- If only billing_dev_pilot and verify_probe appear, both fresh → green.
+- If pet_*_live still appear as stale or unknown, the union logic in
+  src/backup_health.rs snapshot() (names = list_all() ∪ names_in_sets)
+  is resurrecting tombstoned/purged names from history; the digest
+  needs a follow-up that excludes them. Capture the journal line,
+  file the finding, then complete this goal: the watchdog is correct.
