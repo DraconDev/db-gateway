@@ -5,15 +5,15 @@
 # Usage: scripts/litestream-restore.sh [--out DIR] [--config PATH]
 #
 # "Live database" means REGISTERED database -- what the gateway itself
-# serves: `dg --key-file /etc/dg/owner.key list`. That set deliberately
-# excludes metadata.sqlite, the gateway's own registry, which the
-# installer (scripts/install-litestream.sh) also excludes from
-# replication: the running gateway writes it in WAL mode, so litestream
-# must never checkpoint it, and the on-host hourly backup set already
-# protects it. A plain `*.sqlite` glob would pick the registry up and
-# fail the round-trip on the one database that is *meant* to have no
-# replica. The registry is the contract's "live database" list; the
-# replica set and this restore set are the same list by construction.
+# serves: `dg --key-file /etc/dg/owner.key list`. This manual
+# workstation tool restores those databases only; the registry
+# (metadata.sqlite) IS replicated since the recovery-policy change
+# (docs/recovery-policy.md, audit A5 -- registry connections are
+# per-operation like the application databases, and
+# scripts/registry-recovery-drill.sh proves the live round-trip), and
+# the scheduled registry-inclusive verification is
+# scripts/bucket-restore-drill.sh on the host. Use this script for an
+# ad-hoc data-only round-trip from the workstation.
 #
 # Reads the bucket name from /etc/dg/litestream.env (the only copy of
 # the credentials on the host, mode 0600, owner dg:dg, populated into

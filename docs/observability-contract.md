@@ -9,13 +9,15 @@ per §3a below: immediate notice on a failed backup attempt plus a daily
 per-database fresh/stale/unknown digest, off by default and enabled per
 gateway by flag. Disk/RSS/alert integrations
 remain future work. This contract defines the signals
-needed to operate DB Gateway and a future backup sidecar. The canonical first
-backup tier is **per-database consistent verified snapshots**; continuous
-WAL-style shipping is a later optional tier and is not the current direction.
-The old five-minute WAL objective is retained only as historical research, not
-a current policy or production guarantee. This document adds no endpoint,
+needed to operate DB Gateway and a future backup sidecar. Backup tiers are
+canonical in `docs/recovery-policy.md` (2026-10-19): continuous Litestream
+WAL shipping to OVH is Tier 1 (host loss; the five-minute Profile C
+objective is a working target there, not a production guarantee) and
+per-database consistent verified snapshots are Tier 2 (local rollback).
+This document adds no endpoint,
 metric exporter, alert integration, or live host configuration. The first
-supervised micro2 deployment remains loopback-only and has no backup sidecar.
+supervised micro2 deployment began loopback-only with no backup sidecar;
+the sidecar and hourly producer are live there now.
 Any implementation or live rollout requires separate owner approval.
 Related: `docs/deployment.md` (install configuration),
 `docs/upgrade-rollback.md` (binary upgrades and rollback),
@@ -54,9 +56,10 @@ comparison pass on a separate target. Record, per database:
   included;
 - the restore-test date and exact target/result.
 
-For the current first-tier snapshot design, alert when committed changes are
+For the Tier 2 snapshot design, alert when committed changes are
 not represented by a verified copy within the owner-approved snapshot cadence.
-The old 300-second/WAL objective is historical and not a current RPO promise.
+The five-minute Tier 1 objective is the Profile C target in
+`docs/recovery-policy.md`, not a current RPO promise.
 Cadence, sink, resource headroom, and restore evidence remain policy or
 verification inputs rather than guarantees. Durable write markers survive gateway
 restart. During idle periods, report the last committed-change marker and

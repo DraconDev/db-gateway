@@ -1,10 +1,13 @@
 # Recovery decisions (M3 input, not acceptance)
 
 **Document role:** Historical/current research brief; the canonical roadmap is
-[`personal-turso-megaplan.md`](personal-turso-megaplan.md). For the first
-production tier, the roadmap selects **per-database consistent verified
-snapshots**; the Profile C continuous-WAL proposal below remains a research
-option for a later measured tier, not the current first-tier direction.
+[`personal-turso-megaplan.md`](personal-turso-megaplan.md). **Tier
+selection is superseded by [`recovery-policy.md`](recovery-policy.md)
+(2026-10-19)**: continuous Litestream WAL shipping to OVH is Tier 1
+(host loss) and per-database consistent verified snapshots are Tier 2
+(local rollback), both live on micro2. This brief's Profile C analysis
+and measurements remain the evidence base for the objectives the
+policy adopts.
 
 Status: **decision brief and working local policy, not an accepted production
 policy**. The owner has selected Profile C objectives for local preparation,

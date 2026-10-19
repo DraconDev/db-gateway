@@ -8,8 +8,9 @@ document specifies what a recovery artifact contains, how a restore is
 verified on an empty target, and what counts as pass or fail. It selects no
 production RPO/RTO/retention, touches no remote infrastructure, and proves
 nothing about continuous backup. Policy choices live in
-`docs/recovery-decisions.md`; tool compatibility lives in
-`docs/backup-compatibility.md`.
+`docs/recovery-policy.md` (canonical tiers/objectives/retention;
+`docs/recovery-decisions.md` keeps the research history); tool
+compatibility lives in `docs/backup-compatibility.md`.
 
 ## 1. Existing behavior → coverage and gaps
 

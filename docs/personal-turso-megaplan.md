@@ -56,8 +56,9 @@ competing silently with the canonical roadmap.
 | `docs/architecture.md` | Current product/decision register | Normative product boundary and settled API/write decisions |
 | `docs/api.md` | Current API/CLI contract | Normative interface behavior; not live authorization |
 | `docs/recovery-contract.md` | Current local recovery contract | Normative artifact layout and restore checks; not a bucket policy |
-| `docs/recovery-decisions.md` | Research/decision brief | Profile C/continuous WAL is superseded as the first-tier roadmap direction; retained for policy history and later evaluation |
-| `docs/observability-contract.md` | Current observability contract | Freshness/request-pressure evidence; disk/RSS/alert integrations remain future work; continuous WAL is historical/optional |
+| `docs/recovery-decisions.md` | Research/decision brief | Profile C analysis and measurements; retained for policy history — tier selection is canonical in `docs/recovery-policy.md` |
+| `docs/recovery-policy.md` | **Canonical recovery policy** | Tier 1 Litestream→OVH (host loss) vs Tier 2 snapshot sets (local rollback); RPO/RTO objectives, retention, bucket-alone registry recovery |
+| `docs/observability-contract.md` | Current observability contract | Freshness/request-pressure evidence; disk/RSS/alert integrations remain future work |
 | `docs/scale-proposal-2026-09-21.md` | Implemented scale reference | Phases 1–2 landed; measured sizing and multi-host gate remain open |
 | `docs/migration-cutover.md` | **Normative migration gates** | GATE 1/2/3, rollback floor, write reconciliation, and decommission approval govern Phase 7 |
 | `docs/plan-2026-09-22.md` | **Historical / superseded** | Prior sequencing proposal; retained for provenance, not future execution |
@@ -75,7 +76,7 @@ It checks structure and links, not the truth of future measurements.
 | Runtime | Native binary under Ubuntu systemd | Keep local SQLite files, logging, and process supervision simple |
 | Build consistency | Nix flake for project tooling and checks | Pin development/CI/package inputs without pretending Nix is the Ubuntu ABI boundary |
 | Release ABI | Immutable Ubuntu builder image | Build and smoke-test against micro2's Ubuntu/x86_64/glibc contract |
-| First bucket target | Verified snapshots | Start with an understandable, testable recovery path; continuous WAL is a later tier |
+| First bucket target | Verified snapshots, then continuous WAL (both live; canonical roles in `docs/recovery-policy.md`) | Snapshots were the understandable, testable start; Litestream WAL shipping is now the host-loss tier and snapshots the local-rollback tier |
 | Client access | SSH tunnel first | Keep the service private; add HTTPS/private networking when needed |
 | Product interface | CLI first | Invest in `dg` commands, JSON output, automation, and shell ergonomics |
 
