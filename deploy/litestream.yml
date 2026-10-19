@@ -8,10 +8,13 @@
 # (and the sidecar restarts onto it) without an operator step --
 # docs/audit-2026-10-19.md A2. It lists every live database from
 # `dg list` with a .sqlite file under /var/lib/dg (skipping -shm/-wal
-# sidecars and the metadata.sqlite registry) and substitutes
-# bucket/endpoint/region from /etc/dg/litestream.env into the per-db
-# replicas. The rendered file is what lands at /etc/litestream.yml on
-# the host, mode 0600 dg:dg.
+# sidecars), plus one fixed entry for the registry itself
+# (metadata.sqlite, replica prefix `metadata`) so the bucket alone can
+# rebuild credentials and scopes -- audit A5, docs/recovery-policy.md.
+# It substitutes bucket/endpoint/region from /etc/dg/litestream.env
+# into the per-db replicas and renders explicit replica retention
+# (168h) and snapshot interval (24h). The rendered file is what lands
+# at /etc/litestream.yml on the host, mode 0600 dg:dg.
 #
 # Credentials are read from the sidecar's environment, not from this file.
 # `access-key-id` and `secret-access-key` here are *config keys*; their
@@ -31,3 +34,14 @@ dbs:
         access-key-id: ${LITESTREAM_S3_ACCESS_KEY_ID}
         secret-access-key: ${LITESTREAM_S3_SECRET_ACCESS_KEY}
         force-path-style: true
+        retention: 168h
+        snapshot-interval: 24h
+  - path: /var/lib/dg/metadata.sqlite
+    replicas:
+      - url: s3://${LITESTREAM_S3_BUCKET}/metadata?endpoint=${LITESTREAM_S3_ENDPOINT}
+        region: ${LITESTREAM_S3_REGION}
+        access-key-id: ${LITESTREAM_S3_ACCESS_KEY_ID}
+        secret-access-key: ${LITESTREAM_S3_SECRET_ACCESS_KEY}
+        force-path-style: true
+        retention: 168h
+        snapshot-interval: 24h
