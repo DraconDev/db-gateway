@@ -13,20 +13,22 @@
 #           larger; inode floor 10%).
 #   lag     the Litestream sidecar must be active, every live
 #           database must have a replica entry (litestream-sync
-#           --check), and no WAL file may sit un-checkpointed longer
-#           than the lag threshold (default 900s): litestream
-#           checkpoints continuously, so a WAL whose mtime is old is
-#           the visible symptom of replication stalled behind it.
-#           This is a local proxy for lag — the replica-side proof is
-#           the weekly bucket-restore-drill, not this check.
+#           --check), `litestream status` must report every database
+#           ok, and no WAL file may exceed the size ceiling (default
+#           64 MiB): litestream checkpoints continuously, so an
+#           unbounded WAL is replication stalled behind it. (An old
+#           WAL *mtime* alone proves nothing — an idle database's
+#           WAL legitimately sits untouched for days; the first live
+#           run taught this check that, see audit A8.) Replica-side
+#           proof proper is the weekly bucket-restore-drill.
 #
 # Usage: scripts/dg-alerts.sh
 # Env: DG_ALERTS_DATA_DIR (/var/lib/dg), DG_ALERTS_DISK_FLOOR_PCT (15),
 #      DG_ALERTS_DISK_FLOOR_BYTES (1073741824), DG_ALERTS_INODE_FLOOR_PCT (10),
-#      DG_ALERTS_LAG_SECS (900), DG_ALERTS_SIDECAR_UNIT (dg-litestream),
-#      DG_ALERTS_SYNC_CHECK (/usr/local/bin/litestream-sync.sh; "skip"
-#      disables the coverage sub-check), DG_ALERTS_NOW (epoch override
-#      for drills/tests).
+#      DG_ALERTS_WAL_MAX_BYTES (67108864), DG_ALERTS_SIDECAR_UNIT (dg-litestream;
+#      "skip" disables), DG_ALERTS_SYNC_CHECK (/usr/local/bin/litestream-sync.sh;
+#      "skip" disables), DG_ALERTS_LITESTREAM_BIN (/usr/local/bin/litestream;
+#      "skip" disables the status sub-check).
 
 set -uo pipefail
 SELF="dg-alerts"
@@ -34,10 +36,10 @@ DATA_DIR="${DG_ALERTS_DATA_DIR:-/var/lib/dg}"
 FLOOR_PCT="${DG_ALERTS_DISK_FLOOR_PCT:-15}"
 FLOOR_BYTES="${DG_ALERTS_DISK_FLOOR_BYTES:-1073741824}"
 INODE_PCT="${DG_ALERTS_INODE_FLOOR_PCT:-10}"
-LAG_SECS="${DG_ALERTS_LAG_SECS:-900}"
+WAL_MAX="${DG_ALERTS_WAL_MAX_BYTES:-67108864}"
 SIDECAR="${DG_ALERTS_SIDECAR_UNIT:-dg-litestream}"
 SYNC_CHECK="${DG_ALERTS_SYNC_CHECK:-/usr/local/bin/litestream-sync.sh}"
-NOW="${DG_ALERTS_NOW:-$(date +%s)}"
+LS_BIN="${DG_ALERTS_LITESTREAM_BIN:-/usr/local/bin/litestream}"
 ALERTS=0
 
 emit() { echo "dg-alert check=$1 state=$2 $3" >&2; }
@@ -79,25 +81,30 @@ if [ "$SYNC_CHECK" != "skip" ]; then
         lag_reasons="${lag_reasons:+$lag_reasons,}sync-check-missing"
     fi
 fi
-oldest_wal_age=0
+if [ "$LS_BIN" != "skip" ]; then
+    if [ -x "$LS_BIN" ]; then
+        bad_rows="$("$LS_BIN" status 2>/dev/null | awk 'NR>1 && $2 != "ok" {print $1}' | paste -sd, -)"
+        [ -n "$bad_rows" ] && lag_reasons="${lag_reasons:+$lag_reasons,}status-not-ok:${bad_rows}"
+    else
+        lag_reasons="${lag_reasons:+$lag_reasons,}litestream-bin-missing"
+    fi
+fi
+biggest_wal=0
 if [ -d "$DATA_DIR" ]; then
     while IFS= read -r f; do
         [ -n "$f" ] || continue
         size="$(stat -c %s "$f" 2>/dev/null || echo 0)"
-        [ "$size" -gt 0 ] || continue
-        mtime="$(stat -c %Y "$f" 2>/dev/null || echo "$NOW")"
-        age=$(( NOW - mtime ))
-        [ "$age" -gt "$oldest_wal_age" ] && oldest_wal_age="$age"
+        [ "$size" -gt "$biggest_wal" ] && biggest_wal="$size"
     done < <(find "$DATA_DIR" -maxdepth 1 -name '*-wal' -type f 2>/dev/null)
 fi
-if [ "$oldest_wal_age" -gt "$LAG_SECS" ]; then
-    lag_reasons="${lag_reasons:+$lag_reasons,}wal-stale-${oldest_wal_age}s"
+if [ "$biggest_wal" -gt "$WAL_MAX" ]; then
+    lag_reasons="${lag_reasons:+$lag_reasons,}wal-oversized-${biggest_wal}b"
 fi
 if [ -n "$lag_reasons" ]; then
-    emit lag alert "reasons=$lag_reasons lag_threshold_secs=$LAG_SECS action='check dg-litestream journal and replica coverage; Tier 1 RPO is at risk while lag persists'"
+    emit lag alert "reasons=$lag_reasons wal_max_bytes=$WAL_MAX action='check dg-litestream journal and replica coverage; Tier 1 RPO is at risk while lag persists'"
     ALERTS=1
 else
-    emit lag ok "oldest_wal_age_secs=$oldest_wal_age lag_threshold_secs=$LAG_SECS"
+    emit lag ok "biggest_wal_bytes=$biggest_wal wal_max_bytes=$WAL_MAX"
 fi
 
 [ "$ALERTS" = "0" ] && echo "[$SELF] all checks ok" >&2
