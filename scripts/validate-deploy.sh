@@ -363,7 +363,13 @@ if command -v systemd-analyze >/dev/null 2>&1; then
         -e "s|{{DG_DATA_DIR}}|$tmp/data|g" \
         -e 's|{{DG_LISTEN}}|127.0.0.1:7432|g' \
         "$UNIT" >"$tmp/dg.service"
-    if systemd-analyze verify "$tmp/dg.service" 2>"$tmp/verify.log"; then
+    # The litestream-sync units name the host path /usr/local/bin/
+    # litestream-sync.sh; point the verification copy at the repo script
+    # so verify checks the unit, not this machine's /usr/local/bin.
+    sed -e "s|/usr/local/bin/litestream-sync.sh|$ROOT/scripts/litestream-sync.sh|g" \
+        "$ROOT/deploy/dg-litestream-sync.service" >"$tmp/dg-litestream-sync.service"
+    cp "$ROOT/deploy/dg-litestream-sync.timer" "$tmp/dg-litestream-sync.timer"
+    if systemd-analyze verify "$tmp/dg.service" "$tmp/dg-litestream-sync.service" "$tmp/dg-litestream-sync.timer" 2>"$tmp/verify.log"; then
         log "systemd-analyze verify: clean"
     else
         cat "$tmp/verify.log" >&2

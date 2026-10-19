@@ -1,10 +1,17 @@
 # litestream config template for off-host replication of the dg data root.
 #
-# This file is a *template*. scripts/install-litestream.sh renders it at
-# install time, listing every live *.sqlite under /var/lib/dg (skipping
-# -shm and -wal sidecars) and substituting the four credential values
-# from /etc/dg/litestream.env into the per-db replicas. The rendered
-# file is what lands at /etc/litestream.yml on the host, mode 0600 dg:dg.
+# This file documents the *shape* of the rendered config. The renderer is
+# scripts/litestream-sync.sh: scripts/install-litestream.sh installs it
+# as /usr/local/bin/litestream-sync.sh and renders the first config with
+# it, and deploy/dg-litestream-sync.timer re-runs it every five minutes
+# so databases created or deleted after install enter/leave the config
+# (and the sidecar restarts onto it) without an operator step --
+# docs/audit-2026-10-19.md A2. It lists every live database from
+# `dg list` with a .sqlite file under /var/lib/dg (skipping -shm/-wal
+# sidecars and the metadata.sqlite registry) and substitutes
+# bucket/endpoint/region from /etc/dg/litestream.env into the per-db
+# replicas. The rendered file is what lands at /etc/litestream.yml on
+# the host, mode 0600 dg:dg.
 #
 # Credentials are read from the sidecar's environment, not from this file.
 # `access-key-id` and `secret-access-key` here are *config keys*; their
