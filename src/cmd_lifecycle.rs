@@ -1,13 +1,21 @@
 //! Database lifecycle commands: clone, export, import, delete.
 
-use super::{Cli, Request};
+use super::{Request, api_error, api_failed, export_stage_file, publish_export_file};
 use dg::ServerError::Application;
 use dg::error::Error;
 use reqwest::Method;
 use serde_json::json;
+use sha2::{Digest, Sha256};
+use std::fs::OpenOptions;
+use std::io::{BufReader, Read, Write};
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 
-pub async fn clone_db(source: String, destination: String) -> Result<Option<Request>, dg::ServerError> {
+pub async fn clone_db(
+    source: String,
+    destination: String,
+) -> Result<Option<Request>, dg::ServerError> {
     dg::store::validate_name(&source).map_err(Application)?;
     dg::store::validate_name(&destination).map_err(Application)?;
     Ok(Some((
@@ -18,7 +26,12 @@ pub async fn clone_db(source: String, destination: String) -> Result<Option<Requ
     )))
 }
 
-pub async fn export(cli: &Cli, key_path: &Option<PathBuf>, name: String, out: PathBuf) -> Result<(), dg::ServerError> {
+pub async fn export(
+    server: &str,
+    key_path: &Option<PathBuf>,
+    name: String,
+    out: PathBuf,
+) -> Result<(), dg::ServerError> {
     dg::store::validate_name(&name).map_err(Application)?;
     let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
         400,
@@ -29,7 +42,7 @@ pub async fn export(cli: &Cli, key_path: &Option<PathBuf>, name: String, out: Pa
     // Chunked download: freeze a snapshot, stream it piece by piece,
     // verify the whole-file hash, then publish atomically.
     let begin = dg::client::request_with_semantics(
-        &cli.server,
+        server,
         &key,
         Method::POST,
         &format!("/v1/databases/{name}/export/begin"),
@@ -50,7 +63,7 @@ pub async fn export(cli: &Cli, key_path: &Option<PathBuf>, name: String, out: Pa
         .to_string();
     let release_snapshot = || async {
         let _ = dg::client::request_with_semantics(
-            &cli.server,
+            server,
             &key,
             Method::DELETE,
             &format!("/v1/snapshots/{snapshot}"),
@@ -77,9 +90,7 @@ pub async fn export(cli: &Cli, key_path: &Option<PathBuf>, name: String, out: Pa
             })?;
         let sha256 = begin["sha256"]
             .as_str()
-            .filter(|hash| {
-                hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
-            })
+            .filter(|hash| hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit()))
             .ok_or(Application(Error::internal()))?
             .to_string();
         let mut staged = export_stage_file(&out).map_err(Application)?;
@@ -87,7 +98,7 @@ pub async fn export(cli: &Cli, key_path: &Option<PathBuf>, name: String, out: Pa
         let mut offset = 0u64;
         while offset < size {
             let chunk = dg::client::request(
-                &cli.server,
+                server,
                 &key,
                 Method::GET,
                 &format!(
@@ -113,9 +124,8 @@ pub async fn export(cli: &Cli, key_path: &Option<PathBuf>, name: String, out: Pa
             let encoded = chunk["data_base64"]
                 .as_str()
                 .ok_or(Application(Error::internal()))?;
-            let bytes =
-                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
-                    .map_err(|_| Application(Error::internal()))?;
+            let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
+                .map_err(|_| Application(Error::internal()))?;
             if bytes.is_empty()
                 || bytes.len() > dg::store::MAX_CHUNK
                 || bytes.len() as u64 > size.saturating_sub(offset)
@@ -141,10 +151,15 @@ pub async fn export(cli: &Cli, key_path: &Option<PathBuf>, name: String, out: Pa
         "{}",
         json!({"name":name,"out":out.display().to_string(),"size":size,"sha256":sha256})
     );
-    return Ok(());
+    Ok(())
 }
 
-pub async fn import(cli: &Cli, key_path: &Option<PathBuf>, name: String, from: PathBuf) -> Result<(), dg::ServerError> {
+pub async fn import(
+    server: &str,
+    key_path: &Option<PathBuf>,
+    name: String,
+    from: PathBuf,
+) -> Result<(), dg::ServerError> {
     dg::store::validate_name(&name).map_err(Application)?;
     let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
         400,
@@ -179,7 +194,7 @@ pub async fn import(cli: &Cli, key_path: &Option<PathBuf>, name: String, from: P
         )));
     }
     let begin = dg::client::request_with_semantics(
-        &cli.server,
+        server,
         &key,
         Method::POST,
         &format!("/v1/databases/{name}/import/begin"),
@@ -222,12 +237,10 @@ pub async fn import(cli: &Cli, key_path: &Option<PathBuf>, name: String, from: P
                     "import exceeds bounded local file size",
                 )));
             }
-            let encoded = base64::Engine::encode(
-                &base64::engine::general_purpose::STANDARD,
-                &buf[..n],
-            );
+            let encoded =
+                base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &buf[..n]);
             let ack = dg::client::request_with_semantics(
-                &cli.server,
+                server,
                 &key,
                 Method::POST,
                 &format!("/v1/uploads/{upload}/chunk"),
@@ -247,7 +260,7 @@ pub async fn import(cli: &Cli, key_path: &Option<PathBuf>, name: String, from: P
             }
         }
         let done = dg::client::request(
-            &cli.server,
+            server,
             &key,
             Method::POST,
             &format!("/v1/uploads/{upload}/commit"),
@@ -267,7 +280,7 @@ pub async fn import(cli: &Cli, key_path: &Option<PathBuf>, name: String, from: P
         // Abort is best effort: preserve the original import error and
         // never make a cleanup transport failure hide its outcome.
         let _ = dg::client::request_with_semantics(
-            &cli.server,
+            server,
             &key,
             Method::DELETE,
             &format!("/v1/uploads/{upload}"),
@@ -278,10 +291,13 @@ pub async fn import(cli: &Cli, key_path: &Option<PathBuf>, name: String, from: P
         .await;
     }
     upload_result?;
-    return Ok(());
+    Ok(())
 }
 
-pub async fn delete(name: String, confirm: Option<String>) -> Result<Option<Request>, dg::ServerError> {
+pub async fn delete(
+    name: String,
+    confirm: Option<String>,
+) -> Result<Option<Request>, dg::ServerError> {
     dg::store::validate_name(&name).map_err(Application)?;
     if confirm.as_deref() != Some(name.as_str()) {
         return Err(Application(Error::new(
@@ -290,5 +306,10 @@ pub async fn delete(name: String, confirm: Option<String>) -> Result<Option<Requ
             "destructive operation: repeat the exact database name with --confirm NAME",
         )));
     }
-    Ok(Some((Method::DELETE, format!("/v1/databases/{name}"), None, None)))
+    Ok(Some((
+        Method::DELETE,
+        format!("/v1/databases/{name}"),
+        None,
+        None,
+    )))
 }

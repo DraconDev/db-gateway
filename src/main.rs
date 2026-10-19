@@ -1,11 +1,7 @@
 use clap::{Parser, Subcommand};
-use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
-#[cfg(unix)]
-use std::os::unix::fs::OpenOptionsExt;
+use serde_json::Value;
 use std::{
-    fs::OpenOptions,
-    io::{BufReader, IsTerminal, Read, Write},
+    io::{IsTerminal, Write},
     net::SocketAddr,
     path::{Path, PathBuf},
     process::ExitCode,
@@ -69,13 +65,14 @@ fn api_error() -> dg::error::Error {
 /// otherwise fetches, renders any error envelope, and hands the JSON
 /// back for table shaping (Err on API failure).
 async fn table_json(
-    cli: &Cli,
+    server: &str,
+    json: bool,
     key_path: &Option<PathBuf>,
     method: reqwest::Method,
     path: &str,
 ) -> Result<Option<Value>, dg::ServerError> {
     use dg::ServerError::Application;
-    if cli.json || !std::io::stdout().is_terminal() {
+    if json || !std::io::stdout().is_terminal() {
         return Ok(None);
     }
     let key = dg::client::read_key(key_path.as_deref().ok_or_else(|| {
@@ -86,7 +83,7 @@ async fn table_json(
         ))
     })?)
     .map_err(Application)?;
-    let result = dg::client::request(&cli.server, &key, method, path, None, None)
+    let result = dg::client::request(server, &key, method, path, None, None)
         .await
         .map_err(Application)?;
     if api_failed(&result) {
@@ -331,7 +328,6 @@ enum BackupCommand {
 /// Resolve the console companion entrypoint: explicit override first,
 /// then web/dist/server.js beside the checkout (from the executable or
 /// the working directory).
-
 mod cmd_backup;
 mod cmd_data;
 mod cmd_keys;
@@ -381,30 +377,32 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 .await
                 .map_err(Application);
         }
-        Command::Shell { name } => return cmd_data::shell(&cli, &key_path, name).await,
+        Command::Shell { name } => {
+            return cmd_data::shell(&cli.server, cli.json, &key_path, name).await;
+        }
         Command::Export { name, out } => {
-            return cmd_lifecycle::export(&cli, &key_path, name, out).await;
+            return cmd_lifecycle::export(&cli.server, &key_path, name, out).await;
         }
         Command::Import { name, from } => {
-            return cmd_lifecycle::import(&cli, &key_path, name, from).await;
+            return cmd_lifecycle::import(&cli.server, &key_path, name, from).await;
         }
         Command::Backup {
             command:
                 BackupCommand::Digest {
                     data_dir,
                     backup_root,
-                    json,
+                    json: as_json,
                 },
-        } => return cmd_backup::digest(data_dir, backup_root, json).await,
+        } => return cmd_backup::digest(data_dir, backup_root, as_json).await,
         Command::Backup {
             command: BackupCommand::Verify { backup_root, set },
         } => return cmd_backup::verify(backup_root, set).await,
-        Command::Status => cmd_status::status(&cli, &key_path).await?,
+        Command::Status => cmd_status::status(&cli.server, cli.json, &key_path).await?,
         Command::Backup {
             command: BackupCommand::Status,
-        } => cmd_backup::status(&cli, &key_path).await?,
-        Command::List => cmd_data::list(&cli, &key_path).await?,
-        Command::Info { name } => cmd_data::info(&cli, &key_path, name).await?,
+        } => cmd_backup::status(&cli.server, cli.json, &key_path).await?,
+        Command::List => cmd_data::list(&cli.server, cli.json, &key_path).await?,
+        Command::Info { name } => cmd_data::info(&cli.server, cli.json, &key_path, name).await?,
         Command::Create { name } => cmd_data::create(name).await?,
         Command::Clone {
             source,
@@ -416,7 +414,18 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             sql,
             args,
             idempotency_key,
-        } => cmd_data::query(name, sql, args, idempotency_key).await?,
+        } => {
+            cmd_data::query(
+                &cli.server,
+                cli.json,
+                &key_path,
+                name,
+                sql,
+                args,
+                idempotency_key,
+            )
+            .await?
+        }
         Command::Batch {
             name,
             file,
@@ -432,7 +441,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         } => cmd_keys::create(name, role, database).await?,
         Command::Key {
             command: KeyCommand::List,
-        } => cmd_keys::list(&cli, &key_path).await?,
+        } => cmd_keys::list(&cli.server, cli.json, &key_path).await?,
         Command::Key {
             command: KeyCommand::Revoke { name },
         } => cmd_keys::revoke(name).await?,

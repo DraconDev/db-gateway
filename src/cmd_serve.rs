@@ -1,11 +1,19 @@
 //! Local-process commands: run the server, or bootstrap a data
 //! directory. Neither goes through the HTTP request tail in `run`.
 
+use dg::ServerError::Application;
+use serde_json::json;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use serde_json::json;
 
-pub async fn serve(listen: SocketAddr, data_dir: PathBuf, backup_root: Option<PathBuf>, backup_digest_secs: u64, backup_failure_poll_secs: u64, backup_notify_webhook: Option<String>) -> Result<(), dg::ServerError> {
+pub async fn serve(
+    listen: SocketAddr,
+    data_dir: PathBuf,
+    backup_root: Option<PathBuf>,
+    backup_digest_secs: u64,
+    backup_failure_poll_secs: u64,
+    backup_notify_webhook: Option<String>,
+) -> Result<(), dg::ServerError> {
     // A flag that cannot be honoured is refused at startup rather
     // than half-applied: a sink silently dropped means an operator
     // believes they have webhook delivery and do not.
@@ -13,19 +21,15 @@ pub async fn serve(listen: SocketAddr, data_dir: PathBuf, backup_root: Option<Pa
     // digest interval or the failure poll, so a bare webhook would
     // log "sink added" and then never fire. Refuse it with the
     // remedy instead of announcing a sink that cannot deliver.
-    if backup_notify_webhook.is_some()
-        && backup_digest_secs == 0
-        && backup_failure_poll_secs == 0
-    {
+    if backup_notify_webhook.is_some() && backup_digest_secs == 0 && backup_failure_poll_secs == 0 {
         return Err(Application(dg::error::Error::new(
             400,
             "invalid_backup_webhook",
             "--backup-notify-webhook requires --backup-digest-secs or --backup-failure-poll-secs; a webhook alone never fires",
         )));
     }
-    let wants_delivery = backup_digest_secs > 0
-        || backup_failure_poll_secs > 0
-        || backup_notify_webhook.is_some();
+    let wants_delivery =
+        backup_digest_secs > 0 || backup_failure_poll_secs > 0 || backup_notify_webhook.is_some();
     let mut sinks: Vec<std::sync::Arc<dyn dg::notify::Sink>> = if wants_delivery {
         // The log sink is the floor: structured logging is already
         // the service's operator channel, so it is the one sink that
@@ -70,7 +74,7 @@ pub async fn serve(listen: SocketAddr, data_dir: PathBuf, backup_root: Option<Pa
             "backup-health notification delivery enabled"
         );
     }
-    return dg::serve(listen, data_dir, backup_root, notify).await;
+    dg::serve(listen, data_dir, backup_root, notify).await
 }
 
 pub async fn init(data_dir: PathBuf) -> Result<(), dg::ServerError> {
@@ -87,5 +91,5 @@ pub async fn init(data_dir: PathBuf) -> Result<(), dg::ServerError> {
         "dg init: the owner key is on stdout and is shown only once -- redirect it to a mode-0600 file (e.g. `dg init --data-dir DIR > ~/.config/dg/key`) and clear your scrollback."
     );
     println!("{}", json!({"owner_key":key}));
-    return Ok(());
+    Ok(())
 }

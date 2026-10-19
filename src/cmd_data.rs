@@ -1,34 +1,36 @@
 //! Everyday data commands against the API: list/info/create,
 //! query/batch, and the interactive shell.
 
-use super::{Cli, Request};
+use super::{Request, api_error, api_failed};
 use dg::ServerError::Application;
 use dg::error::Error;
 use reqwest::Method;
-use serde_json::json;
+use serde_json::{Value, json};
+use std::fs::OpenOptions;
+use std::io::{IsTerminal, Read};
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 
-pub async fn list(cli: &Cli, key_path: &Option<PathBuf>) -> Result<Option<Request>, dg::ServerError> {
+pub async fn list(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
+) -> Result<Option<Request>, dg::ServerError> {
     // Interactive terminals get an aligned table; piped output
     // and --json stay machine-readable JSON.
-    if !cli.json && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
-        let key = dg::client::read_key(key_path.as_deref().ok_or(Application(
-            Error::new(400, "missing_credential", "--key-file required"),
-        ))?)
+    if !json && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+        let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
+            400,
+            "missing_credential",
+            "--key-file required",
+        )))?)
         .map_err(Application)?;
-        let result = dg::client::request(
-            &cli.server,
-            &key,
-            Method::GET,
-            "/v1/databases",
-            None,
-            None,
-        )
-        .await
-        .map_err(Application)?;
+        let result = dg::client::request(server, &key, Method::GET, "/v1/databases", None, None)
+            .await
+            .map_err(Application)?;
         if api_failed(&result) {
-            dg::shell::render(&result, false, &mut std::io::stdout())
-                .map_err(Application)?;
+            dg::shell::render(&result, false, &mut std::io::stdout()).map_err(Application)?;
             return Err(Application(api_error()));
         }
         let rows: Vec<Value> = result["databases"]
@@ -49,15 +51,22 @@ pub async fn list(cli: &Cli, key_path: &Option<PathBuf>) -> Result<Option<Reques
     Ok(Some((Method::GET, "/v1/databases".into(), None, None)))
 }
 
-pub async fn info(cli: &Cli, key_path: &Option<PathBuf>, name: String) -> Result<Option<Request>, dg::ServerError> {
+pub async fn info(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
+    name: String,
+) -> Result<Option<Request>, dg::ServerError> {
     dg::store::validate_name(&name).map_err(Application)?;
-    if !cli.json && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
-        let key = dg::client::read_key(key_path.as_deref().ok_or(Application(
-            Error::new(400, "missing_credential", "--key-file required"),
-        ))?)
+    if !json && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+        let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
+            400,
+            "missing_credential",
+            "--key-file required",
+        )))?)
         .map_err(Application)?;
         let info = dg::client::request(
-            &cli.server,
+            server,
             &key,
             Method::GET,
             &format!("/v1/databases/{name}"),
@@ -74,7 +83,7 @@ pub async fn info(cli: &Cli, key_path: &Option<PathBuf>, name: String) -> Result
         // two usage cells instead of failing the command. Absent
         // from a good status means true zero activity.
         let (rows_read, rows_written) =
-            dg::client::request(&cli.server, &key, Method::GET, "/v1/status", None, None)
+            dg::client::request(server, &key, Method::GET, "/v1/status", None, None)
                 .await
                 .ok()
                 .filter(|status| !api_failed(status))
@@ -123,7 +132,12 @@ pub async fn info(cli: &Cli, key_path: &Option<PathBuf>, name: String) -> Result
         .map_err(Application)?;
         return Ok(None);
     }
-    Ok(Some((Method::GET, format!("/v1/databases/{name}"), None, None)))
+    Ok(Some((
+        Method::GET,
+        format!("/v1/databases/{name}"),
+        None,
+        None,
+    )))
 }
 
 pub async fn create(name: String) -> Result<Option<Request>, dg::ServerError> {
@@ -136,7 +150,12 @@ pub async fn create(name: String) -> Result<Option<Request>, dg::ServerError> {
     )))
 }
 
-pub async fn shell(cli: &Cli, key_path: &Option<PathBuf>, name: Option<String>) -> Result<(), dg::ServerError> {
+pub async fn shell(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
+    name: Option<String>,
+) -> Result<(), dg::ServerError> {
     let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
         400,
         "missing_credential",
@@ -147,9 +166,9 @@ pub async fn shell(cli: &Cli, key_path: &Option<PathBuf>, name: Option<String>) 
         dg::store::validate_name(name).map_err(Application)?;
     }
     return dg::shell::run(
-        &cli.server,
+        server,
         &key,
-        cli.json,
+        json,
         std::io::stdin().is_terminal() && std::io::stdout().is_terminal(),
         name.as_deref(),
         std::io::stdin(),
@@ -159,19 +178,29 @@ pub async fn shell(cli: &Cli, key_path: &Option<PathBuf>, name: Option<String>) 
     .map_err(Application);
 }
 
-pub async fn query(name: String, sql: String, args: String, idempotency_key: Option<String>) -> Result<Option<Request>, dg::ServerError> {
+pub async fn query(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
+    name: String,
+    sql: String,
+    args: String,
+    idempotency_key: Option<String>,
+) -> Result<Option<Request>, dg::ServerError> {
     dg::store::validate_name(&name).map_err(Application)?;
     let args: Vec<Value> =
         serde_json::from_str(&args).map_err(|_| Application(Error::invalid()))?;
     // Interactive terminals get the shell's aligned table; piped
     // output and --json stay machine-readable JSON.
-    if !cli.json && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
-        let key = dg::client::read_key(key_path.as_deref().ok_or(Application(
-            Error::new(400, "missing_credential", "--key-file required"),
-        ))?)
+    if !json && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+        let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
+            400,
+            "missing_credential",
+            "--key-file required",
+        )))?)
         .map_err(Application)?;
         let result = dg::client::request(
-            &cli.server,
+            server,
             &key,
             Method::POST,
             &format!("/v1/databases/{name}/query"),
@@ -198,7 +227,11 @@ pub async fn query(name: String, sql: String, args: String, idempotency_key: Opt
     )))
 }
 
-pub async fn batch(name: String, file: PathBuf, idempotency_key: Option<String>) -> Result<Option<Request>, dg::ServerError> {
+pub async fn batch(
+    name: String,
+    file: PathBuf,
+    idempotency_key: Option<String>,
+) -> Result<Option<Request>, dg::ServerError> {
     dg::store::validate_name(&name).map_err(Application)?;
     // Open once with O_NONBLOCK so a writer-less FIFO cannot make
     // the CLI hang before the descriptor is checked. The metadata

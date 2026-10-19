@@ -1,13 +1,17 @@
 //! The `dg status` service summary.
 
-use super::{Cli, Request};
+use super::{Request, table_json};
 use dg::ServerError::Application;
 use reqwest::Method;
 use serde_json::json;
 use std::path::PathBuf;
 
-pub async fn status(cli: &Cli, key_path: &Option<PathBuf>) -> Result<Option<Request>, dg::ServerError> {
-    if let Some(status) = table_json(&cli, &key_path, Method::GET, "/v1/status").await? {
+pub async fn status(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
+) -> Result<Option<Request>, dg::ServerError> {
+    if let Some(status) = table_json(server, json, key_path, Method::GET, "/v1/status").await? {
         let mut rows = vec![
             json!(["version", status["version"]]),
             json!(["uptime_secs", status["uptime_secs"]]),

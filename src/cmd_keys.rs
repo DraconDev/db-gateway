@@ -1,12 +1,16 @@
 //! Credential administration commands (owner only at the API).
 
-use super::{Cli, Request};
+use super::{Request, table_json};
 use dg::ServerError::Application;
 use reqwest::Method;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::path::PathBuf;
 
-pub async fn create(name: String, role: String, database: Vec<String>) -> Result<Option<Request>, dg::ServerError> {
+pub async fn create(
+    name: String,
+    role: String,
+    database: Vec<String>,
+) -> Result<Option<Request>, dg::ServerError> {
     dg::store::validate_name(&name).map_err(Application)?;
     for db in &database {
         dg::store::validate_name(db).map_err(Application)?;
@@ -19,8 +23,12 @@ pub async fn create(name: String, role: String, database: Vec<String>) -> Result
     )))
 }
 
-pub async fn list(cli: &Cli, key_path: &Option<PathBuf>) -> Result<Option<Request>, dg::ServerError> {
-    if let Some(keys) = table_json(&cli, &key_path, Method::GET, "/v1/keys").await? {
+pub async fn list(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
+) -> Result<Option<Request>, dg::ServerError> {
+    if let Some(keys) = table_json(server, json, key_path, Method::GET, "/v1/keys").await? {
         let rows: Vec<Value> = keys["keys"]
             .as_array()
             .cloned()
@@ -60,9 +68,19 @@ pub async fn list(cli: &Cli, key_path: &Option<PathBuf>) -> Result<Option<Reques
 
 pub async fn revoke(name: String) -> Result<Option<Request>, dg::ServerError> {
     dg::store::validate_name(&name).map_err(Application)?;
-    Ok(Some((Method::DELETE, format!("/v1/keys/{name}"), None, None)))
+    Ok(Some((
+        Method::DELETE,
+        format!("/v1/keys/{name}"),
+        None,
+        None,
+    )))
 }
 
 pub async fn rotate_owner() -> Result<Option<Request>, dg::ServerError> {
-    Ok(Some((Method::POST, "/v1/keys/owner/rotate".into(), None, None)))
+    Ok(Some((
+        Method::POST,
+        "/v1/keys/owner/rotate".into(),
+        None,
+        None,
+    )))
 }

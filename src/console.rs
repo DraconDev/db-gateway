@@ -263,7 +263,7 @@ async fn ensure_gateway(
 /// signalled. Only the key *path* is forwarded; key material is never
 /// read here. Remaining environment (notably DG_SSH_*) passes through
 /// untouched so managed tunnels keep working.
-async fn run_console(
+pub(super) async fn run_console(
     server: &str,
     key_path: Option<PathBuf>,
     port: u16,
@@ -433,4 +433,3 @@ async fn run_console(
         }
     }
 }
-

@@ -1,14 +1,19 @@
 //! Backup commands: live freshness (`status`, via the API) and the
 //! offline `digest`/`verify` pair that read the backup root directly.
 
-use super::{Cli, Request};
+use super::{Request, table_json};
 use dg::ServerError::Application;
+use dg::error::Error;
 use reqwest::Method;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::path::PathBuf;
 
-pub async fn status(cli: &Cli, key_path: &Option<PathBuf>) -> Result<Option<Request>, dg::ServerError> {
-    if let Some(backups) = table_json(&cli, &key_path, Method::GET, "/v1/backups").await? {
+pub async fn status(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
+) -> Result<Option<Request>, dg::ServerError> {
+    if let Some(backups) = table_json(server, json, key_path, Method::GET, "/v1/backups").await? {
         let mut rows = vec![
             json!(["backup_root", backups["backup_root"]]),
             json!(["stale_after_secs", backups["stale_after_secs"]]),
@@ -59,7 +64,11 @@ pub async fn status(cli: &Cli, key_path: &Option<PathBuf>) -> Result<Option<Requ
     Ok(Some((Method::GET, "/v1/backups".into(), None, None)))
 }
 
-pub async fn digest(data_dir: PathBuf, backup_root: Option<PathBuf>, json: bool) -> Result<(), dg::ServerError> {
+pub async fn digest(
+    data_dir: PathBuf,
+    backup_root: Option<PathBuf>,
+    as_json: bool,
+) -> Result<(), dg::ServerError> {
     // Deliberately local, not an HTTP round trip: the digest an
     // operator reads while the gateway is down or restarting is the
     // one they need most, and asking a wedged process for its own
@@ -75,8 +84,7 @@ pub async fn digest(data_dir: PathBuf, backup_root: Option<PathBuf>, json: bool)
     if as_json {
         println!(
             "{}",
-            serde_json::to_string(&note)
-                .map_err(|_| Application(dg::error::Error::internal()))?
+            serde_json::to_string(&note).map_err(|_| Application(dg::error::Error::internal()))?
         );
     } else {
         let mut rows: Vec<Value> = vec![json!(["state", note.title.clone()])];
@@ -129,11 +137,11 @@ pub async fn digest(data_dir: PathBuf, backup_root: Option<PathBuf>, json: bool)
     if health.attention().is_empty() {
         return Ok(());
     }
-    return Err(Application(dg::error::Error::new(
+    Err(Application(dg::error::Error::new(
         1,
         "backup_unhealthy",
         "at least one database is stale or has no verified copy",
-    )));
+    )))
 }
 
 pub async fn verify(backup_root: PathBuf, set: String) -> Result<(), dg::ServerError> {
@@ -145,9 +153,9 @@ pub async fn verify(backup_root: PathBuf, set: String) -> Result<(), dg::ServerE
     if report.ok {
         return Ok(());
     }
-    return Err(Application(Error::new(
+    Err(Application(Error::new(
         400,
         "backup_verification_failed",
         "backup set failed verification; see JSON report",
-    )));
+    )))
 }
