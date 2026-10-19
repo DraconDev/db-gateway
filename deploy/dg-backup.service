@@ -1,0 +1,28 @@
+# DB Gateway hourly snapshot backup template (non-installing).
+#
+# Copy to /etc/systemd/system/dg-backup.service on the target host,
+# replace every braced placeholder, then
+#   systemctl daemon-reload
+# Nothing in this repository installs, enables, or starts this unit.
+#
+# Runs the backup producer (scripts/micro2-backup.sh, installed on the
+# host as {{DG_BACKUP_SCRIPT}}) once per dg-backup.timer fire. The
+# producer publishes a verified, versioned snapshot set under
+# {{DG_BACKUP_ROOT}} and prunes to the newest 24 sets (--keep 24, the
+# currently deployed hourly retention; retention policy itself is audit
+# item A5). DG_BIN is pinned in the environment because the producer
+# shells out to the gateway CLI and must never resolve a different `dg`
+# from PATH.
+
+[Unit]
+Description=DB Gateway hourly snapshot backup
+After=dg.service
+
+[Service]
+Type=oneshot
+User={{DG_USER}}
+Group={{DG_USER}}
+Environment=DG_BIN={{DG_BINARY}}
+ExecStart={{DG_BACKUP_SCRIPT}} --keep 24
+WorkingDirectory={{DG_BACKUP_ROOT}}
+NoNewPrivileges=true

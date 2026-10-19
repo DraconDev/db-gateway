@@ -1,0 +1,19 @@
+# DB Gateway hourly snapshot backup timer template (non-installing).
+#
+# Copy to /etc/systemd/system/dg-backup.timer on the target host
+# alongside dg-backup.service, then
+#   systemctl daemon-reload && systemctl enable --now dg-backup.timer
+# Fires hourly at :17, the deployed producer slot; the daily digest
+# (dg-backup-digest.timer, 06:45) is scheduled clear of it so the digest
+# always reads a completed set. Persistent=true catches up a missed
+# fire after downtime instead of silently skipping an hour of snapshots.
+
+[Unit]
+Description=Hourly DB Gateway snapshot backup
+
+[Timer]
+OnCalendar=*-*-* *:17:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
