@@ -5,13 +5,12 @@
 # never silence a finding by deleting the gate.
 
 [advisories]
-# Known-vulnerable versions are a hard failure; the softer classes warn so
-# they get triaged without blocking every dependency update.
-vulnerability = "deny"
+# Any advisory (vulnerable, unsound, unmaintained) against the locked
+# tree fails the check; yanked versions only warn so an upstream yank
+# gets triaged rather than silently stranding CI.
 yanked = "warn"
 unmaintained = "all"
 unsound = "all"
-notice = "warn"
 
 [bans]
 # Duplicate versions of a crate (syn 2/3, hashbrown 0.16/0.17, ...) are
@@ -19,6 +18,9 @@ notice = "warn"
 # defeat Cargo.lock reproducibility, so those deny.
 multiple-versions = "warn"
 wildcards = "deny"
+# Path-only workspace dependencies (dg-client in dg's dev-dependencies)
+# are not registry wildcards; they resolve inside this repo.
+allow-wildcard-paths = true
 
 [licenses]
 # The allowlist is exactly the permissive licenses present in the locked
