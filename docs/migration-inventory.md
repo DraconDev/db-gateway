@@ -23,10 +23,11 @@ patterns (`@libsql/client`, `libsql/`) missed Rust `libsql =` deps and
 ### Source A — email-api database (`TURSO_EMAIL_URL` / `TURSO_EMAIL_TOKEN`)
 
 - gateway target name: (unassigned — Stage 1 has not run)
-- file size: UNVERIFIED (remote; no local copy)
+- file size: **192 kB** (VERIFIED 2026-10-19, `turso db show dracon-email`)
 - tables: `email_queue` (production DDL,
-  `apis/services/email-api/src/state.rs:337`); further remote tables, if
-  any: UNVERIFIED
+  `apis/services/email-api/src/state.rs:337`); remote live set confirmed
+  2026-10-19: exactly that one table (**37 rows**) + 3 indexes, no
+  views, no triggers (remote census read-only)
 - denied objects: 3× `ALTER TABLE email_queue ADD COLUMN` in production
   migration code (email-api state.rs:361,367,374) — must be flattened to
   gateway-compatible DDL before import (risk 3); production views,
@@ -45,7 +46,14 @@ equivalent; queue writers must adopt keyed writes (risk 8)
 ### Source B — studio-api database (`STUDIO_API_DB_URL`)
 
 - gateway target name: (unassigned)
-- file size / row counts: UNVERIFIED (remote)
+- file size / row counts: **239 MB**, ~464k rows (VERIFIED 2026-10-19,
+  `turso db show dracon-studio` + per-table counts; largest:
+  `studio_video_snapshots`=299831). **Exceeds the 128 MiB
+  chunked-transfer ceiling (risk 6): cannot import as-is — a
+  prune/reshape decision is required before any B trial.** Remote
+  live set has 24 tables (code set below plus `studio_backfill_state`,
+  `studio_mine_channel`), 12 indexes, no views, no triggers
+  (VERIFIED 2026-10-19)
 - tables, code-grounded live set of **22** (production DDL only; the
 dropped `studio_youtube_oauth_states` is excluded — youtube.rs:176,826).
   The CREATE statements at youtube.rs:304, 337, 352 and analytics.rs:42
@@ -97,8 +105,13 @@ dropped `studio_youtube_oauth_states` is excluded — youtube.rs:176,826).
   `ai_usage_accounting`, `current_usage`,
   `entitlement_event_watermarks`, `failed_email_notifications`,
   `processed_webhook_events`, `service_access`, `software_licenses`,
-  `tier_limits`, `users` (12 tables; full column lists + row counts:
-  UNVERIFIED)
+  `tier_limits`, `users` (12 tables; remote facts VERIFIED 2026-10-19:
+  prod `dracon-billing` is 246 kB with **20 tables** — the 12 above
+  plus 8 `dracon_ai_*` tables — 12 indexes, no views/triggers;
+  near-empty: processed_webhook_events=24, users=4, service_access=3,
+  tier_limits=3, rest ≈0. C-dev `dracon-billing-dev` is 1.0 MB, 19
+  tables (no `entitlement_event_watermarks`), and was **trial-imported
+  and verified 2026-10-19** — `docs/migration-cdev-trial-2026-10-19.log`)
 - denied objects: production `ALTER TABLE ... DROP COLUMN` migration
   code (billing-api state.rs:847,866,932); production views/triggers:
   none found; remote-side views: UNVERIFIED
@@ -124,13 +137,20 @@ when activated).
 
 ### Survey limits
 
-Remote row counts, file sizes, and live remote schemas were not read
-(no cloud access from this survey). `~/.turso` on this host holds only
-downloaded `sqld`/`turso` binaries. The gateway's own test/state SQLite
-files are rehearsal artifacts, not sources. Cutover gate unchanged:
-every source above needs a filled block (sizes, denied-object census,
-writers, key roles, retry behavior, recovery requirements) before its
-cutover — currently code-grounded but remote-UNVERIFIED.
+The 2026-10-11 survey read no remote state. On **2026-10-19**, with
+explicit owner approval, read-only remote facts were recorded for
+A/B/C (`turso db list/show`, SELECT counts, `turso db export` of
+C-dev): sizes, live table sets, row counts, and the remote
+views/triggers census (none anywhere) are VERIFIED as of that date in
+the source blocks above and `docs/migration-cdev-trial-2026-10-19.log`.
+Still UNVERIFIED: full column DDL for A/B (resolvable from an export
+when their trials are scheduled), writer rates/topology, and the
+newer estate databases observed in the account list (dracon-auth,
+dracon-aihub, dracon-jobs, dracon-music, dracon-saves, dracon-search,
+dracon-ytcache and their -dev twins — not surveyed, not sources
+A/B/C; the 14 confirmed-dead databases no longer appear remotely).
+Cutover gate unchanged: every source needs a filled block (key roles,
+retry behavior, recovery requirements) before its cutover.
 
 The design intent stands: keep the gateway's custom JSON protocol,
 single-owner boundary, hash-only credentials, explicit lifecycle, and bounded
