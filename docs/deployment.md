@@ -79,6 +79,7 @@ placeholders for future/repeated deployments.
 | `{{DG_OWNER_KEY_FILE}}` | Absolute path of the mode-0600 owner credential file the drill reads (never its contents) | **Unresolved** — target layout decision (e.g. `/etc/dg/owner.key`) |
 | `{{DG_RESOURCE_SAMPLE_SCRIPT}}` | Absolute path of the installed composed resource sampler (`scripts/resource-sample.sh`) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/resource-sample.sh`) |
 | `{{DG_ALERTS_SCRIPT}}` | Absolute path of the installed disk/lag alert checker (`scripts/dg-alerts.sh`) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/dg-alerts.sh`) |
+| `{{DG_MESH_LISTEN}}` | WireGuard interface `address:port` the mesh-edge socket binds (`deploy/dg-mesh-proxy.socket`) | **Owner decision at edge install** — must be the host's mesh address (e.g. `10.66.0.1:7432`); never a wildcard/LAN/WAN address (`docs/access-edge.md`) |
 
 The backup units (`deploy/dg-backup.{service,timer}` hourly producer,
 `deploy/dg-backup-digest.{service,timer}` daily digest) are templates in
@@ -88,6 +89,13 @@ the same style: substitute the placeholders above, install under
 templates (rendered with the reference-host values, comments/blank
 lines ignored) and fails on drift, so a hand edit on the host cannot
 silently diverge from the repo.
+
+**Non-loopback access (audit A9):** application hosts reach the
+gateway over a WireGuard mesh via `deploy/dg-mesh-proxy.{socket,service}`
+(socket-proxyd to loopback; the gateway itself never leaves loopback).
+Decision, threat model, and rejected alternatives:
+`docs/access-edge.md`. Not installed anywhere yet — edge install is
+a separate owner-approved change.
 
 **Alerts and journal retention (audit A8):** `deploy/dg-alerts.{service,timer}`
 runs the disk-headroom + Litestream-lag checker every 15 minutes

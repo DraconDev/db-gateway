@@ -1,0 +1,24 @@
+# Proxy half of the mesh edge (non-installing template; audit A9).
+#
+# Copy to /etc/systemd/system/dg-mesh-proxy.service alongside
+# dg-mesh-proxy.socket, then `systemctl daemon-reload` (the socket
+# unit activates this service). Nothing in this repository installs,
+# enables, or starts this unit.
+#
+# Forwards connections accepted on the mesh socket to the gateway on
+# loopback. systemd-socket-proxyd ships with systemd on Ubuntu; it
+# adds no credential handling of its own — mesh membership decides
+# which hosts can connect, dg scoped keys decide what they can do
+# (docs/access-edge.md threat model). Connection count is capped so
+# a misbehaving mesh member cannot exhaust the gateway's admission
+# lanes through the proxy alone.
+
+[Unit]
+Description=DB Gateway mesh-edge proxy to loopback
+Requires=dg-mesh-proxy.socket
+After=dg.service
+
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd --max-connections=32 {{DG_LISTEN}}
+PrivateTmp=true
+NoNewPrivileges=true

@@ -1,0 +1,25 @@
+# Mesh-edge socket for the gateway (non-installing template; audit A9).
+#
+# Copy to /etc/systemd/system/dg-mesh-proxy.socket on the gateway
+# host, replace {{DG_MESH_LISTEN}}, then
+#   systemctl daemon-reload && systemctl enable --now dg-mesh-proxy.socket
+# Nothing in this repository installs, enables, or starts this unit.
+#
+# This is the ONLY new listener the mesh edge adds, and it must bind
+# the host's WireGuard interface address — never 0.0.0.0 or a LAN/WAN
+# address. The gateway itself stays on loopback (dg serve refuses
+# anything else by construction); systemd-socket-proxyd forwards
+# mesh-side connections to it, so plaintext HTTP exists only on
+# loopback and inside the encrypted mesh tunnel
+# (docs/access-edge.md). If {{DG_MESH_LISTEN}} is not a mesh address,
+# this template is being misused — stop.
+
+[Unit]
+Description=DB Gateway mesh-edge listen socket (WireGuard address only)
+
+[Socket]
+ListenStream={{DG_MESH_LISTEN}}
+Accept=no
+
+[Install]
+WantedBy=sockets.target

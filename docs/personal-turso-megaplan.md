@@ -58,6 +58,7 @@ competing silently with the canonical roadmap.
 | `docs/recovery-contract.md` | Current local recovery contract | Normative artifact layout and restore checks; not a bucket policy |
 | `docs/recovery-decisions.md` | Research/decision brief | Profile C analysis and measurements; retained for policy history — tier selection is canonical in `docs/recovery-policy.md` |
 | `docs/recovery-policy.md` | **Canonical recovery policy** | Tier 1 Litestream→OVH (host loss) vs Tier 2 snapshot sets (local rollback); RPO/RTO objectives, retention, bucket-alone registry recovery |
+| `docs/access-edge.md` | **Canonical access-edge decision** | WireGuard mesh + loopback socket proxies for application hosts; threat model; rejected alternatives (audit A9) |
 | `docs/observability-contract.md` | Current observability contract | Freshness/request-pressure evidence; disk/RSS/alert integrations remain future work |
 | `docs/scale-proposal-2026-09-21.md` | Implemented scale reference | Phases 1–2 landed; measured sizing and multi-host gate remain open |
 | `docs/migration-cutover.md` | **Normative migration gates** | GATE 1/2/3, rollback floor, write reconciliation, and decommission approval govern Phase 7 |

@@ -51,7 +51,7 @@ log "checking placeholders are documented"
 # Every service template's placeholders must be documented, not just
 # dg.service's: the backup units (deploy/dg-backup.service,
 # dg-backup-digest.service) are installed from the same guide.
-placeholders="$(grep -h -o '{{[A-Z_]*}}' "$UNIT" "$ROOT/deploy/dg-backup.service" "$ROOT/deploy/dg-backup-digest.service" "$ROOT/deploy/dg-restore-drill.service" "$ROOT/deploy/dg-resource-sample.service" "$ROOT/deploy/dg-alerts.service" | sort -u)"
+placeholders="$(grep -h -o '{{[A-Z_]*}}' "$UNIT" "$ROOT/deploy/dg-backup.service" "$ROOT/deploy/dg-backup-digest.service" "$ROOT/deploy/dg-restore-drill.service" "$ROOT/deploy/dg-resource-sample.service" "$ROOT/deploy/dg-alerts.service" "$ROOT/deploy/dg-mesh-proxy.socket" | sort -u)"
 [ -n "$placeholders" ] || fail "no placeholders found; template must not hardcode target values"
 while read -r placeholder; do
     grep -qF "\`$placeholder\`" "$GUIDE" \
@@ -401,7 +401,18 @@ if command -v systemd-analyze >/dev/null 2>&1; then
         -e "s|{{DG_ALERTS_SCRIPT}}|$ROOT/scripts/dg-alerts.sh|g" \
         "$ROOT/deploy/dg-alerts.service" >"$tmp/dg-alerts.service"
     cp "$ROOT/deploy/dg-alerts.timer" "$tmp/"
-    if systemd-analyze verify "$tmp/dg.service" "$tmp/dg-litestream-sync.service" "$tmp/dg-litestream-sync.timer" "$tmp/dg-backup.service" "$tmp/dg-backup.timer" "$tmp/dg-backup-digest.service" "$tmp/dg-backup-digest.timer" "$tmp/dg-restore-drill.service" "$tmp/dg-restore-drill.timer" "$tmp/dg-resource-sample.service" "$tmp/dg-resource-sample.timer" "$tmp/dg-alerts.service" "$tmp/dg-alerts.timer" 2>"$tmp/verify.log"; then
+    sed -e "s|{{DG_MESH_LISTEN}}|127.0.0.2:17432|g" \
+        "$ROOT/deploy/dg-mesh-proxy.socket" >"$tmp/dg-mesh-proxy.socket"
+    # systemd-socket-proxyd is an Ubuntu-systemd path; substitute a
+    # stand-in so verify checks unit structure on this host too.
+    sed -e "s|{{DG_LISTEN}}|127.0.0.1:7432|g" \
+        -e "s|/usr/lib/systemd/systemd-socket-proxyd|$(type -P true || echo /bin/true)|g" \
+        "$ROOT/deploy/dg-mesh-proxy.service" >"$tmp/dg-mesh-proxy.service"
+    cp "$ROOT/deploy/dg-app-proxy.socket" "$tmp/"
+    sed -e "s|{{DG_MESH_LISTEN}}|127.0.0.2:17432|g" \
+        -e "s|/usr/lib/systemd/systemd-socket-proxyd|$(type -P true || echo /bin/true)|g" \
+        "$ROOT/deploy/dg-app-proxy.service" >"$tmp/dg-app-proxy.service"
+    if systemd-analyze verify "$tmp/dg.service" "$tmp/dg-litestream-sync.service" "$tmp/dg-litestream-sync.timer" "$tmp/dg-backup.service" "$tmp/dg-backup.timer" "$tmp/dg-backup-digest.service" "$tmp/dg-backup-digest.timer" "$tmp/dg-restore-drill.service" "$tmp/dg-restore-drill.timer" "$tmp/dg-resource-sample.service" "$tmp/dg-resource-sample.timer" "$tmp/dg-alerts.service" "$tmp/dg-alerts.timer" "$tmp/dg-mesh-proxy.socket" "$tmp/dg-mesh-proxy.service" "$tmp/dg-app-proxy.socket" "$tmp/dg-app-proxy.service" 2>"$tmp/verify.log"; then
         log "systemd-analyze verify: clean"
     else
         cat "$tmp/verify.log" >&2

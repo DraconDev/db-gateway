@@ -1,0 +1,19 @@
+# App-host proxy half of the mesh edge (non-installing template;
+# audit A9). Install on each APPLICATION host alongside
+# dg-app-proxy.socket, replace {{DG_MESH_LISTEN}} with the gateway
+# host's WireGuard address:port, then `systemctl daemon-reload`.
+# Nothing in this repository installs, enables, or starts this unit.
+#
+# Forwards the app host's loopback socket through the WireGuard mesh
+# to the gateway host's dg-mesh-proxy socket. All wire traffic is
+# WireGuard ciphertext; plaintext exists only on loopback at both
+# ends (docs/access-edge.md).
+
+[Unit]
+Description=DB Gateway app-side proxy through the mesh
+Requires=dg-app-proxy.socket
+
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd --max-connections=32 {{DG_MESH_LISTEN}}
+PrivateTmp=true
+NoNewPrivileges=true
