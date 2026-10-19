@@ -65,3 +65,42 @@ dg-litestream-sync.{service,timer}, re-renders via the sync script),
 then `systemctl enable --now dg-litestream-sync.timer`, then a live
 create->replicate check with a scratch database (host-audit coverage
 must stay pass throughout, without any manual config step).
+
+## Live install + live drill on micro2 — 2026-10-19 (owner-approved)
+
+scripts/install-litestream.sh ran on micro2 (idempotent second run:
+"[litestream-sync] in sync (2 database(s)); no change"). It installed
+/usr/local/bin/litestream-sync.sh + dg-litestream-sync.{service,timer},
+re-rendered /etc/litestream.yml via the sync script (same 2 databases,
+sidecar not restarted -- no coverage change), and the only-copy check
+printed "only-copy verified: /etc/dg/litestream.env". One pre-existing
+installer bug was found and fixed on the way: step 3b's `python3 -c
+'<multiline>'` over ssh never survived ssh argv-joining (the remote
+shell executed the Python lines); the program now streams via stdin
+(`python3 -`), plus a missing `import sys`.
+
+dg-litestream-sync.timer enabled (5-minute cadence). Live drill, no
+manual sync trigger at any point:
+
+1. `dg create a2_scratch` + one marker row. Immediately afterwards,
+   `litestream-sync.sh --check` on the host exited 1:
+   "litestream-coverage db=a2_scratch state=missing" -- the A2 gap,
+   now visible instead of silent.
+2. The timer closed it on its own: a2_scratch appeared in
+   /etc/litestream.yml within ~90s of polling; --check passed with
+   all three databases covered; `litestream status` showed
+   a2_scratch ok (the sidecar restarted onto the re-rendered config).
+3. Bucket proof: `litestream restore` of a2_scratch on the host
+   returned [(1, 'a2-live-marker')] exactly, integrity_check ok,
+   first attempt.
+4. `dg delete a2_scratch --confirm a2_scratch`: the timer removed it
+   from the config within ~170s of polling; --check passes,
+   litestream status back to the original 2 databases, both ok.
+5. Final DG_AUDIT_TARGET=micro2 scripts/host-audit.sh: verdict pass,
+   litestream_coverage {"status":"pass","covered":2}.
+
+Residue, disclosed: the a2_scratch/ replica prefix (a few KB of LTX
+from one scratch row) remains in the bucket. There is no boto3/aws CLI
+on micro2, and deleting it from the workstation would mean copying the
+production secret off the host, which the only-copy rule forbids. It
+ages out under bucket lifecycle policy (retention policy itself is A5).
