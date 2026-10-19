@@ -5,8 +5,9 @@
 #   systemctl daemon-reload && systemctl enable --now dg-alerts.timer
 # Every 15 minutes: disk and replication lag are the two failures
 # that get worse while nobody looks, and a quarter-hour detection
-# bound is well inside both floors (15% disk, 900s WAL lag is the
-# *staleness* threshold the check itself applies to WAL mtimes).
+# bound is well inside both floors (15% free disk; a WAL that grows
+# past the 64 MiB ceiling means litestream checkpointing is stuck
+# behind it — WAL *age* alone proves nothing for idle databases).
 
 [Unit]
 Description=15-minute DB Gateway disk + lag alerts
