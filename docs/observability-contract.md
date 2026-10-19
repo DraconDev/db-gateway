@@ -76,9 +76,11 @@ Minimum future alerts are:
 2. disk/inode headroom below the accepted operating floor. **Delivered
    2026-10-19 (audit A8)** — `scripts/dg-alerts.sh` (disk check:
    free bytes/inodes vs floor; lag check: sidecar active, replica
-   coverage, WAL staleness proxy) on `dg-alerts.timer` (15 min),
+   coverage, `litestream status` all-ok, WAL size ceiling) on
+   `dg-alerts.timer` (15 min),
    journal-delivered like the digest. Failure drills: forced disk
-   floor and aged-WAL sandbox both fire; healthy inputs stay silent
+   floor, oversized-WAL sandbox, and an error-row `litestream
+   status` stub all fire; healthy inputs stay silent
    (`docs/audit-2026-10-19.md` A8 record). The Litestream-lag half of
    this alert is new with it — previously only freshness (§2/§3a)
    existed, nothing watched the sidecar itself;
