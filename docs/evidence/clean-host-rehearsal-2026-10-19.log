@@ -328,3 +328,33 @@ step 4: destroying host A (the container is removed: data dir, backup root, regi
 
 step 5: host B — a replacement clean host restoring from the off-host artifact
   starting host B as 'dg-clean-b'
+  host B booted systemd (running)
+[phase] === DISASTER RECOVERY on a replacement host ===
+[phase] asserting the host carries nothing of the project
+[phase] PASS the host is clean (no binary, no data dir, no service user, no unit)
+[phase] step 1: install the release bundle
+dg: OK
+README.md: OK
+LICENSE: OK
+docs/api.md: OK
+docs/architecture.md: OK
+deploy/dg.service: OK
+BUILD-INFO.txt: OK
+dg 0.2.0
+[phase] PASS bundle verified on the host and the gateway installed at /usr/local/bin/dg
+[phase] step 2: create the dedicated unprivileged service user
+[phase] PASS service user dg created
+[phase] step 3: create the data directory (service user, mode 0700)
+[phase] PASS data directory /var/lib/dg created
+[phase] step 4: mint the owner credential once, into a mode-0600 file
+dg init: the owner key is on stdout and is shown only once -- redirect it to a mode-0600 file (e.g. `dg init --data-dir DIR > ~/.config/dg/key`) and clear your scrollback.
+[phase] PASS owner credential minted into /etc/dg/owner.key (600 dg:dg 65 bytes, contents withheld)
+[phase] step 5: install the service template with the placeholders substituted
+Configuration file /etc/systemd/system/dg.service is marked world-writable. Please remove world writability permission bits. Proceeding anyway.
+[phase] PASS unit rendered and verified (no placeholders left)
+[phase] step 6: daemon-reload, enable and start
+Created symlink /etc/systemd/system/multi-user.target.wants/dg.service → /etc/systemd/system/dg.service.
+[phase] PASS dg.service is enabled and active
+[phase] provisioning an empty target
+{"timestamp":"2026-10-19T19:45:50.103735Z","level":"ERROR","fields":{"message":"command failed","code":"already_bootstrapped","detail":"already_bootstrapped: owner already exists"},"target":"dg"}
+[phase] FAIL: cannot provision the empty target
