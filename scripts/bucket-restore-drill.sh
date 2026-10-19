@@ -47,6 +47,9 @@ SCRATCH_PARENT="${DG_DRILL_SCRATCH_PARENT:-/var/tmp}"
 [ -x "$DG_BIN" ] || fail "dg binary not executable: $DG_BIN"
 [ -x "$LITESTREAM_BIN" ] || fail "litestream binary not executable: $LITESTREAM_BIN"
 [ -r "$LITESTREAM_CONFIG" ] || fail "litestream config not readable: $LITESTREAM_CONFIG"
+# ENV_FILE is an operator-nominated path by design (default
+# /etc/dg/litestream.env); there is no constant source to follow.
+# shellcheck disable=SC1090
 if [ -r "$ENV_FILE" ]; then set -a; . "$ENV_FILE"; set +a; fi
 
 SCRATCH="$(mktemp -d "$SCRATCH_PARENT/dg-restore-drill-XXXXXX")" || fail "cannot create scratch dir under $SCRATCH_PARENT"

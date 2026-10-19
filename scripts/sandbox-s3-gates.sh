@@ -45,7 +45,6 @@ else
 fi
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT=""
-FROM_S3=0
 DG_BIN="${DG_BIN:-$REPO/.cargo/target/debug/dg}"
 
 usage() {
@@ -74,7 +73,7 @@ USAGE
 while [ $# -gt 0 ]; do
     case "$1" in
         --out) OUT="${2:?--out needs a value}"; shift 2;;
-        --from-s3) FROM_S3=1; shift;;
+        --from-s3) shift;;
         -h|--help) usage; exit 0;;
         *) echo "unknown flag: $1" >&2; usage; exit 2;;
     esac
@@ -152,7 +151,7 @@ CREATE_BUCKET="${DG_SANDBOX_CREATE_BUCKET:-1}"
 # this packet writes to. Cheap to check, and the packet's whole claim is that
 # it touches nothing else.
 case "$BUCKET" in
-    *prod*|*production*|*live*) echo "refusing: bucket name '$BUCKET' looks like a production bucket" >&2; exit 2;;
+    *prod*|*live*) echo "refusing: bucket name '$BUCKET' looks like a production bucket" >&2; exit 2;;
 esac
 
 LITESTREAM="$PIN_ROOT/litestream"
@@ -921,7 +920,6 @@ else
     G5_MID_RC="$(g5_restore mid -txid "$G5_LTX_MID")"
     G5_MID_DIGEST="$(g5_digest "$G5_ROOT/out-mid.sqlite")"
     G5_MID_INTEGRITY="$(G5_INTEGRITY "$G5_ROOT/out-mid.sqlite")"
-    G5_MID_ROWS="${G5_MID_DIGEST%%|*}"
     # Three things, not one. A restore that returned everything would mean the
     # -txid was ignored. A restore that returned nothing would mean the point
     # was the empty database. And a restore that returned SOME earlier state
@@ -960,7 +958,6 @@ if [ -n "$G5_PIT_TARGET" ]; then
     G5_PIT_RC="$(g5_restore pit -timestamp "$G5_PIT_TARGET")"
     G5_PIT_DIGEST="$(g5_digest "$G5_ROOT/out-pit.sqlite")"
     G5_PIT_INTEGRITY="$(G5_INTEGRITY "$G5_ROOT/out-pit.sqlite")"
-    G5_PIT_ROWS="${G5_PIT_DIGEST%%|*}"
     # The same three things as -txid, and against the same captured content.
     # The 30/70 bounds that used to stand here encoded this run's batch sizes,
     # which is the wrong kind of check: a different-sized database would fail a
@@ -2038,7 +2035,6 @@ G9_ROOT="$SANDBOX/gate9"
 mkdir -p "$G9_ROOT"
 G9_LIMIT="${DG_SANDBOX_MEMORY_LIMIT:-1G}"
 G9_SRC="$G9_ROOT/heavy.sqlite"
-G9_BUDGET="$REPO/docs/resource-budget.md"
 
 # Parse the limit once, to bytes. The percentage in the report is computed from
 # it, so getting this wrong would make a 1 MiB budget read as 100000% of budget
@@ -2220,7 +2216,7 @@ fi
 # result and is labelled that way.
 run_constrained() {
     # $1 = description, rest = command
-    local desc="$1"; shift
+    shift
     if [ "$G9_CGROUP_RAN" = "1" ]; then
         timeout 900 "${G9_PREFIX[@]}" "$@" 2>&1 || true
     else
@@ -2267,14 +2263,12 @@ dbs:
       url: s3://$BUCKET/sbx/g9?endpoint=$UPSTREAM_SCHEME://$ENDPOINT&region=$REGION
 EOF
 
-G9_MEMEVENTS=""
 
 
 "$LITESTREAM" replicate -config "$G9_CFG" > "$G9_ROOT/replicate.log" 2>&1 &
 G9_PID=$!
 track_daemon G9_PID
 sleep 6
-G9_REPL_PID_RSS="$(rss_of "$G9_PID")"
 G9_REPL_PID_CPU="$(cpu_ticks_of "$G9_PID")"
 # Peak RSS of the process, sampled across the replication window; the series is
 # kept as evidence of what the shape looked like over time, and VmHWM below is
@@ -2289,7 +2283,7 @@ c.execute('INSERT INTO ledger(note, amount) VALUES (?, 1)', ('live',));c.commit(
 done
 G9_HWM="$(hwm_of "$G9_PID")"
 G9_HWM="${G9_HWM:-0}"
-G9_MAX_RSS="$(printf '%s\n' $G9_SAMPLES | tr ' ' '\n' | grep -E '^[0-9]+$' | sort -n | tail -1)"
+G9_MAX_RSS="$(printf '%s\n' "$G9_SAMPLES" | tr ' ' '\n' | grep -E '^[0-9]+$' | sort -n | tail -1)"
 G9_MAX_RSS="${G9_MAX_RSS:-0}"
 # The sampled maximum can never exceed the kernel's high-water mark; taking the
 # larger of the two guards against a sample series that outlived the process.
@@ -2352,7 +2346,6 @@ print(f"{resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss} {rc}")
 PY
 )"
 G9_RESTORE_RSS="$(printf '%s' "$G9_RESTORE_RAW" | cut -d' ' -f1)"
-G9_RESTORE_RC="$(printf '%s' "$G9_RESTORE_RAW" | cut -s -d' ' -f2)"
 G9_RESTORE_MS=$(( ( $(date +%s%N) - G9_RESTORE_START ) / 1000000 ))
 G9_RESTORE_ROWS="$(python3 - "$G9_OUT" <<'PY'
 import sqlite3, sys
@@ -2518,7 +2511,6 @@ dbs:
       sse-customer-key: $(head -c 32 /dev/urandom | base64)
 EOF
 timeout 20 "$LITESTREAM" replicate -config "$G10_ROOT/with-customer-key.yml" > "$G10_ROOT/with-key.log" 2>&1 || true
-G10_KEY_STARTED=$?
 G10_KEY_ERROR="$(grep -m1 -iE 'Error|error=' "$G10_ROOT/with-key.log" 2>/dev/null | cut -c1-200 || true)"
 # WHAT LITESTREAM ACTUALLY PUT ON THE WIRE, read out of the proxy's own log of
 # the requests it signed and forwarded.
@@ -2717,8 +2709,6 @@ fi
 # gate passes on.
 G10_ENCRYPTED_PROVEN=0
 [ "${G10_CANARY_VERDICT:-}" = "ENFORCED" ] && G10_ENCRYPTED_PROVEN=1
-G10_ENCRYPTED_CLAIMED=0
-[ "$G10_SSE_SEEN" = "1" ] && [ "$G10_ENCRYPTED_PROVEN" = "0" ] && G10_ENCRYPTED_CLAIMED=1
 if [ "$G10_ROWS" = "100" ]; then
     if [ "$G10_ENCRYPTED_PROVEN" = "1" ]; then
         record 10 PASS "a canary written with SSE-C was refused on read-back WITHOUT the customer key, which is proof the stored bytes are ciphertext rather than a claim from a header; and a restore with the sandbox key returned all 100 rows" \
@@ -2973,12 +2963,10 @@ record 11 "$G11_VERDICT" "$G11_WHY" \
 # objects and saying so is not the same as proving nothing is left, so this
 # lists what is left after deleting.
 # --------------------------------------------------------------------------
-G12_CLEANUP_NOTE=""
 if [ "${DG_SANDBOX_SKIP_CLEANUP:-0}" = "1" ]; then
     record 12 BLOCKED "cleanup skipped on request (DG_SANDBOX_SKIP_CLEANUP=1): the test objects were left in place" \
         "bucket: $BUCKET   prefix: sbx/" \
         "delete them with: DG_SANDBOX_BUCKET=$BUCKET scripts/s3probe.py delete-everything"
-    GATE12_SKIPPED=1
 else
     G12_DEL="$("${S3PROBE[@]}" delete-everything 2>&1 || true)"
     # Residue is re-measured through BOTH enumerations the service supports:
@@ -3029,7 +3017,7 @@ print("yes" if st in (404, "404") else ("unknown" if st is None else f"no (HTTP 
         echo "  litestream config, keys and logs all lived inside it"
         echo "  no credential was written outside $SANDBOX"
     } >> "$OUT"
-    if [ "${G12_REMAIN:-1}" = "0" ] && { [ "$G12_ABSENT" = "yes" ] || [ "$G12_BUCKET_GONE" = "yes"* ]; }; then
+    if [ "${G12_REMAIN:-1}" = "0" ] && { [ "$G12_ABSENT" = "yes" ] || [[ $G12_BUCKET_GONE == yes* ]]; }; then
         record 12 PASS "every test object and version deleted (${G12_DELETED:-?} deleted, ${G12_REMAIN:-?} remaining) and the bucket no longer answers: $G12_ABSENT" \
             "delete: $G12_DEL" \
             "delete-bucket: $G12_BUCKET_DEL" \
@@ -3059,7 +3047,6 @@ print("yes" if st in (404, "404") else ("unknown" if st is None else f"no (HTTP 
             "delete-bucket: $G12_BUCKET_DEL" \
             "local sandbox $SANDBOX is ${SANDBOX_OWNER_TEXT}"
     fi
-    GATE12_SKIPPED=0
 fi
 
 # --------------------------------------------------------------------------

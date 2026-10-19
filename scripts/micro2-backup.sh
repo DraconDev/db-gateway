@@ -367,7 +367,7 @@ STEP="prune"
 mapfile -t SETS < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
   | awk '/^[0-9]{8}T[0-9]{6}Z$/' | sort -r)
 for ((index = KEEP; index < ${#SETS[@]}; index++)); do
-  rm -rf -- "$BACKUP_ROOT/${SETS[$index]}"
+  rm -rf -- "${BACKUP_ROOT:?}/${SETS[$index]}"
 done
 OUTCOME="ok"
 echo "backup set: $DEST (kept latest $KEEP)" >&2

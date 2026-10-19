@@ -48,7 +48,6 @@ CHECKSUMS_URL="https://github.com/benbjohnson/litestream/releases/download/v${VE
 LOCAL_TARBALL="${DG_LITESTREAM_TARBALL:-}"
 CONFIG_PATH="/etc/litestream.yml"
 ENV_PATH="/etc/dg/litestream.env"
-DATA_DIR="/var/lib/dg"
 INSTALL_PATH="/usr/local/bin/litestream"
 TEMPLATE="${ROOT}/deploy/litestream.yml"
 

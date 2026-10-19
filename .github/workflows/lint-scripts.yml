@@ -1,0 +1,35 @@
+name: Script lint
+on:
+  push:
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/lint-scripts.yml'
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/lint-scripts.yml'
+permissions:
+  contents: read
+jobs:
+  lint-scripts:
+    # Every tracked script is linted, not a hardcoded subset: the linter
+    # enumerates `git ls-files scripts/`, so a new script is covered the
+    # day it lands. (This supersedes lint-packet.yml, whose seven-file
+    # paths filter is exactly how the other twenty-odd ops scripts spent
+    # months unlinted -- see A12 in docs/audit-2026-10-19.md.) The paths
+    # filter still keeps unrelated PRs from paying for the check; a PR
+    # that touches any script cannot merge green over a lint failure.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install shellcheck
+        run: |
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          fi
+          shellcheck --version
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - run: ./scripts/lint-scripts.sh

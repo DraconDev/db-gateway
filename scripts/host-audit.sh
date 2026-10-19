@@ -470,8 +470,6 @@ PY
             HOST_FAIL="probe JSON could not be parsed (exit $PARSE_RC); raw: $(head -c 200 "$PROBE_OUT_FILE")"
         else
             # Compare dg binary sha and micro2-backup.sh sha against expected
-            ACT_DG_SHA="$(printf '%s' "$PARSED" | python3 -c 'import json,sys;print(json.loads(sys.stdin.read())["dg_binary_sha256"].get("actual",""))')"
-            ACT_BACKUP_SHA="$(printf '%s' "$PARSED" | python3 -c 'import json,sys;print(json.loads(sys.stdin.read())["micro2_backup_script_sha256"].get("actual",""))')"
             # Always stamp the expected value when the bundle is nominated,
             # so the auditor can see what was expected even on a passing check.
             if [ -n "$EXPECTED_DG_SHA256" ]; then

@@ -63,7 +63,6 @@
 # exactly."
 
 set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SELF="litestream-restore"
 fail() { echo "[$SELF] FAIL: $*" >&2; exit 1; }
 log() { echo "[$SELF] $*" >&2; }
@@ -126,6 +125,10 @@ log "checking ${ENV_PATH} and LITESTREAM_S3_BUCKET on ${TARGET} (as dg)"
 # unquoted heredoc expands ${ENV_PATH} locally and keeps the dollar of the
 # remote variable literal, so the credential value is read on the host by
 # the dg user only and never crosses into the command line.
+# The unquoted heredoc is the mechanism, per the comment above:
+# ${ENV_PATH} expands locally, \$LITESTREAM_S3_BUCKET stays literal
+# for the remote side.
+# shellcheck disable=SC2087
 BUCKET=$(ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" 'sudo -n -u dg bash -s' <<REMOTE 2>/dev/null
 set -a; . ${ENV_PATH}; printf %s "\$LITESTREAM_S3_BUCKET"
 REMOTE
@@ -139,7 +142,8 @@ mapfile -t DBS < <(ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" \
 
 # --- 1. prepare a clean restore target (operator host, mode 0700). -----
 rm -rf "$OUT_DIR"
-mkdir -m 0700 -p "$OUT_DIR"
+mkdir -p "$OUT_DIR"
+chmod 0700 "$OUT_DIR"
 log "restore output directory: ${OUT_DIR} (local; scratch on micro2: ${REMOTE_OUT})"
 
 # --- 2. for each live db, restore on micro2, pull back, compare. -------
