@@ -26,6 +26,9 @@ Wants=dg.service
 
 [Service]
 Type=oneshot
+# Pin the dg path: the script runs `dg list` as the dg user via sudo,
+# and sudo's secure_path is not something to depend on for /usr/local/bin.
+Environment=DG_BIN=/usr/local/bin/dg
 ExecStart=/usr/local/bin/litestream-sync.sh
 # Transient oneshot (bash + python3 + one loopback dg CLI call); capped
 # well above its working set so a pathological run cannot pressure the
