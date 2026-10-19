@@ -51,7 +51,7 @@ log "checking placeholders are documented"
 # Every service template's placeholders must be documented, not just
 # dg.service's: the backup units (deploy/dg-backup.service,
 # dg-backup-digest.service) are installed from the same guide.
-placeholders="$(grep -h -o '{{[A-Z_]*}}' "$UNIT" "$ROOT/deploy/dg-backup.service" "$ROOT/deploy/dg-backup-digest.service" | sort -u)"
+placeholders="$(grep -h -o '{{[A-Z_]*}}' "$UNIT" "$ROOT/deploy/dg-backup.service" "$ROOT/deploy/dg-backup-digest.service" "$ROOT/deploy/dg-restore-drill.service" | sort -u)"
 [ -n "$placeholders" ] || fail "no placeholders found; template must not hardcode target values"
 while read -r placeholder; do
     grep -qF "\`$placeholder\`" "$GUIDE" \
@@ -383,7 +383,14 @@ if command -v systemd-analyze >/dev/null 2>&1; then
             "$ROOT/deploy/$u" >"$tmp/$u"
     done
     cp "$ROOT/deploy/dg-backup.timer" "$ROOT/deploy/dg-backup-digest.timer" "$tmp/"
-    if systemd-analyze verify "$tmp/dg.service" "$tmp/dg-litestream-sync.service" "$tmp/dg-litestream-sync.timer" "$tmp/dg-backup.service" "$tmp/dg-backup.timer" "$tmp/dg-backup-digest.service" "$tmp/dg-backup-digest.timer" 2>"$tmp/verify.log"; then
+    sed -e "s|{{DG_USER}}|$(id -un)|g" \
+        -e "s|{{DG_BINARY}}|$TARGET_DIR/debug/dg|g" \
+        -e "s|{{DG_DATA_DIR}}|$tmp/data|g" \
+        -e "s|{{DG_RESTORE_DRILL_SCRIPT}}|$ROOT/scripts/bucket-restore-drill.sh|g" \
+        -e "s|{{DG_OWNER_KEY_FILE}}|$tmp/owner.key|g" \
+        "$ROOT/deploy/dg-restore-drill.service" >"$tmp/dg-restore-drill.service"
+    cp "$ROOT/deploy/dg-restore-drill.timer" "$tmp/"
+    if systemd-analyze verify "$tmp/dg.service" "$tmp/dg-litestream-sync.service" "$tmp/dg-litestream-sync.timer" "$tmp/dg-backup.service" "$tmp/dg-backup.timer" "$tmp/dg-backup-digest.service" "$tmp/dg-backup-digest.timer" "$tmp/dg-restore-drill.service" "$tmp/dg-restore-drill.timer" 2>"$tmp/verify.log"; then
         log "systemd-analyze verify: clean"
     else
         cat "$tmp/verify.log" >&2

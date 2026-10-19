@@ -1,0 +1,19 @@
+# Weekly timer for dg-restore-drill.service (non-installing template).
+#
+# Copy to /etc/systemd/system/dg-restore-drill.timer on the target host
+# alongside dg-restore-drill.service, then
+#   systemctl daemon-reload && systemctl enable --now dg-restore-drill.timer
+# Weekly on Sunday at 05:30 UTC -- clear of the hourly :17 producer
+# slot and the 06:45 daily digest, so a failing drill and a stale
+# digest never mask each other. Persistent=true catches up a missed
+# week after downtime instead of silently skipping the proof.
+
+[Unit]
+Description=Weekly DB Gateway bucket restore drill
+
+[Timer]
+OnCalendar=Sun *-*-* 05:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

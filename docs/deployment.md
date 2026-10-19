@@ -75,6 +75,8 @@ placeholders for future/repeated deployments.
 | `{{DG_LISTEN}}` | Listen address; must stay loopback | Default `127.0.0.1:7432`; any change must remain a loopback address or `dg serve` refuses to start |
 | `{{DG_BACKUP_ROOT}}` | Versioned backup-set root the hourly producer publishes into (also `dg-backup.service`/`dg-backup-digest.service` `WorkingDirectory=`) | **Unresolved** — target layout decision (e.g. `/var/lib/dg-backups`) |
 | `{{DG_BACKUP_SCRIPT}}` | Absolute path of the installed hourly backup producer (`scripts/micro2-backup.sh` on the reference host) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/micro2-backup.sh`) |
+| `{{DG_RESTORE_DRILL_SCRIPT}}` | Absolute path of the installed weekly bucket restore drill (`scripts/bucket-restore-drill.sh`) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/bucket-restore-drill.sh`) |
+| `{{DG_OWNER_KEY_FILE}}` | Absolute path of the mode-0600 owner credential file the drill reads (never its contents) | **Unresolved** — target layout decision (e.g. `/etc/dg/owner.key`) |
 
 The backup units (`deploy/dg-backup.{service,timer}` hourly producer,
 `deploy/dg-backup-digest.{service,timer}` daily digest) are templates in

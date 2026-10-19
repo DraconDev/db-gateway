@@ -1,0 +1,31 @@
+# Weekly off-host restore drill (non-installing template).
+#
+# Copy to /etc/systemd/system/dg-restore-drill.service on the target
+# host, replace every braced placeholder, then
+#   systemctl daemon-reload
+# Nothing in this repository installs, enables, or starts this unit.
+#
+# Runs scripts/bucket-restore-drill.sh (installed on the host as
+# {{DG_RESTORE_DRILL_SCRIPT}}): restores every live database plus the
+# registry from their litestream replicas into a disposable target and
+# verifies integrity + per-table row counts against the live gateway.
+# This is the cadence proof docs/recovery-policy.md requires -- a
+# backup whose restore is never rehearsed is an assumption, and a
+# failing drill is how a broken bucket copy is discovered while the
+# host is still healthy. Runs as the dg user: the owner key and the
+# bucket credentials are read from their existing 0600 files, never
+# from this unit.
+
+[Unit]
+Description=DB Gateway weekly bucket restore drill
+After=dg.service dg-litestream.service
+
+[Service]
+Type=oneshot
+User={{DG_USER}}
+Group={{DG_USER}}
+Environment=DG_BIN={{DG_BINARY}}
+Environment=DG_KEY_FILE={{DG_OWNER_KEY_FILE}}
+Environment=DG_DATA_DIR={{DG_DATA_DIR}}
+ExecStart={{DG_RESTORE_DRILL_SCRIPT}}
+NoNewPrivileges=true
