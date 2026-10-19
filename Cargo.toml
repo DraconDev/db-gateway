@@ -1,5 +1,5 @@
 [workspace]
-members = ["."]
+members = [".", "crates/dg-client"]
 resolver = "3"
 
 [package]
@@ -29,5 +29,6 @@ tracing-subscriber = { version = "0.3", features = ["json"] }
 debug = 0
 
 [dev-dependencies]
+dg-client = { path = "crates/dg-client" }
 reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "json", "rustls"] }
 tower = { version = "0.5", features = ["util"] }
