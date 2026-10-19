@@ -21,7 +21,8 @@ After=dg.service dg-litestream.service
 Type=oneshot
 User={{DG_USER}}
 Group={{DG_USER}}
-Environment=DG_SAMPLE_UNITS=dg.service dg-litestream.service
-Environment=DG_SAMPLE_PATHS=data={{DG_DATA_DIR}} backups={{DG_BACKUP_ROOT}}
+SupplementaryGroups=systemd-journal
+Environment="DG_SAMPLE_UNITS=dg.service dg-litestream.service"
+Environment="DG_SAMPLE_PATHS=data={{DG_DATA_DIR}} backups={{DG_BACKUP_ROOT}}"
 ExecStart={{DG_RESOURCE_SAMPLE_SCRIPT}} --out {{DG_DATA_DIR}}/resource-samples.jsonl
 NoNewPrivileges=true
