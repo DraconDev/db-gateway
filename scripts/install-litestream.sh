@@ -137,84 +137,28 @@ else
   log "installed $(ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" "${INSTALL_PATH} version" 2>/dev/null | head -1)"
 fi
 
-# --- 2. Render /etc/litestream.yml from the template and the env file. ---
-log "rendering ${CONFIG_PATH} from the template"
-# The whole render runs as root: /etc/dg is mode 0750 root:dg, so the ssh
-# login user cannot even traverse into it, and /var/lib/dg is 0700 dg:dg.
-# Reading the values under sudo -n keeps the single copy of the secret on
-# the host authoritative. The values are read with a regex-anchored parse
-# rather than `eval`, so a secret containing shell metacharacters cannot
-# execute or misparse; and they are never echoed -- the template's own
-# ${VAR} references are left intact in the rendered file, which is what
-# litestream expands from the sidecar's own environment.
-ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" sudo -n bash -s <<'REMOTE'
-set -euo pipefail
-ENV=/etc/dg/litestream.env
-CONFIG=/etc/litestream.yml
-DATA=/var/lib/dg
-[ -r "$ENV" ] || { echo "env not readable by root" >&2; exit 2; }
-
-# Anchored, non-eval parse. Only the five exact keys are accepted; any
-# other line in the env file is ignored, so the parse cannot be poisoned
-# by an unrelated export.
-KID=$(sed -n 's/^LITESTREAM_S3_ACCESS_KEY_ID=\(.*\)$/\1/p' "$ENV")
-SEC=$(sed -n 's/^LITESTREAM_S3_SECRET_ACCESS_KEY=\(.*\)$/\1/p' "$ENV")
-BUC=$(sed -n 's/^LITESTREAM_S3_BUCKET=\(.*\)$/\1/p' "$ENV")
-END=$(sed -n 's/^LITESTREAM_S3_ENDPOINT=\(.*\)$/\1/p' "$ENV")
-REG=$(sed -n 's/^LITESTREAM_S3_REGION=\(.*\)$/\1/p' "$ENV")
-[ -n "$KID" ]  || { echo "LITESTREAM_S3_ACCESS_KEY_ID missing/empty" >&2; exit 2; }
-[ -n "$SEC" ]  || { echo "LITESTREAM_S3_SECRET_ACCESS_KEY missing/empty" >&2; exit 2; }
-[ -n "$BUC" ]  || { echo "LITESTREAM_S3_BUCKET missing/empty" >&2; exit 2; }
-[ -n "$END" ]  || { echo "LITESTREAM_S3_ENDPOINT missing/empty" >&2; exit 2; }
-[ -n "$REG" ]  || { echo "LITESTREAM_S3_REGION missing/empty" >&2; exit 2; }
-
-# Live databases under the data root, skipping SQLite's -shm / -wal
-# sidecar files (which travel with the main file and are not databases)
-# and skipping the REGISTRY itself. metadata.sqlite is the gateway's own
-# registry, owned by the running gateway and written by it in WAL mode;
-# replicating a database another process is actively writing would hand
-# litestream a file it must not checkpoint, and the registry is already
-# protected on-host by the hourly backup set. The dollar-paren keeps this
-# a glob under bash (not sh), which is why the render runs under bash.
-shopt -s nullglob
-DBS=("$DATA"/verify_*.sqlite "$DATA"/*.sqlite)
-# Filter to the registered, live databases: ask the gateway itself, so a
-# tombstoned or unregistered leftover file is never replicated. The dg
-# CLI needs the owner credential (mode 0600 dg:dg) -- as the dg user.
-LIVE="$(sudo -n -u dg /usr/local/bin/dg --key-file /etc/dg/owner.key list 2>/dev/null \
-  | sed -n 's/.*"databases":\[\(.*\)\].*/\1/p' | tr -d '" ' | tr ',' ' ')"
-[ -n "$LIVE" ] || { echo "no registered live databases (dg list returned none)" >&2; exit 3; }
-KEEP=()
-for name in $LIVE; do
-  [ -f "$DATA/${name}.sqlite" ] && KEEP+=("$DATA/${name}.sqlite")
-done
-[ "${#KEEP[@]}" -gt 0 ] || { echo "none of the registered databases has a .sqlite file under $DATA" >&2; exit 3; }
-DBS=("${KEEP[@]}")
-
-# Write atomically as the dg user, mode 0600, so a partial render never
-# leaves a config the sidecar could read. The rendered file keeps the
-# ${...} env references rather than inlining the secret: the sidecar's
-# environment is populated from /etc/dg/litestream.env by systemd at
-# start, so the credential exists on disk in exactly one place.
-TMP=$(mktemp /etc/litestream.yml.XXXXXX)
-{
-  echo "dbs:"
-  for db in "${DBS[@]}"; do
-    name=$(basename "$db" .sqlite)
-    echo "  - path: ${db}"
-    echo "    replicas:"
-    echo "      - url: s3://${BUC}/${name}?endpoint=${END}"
-    echo "        region: ${REG}"
-    echo "        access-key-id: \${LITESTREAM_S3_ACCESS_KEY_ID}"
-    echo "        secret-access-key: \${LITESTREAM_S3_SECRET_ACCESS_KEY}"
-    echo "        force-path-style: true"
-  done
-} > "$TMP"
-chmod 0600 "$TMP"
-chown dg:dg "$TMP"
-mv -f "$TMP" "$CONFIG"
-echo "rendered ${#DBS[@]} db(s) into $CONFIG" >&2
-REMOTE
+# --- 2. Install the sync script and render /etc/litestream.yml with it. -
+# The render logic (env parse, live-database filter, atomic 0600 write)
+# used to live inline here; it now lives only in
+# scripts/litestream-sync.sh, which the dg-litestream-sync timer re-runs
+# every five minutes on the host. Duplicating the render here would let
+# the install-time config and the timer's config drift apart -- the exact
+# failure A2 was about. LITESTREAM_RESTART_CMD is emptied for this first
+# render: the sidecar is not running yet and this script never starts it.
+log "installing scripts/litestream-sync.sh to /usr/local/bin/ and rendering ${CONFIG_PATH}"
+MICRO2_HOST=$(ssh -G "$TARGET" 2>/dev/null | awk '/^hostname /{print $2; exit}')
+MICRO2_KEY="${MICRO2_SSH_KEY:-$HOME/.ssh/micro2.key}"
+[ -r "$MICRO2_KEY" ] || fail "cannot read the ssh key $MICRO2_KEY (set MICRO2_SSH_KEY to your micro2 key)"
+scp -o BatchMode=yes -q -i "$MICRO2_KEY" \
+  "$ROOT/scripts/litestream-sync.sh" "ubuntu@${MICRO2_HOST}:/tmp/litestream-sync.sh" \
+  || fail "scp of the sync script to ${MICRO2_HOST} failed"
+ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
+  "sudo install -m 0755 /tmp/litestream-sync.sh /usr/local/bin/litestream-sync.sh && sudo rm /tmp/litestream-sync.sh" \
+  || fail "installing the sync script on ${TARGET} failed"
+ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
+  "sudo -n env DG_BIN=/usr/local/bin/dg LITESTREAM_RESTART_CMD= /usr/local/bin/litestream-sync.sh" \
+  || fail "rendering ${CONFIG_PATH} via litestream-sync.sh failed"
+log "rendered ${CONFIG_PATH} via litestream-sync.sh"
 
 # --- 3. Install the systemd unit. ---
 log "copying deploy/dg-litestream.service to /etc/systemd/system/"
