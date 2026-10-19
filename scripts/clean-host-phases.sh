@@ -22,7 +22,8 @@
 #
 # Inputs, all inside the container:
 #   /root/bundle            the release bundle (dg, SHA256SUMS, deploy/dg.service)
-#   /root/micro2-backup.sh  the canonical backup producer
+#   /usr/local/bin/micro2-backup.sh  the canonical backup producer, at the
+#                           path the deployment guide installs it at
 #   /offhost                the off-host artifact directory (a bind mount
 #                           from outside this host, so it survives the loss
 #                           of the host itself)
@@ -97,8 +98,8 @@ assert_eq() {
 }
 
 wait_for_service() {
-    local i
-    for i in $(seq 1 60); do
+    local _
+    for _ in $(seq 1 60); do
         if systemctl is-active --quiet dg.service; then
             return 0
         fi
@@ -224,7 +225,7 @@ assert_first_deploy() {
 publish_backup() {
     log "publishing a backup set with the canonical producer"
     install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$BACKUP_ROOT" || fail "cannot create the backup root"
-    as_user env DG_BIN="$BINARY" bash /root/micro2-backup.sh \
+    as_user env DG_BIN="$BINARY" bash /usr/local/bin/micro2-backup.sh \
         --server "$SERVER" \
         --key-file "$KEY_FILE" \
         --data-dir "$DATA_DIR" \

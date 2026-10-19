@@ -167,6 +167,14 @@ chmod 755 "$OUT/dg"
 cp "$ROOT/README.md" "$ROOT/LICENSE" "$OUT/"
 mkdir -p "$OUT/docs"
 cp "$ROOT/docs/api.md" "$ROOT/docs/architecture.md" "$OUT/docs/"
+# The service template travels with the bundle. It used to stay in the
+# repository, which meant a clean host could not be deployed from the bundle
+# alone: the documented procedure (docs/deployment.md step 6) needs
+# deploy/dg.service, and the bundle is what an operator copies to a new
+# host. The A16 clean-host rehearsal found this by trying to install the
+# service from the bundle and finding the template missing.
+mkdir -p "$OUT/deploy"
+cp "$ROOT/deploy/dg.service" "$OUT/deploy/dg.service"
 
 if [ "$RELEASE_TARGET" = "micro2" ]; then
     IFS='|' read -r BUILDER_IMAGE_RECORDED BUILDER_GLIBC_RECORDED BUILDER_HOST_RECORDED \
@@ -199,6 +207,6 @@ note: $ABI_NOTE
 EOF
 
 log "generating checksums"
-(cd "$OUT" && sha256sum dg README.md LICENSE docs/api.md docs/architecture.md BUILD-INFO.txt >SHA256SUMS)
+(cd "$OUT" && sha256sum dg README.md LICENSE docs/api.md docs/architecture.md deploy/dg.service BUILD-INFO.txt >SHA256SUMS)
 
 printf '%s\n' "$OUT"

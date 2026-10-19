@@ -1,0 +1,17 @@
+=== clean-host rehearsal — first deploy and disaster recovery ===
+date (UTC):        2026-10-19T19:43:32Z
+repo:              /home/dracon/Dev/db-gateway
+container engine:  docker
+pinned target img: docker.io/library/ubuntu@sha256:496754492fb28b4d3049432f2ca787449331e23fb14f0dd3fffea86bf5a93eb4
+git HEAD:          450eb64
+
+step 1: building the release bundle the documented way (container-built, ABI verified)
+[release-bundle] verifying pinned builder docker.io/library/ubuntu@sha256:496754492fb28b4d3049432f2ca787449331e23fb14f0dd3fffea86bf5a93eb4 with docker
+[release-bundle] building and smoke-testing release inside the pinned micro2 builder
+debconf: delaying package configuration, since apt-utils is not installed
+info: downloading installer
+info: profile set to minimal
+info: default host tuple is x86_64-unknown-linux-gnu
+info: syncing channel updates for 1.97.1-x86_64-unknown-linux-gnu
+info: latest update on 2026-07-16 for version 1.97.1 (8bab26f4f 2026-07-14)
+info: downloading 3 components
