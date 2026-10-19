@@ -13,7 +13,7 @@ Project: **DB Gateway** · CLI: **`dg`**
 
 A personal, single-owner SQLite database service with a Rust gateway and CLI. Applications remain stateless and connect through the API. One gateway manages many independent databases and development copies.
 
-Deployment target: Oracle **micro2**, an approximately empty **1 GB RAM** server. Live SQLite files reside on persistent local disk; persistent database backups go to the owner's **OVH bucket**. Bucket compatibility and backup behaviour must be verified, not assumed.
+Deployment target: Oracle **micro2**, an approximately empty **1 GB RAM** server. Live SQLite files reside on persistent local disk; persistent database backups go to the owner's **OVH bucket**. Bucket compatibility and backup behaviour must be verified, not assumed (verified live 2026-10-14 — §7).
 
 One owner/admin credential plus database-scoped read-only and read/write application credentials. No multi-organization system, billing, SSO, or hosted/public web dashboard in the initial release. A workstation-local console may complement the CLI through loopback and SSH forwarding; it is not a prerequisite for the core service. Personal scope does not imply relaxed durability or correctness.
 

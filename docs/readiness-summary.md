@@ -1,5 +1,20 @@
 # Readiness summary — local preparation and supervised micro2 evidence
 
+> **Dated snapshot: 2026-09-20 — superseded, kept as evidence.** The gate
+> counts and "explicitly unperformed live work" below describe that date
+> only. Since then (through 2026-10-19): OVH compatibility verified live
+> 12/12 (`sandbox-packet-2026-10-14-ovh.log`); the Litestream sidecar is
+> live on micro2 (`litestream-replication-evidence.log`) with automatic
+> new-database coverage (`litestream-sync-drill-2026-10-19.log`); micro2
+> steady-state resources were sampled by script
+> (`m4-micro2-sampling-2026-10-16.log`); a pilot database has soaked
+> since 2026-10-16 (`pilot-soak-log.md`); the backup watchdog digest is
+> live (`watchdog-2026-10-17.log`); the test baseline is 212 Rust tests
+> (plus 16 client, 39 web). Current status lives in
+> [`TASKS.md`](../TASKS.md), [`deployment-readiness.md`](deployment-readiness.md),
+> and the findings register in [`audit-2026-10-19.md`](audit-2026-10-19.md).
+> Production readiness is **still not accepted**.
+
 Updated: 2026-09-20. This is an evidence-backed summary of completed local
 preparation plus the explicitly authorized supervised micro2 smoke/restore
 deploy. It is **not a claim of production readiness**. The authoritative
@@ -60,7 +75,7 @@ micro2 architecture/disk survey and SSH-tunnel access choice are evidenced for
 the supervised deploy; they do not authorize production migration or future
 live changes.
 
-## Explicitly unperformed live work
+## Explicitly unperformed live work (as of 2026-09-20; see the superseding note above)
 
 - OVH: no bucket survey, no Litestream deployment, no backup/restore to or
   from OVH, no credential or encryption setup.

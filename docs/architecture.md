@@ -26,7 +26,14 @@ The initial host has approximately 1 GB RAM. A single host is not high availabil
 
 Non-goals: billing, organizations, SSO, general enterprise roles, a hosted/public web UI, automatic failover, transparent SQLite/Postgres interchangeability, and guaranteed zero-loss host recovery. A workstation-local console is allowed as a loopback companion to the CLI. Later independent-database placement and ephemeral storage are not M0/M1 requirements.
 
-## M0 implementation decisions
+## M0 implementation decisions (historical — superseded)
+
+> This section records the M0 foundation as it stood then. It is **not**
+> the current system: today the gateway serves the full authenticated
+> API in [`api.md`](api.md) (SQL, lifecycle, keys, backup health), and
+> M1–M3 are delivered — see [`TASKS.md`](../TASKS.md) for the current
+> status ledger. The decisions below still explain the foundation's
+> shape (single workspace, loopback-only, structured logs).
 
 - One Rust package in a workspace exposes a `dg` executable and testable library.
 - Clap parses commands; Tokio runs the network runtime; Axum supplies routing.
@@ -46,10 +53,10 @@ This foundation chooses neither a SQL engine binding nor a client wire protocol.
 | SQL values, integer/blob encoding, error codes and route schemas | **Decided (M1)**: JSON null/bool/number/string/byte-array blobs; stable error codes; `columns`/`rows`/`rows_affected` | Resolved for M1 |
 | Single statements, atomic batches, deadlines and ambiguous writes | **Decided (M1)**: all SQL in managed transactions, 2s deadline with progress-handler interruption, rollback on error | Resolved for M1 |
 | Idempotency support and retention/resource bounds | **Decided (M1)**: `Idempotency-Key` header, 24h retention, 256 keys per principal per database, replay in the same transaction as the write prevents double execution after a lost acknowledgement; no unkeyed write retry | Resolved for M1 |
-| Recovery objectives (RPO/RTO) | Owner decision pending; no interval or downtime guarantee yet | Backup design |
-| OVH compatibility, tool/version, retention and registration lifecycle | Must verify against actual bucket/tool documentation and restore tests | M3 |
+| Recovery objectives (RPO/RTO) | **Working target accepted 2026-09-27 (Profile C): 5-minute RPO, 15-minute RTO, 7 days frequent / 30 daily production / 7 daily development versions (`recovery-decisions.md` §4, §6.1)** — a target, not a guarantee; production acceptance is still pending | Production acceptance |
+| OVH compatibility, tool/version, retention and registration lifecycle | **Verified 2026-10-14: 12/12 sandbox gates PASS against a live OVH bucket** (Litestream 0.5.17 pinned; `sandbox-packet-2026-10-14-ovh.log`); sidecar live on micro2 since 2026-10-15 with automatic new-database coverage since 2026-10-19 (`litestream-sync-drill-2026-10-19.log`). Retention canonicalization across the two backup tiers remains open (audit A5) | Resolved for M3 |
 | SQLite concurrency, connection/cache/queue/result limits | **Decided 2026-10-15 (G1 triage): keep READ_PERMITS=8, WRITE_PERMITS=4, ACQUIRE_TIMEOUT=500ms with the ticket-lock AdmissionQueue (src/store.rs)** — the 2026-10-15 e2e MARGINAL (writer reject 0.015%->0.040% under 10-reader flood) did not reproduce: rerun verdict NO_STARVATION (0.06%->0.00%, 0 flood writer rejections in 6798 attempts, 14451 flood reads served). The ticket lock (admission by ticket order, writer admitted at next reader batch boundary) is the durable fix for the earlier 7.8x polled-RwLock starvation and the sideways writer-preferring flag; absolute reject rates stay <0.1% in both arms, so no permit change is warranted. Revisit only if a future run shows STARVED. | M1 limits; M4 release gate |
-| Host CPU architecture, disk and access transport | Verify actual micro2 configuration with deployment approval | Packaging/deployment |
+| Host CPU architecture, disk and access transport | **Verified**: Ubuntu x86_64, 2 vCPU, glibc 2.39, persistent `/var/lib/dg`; access is loopback + SSH tunnel by decision (no gateway TLS) — `first-deploy-micro2.md`, `deployment-readiness.md` gates 1–3 | Resolved |
 
 ## M1 design constraints
 
