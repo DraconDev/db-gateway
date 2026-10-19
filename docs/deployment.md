@@ -77,6 +77,7 @@ placeholders for future/repeated deployments.
 | `{{DG_BACKUP_SCRIPT}}` | Absolute path of the installed hourly backup producer (`scripts/micro2-backup.sh` on the reference host) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/micro2-backup.sh`) |
 | `{{DG_RESTORE_DRILL_SCRIPT}}` | Absolute path of the installed weekly bucket restore drill (`scripts/bucket-restore-drill.sh`) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/bucket-restore-drill.sh`) |
 | `{{DG_OWNER_KEY_FILE}}` | Absolute path of the mode-0600 owner credential file the drill reads (never its contents) | **Unresolved** — target layout decision (e.g. `/etc/dg/owner.key`) |
+| `{{DG_RESOURCE_SAMPLE_SCRIPT}}` | Absolute path of the installed composed resource sampler (`scripts/resource-sample.sh`) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/resource-sample.sh`) |
 
 The backup units (`deploy/dg-backup.{service,timer}` hourly producer,
 `deploy/dg-backup-digest.{service,timer}` daily digest) are templates in

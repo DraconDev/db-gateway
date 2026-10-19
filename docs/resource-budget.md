@@ -184,6 +184,47 @@ not a substitute for the target-host measurement, and the budget
 position remains "no claim of fit" until the supervised micro2 run
 with this same harness records the on-target fact.
 
+## Composed budget (2026-10-19, audit A7)
+
+Composing the measured pieces against the 1 GiB envelope (micro2:
+954 MiB total, M6) — this is the composition gate 5 was missing; the
+multi-day *trend* confirmation is the sampler series below.
+
+**RAM.** At measured steady state the host used ≈522 MiB of 954
+(M6: ~432 MiB free) *including* the gateway (6.7 MiB) and sidecar
+(~21 MiB). Composed worst case is therefore not steady + caps
+(that double-counts), it is: OS-and-everything-else floor
+≈522 − 7 − 21 ≈ 494 MiB, plus both caps at their ceilings
+(64 MiB gateway + 96 MiB sidecar) ≈ **654 MiB of 954 MiB**, leaving
+≈300 MiB headroom even if both processes simultaneously hit caps
+they have never approached (gateway burst peak 13 MiB, sidecar
+rehearsal peak 44.6 MiB). RAM fits with margin; it is not the
+binding term.
+
+**Disk.** 25 GiB free (readiness gate 2). Local consumers compose
+as: data dir D (live DBs + registry + WAL), backup sets ≈
+`--keep 24` × D_snapshot (each set carries every database file;
+D today is single-digit MiB, so sets are tens of MiB total), one
+tombstone overlap (≤ D for 24 h), journal (journald-bounded;
+measured by the sampler, retention policy is audit A8), release
+binary ≈14 MiB. Even a 100× data growth keeps local disk in the
+hundreds of MiB against 25 GiB. The binding disk term is *growth
+rate*, not today's bytes — which is exactly what the series fits.
+
+**The sampler series (closes the trend half of gate 5).**
+`scripts/resource-sample.sh` (timer template
+`deploy/dg-resource-sample.{service,timer}`, 6-hourly) appends one
+JSON sample per fire: per-unit MemoryCurrent/Peak, data + backups
+dir bytes, WAL bytes, journal bytes, host MemAvailable and disk.
+Gate 5's trend claim passes when a ≥7-day series shows: gateway
+MemoryCurrent < 32 MiB and sidecar < 64 MiB at every sample
+(half-cap ceilings), MemAvailable never < 128 MiB, and the
+least-squares slope of (data + backups + journal) bytes projects
+to < 50% of the free disk over 90 days. Installing the timer is a
+live change and needs owner approval; until the series exists the
+verdict stays "steady-state composed, trend unproven" — an honest
+statement, not a fit claim.
+
 ## Assumptions and required target-host checks
 
 - Assumes the target runs the release binary behind loopback-only serving (or
