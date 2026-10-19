@@ -38,8 +38,7 @@ fn scan(paths: &[&Path]) -> (bool, String) {
     let out = cmd.output().expect("run secret-scan");
     (
         out.status.success(),
-        String::from_utf8_lossy(&out.stdout).to_string()
-            + &String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr),
     )
 }
 
@@ -76,7 +75,10 @@ fn real_credential_shapes_are_reported() {
     .unwrap();
 
     let (ok, out) = scan(&[&aws, &cf, &gh, &pem]);
-    assert!(!ok, "scanner passed a tree with real credential shapes:\n{out}");
+    assert!(
+        !ok,
+        "scanner passed a tree with real credential shapes:\n{out}"
+    );
     for kind in [
         "aws-access-key-id",
         "aws-secret-access-key",
@@ -124,7 +126,10 @@ fn known_fake_material_is_accepted() {
     .unwrap();
 
     let (ok, out) = scan(&[&path]);
-    assert!(ok, "scanner rejected a fixture with obvious placeholders:\n{out}");
+    assert!(
+        ok,
+        "scanner rejected a fixture with obvious placeholders:\n{out}"
+    );
 }
 
 #[test]

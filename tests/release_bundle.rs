@@ -170,7 +170,12 @@ fn micro2_pinned_container_builds_bundle_and_records_builder() {
         "bundle must contain deploy/dg.service"
     );
     let unit = fs::read_to_string(bundle("deploy/dg.service")).unwrap();
-    for placeholder in ["{{DG_USER}}", "{{DG_BINARY}}", "{{DG_DATA_DIR}}", "{{DG_LISTEN}}"] {
+    for placeholder in [
+        "{{DG_USER}}",
+        "{{DG_BINARY}}",
+        "{{DG_DATA_DIR}}",
+        "{{DG_LISTEN}}",
+    ] {
         assert!(
             unit.contains(placeholder),
             "the shipped unit template lost {placeholder}: it must ship unsubstituted"
