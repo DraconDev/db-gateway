@@ -188,7 +188,7 @@ log "units installed and daemon-reloaded"
 # as shell commands (found 2026-10-19 during the A2 live install).
 log "verifying ${ENV_PATH} is the only copy of the secret on ${TARGET}"
 if ! ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" sudo -n python3 - <<'PYEOF' 2>&1
-import os
+import os, sys
 env = "/etc/dg/litestream.env"
 sec = open(env).read().split("LITESTREAM_S3_SECRET_ACCESS_KEY=")[1].split("\n")[0].strip().encode()
 extra = []
