@@ -14,8 +14,7 @@ mod common;
 
 use serde_json::Value;
 
-fn get(server: &str, key: &str, path: &str) -> (u16, Value) {
-    let client = reqwest::blocking::Client::new();
+fn get(client: &reqwest::blocking::Client, server: &str, key: &str, path: &str) -> (u16, Value) {
     let resp = client
         .get(format!("{server}{path}"))
         .bearer_auth(key)
@@ -44,31 +43,35 @@ fn bad_key_burst_never_disturbs_legitimate_traffic() {
     );
     let scoped_key = scoped["key"].as_str().unwrap().to_string();
     let bad_key = "ab".repeat(32);
+    // One keep-alive client, the way a real application connects:
+    // 64 fresh clients would multiply connection churn and say
+    // nothing extra about the auth model.
+    let client = reqwest::blocking::Client::new();
 
     // 64 wrong-key attempts: every one a clean 401 with the stable
     // code — no 500s, no connection wedges, no information beyond
     // "invalid credential".
     for i in 0..64 {
-        let (status, body) = get(&fleet.cli.server, &bad_key, "/v1/databases");
-        assert_eq!(status, 401, "attempt {i}");
+        let (status, body) = get(&client, &fleet.cli.server, &bad_key, "/v1/databases");
+        assert_eq!(status, 401, "attempt {i}: status={status} body={body}");
         assert_eq!(body["error"]["code"], "invalid_credential", "attempt {i}");
     }
 
     // Immediately after the burst, the real scoped caller is served
     // normally: rejecting guesses must not become a self-DoS.
-    let (status, body) = get(&fleet.cli.server, &scoped_key, "/v1/databases");
+    let (status, body) = get(&client, &fleet.cli.server, &scoped_key, "/v1/databases");
     assert_eq!(status, 200);
     assert_eq!(body["databases"], serde_json::json!(["edge_neg_db"]));
 
     // Out-of-scope is a different wall than unauthenticated: the
     // scoped key asking for owner surface gets 403, not data.
-    let (status, body) = get(&fleet.cli.server, &scoped_key, "/v1/keys");
+    let (status, body) = get(&client, &fleet.cli.server, &scoped_key, "/v1/keys");
     assert_eq!(status, 403);
     assert!(body["error"]["code"].is_string());
 
     // Revocation is immediate: the same key that just worked is dead.
     fleet.cli.ok("revoke", &["key", "revoke", "edge_reader"]);
-    let (status, body) = get(&fleet.cli.server, &scoped_key, "/v1/databases");
+    let (status, body) = get(&client, &fleet.cli.server, &scoped_key, "/v1/databases");
     assert_eq!(status, 401);
     assert_eq!(body["error"]["code"], "invalid_credential");
 }

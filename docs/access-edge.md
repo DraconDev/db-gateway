@@ -1,7 +1,11 @@
 # Non-loopback access edge — decision and threat model (audit A9)
 
-Status: **decision recorded 2026-10-19; ratification and any install
-are owner-gated.** Nothing in this document is installed anywhere.
+Status: **RATIFIED by the owner 2026-10-19** — approval record: the
+owner selected option 1 ("Ratify the mesh edge") of this goal's GLLA
+decision pause, adopting WireGuard + loopback socket proxies as the
+canonical application access story, with installs explicitly a
+separate future approval. Nothing in this document is installed
+anywhere.
 The gateway today is loopback-only plus SSH tunnel (readiness gate 3,
 accepted for the owner CLI). This document decides how *application*
 hosts reach it before the Turso cutover (audit A6) needs them to.
@@ -88,7 +92,7 @@ wire crossing is WireGuard ciphertext. Making plaintext appear on a
 wire requires changing dg's bind rule and three client origin rules
 — four deliberate, tested code changes, not a configuration slip.
 
-## Open items at ratification
+## Open items after ratification
 
 - Owner picks the mesh addressing and which hosts join first
   (suggestion: billing-api's host first, per the A6 pilot order).
