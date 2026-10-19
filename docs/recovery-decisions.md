@@ -314,7 +314,7 @@ follows in the sandbox/notification work):
    that implements `?lifecycle` and gate 10 needs a service that reports
    server-side encryption. Both are OVH's to answer, with the commands
    unchanged. The rehearsal packet for that run is
-   `docs/sandbox-packet-2026-09-29-rehearsal.log`. **The alerting half of decision 6 is partly
+   `docs/evidence/sandbox-packet-2026-09-29-rehearsal.log`. **The alerting half of decision 6 is partly
    settled by the gate-8 measurement**: litestream 0.5.17 does not surface
    every failure mode in the daemon log or in `litestream status`. Blocked-
    egress was visible only via the `litestream sync` CLI, and the restore

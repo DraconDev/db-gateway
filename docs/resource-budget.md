@@ -14,12 +14,12 @@ Commands are reproducible; rerun them rather than trusting these numbers.
 |---|---|---|---|
 | M1 | Idle + small-workload harness (debug) | `scripts/resource-report.sh`, see `docs/resource-harness.md` | idle RSS 14,792 KiB; loaded (3 DBs x 100 rows) 16,008 KiB; p50 SELECT 3.8 ms; data dir 86,016 bytes |
 | M2 | Release idle + 1 DB x 100 rows | `cargo build --release --locked`, manual `dg serve` + `VmRSS` sampling (2026-09-18) | idle RSS 4,260 KiB; loaded 4,276 KiB; data dir 45,056 bytes; release binary 12,571,768 bytes on disk |
-| M2r | Release idle + loaded + burst + page-cache, harness | `scripts/resource-report-release.sh`, evidence `docs/first-resource-report-release-2026-10-10.json` | release idle 8,480 KiB; loaded (3 DBs x 100 rows) 8,944 KiB; peak under 50-way 4 s INSERT burst 13,056 KiB; post-burst settle 11,752 KiB; p50 SELECT 0.85 ms; release binary 14,238,576 bytes; OS hot Cached 2,491,944 KiB (cold 1,354,640; dev-host delta is not the binding term, but the methodology transfers) |
+| M2r | Release idle + loaded + burst + page-cache, harness | `scripts/resource-report-release.sh`, evidence `docs/evidence/first-resource-report-release-2026-10-10.json` | release idle 8,480 KiB; loaded (3 DBs x 100 rows) 8,944 KiB; peak under 50-way 4 s INSERT burst 13,056 KiB; post-burst settle 11,752 KiB; p50 SELECT 0.85 ms; release binary 14,238,576 bytes; OS hot Cached 2,491,944 KiB (cold 1,354,640; dev-host delta is not the binding term, but the methodology transfers) |
 | M3 | Concurrency and per-request caps (code-derived bounds) | `src/store.rs:36-37` (`READ_PERMITS=8`, `WRITE_PERMITS=4`), `src/store.rs:762-763` (the two `Semaphore` lanes), `src/store.rs:1159` (`acquire_queue`: many readers share, one writer excludes, per database), `src/execution.rs:39-50` (`open`: one connection per query, no pool, `cache_size=-2048` at :42), `docs/api.md` limits table | Worst-case concurrent query executions: 8 readers + 4 writers across the two admission lanes, plus maintenance purge; per-request memory bounded by 64 KiB body / 256 KiB or 1000-row results / 8 MiB export. Per-process SQLite cache ceiling: 12 connections x 2 MiB = 24 MiB; not the 10 MiB a single-lane reading would imply (the 2026-09-27 audit correction this goal is built on). |
-| M4 | Supervised micro2 idle-after-drill sample | `docs/first-deploy-micro2.md` § Procedure evidence; `docs/first-deploy-micro2-evidence.log` | 8292 KiB gateway `VmRSS` after the smoke, restart, and throwaway export/import drill; one idle sample, not a host-budget acceptance |
-| M5 | Local Profile C filesystem rehearsal | `cargo run --locked --bin recovery_rehearsal`; durable output `docs/recovery-rehearsal-evidence.json` | baseline separate-target restore 101 ms; fallback restore 92 ms; WAL held under reader 939,392 bytes; no Litestream or sidecar, so this is not a host-fit measurement |
-| M6 | micro2 steady-state + restore with raw transcript (2026-10-16) | `scripts/m4-micro2-sampling.sh`; transcript `docs/m4-micro2-sampling-2026-10-16.log`; prior summary `docs/m4-micro2-headroom-2026-10-15.md`; `docs/resource-report-release-1G-scope-2026-10-15.json` | gateway 6696 KiB steady (3 passes), sidecar ~21300 KiB steady / 36240 HWM, host ~432 MiB free of 954, zero error/queue_timeout counters; litestream restore 392–938 ms across runs, 24576 bytes, integrity ok, 5=5 rows; local enforced rerun idle 8236 / burst peak 11192 KiB, p50 1.66 ms, no OOM |
-| M7 | Local failure-visibility drill: revoke / egress / disk (2026-10-15) | `scripts/m4-failure-visibility-drill.sh`; evidence `docs/m4-failure-visibility-2026-10-15.json` (+ `.log`) | revoked key writes 401 `invalid_credential` while owner writes 200; backup-to-unreachable fails exit 1 with `attempts.jsonl` outcome error/step list while writes 200; prlimit ceiling kills writer (SIGXFSZ surface) with acknowledged rows 4→20 surviving restart and post-recovery writes 200; `/v1/backups` reports `stale` (never false fresh) in all three |
+| M4 | Supervised micro2 idle-after-drill sample | `docs/evidence/first-deploy-micro2.md` § Procedure evidence; `docs/evidence/first-deploy-micro2-evidence.log` | 8292 KiB gateway `VmRSS` after the smoke, restart, and throwaway export/import drill; one idle sample, not a host-budget acceptance |
+| M5 | Local Profile C filesystem rehearsal | `cargo run --locked --bin recovery_rehearsal`; durable output `docs/evidence/recovery-rehearsal-evidence.json` | baseline separate-target restore 101 ms; fallback restore 92 ms; WAL held under reader 939,392 bytes; no Litestream or sidecar, so this is not a host-fit measurement |
+| M6 | micro2 steady-state + restore with raw transcript (2026-10-16) | `scripts/m4-micro2-sampling.sh`; transcript `docs/evidence/m4-micro2-sampling-2026-10-16.log`; prior summary `docs/evidence/m4-micro2-headroom-2026-10-15.md`; `docs/evidence/resource-report-release-1G-scope-2026-10-15.json` | gateway 6696 KiB steady (3 passes), sidecar ~21300 KiB steady / 36240 HWM, host ~432 MiB free of 954, zero error/queue_timeout counters; litestream restore 392–938 ms across runs, 24576 bytes, integrity ok, 5=5 rows; local enforced rerun idle 8236 / burst peak 11192 KiB, p50 1.66 ms, no OOM |
+| M7 | Local failure-visibility drill: revoke / egress / disk (2026-10-15) | `scripts/m4-failure-visibility-drill.sh`; evidence `docs/evidence/m4-failure-visibility-2026-10-15.json` (+ `.log`) | revoked key writes 401 `invalid_credential` while owner writes 200; backup-to-unreachable fails exit 1 with `attempts.jsonl` outcome error/step list while writes 200; prlimit ceiling kills writer (SIGXFSZ surface) with acknowledged rows 4→20 surviving restart and post-recovery writes 200; `/v1/backups` reports `stale` (never false fresh) in all three |
 
 M2 is a manual spot check, not a harness run: `scripts/resource-report.sh`
 builds the debug profile. A release-mode harness run is listed below as a
@@ -32,7 +32,7 @@ release-blocking measurement.
 | Gateway process RSS, small workload | Measured (M1, M2) | ~4.3 MiB release idle; ~15 MiB debug loaded. Release + realistic data: **unmeasured**. |
 | OS baseline | Partially known, workload unmeasured | The supervised target is an approximately 1 GiB Ubuntu micro2 host, but OS baseline, page-cache behavior, and concurrent workload footprint were not measured. |
 | SQLite connections / page cache | Bounded by construction, not stress-verified | No pool; ≤8 reader + ≤4 writer concurrent query connections (the read and write admission lanes are independent) + occasional purge connection; SQLite default cache ≈ 2 MiB per connection ⇒ ≈ 24 MiB order-of-magnitude ceiling, not the ≈ 10 MiB a single 4-permit lane would imply. Sustained-burst peak RSS **unmeasured**. |
-| Backup tooling (Litestream sidecar) | Measured locally, 1 GiB enforced, run committed (2026-09-29) | Gate 9 sampled a 6.9 MiB / 120 000-row database through `litestream replicate` and `restore` inside a kernel-enforced `MemoryMax=1G` scope: replication peak 45,632 KiB, restore peak 34,576 KiB, restore 2740 ms, no OOM kill. Evidence: `docs/sandbox-packet-2026-09-29-rehearsal.log`. See Release-blocking item 2 for the enforcement probe and for what this does NOT cover (different hardware, a week of WAL growth, real disk). |
+| Backup tooling (Litestream sidecar) | Measured locally, 1 GiB enforced, run committed (2026-09-29) | Gate 9 sampled a 6.9 MiB / 120 000-row database through `litestream replicate` and `restore` inside a kernel-enforced `MemoryMax=1G` scope: replication peak 45,632 KiB, restore peak 34,576 KiB, restore 2740 ms, no OOM kill. Evidence: `docs/evidence/sandbox-packet-2026-09-29-rehearsal.log`. See Release-blocking item 2 for the enforcement probe and for what this does NOT cover (different hardware, a week of WAL growth, real disk). |
 | Burst headroom | Partially bounded | 2 s deadline + 429 capacity rejects cap concurrency (see contention test), but peak RSS under sustained capacity load is **unmeasured** on micro2. |
 | Disk growth | Baseline only | 86 KiB for 300 small rows + WAL + metadata. Growth per real workload, tombstone 24 h retention accumulation, and purge cadence effects are **unmeasured**. |
 
@@ -54,7 +54,7 @@ host shape (or an equivalent VM), with the release profile:
 > The 2026-10-10 justification was the four-times-the-cache-ceiling
 > formula (ceiling from source M3, 24 MiB; gateway burst peak 13 MiB dev-host;
 > sidecar peak 44 MiB in its own unit). The 2026-10-16 on-target record
-> (`docs/m4-micro2-sampling-2026-10-16.log`: gateway steady 6696 KiB,
+> (`docs/evidence/m4-micro2-sampling-2026-10-16.log`: gateway steady 6696 KiB,
 > local enforced burst peak 11192 KiB) supports 64M: ~2.7x the cache ceiling
 > and ~6x the measured burst peak. An earlier template revision said 96M
 > while the host ran 64M; this revision resolves that drift toward the host
@@ -63,7 +63,7 @@ host shape (or an equivalent VM), with the release profile:
 1. Release-profile RSS under a realistic workload (owner's actual database
    sizes and query mix), idle and sustained.
    *Measured 2026-10-10 on the dev host*:
-   `docs/first-resource-report-release-2026-10-10.json`, reproducible via
+   `docs/evidence/first-resource-report-release-2026-10-10.json`, reproducible via
    `scripts/resource-report-release.sh`. The harness builds the release
    binary, starts `dg serve`, samples VmRSS at four points (idle, after
    loading 3 DBs x 100 rows, peak under a 50-way 4 s concurrent INSERT
@@ -80,7 +80,7 @@ host shape (or an equivalent VM), with the release profile:
 2. Litestream sidecar RSS + disk staging during a snapshot/replication cycle.
    *Measured 2026-09-29 against the rehearsal endpoint with pinned 0.5.17, and
    the run is committed*:
-   `docs/sandbox-packet-2026-09-29-rehearsal.log` (gate 9). The sampler ran a
+   `docs/evidence/sandbox-packet-2026-09-29-rehearsal.log` (gate 9). The sampler ran a
    6.9 MiB / 120 000-row database through `litestream replicate` for the
    sampling window with one live INSERT per 0.4 s, then a `litestream restore`
    from the bucket. Peaks, as recorded by the packet:
@@ -93,7 +93,7 @@ host shape (or an equivalent VM), with the release profile:
    | killed for exceeding the budget | no |
 
    **These numbers are recomputable:** `python3 scripts/packet-facts.py
-   docs/sandbox-packet-2026-09-29-rehearsal.log` prints them from the packet, so
+   docs/evidence/sandbox-packet-2026-09-29-rehearsal.log` prints them from the packet, so
    a reader does not have to trust this table over the artifact it claims to
    describe. **An earlier table in this file quoted 48 000 / 35 000 KiB and then
    42 000 / 34 000 KiB, from two runs that were never committed.** Numbers with no
@@ -128,7 +128,7 @@ host shape (or an equivalent VM), with the release profile:
    *Measured 2026-10-10 on the dev host* (methodology transfers; the dev
    host's Cached column is not the binding term at 32 GiB, but the harness
    records the cold/hot delta so the same measurement on micro2 produces a
-   comparable number): `docs/first-resource-report-release-2026-10-10.json`
+   comparable number): `docs/evidence/first-resource-report-release-2026-10-10.json`
    `os_memory_kib` — cold Cached 1,354,640 KiB, hot Cached 2,491,944 KiB,
    hot MemAvailable 8,699,572 KiB of 31,914,628 KiB total. The release
    process grows its cache up to the 24 MiB ceiling (item 1) by warming the
@@ -157,7 +157,7 @@ The 1 GiB envelope so far is composed of:
 - Gateway process RSS: 13 MiB peak under burst (release, dev host) or
   8 MiB idle-after-drill (supervised micro2 sample), re-confirmed as
   6696 KiB steady on micro2 (raw transcript
-  `docs/m4-micro2-sampling-2026-10-16.log`; the one-off sampler that
+  `docs/evidence/m4-micro2-sampling-2026-10-16.log`; the one-off sampler that
   produced it was retired 2026-10-19 in A12, preserved in git history)
   and 11 MiB burst peak under a
   1 GiB-enforced local rerun (2026-10-15, M6). Worst-case ceiling

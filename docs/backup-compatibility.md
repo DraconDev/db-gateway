@@ -41,7 +41,7 @@ cargo run --locked --bin recovery_rehearsal
 cargo test --locked --test recovery_rehearsal
 ```
 
-The command's JSON, recorded in `docs/recovery-rehearsal-evidence.json`, is
+The command's JSON, recorded in `docs/evidence/recovery-rehearsal-evidence.json`, is
 evidence for local status transitions, corrupt-artifact rejection without
 publication, writes continuing during sink outage, WAL pressure, exact-row
 separate-target restore, and measured local restore time.
@@ -166,7 +166,7 @@ evidence by accident.
 
 Post-conditions of the rehearsal run: all six hold; nothing left on disk,
 nothing running. The packet for this run is
-`docs/sandbox-packet-2026-09-29-rehearsal.log` (933 endpoint requests folded
+`docs/evidence/sandbox-packet-2026-09-29-rehearsal.log` (933 endpoint requests folded
 in at the end of the full packet, of which the per-record JSONL is elided from
 the committed copy for size; `scripts/rehearse-sandbox-packet.sh` regenerates
 it).
@@ -280,11 +280,11 @@ packet and elided from the committed copy).
 are checkable from the repository, not only from a run somebody kept. The raw
 933-record log is elided from the committed packet for size, so the derived
 matrix is committed beside it as
-`docs/sandbox-packet-2026-09-29-rehearsal.matrix.json`, and
+`docs/evidence/sandbox-packet-2026-09-29-rehearsal.matrix.json`, and
 
 ```sh
-python3 scripts/packet-facts.py docs/sandbox-packet-2026-09-29-rehearsal.log \
-        --from-matrix docs/sandbox-packet-2026-09-29-rehearsal.matrix.json
+python3 scripts/packet-facts.py docs/evidence/sandbox-packet-2026-09-29-rehearsal.log \
+        --from-matrix docs/evidence/sandbox-packet-2026-09-29-rehearsal.matrix.json
 ```
 
 prints every scalar fact (gate tallies, peaks, counts) from the packet itself and
@@ -431,8 +431,8 @@ proactive surface for the full failure set.
   bucket was named to be obviously disposable.
 
 Full rehearsal packet, including the per-request log the proxy captured:
-`docs/sandbox-packet-2026-09-28-rehearsal.log` (the earlier header) and
-`docs/sandbox-packet-2026-09-29-rehearsal.log` (the current run, 12 gates,
+`docs/evidence/sandbox-packet-2026-09-28-rehearsal.log` (the earlier header) and
+`docs/evidence/sandbox-packet-2026-09-29-rehearsal.log` (the current run, 12 gates,
 10 pass / 2 blocked / 0 fail, all six post-conditions holding). The OVH run
 will write a similarly full packet under `docs/`.
 

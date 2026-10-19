@@ -15,7 +15,7 @@
 # baseline and page-cache growth are observed rather than guessed.
 #
 # What it does NOT do: measure litestream/OVH sidecar (item 2, already
-# measured in docs/sandbox-packet-2026-09-29-rehearsal.log gate 9, peaks
+# measured in docs/evidence/sandbox-packet-2026-09-29-rehearsal.log gate 9, peaks
 # 44 MiB replication / 33 MiB restore inside a 1 GiB enforced scope), the
 # target-host burst test (item 4) or the disk growth projection (item 5).
 # A 1 GB fit claim is the supervised micro2 run with this harness's
@@ -332,7 +332,7 @@ report = {
     "sidecar_peak_kib": {
         "replication": $SIDECAR_PEAK_REPLICATION_KIB,
         "restore": $SIDECAR_PEAK_RESTORE_KIB,
-        "source": "docs/sandbox-packet-2026-09-29-rehearsal.log gate 9",
+        "source": "docs/evidence/sandbox-packet-2026-09-29-rehearsal.log gate 9",
     },
     "binding_term_kib": $binding_term_kib,
     "suggested_memory_max_kib": $suggested_memory_max_kib,

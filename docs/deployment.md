@@ -6,7 +6,7 @@ Related: `docs/upgrade-rollback.md` (binary upgrades and rollback),
 (full host replacement and restore).
 Nothing here installs, enables, or starts a service, and this guide is not
 live-deploy authorization. The first supervised deploy to micro2 is recorded
-separately in `docs/first-deploy-micro2.md`; that record supplies the resolved
+separately in `docs/evidence/first-deploy-micro2.md`; that record supplies the resolved
 values for the installed instance while this guide intentionally retains
 placeholders for future/repeated deployments.
 
@@ -144,7 +144,7 @@ Beyond the placeholder table: the service username, binary/data paths, log
 retention for the JSON stderr stream, and the backup sidecar unit
 (Litestream — see `docs/backup-compatibility.md`; no unit is provided here).
 
-`MemoryMax=` is **set** as of 2026-10-10, revised to the on-host value 2026-10-16 (`deploy/dg.service`: `MemoryMax=64M`, matching the micro2 enforcement of 67108864 recorded in `docs/m4-micro2-sampling-2026-10-16.log`).
+`MemoryMax=` is **set** as of 2026-10-10, revised to the on-host value 2026-10-16 (`deploy/dg.service`: `MemoryMax=64M`, matching the micro2 enforcement of 67108864 recorded in `docs/evidence/m4-micro2-sampling-2026-10-16.log`).
 The value is ~2.7x the SQLite per-connection cache ceiling (12 connections x
 2 MiB, measured from `src/store.rs:36-37` and `src/execution.rs:42`) with
 the gateway peak under burst (11 MiB under a 1 GiB-enforced local harness,
@@ -262,7 +262,7 @@ replication within one interval, with no operator step
 per-database coverage, and host-audit's `litestream_coverage` check
 fails if any live database is missing from the config. Local proof:
 `scripts/litestream-sync-drill.sh`
-(evidence: docs/litestream-sync-drill-2026-10-19.log).
+(evidence: docs/evidence/litestream-sync-drill-2026-10-19.log).
 
 ### Proving a restore round-trip
 

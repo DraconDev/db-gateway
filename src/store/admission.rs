@@ -118,7 +118,7 @@ impl QueueState {
 /// This one has no phases to race. Admission is decided by ticket order, a
 /// queued writer is admitted at the next reader batch boundary, and neither
 /// side can starve the other. Full runs in
-/// docs/soak-starvation-evidence.log.
+/// docs/evidence/soak-starvation-evidence.log.
 #[derive(Debug, Default)]
 pub struct AdmissionQueue {
     pub(super) state: Mutex<QueueState>,

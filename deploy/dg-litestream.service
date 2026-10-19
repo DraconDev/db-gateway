@@ -34,7 +34,7 @@ RestartSec=5s
 # transfer and compaction working set rather than a page cache -- and the
 # sidecar was OOM-killed on its first start. The 1 GiB host budget is
 # dg.service (96 MiB) + this (96 MiB) + OS, which fits with room.
-# Evidence: docs/sandbox-packet-2026-09-29-rehearsal.log gate 9, and the
+# Evidence: docs/evidence/sandbox-packet-2026-09-29-rehearsal.log gate 9, and the
 # dg-litestream journal's oom-kill + restart counter from the 8 MiB cap.
 MemoryMax=96M
 

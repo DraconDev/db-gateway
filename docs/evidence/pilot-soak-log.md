@@ -1,6 +1,6 @@
 # Pilot soak log — billing_dev_pilot (started 2026-10-16)
 
-Day-0 record: docs/pilot-day0-2026-10-16.md. One line per probe.
+Day-0 record: docs/evidence/pilot-day0-2026-10-16.md. One line per probe.
 
 
 ## 2026-10-16T09:24:16Z

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Derive the numbers a rehearsal packet actually contains, as markdown.
 
-Run: python3 scripts/packet-facts.py docs/sandbox-packet-2026-09-29-rehearsal.log
+Run: python3 scripts/packet-facts.py docs/evidence/sandbox-packet-2026-09-29-rehearsal.log
      python3 scripts/packet-facts.py /path/to/full-packet.md --json
 
 WHY THIS EXISTS. Three times, the docs quoted a measured number that the

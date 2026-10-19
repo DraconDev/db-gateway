@@ -3,13 +3,13 @@
 > **Dated snapshot: 2026-09-20 — superseded, kept as evidence.** The gate
 > counts and "explicitly unperformed live work" below describe that date
 > only. Since then (through 2026-10-19): OVH compatibility verified live
-> 12/12 (`sandbox-packet-2026-10-14-ovh.log`); the Litestream sidecar is
-> live on micro2 (`litestream-replication-evidence.log`) with automatic
-> new-database coverage (`litestream-sync-drill-2026-10-19.log`); micro2
+> 12/12 (`evidence/sandbox-packet-2026-10-14-ovh.log`); the Litestream sidecar is
+> live on micro2 (`evidence/litestream-replication-evidence.log`) with automatic
+> new-database coverage (`evidence/litestream-sync-drill-2026-10-19.log`); micro2
 > steady-state resources were sampled by script
-> (`m4-micro2-sampling-2026-10-16.log`); a pilot database has soaked
-> since 2026-10-16 (`pilot-soak-log.md`); the backup watchdog digest is
-> live (`watchdog-2026-10-17.log`); the test baseline is 212 Rust tests
+> (`evidence/m4-micro2-sampling-2026-10-16.log`); a pilot database has soaked
+> since 2026-10-16 (`evidence/pilot-soak-log.md`); the backup watchdog digest is
+> live (`evidence/watchdog-2026-10-17.log`); the test baseline is 212 Rust tests
 > (plus 16 client, 39 web). Current status lives in
 > [`TASKS.md`](../TASKS.md), [`deployment-readiness.md`](deployment-readiness.md),
 > and the findings register in [`audit-2026-10-19.md`](audit-2026-10-19.md).
@@ -18,7 +18,7 @@
 Updated: 2026-09-20. This is an evidence-backed summary of completed local
 preparation plus the explicitly authorized supervised micro2 smoke/restore
 deploy. It is **not a claim of production readiness**. The authoritative
-host/service facts are in [`first-deploy-micro2.md`](first-deploy-micro2.md);
+host/service facts are in [`evidence/first-deploy-micro2.md`](evidence/first-deploy-micro2.md);
 this summary does not authorize any further live change.
 
 ## Gates re-run for this summary
@@ -54,10 +54,10 @@ accepted), `docs/migration-inventory.md` (11 risks + empty inventory),
 `docs/migration-cutover.md` (staged plan + rollback),
 `docs/recovery-decisions.md` (working Profile C objectives, production
 acceptance still pending), `docs/recovery-contract.md`,
-`docs/observability-contract.md`, `docs/recovery-rehearsal-evidence.json`,
+`docs/observability-contract.md`, `docs/evidence/recovery-rehearsal-evidence.json`,
 `docs/backup-compatibility.md` (Litestream v0.5.17 pinned, endpoint
 unverified). The supervised micro2 install, restart check, smoke query, and
-throwaway export/import drill are recorded in `docs/first-deploy-micro2.md`.
+throwaway export/import drill are recorded in `docs/evidence/first-deploy-micro2.md`.
 
 ## Reconciliation
 

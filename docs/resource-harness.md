@@ -55,7 +55,7 @@ Host: Linux 7.1.2 x86_64, 16 CPUs, 32 GiB RAM. Release build.
 | suggested `MemoryMax=` | 91,264 KiB (~89 MiB) |
 
 The full report is committed as
-`docs/first-resource-report-release-2026-10-10.json`; the report's
+`docs/evidence/first-resource-report-release-2026-10-10.json`; the report's
 `suggested_memory_max_kib` is the largest measured steady-state term
 (gateway burst peak vs SQLite cache ceiling vs sidecar peak) doubled
 for headroom, with a 64 MiB floor. The unit file `deploy/dg.service`
@@ -80,7 +80,7 @@ re-run after a storage or dependency change and diff the RSS/latency
 fields). A production budget claim would require the deployment host,
 realistic load, and the litestream sidecar running under the
 `MemoryMax=1G` envelope documented in
-`docs/sandbox-packet-2026-09-29-rehearsal.log` gate 9. The release
+`docs/evidence/sandbox-packet-2026-09-29-rehearsal.log` gate 9. The release
 script's `suggested_memory_max_kib` is the starting ceiling used in
 `deploy/dg.service` (96 MiB), with the supervised micro2 run as the
 on-target confirmation.

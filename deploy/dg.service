@@ -42,17 +42,17 @@ ReadWritePaths={{DG_DATA_DIR}}
 # the measured burst peak, so the burst the budget exists to absorb does
 # not become an OOM kill. This value matches what the micro2 host already
 # enforces (MemoryMax=67108864, recorded in
-# `docs/m4-micro2-sampling-2026-10-16.log`); an earlier revision shipped
+# `docs/evidence/m4-micro2-sampling-2026-10-16.log`); an earlier revision shipped
 # 96M in this template while the host ran 64M, and this edit resolves that
 # drift toward the host fact. The sidecar (litestream) runs in its own
 # unit with its own MemoryMax (96M on-host); the 1 GiB host budget is the
 # sum of this cap (64 MiB) plus the sidecar cap plus the OS, all of which
-# fits. Evidence: `docs/m4-micro2-sampling-2026-10-16.log` (on-target
+# fits. Evidence: `docs/evidence/m4-micro2-sampling-2026-10-16.log` (on-target
 # steady-state + restore; the one-off sampler that produced it was
 # retired 2026-10-19 in A12 and is preserved in git history),
-# `docs/resource-report-release-1G-scope-2026-10-15.json` (1 GiB-enforced
+# `docs/evidence/resource-report-release-1G-scope-2026-10-15.json` (1 GiB-enforced
 # local burst, reproducible by `scripts/resource-report-release.sh`),
-# `docs/sandbox-packet-2026-09-29-rehearsal.log` gate 9 (sidecar peaks
+# `docs/evidence/sandbox-packet-2026-09-29-rehearsal.log` gate 9 (sidecar peaks
 # 45,632 KiB replication / 34,576 KiB restore under a kernel-enforced
 # 1 GiB scope), and `src/store.rs:36-37` / `src/execution.rs:39-50` for the
 # cache ceiling itself.

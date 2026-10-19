@@ -74,9 +74,9 @@ replication started reached the registry replica, and after total
 data-dir loss both pre-loss keys authenticated with scope intact on a
 gateway rebuilt from the replica alone:
 `scripts/registry-recovery-drill.sh`,
-`docs/registry-recovery-drill-2026-10-19.log`. Sandbox gate 11 proved
+`docs/evidence/registry-recovery-drill-2026-10-19.log`. Sandbox gate 11 proved
 the same file round-trip against a live OVH bucket with the gateway
-stopped (`docs/sandbox-packet-2026-10-14-ovh.log`).
+stopped (`docs/evidence/sandbox-packet-2026-10-14-ovh.log`).
 
 ## What is not yet enforced (residuals, named not hidden)
 
@@ -115,7 +115,7 @@ stopped (`docs/sandbox-packet-2026-10-14-ovh.log`).
   2026-10-19 (`docs/audit-2026-10-19.md`), judgment recorded in the
   goal ledger; alternatives (hourly registry snapshot file,
   rebuild-only) rejected with reasons there and in
-  `docs/registry-recovery-drill-2026-10-19.log`.
+  `docs/evidence/registry-recovery-drill-2026-10-19.log`.
 - Restore-always-to-separate-target and 7-day rollback-artifact
   retention: `recovery-decisions.md` item 4 (unchanged).
 

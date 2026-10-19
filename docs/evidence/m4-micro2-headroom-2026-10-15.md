@@ -3,7 +3,7 @@
 Superseding note (2026-10-16): the table below was first recorded from
 ad-hoc SSH sampling. It has since been re-collected by the checked-in
 script `scripts/m4-micro2-sampling.sh`, whose verbatim transcript is
-`docs/m4-micro2-sampling-2026-10-16.log` (3 passes, gateway 6696 KiB
+`docs/evidence/m4-micro2-sampling-2026-10-16.log` (3 passes, gateway 6696 KiB
 steady, sidecar ~21300 KiB, restore 446 ms, integrity ok, 5=5). Treat
 the transcript as the inspectable record; this file remains the human
 summary. Read-only throughout except a restore into disposable `/var/tmp`
@@ -91,14 +91,14 @@ measurements have a baseline to beat.
 
 ## Failure-visibility scope (local proxies + one live revoke)
 
-The revoke/egress/disk triple in `docs/m4-failure-visibility-2026-10-15.json`
+The revoke/egress/disk triple in `docs/evidence/m4-failure-visibility-2026-10-15.json`
 (exit 0, re-runnable by `scripts/m4-failure-visibility-drill.sh`) runs
 against a disposable local gateway by safety necessity: blocking egress
 means firewall changes and filling disk means host-wide pressure, and
 neither is an acceptable unattended action on the live host. The one
 failure that was exercised on micro2 itself is key revocation — the
 e2e campaign created, used, and revoked a scoped key against the live
-gateway (`docs/e2e-test-campaign-2026-10-15.log` §4.3: read-only
+gateway (`docs/evidence/e2e-test-campaign-2026-10-15.log` §4.3: read-only
 role enforced via `sql_forbidden`, revoked key denied, owner writes
 unaffected). Egress and disk visibility therefore rest on local
 proxies honestly labeled as such in the drill script.

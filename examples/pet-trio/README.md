@@ -22,7 +22,7 @@ node examples/pet-trio/run-pet-trio.mjs
 ```
 
 Exit 0 + `[VERDICT] pass` only if every app verifies and every restored
-copy matches live. Latest transcript: `docs/pet-trio-2026-10-16.log`.
+copy matches live. Latest transcript: `docs/evidence/pet-trio-2026-10-16.log`.
 
 ## Extensive workout
 
@@ -33,4 +33,4 @@ rollback, all four denial codes (`sql_forbidden`, `database_forbidden`,
 chunked-vs-full export match, SIGKILL restart with zero rows lost, a 2000
 insert load burst with p50/p99, and a real versioned backup set via
 `scripts/micro2-backup.sh` plus offline `dg backup verify`. Transcript:
-`docs/pet-trio-extensive-2026-10-16.log`.
+`docs/evidence/pet-trio-extensive-2026-10-16.log`.

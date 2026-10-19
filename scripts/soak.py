@@ -25,7 +25,7 @@ however busy the server is. That is fine for what this harness is for, and it
 is why it cannot answer a starvation question: use scripts/soak_starvation.py
 for that, which drives ONE hot database and reads the per-database
 `queue_waits` / `queue_timeouts` counters off GET /v1/status. See
-docs/soak-starvation-evidence.log.
+docs/evidence/soak-starvation-evidence.log.
 """
 
 import argparse

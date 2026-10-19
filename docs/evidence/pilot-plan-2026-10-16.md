@@ -7,7 +7,7 @@ clock the agent cannot fast-forward.
 ## Rollback rehearsal (done, transcript kept)
 
 `scripts/pilot-rollback-rehearsal.sh` → transcript
-`docs/pilot-rollback-rehearsal-2026-10-16.log` (exit 0): app-like schema
+`docs/evidence/pilot-rollback-rehearsal-2026-10-16.log` (exit 0): app-like schema
 (users + usage with FK, mixed types), rollback export, continued writes,
 second export, validated import into a fresh target (host-replacement
 rollback, contract Path B). Rolled-back copy: 4/4 rows exact across both
