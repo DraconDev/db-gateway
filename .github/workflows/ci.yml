@@ -177,7 +177,10 @@ jobs:
           command: check
           # The action's default `arguments` is --all-features, which
           # would evaluate a different feature graph than the locked
-          # tree `cargo deny check` verifies locally. Empty it and pass
-          # --locked so CI checks exactly what a local run checks.
+          # tree `cargo deny check` verifies locally, so it is emptied.
+          # cargo-deny has no --locked flag (it errors on one): it
+          # resolves the graph from the tracked Cargo.lock, which is
+          # exactly the tree to gate. Verify with the same spelling the
+          # action runs: cargo-deny --log-level warn \
+          #   --manifest-path ./Cargo.toml check
           arguments: ""
-          command-arguments: --locked
