@@ -86,6 +86,27 @@ current age, failure reason, and a bounded operator action. No alert should
 claim data-loss prevention, an RPO, or an RTO before the owner accepts the
 corresponding profile and the sandbox/live evidence exists.
 
+## 3a-0. Canonical digest mechanism (2026-10-19, audit A8)
+
+Two digest mechanisms exist and exactly one is canonical per
+deployment — running both delivers every digest twice and, worse,
+lets each mask the other's failure:
+
+- **On micro2 (and any systemd deployment): the external timer is
+  canonical.** `dg-backup-digest.timer` runs `dg backup digest`
+  offline against the data directory: it works with the gateway
+  stopped (the in-server digest cannot report on a dead gateway —
+  precisely the 3 a.m. case), it is the path the 2026-10-17 watchdog
+  proved end-to-end, and it is what is enabled on micro2 today
+  (verified read-only 2026-10-19: timer enabled+active, and
+  `dg.service` carries no digest flags). The in-server
+  `--backup-digest-secs` / `--backup-failure-poll-secs` flags must
+  stay **off** (0, the default) on micro2.
+- **In-server flags are for non-systemd single-process deployments**
+  (a lone `dg serve` with no timer infrastructure), where they are
+  the only delivery path. Choosing them there is legitimate; mixing
+  them with the external timer is not a configuration, it is a bug.
+
 ## 3a. Alert 4 delivery: sink and cadence
 
 Owner decision 2026-09-27 (docs/recovery-decisions.md §6.5): immediate notice
@@ -97,7 +118,7 @@ decision called the floor, because no alert stack exists in the project.
 | --- | --- | --- |
 | Digest sink | one structured log line per notification, always on once delivery is enabled | `LogSink` (src/notify.rs); systemd captures stderr |
 | Second sink | POST the note as JSON to an owner-supplied URL: HTTPS, or plain HTTP on a literal loopback address; no proxy, no redirects | `dg serve --backup-notify-webhook URL` |
-| Digest cadence | 24h; the first digest goes out one full period after startup, never on boot | `dg serve --backup-digest-secs N`, **default 0 (off)** |
+| Digest cadence | 24h; the first digest goes out one full period after startup, never on boot | `dg serve --backup-digest-secs N`, **default 0 (off)**; on micro2 the external `dg-backup-digest.timer` delivers the cadence instead (§3a-0) — never both |
 | Immediate-failure notice | one notice per failed attempt, as soon as the producer records it; polled every 60s | `dg serve --backup-failure-poll-secs N`, **default 0 (off)** |
 | Failure signal | `$BACKUP_ROOT/attempts.jsonl`, appended by `scripts/micro2-backup.sh`: outcome, step reached, set | `read_attempts` (src/backup_health.rs) |
 | Notice scope | the newest failed attempt not yet reported, once. Two failures inside one poll window produce one notice naming the newer; the complete history stays in `attempts.jsonl` and the next failure always alerts again | `DeliveryState` (src/notify.rs) |
