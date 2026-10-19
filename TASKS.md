@@ -72,7 +72,7 @@ Summary: [readiness summary](docs/readiness-summary.md). Gates re-run then: Rust
 
 ### Remaining milestones and authorization boundaries
 
-1. **M3 — verified recovery:** phase 7; owner recovery decisions, backup failure visibility, and verified restore to a separate target. Local snapshot tests do not establish OVH coverage.
+1. **M3 — verified recovery:** phase 7 **delivered and live on micro2 (2026-10-15→19)**: OVH verified 12/12 (`docs/sandbox-packet-2026-10-14-ovh.log`), Litestream sidecar replicating live databases to OVH (`docs/litestream-replication-evidence.log`), hourly verified snapshot sets, backup-health digest watchdog, and automatic replication coverage for new databases (`docs/litestream-sync-drill-2026-10-19.log`). Remaining M3-adjacent: production acceptance of the Profile C objectives and one canonical recovery-tier/retention policy (audit A5).
 2. **M4 — release readiness:** phases 8–9; measured 1 GB resource budget, failure tests, packaging, and any future micro2 live action separately approved. The first supervised non-production smoke/restore deploy is recorded, but does not close full release readiness.
 3. **M5 — migration:** phase 10; separately approved cutovers with verified rollback artifacts.
 
@@ -82,10 +82,10 @@ The confirmed preparation queue permits local disposable fixtures and public res
 
 - **Resolved in M1:** TypeScript first client and custom JSON HTTP API; no libSQL compatibility promise. See [decision register](docs/architecture.md#required-decisions-and-evidence).
 - **Resolved in M1:** value encoding, transaction boundaries, ambiguous outcomes, and retry/idempotency behavior are documented in [API reference](docs/api.md).
-- **Before M3:** agree recovery objectives and verify the actual OVH endpoint/tool version. Do not promise a backup interval as a guaranteed data-loss bound.
+- **Resolved for M3 (2026-10-14):** recovery objectives agreed as the Profile C working target (§1); the actual OVH endpoint/tool (Litestream 0.5.17) verified 12/12 live. Still do not promise a backup interval as a guaranteed data-loss bound — Profile C remains a target, not a guarantee, until production acceptance.
 - **Before production readiness or any further live change:** use the recorded micro2 architecture/disk/network facts, resolve the SSH-tunnel/private-access boundary, and measure the complete stack's memory consumption; the first supervised deploy does not waive these remaining gates.
 
-The remaining decisions do not block local preparation. Accepted production RPO/RTO/retention, verified OVH compatibility, and target-host facts remain prerequisites for dependent live work.
+The remaining decisions do not block local preparation. OVH compatibility and target-host facts are now verified (2026-10-14 packet; first-deploy record); accepted production RPO/RTO/retention (Profile C is still a working target) remains the prerequisite for dependent production live work.
 
 ## 1. Define the initial contract
 
