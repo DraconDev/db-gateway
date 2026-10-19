@@ -1,0 +1,27 @@
+# Composed resource sampler (non-installing template; audit A7).
+#
+# Copy to /etc/systemd/system/dg-resource-sample.service on the target
+# host, replace every braced placeholder, then
+#   systemctl daemon-reload
+# Nothing in this repository installs, enables, or starts this unit.
+#
+# Appends one JSON sample (gateway + sidecar memory, data/backup disk,
+# WAL bytes, journal size, host memory/disk) to the samples file on
+# every timer fire. The multi-day series — not any single sample — is
+# the composed-trend evidence docs/deployment-readiness.md gate 5
+# requires. Read-only against the host: systemctl show, du,
+# journalctl --disk-usage. Runs as the dg user; the samples file lives
+# in the dg-owned data dir, so no new writable path is introduced.
+
+[Unit]
+Description=DB Gateway composed resource sample (audit A7)
+After=dg.service dg-litestream.service
+
+[Service]
+Type=oneshot
+User={{DG_USER}}
+Group={{DG_USER}}
+Environment=DG_SAMPLE_UNITS=dg.service dg-litestream.service
+Environment=DG_SAMPLE_PATHS=data={{DG_DATA_DIR}} backups={{DG_BACKUP_ROOT}}
+ExecStart={{DG_RESOURCE_SAMPLE_SCRIPT}} --out {{DG_DATA_DIR}}/resource-samples.jsonl
+NoNewPrivileges=true

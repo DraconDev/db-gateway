@@ -1,0 +1,19 @@
+# 6-hourly timer for dg-resource-sample.service (non-installing template).
+#
+# Copy to /etc/systemd/system/dg-resource-sample.timer on the target
+# host alongside dg-resource-sample.service, then
+#   systemctl daemon-reload && systemctl enable --now dg-resource-sample.timer
+# Every 6 hours gives 4 samples/day: enough to fit disk/WAL/journal
+# growth rates over a multi-day window without journal noise of its
+# own. Persistent=true backfills one sample after downtime, so a
+# reboot does not silently gap the series.
+
+[Unit]
+Description=6-hourly DB Gateway resource sampling (audit A7)
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:17:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
