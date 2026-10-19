@@ -1,0 +1,33 @@
+# Keep /etc/litestream.yml in step with the gateway's live databases.
+#
+# Copy to /etc/systemd/system/dg-litestream-sync.service on the target
+# host alongside dg-litestream-sync.timer, then
+#   systemctl daemon-reload && systemctl enable --now dg-litestream-sync.timer
+# scripts/install-litestream.sh installs both units and the script.
+#
+# Why (docs/audit-2026-10-19.md A2): litestream reads its config once at
+# startup, so a database created after install was never replicated until
+# someone re-rendered the config by hand. This oneshot re-renders from
+# `dg list` and restarts dg-litestream only when the rendered config
+# actually changed, so a create/delete is picked up within one timer
+# interval and steady state costs one no-op `dg list` per interval.
+#
+# Runs as root: it must replace a file in /etc and restart the sidecar.
+# The `dg list` call itself is dropped to the dg user inside the script
+# (the owner key is 0600 dg:dg). No secret is read into this unit: the
+# script substitutes only bucket/endpoint/region and leaves the
+# credential keys as ${LITESTREAM_S3_*} references for the sidecar's own
+# EnvironmentFile.
+
+[Unit]
+Description=db-gateway litestream config sync (re-render from live databases)
+After=network.target dg.service dg-litestream.service
+Wants=dg.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/litestream-sync.sh
+# Transient oneshot (bash + python3 + one loopback dg CLI call); capped
+# well above its working set so a pathological run cannot pressure the
+# 1 GiB host budget shared with dg.service and dg-litestream.service.
+MemoryMax=64M

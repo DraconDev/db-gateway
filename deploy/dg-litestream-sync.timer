@@ -1,0 +1,21 @@
+# Timer for dg-litestream-sync.service: re-render /etc/litestream.yml
+# from the live database list every five minutes.
+#
+# Copy to /etc/systemd/system/dg-litestream-sync.timer on the target host
+# alongside dg-litestream-sync.service, then
+#   systemctl daemon-reload && systemctl enable --now dg-litestream-sync.timer
+#
+# The five-minute interval bounds the replication-coverage window for a
+# newly created database (the hourly snapshot covers the interim). The
+# sync is a no-op unless the rendered config changed, so the steady-state
+# cost of this cadence is one loopback `dg list` per interval.
+
+[Unit]
+Description=Periodic db-gateway litestream config sync
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
