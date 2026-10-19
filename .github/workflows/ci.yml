@@ -107,6 +107,14 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: client/package-lock.json
+      # Credential-shape gate over the tracked tree (A1). A commit that
+      # carries an AWS key, a GitHub token, a private key block, or a
+      # long literal assigned to a secret-ish name fails here, with the
+      # file and line but never the value. The repo is pushed to GitHub
+      # and GitLab and holds the OVH/Litestream/owner-key material that
+      # must never be committed, so this is the gate that keeps that
+      # property true without depending on anyone's memory.
+      - run: ./scripts/secret-scan.sh
       - run: npm ci --prefix client
       # Vulnerability gate for the client dependency tree. --audit-level
       # high means moderate/low findings in dev-only tooling (typescript)

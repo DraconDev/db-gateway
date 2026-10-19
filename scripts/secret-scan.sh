@@ -46,6 +46,11 @@
 
 set -uo pipefail
 
+# Resolve relative target paths against the directory the caller was in,
+# not against this script's own repo: the script is used to scan OTHER
+# repositories too (that is how the exposed material was found), and a
+# path that silently resolved to "no such file" would report "clean".
+CALLER_DIR="$(pwd)"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO" || exit 2
 
@@ -66,12 +71,12 @@ fi
 # The matcher lives in Python: the patterns need alternation, bounded
 # repetition and a marker filter, and expressing that in grep is how
 # these gates end up quietly wrong.
-exec python3 - "$REPO" "${TARGETS[@]}" <<'PY'
+exec python3 - "$CALLER_DIR" "$REPO" "${TARGETS[@]}" <<'PY'
 import os
 import re
 import sys
 
-repo, targets = sys.argv[1], sys.argv[2:]
+caller_dir, repo, targets = sys.argv[1], sys.argv[2], sys.argv[3:]
 
 # (name, compiled pattern). Each pattern must match the SECRET shape, not
 # the mere mention of a variable name -- "aws_secret_access_key" alone is
@@ -83,9 +88,13 @@ PATTERNS = [
     ("github-token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b")),
     ("private-key-block", re.compile(
         r"-----BEGIN (?:RSA |DSA |EC |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----")),
+    # The name may carry any prefix/suffix around the secret-ish word
+    # (CLOUDFLARE_API_TOKEN, S3_SECRET_ACCESS_KEY, db_password): matching
+    # the bare word misses every real-world prefixed variable name.
     ("generic-secret-assignment", re.compile(
-        r"(?i)\b(?:secret|token|password|passwd|api[_-]?key|access[_-]?key|"
-        r"private[_-]?key|credential)s?\b\s*[:=]\s*['\"]?"
+        r"(?i)[A-Za-z0-9_.-]*(?:secret|token|password|passwd|api[_-]?key|"
+        r"access[_-]?key|private[_-]?key|credential)[A-Za-z0-9_.-]*"
+        r"\s*[:=]\s*['\"]?"
         r"([A-Za-z0-9/+_-]{24,})['\"]?")),
 ]
 
@@ -126,7 +135,13 @@ def scan_text(name: str, text: str, findings: list) -> None:
 findings = []
 scanned = 0
 for rel in targets:
-    path = rel if os.path.isabs(rel) else os.path.join(repo, rel)
+    if os.path.isabs(rel):
+        path = rel
+    else:
+        # A relative path may name a file in the caller's directory or in
+        # this repo; try the caller's directory first, then the repo.
+        candidate = os.path.join(caller_dir, rel)
+        path = candidate if os.path.isfile(candidate) else os.path.join(repo, rel)
     if not os.path.isfile(path):
         continue
     try:
