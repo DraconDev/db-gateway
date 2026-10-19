@@ -89,8 +89,12 @@ wait_for() { # wait_for <seconds> <description> <cmd...>
 }
 
 # --- 1. gateway up, first database, sidecar replicating it -------------
-"$DG_BIN" init --data-dir "$SB/data" >"$SB/owner.key" 2>"$SB/init.log" || fail "dg init failed"
-chmod 0600 "$SB/owner.key"
+# `dg init` emits JSON ({"owner_key": "<64 hex>"}); the key file must
+# hold the raw credential, so extract it without printing it.
+"$DG_BIN" init --data-dir "$SB/data" >"$SB/init.json" 2>"$SB/init.log" || fail "dg init failed"
+(umask 077; python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["owner_key"], end="")' "$SB/init.json" >"$SB/owner.key") \
+    || fail "could not extract owner key from dg init output"
+chmod 0600 "$SB/owner.key"; rm -f "$SB/init.json"
 "$DG_BIN" serve --listen "127.0.0.1:${PORT}" --data-dir "$SB/data" --key-file "$SB/owner.key" \
     >"$SB/dg.log" 2>&1 &
 DG_PID=$!
