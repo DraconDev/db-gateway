@@ -16,3 +16,27 @@ info: syncing channel updates for 1.97.1-x86_64-unknown-linux-gnu
 info: latest update on 2026-07-16 for version 1.97.1 (8bab26f4f 2026-07-14)
 info: downloading 3 components
 info: default toolchain set to 1.97.1-x86_64-unknown-linux-gnu
+dg init: the owner key is on stdout and is shown only once -- redirect it to a mode-0600 file (e.g. `dg init --data-dir DIR > ~/.config/dg/key`) and clear your scrollback.
+[release-bundle] staging bundle in /tmp/dg-clean-host-EIxlMH/bundle
+[release-bundle] generating checksums
+  bundle built: /tmp/dg-clean-host-EIxlMH/bundle
+  bundle SHA256SUMS verify
+
+step 2: building the clean-host image from the pinned target image
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 345B done
+#1 DONE 0.1s
+
+#2 [internal] load metadata for docker.io/library/ubuntu@sha256:496754492fb28b4d3049432f2ca787449331e23fb14f0dd3fffea86bf5a93eb4
+#2 DONE 0.0s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.1s
+
+#4 [1/2] FROM docker.io/library/ubuntu@sha256:496754492fb28b4d3049432f2ca787449331e23fb14f0dd3fffea86bf5a93eb4
+#4 DONE 0.0s
+
+#5 [2/2] RUN export DEBIAN_FRONTEND=noninteractive  && apt-get -qq update  && apt-get -qq install -y --no-install-recommends       systemd systemd-sysv python3 curl ca-certificates  && rm -rf /var/lib/apt/lists/*
