@@ -170,6 +170,12 @@ install_from_bundle() {
         -e "s|{{DG_DATA_DIR}}|$DATA_DIR|g" \
         -e "s|{{DG_LISTEN}}|$LISTEN|g" \
         "$BUNDLE/deploy/dg.service" >"$UNIT" || fail "cannot render the service template"
+    # The rendered unit is a system configuration file: mode 0644, owned by
+    # root. Leaving the mode to the shell's umask is how a unit ends up
+    # world-writable -- systemd warns about exactly that and proceeds
+    # anyway, which is not a state to ship to a host.
+    chown root:root "$UNIT"
+    chmod 0644 "$UNIT"
     if grep -q '{{' "$UNIT"; then
         fail "the rendered unit still contains placeholders: $(grep -o '{{[A-Z_]*}}' "$UNIT" | tr '\n' ' ')"
     fi
