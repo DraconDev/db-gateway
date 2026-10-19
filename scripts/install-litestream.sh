@@ -137,7 +137,7 @@ else
   log "installed $(ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" "${INSTALL_PATH} version" 2>/dev/null | head -1)"
 fi
 
-# --- 2. Install the sync script and render /etc/litestream.yml with it. -
+# --- 2. Install the sync script and render /etc/litestream.yml with it. ---
 # The render logic (env parse, live-database filter, atomic 0600 write)
 # used to live inline here; it now lives only in
 # scripts/litestream-sync.sh, which the dg-litestream-sync timer re-runs
@@ -160,20 +160,21 @@ ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
   || fail "rendering ${CONFIG_PATH} via litestream-sync.sh failed"
 log "rendered ${CONFIG_PATH} via litestream-sync.sh"
 
-# --- 3. Install the systemd unit. ---
-log "copying deploy/dg-litestream.service to /etc/systemd/system/"
+# --- 3. Install the systemd units (sidecar + config-sync timer). ---
+log "copying deploy/dg-litestream.service + dg-litestream-sync units to /etc/systemd/system/"
 # scp resolves the ssh alias's hostname but does not inherit the
 # IdentityFile the way plain ssh does, so name the key explicitly.
 MICRO2_HOST=$(ssh -G "$TARGET" 2>/dev/null | awk '/^hostname /{print $2; exit}')
 MICRO2_KEY="${MICRO2_SSH_KEY:-$HOME/.ssh/micro2.key}"
 [ -r "$MICRO2_KEY" ] || fail "cannot read the ssh key $MICRO2_KEY (set MICRO2_SSH_KEY to your micro2 key)"
 scp -o BatchMode=yes -q -i "$MICRO2_KEY" \
-  "$ROOT/deploy/dg-litestream.service" "ubuntu@${MICRO2_HOST}:/tmp/dg-litestream.service" \
-  || fail "scp of the unit to ${MICRO2_HOST} failed"
+  "$ROOT/deploy/dg-litestream.service" "$ROOT/deploy/dg-litestream-sync.service" "$ROOT/deploy/dg-litestream-sync.timer" \
+  "ubuntu@${MICRO2_HOST}:/tmp/" \
+  || fail "scp of the units to ${MICRO2_HOST} failed"
 ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
-  "sudo install -m 0644 /tmp/dg-litestream.service /etc/systemd/system/dg-litestream.service && sudo rm /tmp/dg-litestream.service && sudo systemctl daemon-reload" \
-  || fail "installing the unit on ${TARGET} failed"
-log "unit installed and daemon-reloaded"
+  "sudo install -m 0644 /tmp/dg-litestream.service /etc/systemd/system/dg-litestream.service && sudo install -m 0644 /tmp/dg-litestream-sync.service /etc/systemd/system/dg-litestream-sync.service && sudo install -m 0644 /tmp/dg-litestream-sync.timer /etc/systemd/system/dg-litestream-sync.timer && sudo rm /tmp/dg-litestream.service /tmp/dg-litestream-sync.service /tmp/dg-litestream-sync.timer && sudo systemctl daemon-reload" \
+  || fail "installing the units on ${TARGET} failed"
+log "units installed and daemon-reloaded"
 
 # --- 3b. Prove the env file is the ONLY copy of the secret on the host. ---
 # The check reads the secret INSIDE the remote script and never passes it
@@ -213,5 +214,5 @@ fi
 # --- 4. Verify (do not start). The operator chooses when the sidecar
 # first starts so this script never auto-starts a service that touches
 # the network. ---
-log "install complete. To start: ssh $TARGET 'sudo systemctl enable --now dg-litestream'"
-log "verify with: ssh $TARGET 'sudo systemctl status dg-litestream --no-pager; sudo journalctl -u dg-litestream -n 50 --no-pager'"
+log "install complete. To start: ssh $TARGET 'sudo systemctl enable --now dg-litestream dg-litestream-sync.timer'"
+log "verify with: ssh $TARGET 'sudo systemctl status dg-litestream dg-litestream-sync.timer --no-pager; sudo /usr/local/bin/litestream-sync.sh --check; sudo journalctl -u dg-litestream -n 50 --no-pager'"
