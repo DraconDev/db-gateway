@@ -327,6 +327,35 @@ if [ -x /usr/local/bin/litestream ]; then
 fi
 add "\"litestream_replication_status\":$litestream_rep"
 
+# 9b) litestream_coverage -- every live database (`dg list`, as dg)
+# must have a path entry in /etc/litestream.yml. Check 9 proves the
+# configured replicas report ok; it cannot see a database that was
+# never configured at all, which is exactly the A2 gap (a database
+# created after install was silently unreplicated). The sync timer
+# (dg-litestream-sync) should make this permanently green; a fail here
+# means a live database has no off-host replication right now. The
+# config is 0600 dg:dg, so it is read as dg. No config -> skipped.
+litestream_cov='{"status":"skipped","reason":"no litestream config"}'
+if [ -f /etc/litestream.yml ] && [ -x /usr/local/bin/dg ]; then
+    cfg_names="$(sudo -n -u dg sed -n 's/^[[:space:]]*- path:[[:space:]]*//p' /etc/litestream.yml 2>/dev/null | sed -n 's|.*/\([^/]*\)\.sqlite$|\1|p' | LC_ALL=C sort -u || true)"
+    live_json="$(sudo -n -u dg /usr/local/bin/dg --key-file "$kf" list 2>/dev/null || true)"
+    live_names="$(printf '%s' "$live_json" | sed -n 's/.*"databases":\[\(.*\)\].*/\1/p' | tr -d '" ' | tr ',' '\n' | grep -v '^$' | LC_ALL=C sort -u || true)"
+    if [ -z "$live_names" ]; then
+        litestream_cov='{"status":"fail","reason":"dg list returned no databases"}'
+    else
+        missing="$(comm -23 <(printf '%s\n' "$live_names") <(printf '%s\n' "$cfg_names") | paste -sd, -)"
+        nlive="$(printf '%s\n' "$live_names" | grep -c . || true)"
+        if [ -z "$missing" ]; then
+            litestream_cov="$(printf '{"status":"pass","covered":%s}' "$nlive")"
+        else
+            # Database names are gateway-validated to a JSON-safe charset.
+            miss_json="$(printf '%s' "$missing" | sed 's/,/","/g')"
+            litestream_cov="$(printf '{"status":"fail","live":%s,"missing":["%s"]}' "$nlive" "$miss_json")"
+        fi
+    fi
+fi
+add "\"litestream_coverage\":$litestream_cov"
+
 # 10) api_auth_enforced -- the gateway must answer unauthenticated
 # GET /v1/databases with 401 (server up, auth enforced). 401 proves
 # both liveness and the auth boundary in one byte; any other code
@@ -374,7 +403,8 @@ required = ["dg_binary_sha256","dg_service","dg_backup_timer",
             "dg_litestream_service",
             "micro2_backup_script_sha256","stale_staging_dirs",
             "latest_set","backup_verify","owner_key_mode",
-            "litestream_replication_status","api_auth_enforced"]
+            "litestream_replication_status","litestream_coverage",
+            "api_auth_enforced"]
 missing = [k for k in required if k not in obj]
 if missing:
     raise SystemExit(3)
