@@ -204,10 +204,15 @@ RUN export DEBIAN_FRONTEND=noninteractive \
       systemd systemd-sysv python3 curl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 EOF
-    if ! "$ENGINE" build -t "$IMAGE_TAG" - <"$WORKDIR/Dockerfile" >>"$EVIDENCE" 2>&1; then
+    # The image build's own output is package-manager noise; the evidence log
+    # records what was built, not how apt unpacked it. A failed build still
+    # lands its tail in the log, because that is where the reason is.
+    if ! "$ENGINE" build -t "$IMAGE_TAG" - <"$WORKDIR/Dockerfile" >"$WORKDIR/image-build.log" 2>&1; then
+        tail -30 "$WORKDIR/image-build.log" >>"$EVIDENCE" 2>&1 || true
         fail "the clean-host image build failed (see $EVIDENCE)"
     fi
-    say "  clean-host image ready: $IMAGE_TAG"
+    IMAGE_ID="$("$ENGINE" image inspect --format '{{.Id}}' "$IMAGE_TAG" 2>/dev/null || echo unknown)"
+    say "  clean-host image ready: $IMAGE_TAG ($IMAGE_ID)"
 else
     say "step 2: reusing the clean-host image: $IMAGE_TAG"
 fi

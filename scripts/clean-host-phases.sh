@@ -265,12 +265,16 @@ publish_backup() {
 # ---------------------------------------------------------------------------
 
 restore_from_offhost() {
-    log "provisioning an empty target"
-    as_user "$BINARY" init --data-dir "$DATA_DIR" >/dev/null || fail "cannot provision the empty target"
-    # The fresh registry carries a new owner credential that Path A
-    # supersedes: the restored registry brings the ORIGINAL credential hash
-    # back with it. The fresh key is discarded on purpose.
-    log "PASS empty target provisioned (fresh owner key minted, then discarded)"
+    log "checking the provisioned target is empty"
+    # The empty target was provisioned during installation (documented step
+    # 4: a local owner credential was minted against a fresh registry).
+    # Path A now supersedes that registry with the restored one, which
+    # carries the ORIGINAL credential hash back with it; the locally minted
+    # credential is discarded on purpose, exactly as
+    # docs/recovery-contract.md §3 steps 2-3 describe.
+    [ -f "$DATA_DIR/metadata.sqlite" ] || fail "the target was never provisioned"
+    LOCAL_KEY="$(stat -c '%a %U:%G' "$KEY_FILE")"
+    log "PASS empty target provisioned (local owner credential $LOCAL_KEY, to be superseded by the restored registry)"
 
     log "verifying the off-host artifact on this host"
     [ -d "$OFFHOST/backup-root" ] || fail "no off-host artifact to restore from"
