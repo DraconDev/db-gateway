@@ -152,7 +152,7 @@ fn micro2_pinned_container_builds_bundle_and_records_builder() {
         .output()
         .unwrap();
     assert!(version.status.success());
-    assert!(String::from_utf8_lossy(&version.stdout).contains("dg 0.1.0"));
+    assert!(String::from_utf8_lossy(&version.stdout).contains("dg 0.2.0"));
 
     for name in ["README.md", "LICENSE", "BUILD-INFO.txt", "SHA256SUMS"] {
         assert!(bundle(name).is_file(), "bundle must contain {name}");
