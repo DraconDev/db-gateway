@@ -40,7 +40,6 @@ canonical list below. For "what did we actually measure", go to
 | `migration-inventory.md` | Migration source/target inventory and per-item status. |
 | `observability-contract.md` | The observability contract: signals, alerts, the 3 a.m. rules (register member). |
 | `ovh-sandbox-runbook.md` | Runbook for the sandbox S3 rehearsal packet. |
-| `readiness-summary.md` | Readiness summary: local preparation + supervised micro2 state. |
 | `recovery-contract.md` | Recovery contract: restore guarantees and drills (register member). |
 | `recovery-decisions.md` | Recovery decision record (register member). |
 | `recovery-policy.md` | Recovery policy the deploy units and drill scripts implement. |
@@ -62,7 +61,12 @@ canonical list below. For "what did we actually measure", go to
 ## Historical evidence (`evidence/`)
 
 Dated artifacts, grouped by campaign. New drill/measurement output goes
-here, named `<subject>-<YYYY-MM-DD>.<log|json>`.
+here, named `<subject>-<YYYY-MM-DD>.<log|json>`. One register-named
+exception stays at the root: `readiness-summary.md` — a dated
+2026-09-20 snapshot that banners itself superseded (current status
+lives in `TASKS.md`, `deployment-readiness.md`, and
+`audit-2026-10-19.md`) and is classed historical evidence by the
+megaplan register, which names its path; it does not move.
 
 - **First deploy & micro2 sessions** — `first-deploy-micro2.md`,
   `first-deploy-micro2-evidence.log`, `micro2-2026-09-21.md`,
