@@ -181,9 +181,13 @@ log "units installed and daemon-reloaded"
 # as a command-line argument: sudo logs the full COMMAND= for every
 # invocation, so `grep -rlF "$SECRET" ...` would itself be the leak the
 # contract forbids. An earlier revision of this goal leaked it exactly that
-# way and had to vacuum the journal to recover.
+# way and had to vacuum the journal to recover. The program is streamed
+# over stdin (`python3 -`): an earlier `python3 -c '<multiline>'` form
+# silently broke because ssh joins argv with spaces after the local shell
+# has consumed the quotes, so the remote shell executed the Python lines
+# as shell commands (found 2026-10-19 during the A2 live install).
 log "verifying ${ENV_PATH} is the only copy of the secret on ${TARGET}"
-if ! ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" sudo -n python3 -c '
+if ! ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" sudo -n python3 - <<'PYEOF' 2>&1
 import os
 env = "/etc/dg/litestream.env"
 sec = open(env).read().split("LITESTREAM_S3_SECRET_ACCESS_KEY=")[1].split("\n")[0].strip().encode()
@@ -207,7 +211,8 @@ if extra:
     print("SECRET LEAK beyond " + env + ": " + ", ".join(extra[:5]), file=sys.stderr)
     raise SystemExit(1)
 print("only-copy verified: " + env)
-' 2>&1; then
+PYEOF
+then
   fail "the credential is not confined to ${ENV_PATH}; do not start the sidecar until the extra copies are removed and the journal is vacuumed (sudo logs every COMMAND=, so a check that passes the secret in argv re-leaks it)"
 fi
 
