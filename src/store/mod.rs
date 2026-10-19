@@ -26,16 +26,29 @@ mod metrics;
 mod transfers;
 
 pub use self::admission::{
-    ACQUIRE_TIMEOUT, AdmissionGuard, AdmissionQueue, DbQueue, QueueGuard, READ_PERMITS, WRITE_PERMITS,
+    ACQUIRE_TIMEOUT, AdmissionGuard, AdmissionQueue, DbQueue, QueueGuard, READ_PERMITS,
+    WRITE_PERMITS,
 };
 pub use self::auth::{KeyRequest, Principal, hash, unauthorized};
 pub use self::backup_sets::BackupSet;
+pub(crate) use self::backup_sets::{is_set_dir, read_manifest_capped};
 pub use self::lifecycle::validate_name;
 pub use self::metrics::{DbUsage, Metrics, MetricsSnapshot};
 pub use self::transfers::{
-    MAX_CHUNK, MAX_TRANSFERS, MAX_TRANSFER_SIZE, SnapshotInfo, Staging, TRANSFER_TTL, UploadInfo,
+    MAX_CHUNK, MAX_TRANSFER_SIZE, MAX_TRANSFERS, SnapshotInfo, Staging, TRANSFER_TTL, UploadInfo,
 };
-pub(crate) use self::backup_sets::{is_set_dir, read_manifest_capped};
+
+// Cross-module internals: sibling submodules share these through the
+// store namespace (each is `pub(super)` in its home module, so nothing
+// here widens the crate-visible surface).
+#[cfg(test)]
+use self::auth::map_issue_error;
+use self::auth::{generate_key, migrate_legacy_scopes, new_generation};
+use self::backup_sets::{default_backup_root, load_write_markers_from_connection};
+use self::lifecycle::{migrate_metadata, remove_database_files};
+use self::transfers::{Transfer, remove_staging_dir, sweep_orphan_transfer_dirs};
+#[cfg(test)]
+use self::transfers::{TransferKind, UploadState};
 
 /// Maximum registered databases (live rows plus unpurged tombstones).
 /// Sized for the hundreds-of-databases requirement with headroom: registry

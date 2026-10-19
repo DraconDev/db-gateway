@@ -36,7 +36,7 @@ pub enum QueueGuard {
 ///   writer-preferring bound, and it holds no matter how hard the read flood
 ///   pushes or how fast the client re-issues.
 #[derive(Debug, Default)]
-struct QueueState {
+pub(super) struct QueueState {
     /// Readers currently holding the shared guard. Any number may hold it at
     /// once; the queue bounds the WRITER, not reader concurrency.
     readers_active: usize,
@@ -46,7 +46,7 @@ struct QueueState {
     serving: u64,
     /// Tickets held by writers not yet admitted. A reader is held back by
     /// the earliest of these.
-    waiting_writers: BTreeSet<u64>,
+    pub(super) waiting_writers: BTreeSet<u64>,
     /// Tickets whose owner hit ACQUIRE_TIMEOUT and left. Stepped over so one
     /// give-up cannot wedge every ticket behind it.
     abandoned: BTreeSet<u64>,
@@ -121,7 +121,7 @@ impl QueueState {
 /// docs/soak-starvation-evidence.log.
 #[derive(Debug, Default)]
 pub struct AdmissionQueue {
-    state: Mutex<QueueState>,
+    pub(super) state: Mutex<QueueState>,
     available: Condvar,
 }
 

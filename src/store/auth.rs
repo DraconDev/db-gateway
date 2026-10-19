@@ -2,9 +2,9 @@ use super::*;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct DatabaseScope {
-    name: String,
-    generation: String,
+pub(super) struct DatabaseScope {
+    pub(super) name: String,
+    pub(super) generation: String,
 }
 
 #[derive(Clone)]
@@ -14,7 +14,7 @@ pub struct Principal {
     /// Names are retained for the public inventory shape; authorization uses
     /// the private generation-bound scopes below.
     pub databases: Vec<String>,
-    scopes: Vec<DatabaseScope>,
+    pub(super) scopes: Vec<DatabaseScope>,
 }
 
 impl Principal {
@@ -25,7 +25,7 @@ impl Principal {
             Err(Error::new(403, "forbidden", "owner required"))
         }
     }
-    fn database(&self, name: &str, generation: Option<&str>) -> Result<()> {
+    pub(super) fn database(&self, name: &str, generation: Option<&str>) -> Result<()> {
         let allowed = self.role == "owner"
             || self.scopes.iter().any(|scope| {
                 scope.name == name
@@ -57,11 +57,11 @@ pub fn hash(key: &str) -> String {
     hex::encode(Sha256::digest(key.as_bytes()))
 }
 
-fn generate_key() -> String {
+pub(super) fn generate_key() -> String {
     hex::encode(rand::random::<[u8; 32]>())
 }
 
-fn migrate_legacy_scopes(conn: &Connection) -> Result<()> {
+pub(super) fn migrate_legacy_scopes(conn: &Connection) -> Result<()> {
     let credentials: Vec<(String, String)> = conn
         .prepare("SELECT name,databases FROM credentials")?
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
@@ -143,7 +143,7 @@ fn scope_names(scopes: &[DatabaseScope]) -> Vec<String> {
 /// Only a uniqueness violation means the name is taken; every other
 /// insert failure (I/O, corruption) keeps its underlying mapping instead
 /// of masquerading as a duplicate name.
-fn map_issue_error(error: rusqlite::Error) -> Error {
+pub(super) fn map_issue_error(error: rusqlite::Error) -> Error {
     if error.sqlite_error_code() == Some(rusqlite::ErrorCode::ConstraintViolation) {
         Error::new(409, "key_exists", "credential name already exists")
     } else {
@@ -151,7 +151,7 @@ fn map_issue_error(error: rusqlite::Error) -> Error {
     }
 }
 
-fn new_generation(conn: &Connection) -> Result<String> {
+pub(super) fn new_generation(conn: &Connection) -> Result<String> {
     for _ in 0..16 {
         let generation = hex::encode(rand::random::<[u8; 16]>());
         let exists: bool = conn.query_row(

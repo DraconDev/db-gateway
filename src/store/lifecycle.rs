@@ -13,7 +13,7 @@ pub fn validate_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-fn migrate_metadata(conn: &mut Connection, root: &Path) -> Result<()> {
+pub(super) fn migrate_metadata(conn: &mut Connection, root: &Path) -> Result<()> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     tx.execute_batch(
         "CREATE TABLE IF NOT EXISTS credentials(name TEXT PRIMARY KEY, hash TEXT UNIQUE NOT NULL, role TEXT NOT NULL, databases TEXT NOT NULL);
@@ -98,7 +98,7 @@ fn sync_parent_dir(path: &Path) -> Result<()> {
         .map_err(|_| Error::internal())
 }
 
-fn remove_database_files(base: &Path) {
+pub(super) fn remove_database_files(base: &Path) {
     for suffix in ["", "-wal", "-shm"] {
         let p = path_with_suffix(base, suffix);
         let _ = std::fs::remove_file(&p);
@@ -521,7 +521,7 @@ impl Store {
         self.import_from(dest, temp.path())
     }
 
-    fn purge_expired_locked(&self, transfers: &mut HashMap<String, Transfer>) -> usize {
+    pub(super) fn purge_expired_locked(&self, transfers: &mut HashMap<String, Transfer>) -> usize {
         let stale: Vec<String> = transfers
             .iter()
             .filter(|(_, t)| t.created.elapsed() >= self.transfer_ttl)

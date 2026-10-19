@@ -2,7 +2,7 @@ use super::*;
 
 /// Backup-set convention: versioned sets live next to the data dir unless
 /// `--backup-root` overrides. Returns None for degenerate data-dir paths.
-fn default_backup_root(data_dir: &Path) -> Option<PathBuf> {
+pub(super) fn default_backup_root(data_dir: &Path) -> Option<PathBuf> {
     let parent = data_dir.parent()?;
     if parent.as_os_str().is_empty() {
         return None;
@@ -36,7 +36,9 @@ pub struct BackupSet {
     pub has_registry: bool,
 }
 
-fn load_write_markers_from_connection(conn: &Connection) -> Result<HashMap<String, SystemTime>> {
+pub(super) fn load_write_markers_from_connection(
+    conn: &Connection,
+) -> Result<HashMap<String, SystemTime>> {
     let mut stmt = conn.prepare("SELECT name,written_at FROM write_markers")?;
     let rows = stmt.query_map([], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))

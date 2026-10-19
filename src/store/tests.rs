@@ -78,8 +78,7 @@ fn failed_commit_restores_open_only_while_the_ttl_is_live() {
         let mut transfers = short.transfers.lock().unwrap();
         // created.elapsed() >= ttl (== 0) is true immediately, so the
         // entry is already expired at the moment publication returns.
-        let TransferKind::Upload { state, .. } =
-            &mut transfers.get_mut(&expired.id).unwrap().kind
+        let TransferKind::Upload { state, .. } = &mut transfers.get_mut(&expired.id).unwrap().kind
         else {
             panic!("upload kind")
         };

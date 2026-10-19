@@ -39,7 +39,7 @@ pub struct MetricsSnapshot {
 }
 
 impl Metrics {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             started: Instant::now(),
             total: AtomicU64::new(0),

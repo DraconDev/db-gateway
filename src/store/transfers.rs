@@ -12,26 +12,26 @@ pub const MAX_TRANSFERS: usize = 8;
 pub const TRANSFER_TTL: Duration = Duration::from_secs(15 * 60);
 
 #[derive(Clone)]
-enum TransferKind {
+pub(super) enum TransferKind {
     Snapshot { size: u64, sha256: String },
     Upload { received: u64, state: UploadState },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum UploadState {
+pub(super) enum UploadState {
     Open,
     Committing,
 }
 
 #[derive(Clone)]
-struct Transfer {
-    kind: TransferKind,
-    dir: PathBuf,
+pub(super) struct Transfer {
+    pub(super) kind: TransferKind,
+    pub(super) dir: PathBuf,
     file: PathBuf,
     /// Creator's credential hash. Snapshot chunks/release require the creator
     /// or the owner; uploads are owner-only at the API layer.
     creator: String,
-    created: Instant,
+    pub(super) created: Instant,
 }
 
 pub struct SnapshotInfo {
@@ -72,7 +72,7 @@ fn is_transfer_id(id: &str) -> bool {
 /// Best-effort removal of staging directories orphaned by a crash. A new
 /// process owns no live transfers, so anything matching the staging prefixes
 /// is residue. Failures are logged, never fatal to startup.
-fn sweep_orphan_transfer_dirs(root: &Path) {
+pub(super) fn sweep_orphan_transfer_dirs(root: &Path) {
     let entries = match std::fs::read_dir(root) {
         Ok(entries) => entries,
         Err(error) => {
@@ -109,7 +109,7 @@ fn sweep_orphan_transfer_dirs(root: &Path) {
 /// must not do is be invisible, so it is logged at warn with both the path
 /// and the error, which is the same shape `sweep_orphan_transfer_dirs`
 /// already uses for the same class of failure.
-fn remove_staging_dir(dir: &Path) {
+pub(super) fn remove_staging_dir(dir: &Path) {
     if let Err(error) = std::fs::remove_dir_all(dir) {
         tracing::warn!(
             path = %dir.display(),
@@ -292,7 +292,7 @@ impl Store {
         outcome
     }
 
-    fn staging(&self) -> Result<Staging> {
+    pub(super) fn staging(&self) -> Result<Staging> {
         let directory = tempfile::Builder::new()
             .prefix(".lifecycle-")
             .tempdir_in(&self.root)
@@ -662,7 +662,7 @@ impl Store {
     /// upload look resumable until the next append/abort re-checks the TTL
     /// and 404s. A rejected name is recoverable; an expired upload is not,
     /// and the two must not look alike.
-    fn restore_open_after_failed_commit(
+    pub(super) fn restore_open_after_failed_commit(
         &self,
         id: &str,
         transfers: &mut HashMap<String, Transfer>,
