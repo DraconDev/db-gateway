@@ -19,7 +19,37 @@ jobs:
           components: rustfmt, clippy
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - run: cargo test --workspace --locked
+      # Compilation is a separate, untimed step so the timed step below
+      # measures test-binary execution only -- the number the suite-time
+      # budget governs (test binaries spawn processes and sleep on real
+      # timers, so their runtime grows with behaviour, not with code size).
+      - name: Compile Rust tests
+        run: cargo test --workspace --locked --no-run
+      # Suite-time budget (A15 in docs/audit-2026-10-19.md): measured
+      # 261s for 218 tests on the maintainer's dev box on 2026-10-19.
+      # Budget is 600s, ~2.3x that measurement, so the warning fires on
+      # real growth rather than runner noise. Over-budget warns instead
+      # of failing: a slow suite is a triage signal, and the job's
+      # 30-minute timeout is the hard backstop. When the warning fires,
+      # profile the slowest test binaries (`cargo test -- --format
+      # terse` timings, or --test-threads=1) and either fix the slow
+      # test or raise the budget here AND in the A15 record with a new
+      # measurement -- never raise it just to silence the warning.
+      - name: Run Rust test suite (timed)
+        env:
+          RUST_SUITE_BUDGET_SECONDS: "600"
+        run: |
+          start=$SECONDS
+          status=0
+          cargo test --workspace --locked || status=$?
+          elapsed=$((SECONDS - start))
+          echo "Rust suite execution: ${elapsed}s (budget: ${RUST_SUITE_BUDGET_SECONDS}s)"
+          if [ "$status" -ne 0 ]; then
+            exit "$status"
+          fi
+          if [ "$elapsed" -gt "$RUST_SUITE_BUDGET_SECONDS" ]; then
+            echo "::warning::Rust suite execution took ${elapsed}s, over the ${RUST_SUITE_BUDGET_SECONDS}s budget (A15). Profile the slowest tests before raising the budget."
+          fi
       - run: cargo build --release --locked
       # The release-bundle contract test exercises the pinned micro2 builder
       # in a real container, so the test's contract depends on a working
@@ -78,8 +108,15 @@ jobs:
           cache: npm
           cache-dependency-path: client/package-lock.json
       - run: npm ci --prefix client
+      # Vulnerability gate for the client dependency tree. --audit-level
+      # high means moderate/low findings in dev-only tooling (typescript)
+      # do not block, but a high or critical advisory fails the job the
+      # day it is published. Currently clean (0 vulnerabilities).
+      - run: npm audit --prefix client --audit-level=high
       - run: npm test --prefix client
       - run: npm ci --prefix web
+      # Same gate for the web console tree (playwright, typescript).
+      - run: npm audit --prefix web --audit-level=high
       # Pin the browser suite to Playwright's own chromium instead of the
       # runner-imaged system Chrome, whose major version drifts
       # independently of the playwright dependency and breaks launch
@@ -123,3 +160,19 @@ jobs:
       - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+  deny:
+    # cargo-deny enforces deny.toml: advisories, duplicate/wildcard bans,
+    # the permissive-license allowlist, and crates.io-only sources for the
+    # locked dependency tree. The RustSec job above watches advisories on
+    # a schedule-friendly action; this job is the one that also stops a
+    # newly-added dependency under a non-allowlisted license from merging
+    # quietly. Run it locally before pushing dependency changes:
+    # `cargo deny check`.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+          command-arguments: --locked
