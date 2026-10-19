@@ -15,3 +15,4 @@ info: default host tuple is x86_64-unknown-linux-gnu
 info: syncing channel updates for 1.97.1-x86_64-unknown-linux-gnu
 info: latest update on 2026-07-16 for version 1.97.1 (8bab26f4f 2026-07-14)
 info: downloading 3 components
+info: default toolchain set to 1.97.1-x86_64-unknown-linux-gnu

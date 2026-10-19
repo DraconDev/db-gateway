@@ -160,6 +160,22 @@ fn micro2_pinned_container_builds_bundle_and_records_builder() {
     for name in ["docs/api.md", "docs/architecture.md"] {
         assert!(bundle(name).is_file(), "bundle must contain {name}");
     }
+    // The service template travels with the bundle: the documented deploy
+    // (docs/deployment.md step 6) needs deploy/dg.service, and the bundle is
+    // what an operator copies onto a clean host. It must ship as the
+    // TEMPLATE -- placeholders intact -- so a rendered unit with one host's
+    // paths baked in can never be shipped to another host.
+    assert!(
+        bundle("deploy/dg.service").is_file(),
+        "bundle must contain deploy/dg.service"
+    );
+    let unit = fs::read_to_string(bundle("deploy/dg.service")).unwrap();
+    for placeholder in ["{{DG_USER}}", "{{DG_BINARY}}", "{{DG_DATA_DIR}}", "{{DG_LISTEN}}"] {
+        assert!(
+            unit.contains(placeholder),
+            "the shipped unit template lost {placeholder}: it must ship unsubstituted"
+        );
+    }
     let info = fs::read_to_string(bundle("BUILD-INFO.txt")).unwrap();
     for expected in [
         "target: micro2",
