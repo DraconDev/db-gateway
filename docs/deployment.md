@@ -73,6 +73,17 @@ placeholders for future/repeated deployments.
 | `{{DG_BINARY}}` | Absolute path of the `dg` executable | **Unresolved** — target layout decision (e.g. `/usr/local/bin/dg`) |
 | `{{DG_DATA_DIR}}` | Persistent data directory | **Unresolved** — target layout decision (e.g. `/var/lib/dg`) |
 | `{{DG_LISTEN}}` | Listen address; must stay loopback | Default `127.0.0.1:7432`; any change must remain a loopback address or `dg serve` refuses to start |
+| `{{DG_BACKUP_ROOT}}` | Versioned backup-set root the hourly producer publishes into (also `dg-backup.service`/`dg-backup-digest.service` `WorkingDirectory=`) | **Unresolved** — target layout decision (e.g. `/var/lib/dg-backups`) |
+| `{{DG_BACKUP_SCRIPT}}` | Absolute path of the installed hourly backup producer (`scripts/micro2-backup.sh` on the reference host) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/micro2-backup.sh`) |
+
+The backup units (`deploy/dg-backup.{service,timer}` hourly producer,
+`deploy/dg-backup-digest.{service,timer}` daily digest) are templates in
+the same style: substitute the placeholders above, install under
+`/etc/systemd/system/`, `daemon-reload`, then enable the timers.
+`scripts/host-audit.sh` compares the installed units against these
+templates (rendered with the reference-host values, comments/blank
+lines ignored) and fails on drift, so a hand edit on the host cannot
+silently diverge from the repo.
 
 ## Preserved properties
 

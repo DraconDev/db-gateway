@@ -65,6 +65,35 @@ PROBE_DATA_DIR="$(printf '%s\n' "$HEAD_BACKUP_SCRIPT" | sed -n 's/^DATA_DIR=//p'
 [ -n "$PROBE_KEY_FILE" ]    || fail "could not scrape KEY_FILE from scripts/micro2-backup.sh"
 [ -n "$PROBE_DATA_DIR" ]    || fail "could not scrape DATA_DIR from scripts/micro2-backup.sh"
 
+# --- expected installed-unit hashes (repo templates vs host units) ---
+# The backup/digest units on the host were installed by hand-substituting
+# deploy/*.service templates; nothing compared them to the repo after
+# that, so a host-side hand edit (or a template edit never deployed)
+# would drift silently -- the same failure class as an uncompared
+# micro2-backup.sh. Expected = HEAD template rendered with the
+# reference-host values, normalized by dropping comment and blank lines
+# (installed units carry no template header comments; comments are not
+# behaviour). The probe reports the same normalization of the installed
+# files; the comparison below fails on any mismatch or missing unit.
+normalize_unit() { sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d'; }
+expected_unit_sha() {
+    git -C "$ROOT" show "HEAD:deploy/$1" \
+      | sed -e 's|{{DG_USER}}|dg|g' \
+            -e 's|{{DG_BINARY}}|/usr/local/bin/dg|g' \
+            -e "s|{{DG_DATA_DIR}}|$PROBE_DATA_DIR|g" \
+            -e "s|{{DG_BACKUP_ROOT}}|$PROBE_BACKUP_ROOT|g" \
+            -e 's|{{DG_BACKUP_SCRIPT}}|/usr/local/bin/micro2-backup.sh|g' \
+      | normalize_unit | sha256sum | awk '{print $1}'
+}
+EXPECTED_UNIT_DG_BACKUP_SERVICE="$(expected_unit_sha dg-backup.service)"
+EXPECTED_UNIT_DG_BACKUP_TIMER="$(expected_unit_sha dg-backup.timer)"
+EXPECTED_UNIT_DG_BACKUP_DIGEST_SERVICE="$(expected_unit_sha dg-backup-digest.service)"
+EXPECTED_UNIT_DG_BACKUP_DIGEST_TIMER="$(expected_unit_sha dg-backup-digest.timer)"
+for v in "$EXPECTED_UNIT_DG_BACKUP_SERVICE" "$EXPECTED_UNIT_DG_BACKUP_TIMER" \
+         "$EXPECTED_UNIT_DG_BACKUP_DIGEST_SERVICE" "$EXPECTED_UNIT_DG_BACKUP_DIGEST_TIMER"; do
+    [ -n "$v" ] || fail "could not compute an expected unit sha from deploy/ templates at HEAD"
+done
+
 # --- bundle (when nominated) ---
 
 EXPECTED_DG_SHA256=""
@@ -372,6 +401,27 @@ if command -v curl >/dev/null 2>&1; then
 fi
 add "\"api_auth_enforced\":$api_auth"
 
+# 11) installed_units -- normalized sha256 of each installed backup/
+# digest unit (comment and blank lines dropped, matching the repo-side
+# normalization of the deploy/ templates). The repo side stamps the
+# expected rendered-template hashes and fails on mismatch/missing, so
+# an on-host hand edit cannot drift from the repo silently. Unit files
+# are world-readable; sudo is only a fallback.
+unit_hashes=""
+for u in dg-backup.service dg-backup.timer dg-backup-digest.service dg-backup-digest.timer; do
+    h=""
+    if [ -f "/etc/systemd/system/$u" ]; then
+        h="$(sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "/etc/systemd/system/$u" 2>/dev/null | sha256sum | awk '{print $1}' || true)"
+        [ -n "$h" ] || h="$(sudo -n sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "/etc/systemd/system/$u" 2>/dev/null | sha256sum | awk '{print $1}' || true)"
+    fi
+    if [ -n "$h" ]; then
+        unit_hashes="${unit_hashes:+$unit_hashes,}\"$u\":\"$h\""
+    else
+        unit_hashes="${unit_hashes:+$unit_hashes,}\"$u\":null"
+    fi
+done
+add "\"installed_units\":{\"status\":\"pass\",\"units\":{$unit_hashes}}"
+
 emit "{${checks}}"
 PROBE_EOF
     chmod +x "$PROBE_BODY"
@@ -404,7 +454,7 @@ required = ["dg_binary_sha256","dg_service","dg_backup_timer",
             "micro2_backup_script_sha256","stale_staging_dirs",
             "latest_set","backup_verify","owner_key_mode",
             "litestream_replication_status","litestream_coverage",
-            "api_auth_enforced"]
+            "api_auth_enforced","installed_units"]
 missing = [k for k in required if k not in obj]
 if missing:
     raise SystemExit(3)
@@ -439,6 +489,30 @@ o = json.loads(sys.stdin.read())
 o["micro2_backup_script_sha256"]["expected"] = os.environ["EXPECTED"]
 if o["micro2_backup_script_sha256"].get("actual","") and o["micro2_backup_script_sha256"]["actual"] != os.environ["EXPECTED"]:
     o["micro2_backup_script_sha256"]["status"] = "fail"
+print(json.dumps(o))
+')"
+            # Stamp expected unit hashes and fail on mismatch/missing:
+            # the installed backup/digest units must be the repo
+            # templates (rendered), so host and repo cannot drift apart.
+            PARSED="$(printf '%s' "$PARSED" | \
+                EXP_DG_BACKUP_SERVICE="$EXPECTED_UNIT_DG_BACKUP_SERVICE" \
+                EXP_DG_BACKUP_TIMER="$EXPECTED_UNIT_DG_BACKUP_TIMER" \
+                EXP_DG_BACKUP_DIGEST_SERVICE="$EXPECTED_UNIT_DG_BACKUP_DIGEST_SERVICE" \
+                EXP_DG_BACKUP_DIGEST_TIMER="$EXPECTED_UNIT_DG_BACKUP_DIGEST_TIMER" python3 -c '
+import json, os, sys
+o = json.loads(sys.stdin.read())
+expected = {
+    "dg-backup.service": os.environ["EXP_DG_BACKUP_SERVICE"],
+    "dg-backup.timer": os.environ["EXP_DG_BACKUP_TIMER"],
+    "dg-backup-digest.service": os.environ["EXP_DG_BACKUP_DIGEST_SERVICE"],
+    "dg-backup-digest.timer": os.environ["EXP_DG_BACKUP_DIGEST_TIMER"],
+}
+actual = o["installed_units"].get("units", {})
+o["installed_units"]["expected"] = expected
+bad = [u for u, e in expected.items() if actual.get(u) != e]
+if bad:
+    o["installed_units"]["status"] = "fail"
+    o["installed_units"]["mismatched_or_missing"] = bad
 print(json.dumps(o))
 ')"
             # Roll up verdict

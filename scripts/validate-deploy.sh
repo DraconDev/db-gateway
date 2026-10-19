@@ -48,7 +48,10 @@ ver_lt() {
 [ -f "$RELEASE" ] || fail "missing $RELEASE"
 
 log "checking placeholders are documented"
-placeholders="$(grep -o '{{[A-Z_]*}}' "$UNIT" | sort -u)"
+# Every service template's placeholders must be documented, not just
+# dg.service's: the backup units (deploy/dg-backup.service,
+# dg-backup-digest.service) are installed from the same guide.
+placeholders="$(grep -h -o '{{[A-Z_]*}}' "$UNIT" "$ROOT/deploy/dg-backup.service" "$ROOT/deploy/dg-backup-digest.service" | sort -u)"
 [ -n "$placeholders" ] || fail "no placeholders found; template must not hardcode target values"
 while read -r placeholder; do
     grep -qF "\`$placeholder\`" "$GUIDE" \
@@ -369,7 +372,18 @@ if command -v systemd-analyze >/dev/null 2>&1; then
     sed -e "s|/usr/local/bin/litestream-sync.sh|$ROOT/scripts/litestream-sync.sh|g" \
         "$ROOT/deploy/dg-litestream-sync.service" >"$tmp/dg-litestream-sync.service"
     cp "$ROOT/deploy/dg-litestream-sync.timer" "$tmp/dg-litestream-sync.timer"
-    if systemd-analyze verify "$tmp/dg.service" "$tmp/dg-litestream-sync.service" "$tmp/dg-litestream-sync.timer" 2>"$tmp/verify.log"; then
+    # The backup units are placeholder templates like dg.service;
+    # substitute the same dummy values so verify checks unit structure.
+    for u in dg-backup.service dg-backup-digest.service; do
+        sed -e "s|{{DG_USER}}|$(id -un)|g" \
+            -e "s|{{DG_BINARY}}|$TARGET_DIR/debug/dg|g" \
+            -e "s|{{DG_DATA_DIR}}|$tmp/data|g" \
+            -e "s|{{DG_BACKUP_ROOT}}|$tmp/data|g" \
+            -e "s|{{DG_BACKUP_SCRIPT}}|$ROOT/scripts/micro2-backup.sh|g" \
+            "$ROOT/deploy/$u" >"$tmp/$u"
+    done
+    cp "$ROOT/deploy/dg-backup.timer" "$ROOT/deploy/dg-backup-digest.timer" "$tmp/"
+    if systemd-analyze verify "$tmp/dg.service" "$tmp/dg-litestream-sync.service" "$tmp/dg-litestream-sync.timer" "$tmp/dg-backup.service" "$tmp/dg-backup.timer" "$tmp/dg-backup-digest.service" "$tmp/dg-backup-digest.timer" 2>"$tmp/verify.log"; then
         log "systemd-analyze verify: clean"
     else
         cat "$tmp/verify.log" >&2
