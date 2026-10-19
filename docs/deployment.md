@@ -201,8 +201,8 @@ unit, the config, or the repository carrying a secret (the config uses
 #      LITESTREAM_S3_REGION=...
 #      LITESTREAM_S3_ACCESS_KEY_ID=...
 #      LITESTREAM_S3_SECRET_ACCESS_KEY=...
-scripts/install-litestream.sh        # installs, renders config, drops unit
-ssh micro2 'sudo systemctl enable --now dg-litestream'
+scripts/install-litestream.sh        # installs, renders config, drops units
+ssh micro2 'sudo systemctl enable --now dg-litestream dg-litestream-sync.timer'
 ssh micro2 'sudo journalctl -u dg-litestream -n 50 --no-pager'
 ```
 
@@ -211,6 +211,18 @@ upstream `checksums.txt` for the pinned release tag before installing,
 and is idempotent — a re-run detects the installed binary and reuses it.
 Nothing is started automatically: the operator chooses when the sidecar
 first begins replicating.
+
+The config is rendered by `scripts/litestream-sync.sh` (installed as
+`/usr/local/bin/litestream-sync.sh`): litestream reads its config only
+at startup, so the `dg-litestream-sync.timer` re-renders from `dg list`
+every five minutes and restarts the sidecar only when the config
+changed — a database created or deleted after install enters or leaves
+replication within one interval, with no operator step
+(docs/audit-2026-10-19.md A2). `litestream-sync.sh --check` reports
+per-database coverage, and host-audit's `litestream_coverage` check
+fails if any live database is missing from the config. Local proof:
+`scripts/litestream-sync-drill.sh`
+(evidence: docs/litestream-sync-drill-2026-10-19.log).
 
 ### Proving a restore round-trip
 
