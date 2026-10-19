@@ -144,7 +144,21 @@ cleanup() {
     else
         "$ENGINE" rm -f "$HOST_A" >/dev/null 2>&1 || true
         "$ENGINE" rm -f "$HOST_B" >/dev/null 2>&1 || true
-        rm -rf "$WORKDIR" || true
+        # The containers ran as root and wrote into the mounted work
+        # directory (the release builder's cargo home, and the off-host
+        # copy the recovery leg reads), so the operator's own `rm -rf`
+        # cannot remove those entries and leaves a half-deleted tree in
+        # /tmp. Give the tree back to the invoking user first, then
+        # delete it. Residue like that is not cosmetic: the next run
+        # reuses the directory, and a stale root-owned file inside it
+        # makes the next run's evidence untrustworthy.
+        if [ -d "$WORKDIR" ]; then
+            if "$ENGINE" image inspect "$PINNED_IMAGE" >/dev/null 2>&1; then
+                "$ENGINE" run --rm -v "$WORKDIR:/w" "$PINNED_IMAGE" \
+                    chown -R "$(id -u):$(id -g)" /w >/dev/null 2>&1 || true
+            fi
+            rm -rf "$WORKDIR" 2>/dev/null || true
+        fi
     fi
     exit "$code"
 }
@@ -153,6 +167,11 @@ trap cleanup EXIT
 # --- evidence log ------------------------------------------------------------
 if [ -z "$EVIDENCE" ]; then
     EVIDENCE="$ROOT/docs/evidence/clean-host-rehearsal-$(date -u +%Y-%m-%d).log"
+    # A dated transcript is never rewritten: a second run on the same day
+    # gets its own file rather than truncating the first one's evidence.
+    if [ -e "$EVIDENCE" ]; then
+        EVIDENCE="$ROOT/docs/evidence/clean-host-rehearsal-$(date -u +%Y-%m-%dT%H%M%SZ).log"
+    fi
 fi
 mkdir -p "$(dirname "$EVIDENCE")"
 : >"$EVIDENCE"
