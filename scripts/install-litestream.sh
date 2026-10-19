@@ -5,11 +5,15 @@
 # Usage: scripts/install-litestream.sh
 # Runs as root over ssh to micro2; does not require the operator's input
 # except for /etc/dg/litestream.env, which the operator (or the previous
-# goal's setup) must have already written. This script verifies, installs,
-# and renders the litestream config from /etc/dg/litestream.env; the live
-# install is the next step (systemctl enable --now dg-litestream) and is
-# deliberately NOT done by this script, so the operator can choose when
-# the sidecar first starts replicating.
+# goal's setup) must have already written. This script verifies and
+# installs the litestream binary, installs scripts/litestream-sync.sh as
+# /usr/local/bin/litestream-sync.sh and renders the config by running it,
+# and installs the dg-litestream + dg-litestream-sync units. The render
+# logic lives ONLY in litestream-sync.sh: the sync timer re-runs it every
+# five minutes, so a database created after install is replicated within
+# one interval instead of never (docs/audit-2026-10-19.md A2). Enabling
+# the units is deliberately NOT done by this script, so the operator can
+# choose when the sidecar first starts replicating.
 #
 # The pin mirrors docs/ovh-sandbox-runbook.md section 1, with one change
 # for trust: we verify the tarball's SHA-256 against the upstream
@@ -50,6 +54,9 @@ TEMPLATE="${ROOT}/deploy/litestream.yml"
 
 command -v ssh >/dev/null || fail "ssh not on PATH (must run from the repo root with the micro2 ssh alias configured)"
 [ -r "$TEMPLATE" ] || fail "config template not found: $TEMPLATE (run from the repo root)"
+[ -r "$ROOT/scripts/litestream-sync.sh" ] || fail "sync script not found: $ROOT/scripts/litestream-sync.sh"
+[ -r "$ROOT/deploy/dg-litestream-sync.service" ] || fail "sync unit not found: $ROOT/deploy/dg-litestream-sync.service"
+[ -r "$ROOT/deploy/dg-litestream-sync.timer" ] || fail "sync timer not found: $ROOT/deploy/dg-litestream-sync.timer"
 
 # The target host. The convention matches the rest of the repo's deploy
 # scripts: SSH over the operator's ~/.ssh/config alias.
