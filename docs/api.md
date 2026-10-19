@@ -18,6 +18,31 @@ Authentication is `Authorization: Bearer <credential>` on every route. Credentia
 
 Store key files with `0600` permissions; the CLI refuses group/world-readable key files. `dg init` prints JSON (`{"owner_key": …}`), but `--key-file` wants the raw 64-hex credential alone — extract it once, e.g. `dg init --data-dir state/dg | python3 -c "import json,sys; print(json.load(sys.stdin)['owner_key'])" > owner.key && chmod 600 owner.key`. **Automated development clients should use scoped dev credentials, never the owner key.** Rotate a compromised or stale owner key with `dg key rotate-owner` (prints `{"key": …}` once — redirect to a `0600` file): the old key dies immediately while databases, generations, and app-key scopes are untouched. Verify the new key (`dg --key-file new.key key list`) before discarding the old file. Losing the current owner key locks out management until it is recovered from custody — app keys keep working, but nothing can issue, revoke, create, or delete. Each registered database also has a durable opaque generation identity. A scoped credential stores the database name together with the generation it was issued for; after tombstone purge and same-name recreation, the old credential receives `database_forbidden` while a newly issued credential can access the replacement. Legacy name-only scope metadata is migrated to the current generation without broadening access.
 
+## Application clients
+
+Applications do not hand-roll HTTP against the routes below. Two typed
+clients encode the transport rules (HTTPS-or-loopback origins, no
+proxies/redirects, bounded responses, `outcome_unknown` write
+semantics, explicit keyed replay — never hidden retries):
+
+- **TypeScript** — `client/` (`Gateway` / `Database`).
+- **Rust** — `crates/dg-client` (`dg_client::Gateway` /
+  `dg_client::Database`), the path for the platform's Rust writers
+  (audit A6). It mirrors the TS contract: `execute` /
+  `execute_with_key`, atomic `batch` / `batch_with_key`, `list_databases`,
+  `status`, `database_info`, owner-only `create_database` /
+  `delete_database`, and `Gateway::from_key_file` for 0600 scoped-key
+  files. Key issue/revoke stays with the owner CLI. Integration proof:
+  `tests/rust_client.rs` drives a live `dg serve` end to end (scoped
+  reads, keyed-replay non-duplication, out-of-scope 403).
+
+A Rust writer shaped like `api_core::db::SharedDb` keeps its
+connection-supervisor role but swaps the libSQL remote connection for
+a `dg_client::Gateway` built once at startup plus one scoped key file
+per database; there are no streams to rebuild — a failed read is
+`transport_unavailable`, a failed unkeyed write is `outcome_unknown`,
+and exactly-once resubmission is the caller's explicit keyed replay.
+
 ## Routes
 
 | Method + path | Who | Body | Success response |

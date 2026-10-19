@@ -233,9 +233,8 @@ impl Gateway {
     /// HTTP, userinfo, query/fragment, and non-root paths — the same
     /// rule the TS client and CLI enforce.
     pub fn new(server: &str, credential: &str) -> Result<Self> {
-        let url = reqwest::Url::parse(server).map_err(|_| {
-            ClientError::new("invalid_server", "server is not a valid URL", None)
-        })?;
+        let url = reqwest::Url::parse(server)
+            .map_err(|_| ClientError::new("invalid_server", "server is not a valid URL", None))?;
         let loopback = url
             .host_str()
             .map(|h| {
@@ -263,7 +262,9 @@ impl Gateway {
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(10))
             .build()
-            .map_err(|_| ClientError::new("transport_unavailable", "cannot build HTTP client", None))?;
+            .map_err(|_| {
+                ClientError::new("transport_unavailable", "cannot build HTTP client", None)
+            })?;
         Ok(Self {
             origin: server.trim_end_matches('/').to_owned(),
             credential: credential.to_owned(),
