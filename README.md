@@ -3,6 +3,7 @@
 **Canonical roadmap:** [`docs/personal-turso-megaplan.md`](docs/personal-turso-megaplan.md)
 **Current implementation checklist:** [`TASKS.md`](TASKS.md)
 **Documentation index:** [`docs/README.md`](docs/README.md) — canonical vs historical-evidence vs superseded, for the whole docs tree.
+**How we work:** [`CONTRIBUTING.md`](CONTRIBUTING.md) — the item loop, the gates, release flow, and the lines we don't cross.
 
 **`dg`** is a single-owner SQLite service: one Rust gateway, many independent databases, an HTTP API and CLI, and off-host backups.
 
