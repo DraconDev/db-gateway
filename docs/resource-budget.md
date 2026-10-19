@@ -157,8 +157,9 @@ The 1 GiB envelope so far is composed of:
 - Gateway process RSS: 13 MiB peak under burst (release, dev host) or
   8 MiB idle-after-drill (supervised micro2 sample), re-confirmed as
   6696 KiB steady on micro2 (raw transcript
-  `docs/m4-micro2-sampling-2026-10-16.log`, reproducible by
-  `scripts/m4-micro2-sampling.sh`) and 11 MiB burst peak under a
+  `docs/m4-micro2-sampling-2026-10-16.log`; the one-off sampler that
+  produced it was retired 2026-10-19 in A12, preserved in git history)
+  and 11 MiB burst peak under a
   1 GiB-enforced local rerun (2026-10-15, M6). Worst-case ceiling
   from code: 24 MiB SQLite cache (8+4 connections x 2 MiB).
 - Litestream sidecar: 44 MiB peak replication, 33 MiB restore (1 GiB

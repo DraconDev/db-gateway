@@ -48,7 +48,8 @@ ReadWritePaths={{DG_DATA_DIR}}
 # unit with its own MemoryMax (96M on-host); the 1 GiB host budget is the
 # sum of this cap (64 MiB) plus the sidecar cap plus the OS, all of which
 # fits. Evidence: `docs/m4-micro2-sampling-2026-10-16.log` (on-target
-# steady-state + restore, reproducible by `scripts/m4-micro2-sampling.sh`),
+# steady-state + restore; the one-off sampler that produced it was
+# retired 2026-10-19 in A12 and is preserved in git history),
 # `docs/resource-report-release-1G-scope-2026-10-15.json` (1 GiB-enforced
 # local burst, reproducible by `scripts/resource-report-release.sh`),
 # `docs/sandbox-packet-2026-09-29-rehearsal.log` gate 9 (sidecar peaks
