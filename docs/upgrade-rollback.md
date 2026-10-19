@@ -52,6 +52,33 @@ the filesystem copy (byte-exact, fastest restore).
 5. Record what was lost (post-snapshot writes) and re-apply from application
    sources if needed.
 
+## Owner decisions (2026-10-19, audit A7 gate 8)
+
+Decided by the owner on 2026-10-19; these close the four open items
+gate 8 of `docs/deployment-readiness.md` carried:
+
+1. **Soak period:** pre-upgrade snapshots and the previous binary are
+   kept **7 days** after an upgrade is confirmed good, then the
+   `.pre-<version>` copy may be deleted. (Extends step 6 above: owner
+   confirmation starts the 7-day clock; unconfirmed upgrades keep
+   their snapshots indefinitely.)
+2. **Snapshot retention:** the hourly producer keeps the **newest 24
+   sets** (`--keep 24`, as deployed). Longer rollback reach is Tier
+   1's job (Litestream, 7-day in-replica retention,
+   `docs/recovery-policy.md`), not the same-disk sets'.
+3. **Owner credential custody:** the owner key lives in the owner's
+   password manager plus `/etc/dg/owner.key` (0600, dg) on the host.
+   No other plaintext copy. Scoped application keys are re-issuable
+   from the owner key and are not backed up separately.
+4. **Write-loss acceptance:** on host loss, losing up to the Profile
+   C window (~5 minutes of writes to the off-host replica; up to
+   ~1 hour to the newest same-disk set, same-disk sets being
+   irrelevant if the disk is gone) is **accepted as a working
+   target, not a guarantee** — the same status Profile C already
+   carries in `docs/recovery-policy.md`. Rollback step 1's
+   post-snapshot write loss is accepted on the same basis and must
+   still be recorded per incident (step 5).
+
 ## Notes
 
 - `PRAGMA integrity_check` is rejected over the HTTP API (`sql_forbidden`);
