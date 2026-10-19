@@ -129,24 +129,54 @@ for name in "${SORTED[@]}"; do
 done
 [ "${#KEEP[@]}" -gt 0 ] || fail "no live database has a .sqlite file under $DG_DATA_DIR"
 
+# The registry (metadata.sqlite: credential hashes, scopes, database
+# rows) replicates as one fixed extra entry so the bucket alone can
+# rebuild a working gateway -- data files without it lose every scoped
+# key (docs/recovery-policy.md). Registry connections in the gateway
+# are per-operation, like the application databases already replicated
+# under a live gateway; restored-pair skew is handled by the recovery
+# runbook in that policy. DG_LITESTREAM_INCLUDE_REGISTRY=0 opts out.
+INCLUDE_REGISTRY="${DG_LITESTREAM_INCLUDE_REGISTRY:-1}"
+REGISTRY_PRESENT=0
+[ -f "$DG_DATA_DIR/metadata.sqlite" ] && REGISTRY_PRESENT=1
+EXPECTED=("${KEEP[@]}")
+if [ "$INCLUDE_REGISTRY" = "1" ] && [ "$REGISTRY_PRESENT" = "1" ]; then
+    EXPECTED+=(metadata)
+fi
+# Explicit retention: with no replica retention configured, the tool
+# default silently decides how much history the bucket keeps, and the
+# Profile C 7-day frequent-points objective was not met by the old
+# render. 168h of WAL + daily snapshots is the frequent tier; the
+# 30/7 daily-version classes are bucket-lifecycle territory (policy
+# doc records their production state separately).
+RETENTION="${DG_LITESTREAM_RETENTION:-168h}"
+SNAPSHOT_INTERVAL="${DG_LITESTREAM_SNAPSHOT_INTERVAL:-24h}"
+
 # --- 2. Replica settings. ------------------------------------------------
+render_one() { # render_one <name> -- one dbs: entry; name may be "metadata"
+    local name="$1"
+    echo "  - path: ${DG_DATA_DIR}/${name}.sqlite"
+    echo "    replicas:"
+    if [ -n "${DG_REPLICA_URL_TEMPLATE:-}" ]; then
+        echo "      - url: ${DG_REPLICA_URL_TEMPLATE//\{name\}/$name}"
+    else
+        echo "      - url: s3://${BUC}/${name}?endpoint=${END}"
+        echo "        region: ${REG}"
+        echo "        access-key-id: \${LITESTREAM_S3_ACCESS_KEY_ID}"
+        echo "        secret-access-key: \${LITESTREAM_S3_SECRET_ACCESS_KEY}"
+        echo "        force-path-style: true"
+    fi
+    echo "        retention: ${RETENTION}"
+    echo "        snapshot-interval: ${SNAPSHOT_INTERVAL}"
+}
 render() {
     echo "# Managed by litestream-sync.sh from 'dg list' -- do not hand-edit."
     echo "# A database appears here within one sync interval of being created,"
-    echo "# and disappears within one interval of being deleted."
+    echo "# and disappears within one interval of being deleted. The metadata"
+    echo "# entry is the registry (credentials/scopes) -- see recovery-policy."
     echo "dbs:"
-    for name in "${KEEP[@]}"; do
-        echo "  - path: ${DG_DATA_DIR}/${name}.sqlite"
-        echo "    replicas:"
-        if [ -n "${DG_REPLICA_URL_TEMPLATE:-}" ]; then
-            echo "      - url: ${DG_REPLICA_URL_TEMPLATE//\{name\}/$name}"
-        else
-            echo "      - url: s3://${BUC}/${name}?endpoint=${END}"
-            echo "        region: ${REG}"
-            echo "        access-key-id: \${LITESTREAM_S3_ACCESS_KEY_ID}"
-            echo "        secret-access-key: \${LITESTREAM_S3_SECRET_ACCESS_KEY}"
-            echo "        force-path-style: true"
-        fi
+    for name in "${EXPECTED[@]}"; do
+        render_one "$name"
     done
 }
 if [ -z "${DG_REPLICA_URL_TEMPLATE:-}" ]; then
