@@ -103,11 +103,9 @@ stopped (`docs/sandbox-packet-2026-10-14-ovh.log`).
   drill plus `litestream status`/coverage checks in host-audit are
   the standing signals, and a missed objective is a finding to
   investigate (per the 2026-09-27 decision), not a breached SLA.
-- **Registry in the live config** lands when the updated
-  `litestream-sync.sh` is deployed to micro2 (owner-approved live
-  step): on the next sync the sidecar restarts onto a config that
-  includes `metadata`, and host-audit's coverage check treats a
-  missing registry entry as failure from that same change onward.
+- **Registry in the live config** landed 2026-10-19 (see the live
+  enablement record below). Host-audit's coverage check treats a
+  missing registry entry as failure from that change onward.
 
 ## Decision record
 
@@ -120,3 +118,25 @@ stopped (`docs/sandbox-packet-2026-10-14-ovh.log`).
   `docs/registry-recovery-drill-2026-10-19.log`.
 - Restore-always-to-separate-target and 7-day rollback-artifact
   retention: `recovery-decisions.md` item 4 (unchanged).
+
+## Live enablement record (2026-10-19, owner-approved)
+
+- Updated `litestream-sync.sh` deployed via `scripts/install-litestream.sh`
+  (idempotent; only-copy verified). The render added `metadata` to the
+  live config; `dg-litestream.service` was restarted once onto it and
+  `litestream status` shows `metadata.sqlite ok` (txid 2, 948 kB WAL —
+  live registry replication under the serving gateway). The explicit
+  `retention: 168h` / `snapshot-interval: 24h` lines entered the live
+  config with the same render.
+- `scripts/bucket-restore-drill.sh` installed as
+  `/usr/local/bin/bucket-restore-drill.sh`; `dg-restore-drill.timer`
+  enabled (first scheduled fire Sun 2026-10-25 05:30 UTC). First
+  manual run: all databases + registry restored from the real bucket
+  replicas and verified, exit 0
+  (`db=billing_dev_pilot state=ok`, `db=verify_probe state=ok`,
+  `db=metadata state=ok creds=2 missing=[]`).
+- Host-audit after enablement: verdict pass, `litestream_coverage`
+  pass covered=3, replication status pass databases=3.
+
+The production-bucket lifecycle residual above is unaffected by this
+record and still awaits the owner's console read-back.
