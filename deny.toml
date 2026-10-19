@@ -1,0 +1,54 @@
+# cargo-deny policy for db-gateway (A15 in docs/audit-2026-10-19.md).
+# Run locally with: cargo deny check
+# The CI `deny` job in .github/workflows/ci.yml runs the same command, so a
+# red check here is a red check there. Fix the dependency or the policy --
+# never silence a finding by deleting the gate.
+
+[advisories]
+# Known-vulnerable versions are a hard failure; the softer classes warn so
+# they get triaged without blocking every dependency update.
+vulnerability = "deny"
+yanked = "warn"
+unmaintained = "warn"
+unsound = "warn"
+notice = "warn"
+
+[bans]
+# Duplicate versions of a crate (syn 2/3, hashbrown 0.16/0.17, ...) are
+# normal in this tree and warn only. Wildcard version requirements would
+# defeat Cargo.lock reproducibility, so those deny.
+multiple-versions = "warn"
+wildcards = "deny"
+
+[licenses]
+# The allowlist is exactly the permissive licenses present in the locked
+# dependency tree (verified against `cargo deny list` when this file was
+# written). A new dependency under any other license -- copyleft included --
+# fails the gate and forces an explicit policy decision here, which is the
+# point of having the list. The project's own crates are AGPL-3.0 (LICENSE)
+# and are excluded via `private.ignore` below: dependency licensing policy
+# is not where the project's own license is adjudicated.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+copyleft = "deny"
+# dg and dg-client are publish = false; do not license-gate our own code.
+private = { ignore = true }
+
+[sources]
+# Everything must come from crates.io; no git or alternative-registry
+# dependencies without a policy change in this file.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
