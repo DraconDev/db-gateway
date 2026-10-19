@@ -1,0 +1,67 @@
+# Litestream sync drill — 2026-10-19 (A2 fix evidence, local)
+
+Purpose: prove the fix for docs/audit-2026-10-19.md A2 locally before any
+live micro2 change. A database created after scripts/install-litestream.sh
+rendered /etc/litestream.yml was never replicated (litestream reads its
+config at startup only), and snapshot-set freshness could still report it
+fresh. Fix: scripts/litestream-sync.sh re-renders the config from
+`dg list` (apply = atomic replace + sidecar restart only on change;
+--check = per-database coverage report), run every 5 minutes by
+deploy/dg-litestream-sync.timer; scripts/host-audit.sh gained a
+litestream_coverage probe check.
+
+## Local drill (scripts/litestream-sync-drill.sh), run twice, both PASS
+
+Disposable sandbox: dg serve on 127.0.0.1:17432, file:// replica per
+database (bucket stand-in), pinned litestream 0.5.17 (PATH v0.3.13
+refused by the drill). Restore is judged on restored row values +
+integrity_check, not exit code (docs/backup-compatibility.md finding 1).
+
+Run output (identical shape both runs):
+
+  [litestream-sync-drill] sandbox: /tmp/dg-sync-drill-XXXXXX (server http://127.0.0.1:17432, litestream 0.5.17)
+  [litestream-sync-drill] 1 ok: drill_one created, synced, replicating
+  [litestream-sync-drill] 2a ok: gap is visible (--check fails, names drill_two)
+  [litestream-sync-drill] 2b ok: drill_two replicated after sync (sidecar restarted onto new config)
+  restored rows exact + integrity ok
+  [litestream-sync-drill] 3 ok: drill_two restored from replica with exact rows
+  [litestream-sync-drill] 4 ok: delete removes drill_one from the config on the next sync
+  [litestream-sync-drill] PASS: create -> visible gap -> sync -> replicated -> restored exactly; delete -> unregistered
+
+What each step proves:
+1. Baseline: first database + first sync replicates (replica LTX present).
+2. THE A2 MOMENT: drill_two is created while the sidecar is already
+   running. Before sync, --check exits 1 naming drill_two state=missing
+   (the gap is now visible instead of silent). After sync apply, the
+   sidecar has restarted onto the re-rendered config and drill_two's
+   replica contains LTX data.
+3. drill_two's local files are deleted; `litestream restore` from the
+   replica alone returns rows [(1,alpha),(2,bravo),(3,charlie)] exactly,
+   integrity_check ok.
+4. `dg delete drill_one --confirm drill_one` + one sync removes
+   drill_one from the config; --check passes (delete unregisters).
+
+Unit-level checks of the sync script (stub dg): --print/--check/apply/
+no-op/remove all behave; a failing restart command rolls the previous
+config back and exits 1 (so the next sync retries instead of the file
+claiming coverage the daemon does not have); S3-mode render substitutes
+bucket/endpoint/region and leaves credential keys as ${LITESTREAM_S3_*}
+references -- the secret value never enters the config.
+
+## Live read-only probe (no micro2 change made)
+
+DG_AUDIT_TARGET=micro2 scripts/host-audit.sh on 2026-10-19: overall
+pass, including the new check:
+  "litestream_coverage": {"status": "pass", "covered": 2}
+i.e. both live databases (billing_dev_pilot, verify_probe) are in the
+current /etc/litestream.yml -- there is no live gap today; A2 bites on
+the next CREATE, which is what the sync timer closes.
+
+## Not yet done (needs explicit owner approval)
+
+Nothing was installed or restarted on micro2. Remaining live step:
+run scripts/install-litestream.sh (installs litestream-sync.sh +
+dg-litestream-sync.{service,timer}, re-renders via the sync script),
+then `systemctl enable --now dg-litestream-sync.timer`, then a live
+create->replicate check with a scratch database (host-audit coverage
+must stay pass throughout, without any manual config step).
