@@ -89,11 +89,16 @@ else
         || fail "'dg list' failed (gateway down? key unreadable?)"
 fi
 if command -v python3 >/dev/null 2>&1; then
-    mapfile -t LIVE < <(printf '%s' "$LIST_JSON" | python3 -c '
+    # Capture into a variable first: a process substitution's exit status
+    # is invisible to `mapfile ... || fail`, so malformed JSON would
+    # otherwise surface as a misleading "no live databases".
+    PARSED_NAMES="$(printf '%s' "$LIST_JSON" | python3 -c '
 import json, sys
 for name in json.load(sys.stdin).get("databases", []):
     print(name)
-') || fail "could not parse 'dg list' JSON"
+')" || fail "could not parse 'dg list' JSON"
+    LIVE=()
+    [ -z "$PARSED_NAMES" ] || mapfile -t LIVE <<< "$PARSED_NAMES"
 else
     NAMES="$(printf '%s' "$LIST_JSON" | sed -n 's/.*"databases":\[\(.*\)\].*/\1/p' | tr -d '" ' | tr ',' ' ')"
     # shellcheck disable=SC2206 # deliberate word split of the parsed list
@@ -108,12 +113,17 @@ fi
 SORTED=()
 while IFS= read -r name; do SORTED+=("$name"); done < <(printf '%s\n' "${LIVE[@]}" | LC_ALL=C sort -u)
 KEEP=()
+SKIPPED=()
 for name in "${SORTED[@]}"; do
     [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
         || fail "live database name '$name' is outside the safe charset; refusing to render"
     if [ -f "$DG_DATA_DIR/${name}.sqlite" ]; then
         KEEP+=("$name")
     else
+        # Registered but fileless: cannot be rendered (litestream would
+        # create an empty file at that path), but it is NOT covered --
+        # --check must report it missing, never pass over it silently.
+        SKIPPED+=("$name")
         log "warning: live database '$name' has no $DG_DATA_DIR/${name}.sqlite file; skipped"
     fi
 done
@@ -176,6 +186,9 @@ if [ -f "$CONFIG" ]; then
 fi
 
 in_list() { local x="$1"; shift; local y; for y in "$@"; do [ "$y" = "$x" ] && return 0; done; return 1; }
+# Byte-exact config comparison (command substitution would strip a
+# trailing-newline difference; cmp does not).
+config_matches() { [ -f "$CONFIG" ] && printf '%s\n' "$DESIRED" | cmp -s - "$CONFIG"; }
 
 if [ "$MODE" = "check" ]; then
     drift=0
@@ -188,25 +201,27 @@ if [ "$MODE" = "check" ]; then
         fi
     done
     for name in "${CURRENT_NAMES[@]+"${CURRENT_NAMES[@]}"}"; do
-        if ! in_list "$name" "${KEEP[@]}"; then
+        if ! in_list "$name" "${KEEP[@]}" && ! in_list "$name" "${SKIPPED[@]+"${SKIPPED[@]}"}"; then
             echo "litestream-coverage db=$name state=extra"
             drift=1
         fi
     done
+    for name in "${SKIPPED[@]+"${SKIPPED[@]}"}"; do
+        echo "litestream-coverage db=$name state=missing detail=no-database-file"
+        drift=1
+    done
     # Same database set but different bytes (endpoint/region/URL change,
     # hand edit) is still drift the next apply would rewrite.
-    if [ "$drift" = "0" ]; then
-        if [ ! -f "$CONFIG" ] || [ "$(cat "$CONFIG")" != "$DESIRED" ]; then
-            echo "litestream-coverage state=drift detail=config-differs-from-rendered"
-            drift=1
-        fi
+    if [ "$drift" = "0" ] && ! config_matches; then
+        echo "litestream-coverage state=drift detail=config-differs-from-rendered"
+        drift=1
     fi
     [ "$drift" = "0" ] || exit 1
     exit 0
 fi
 
 # --- 3. Apply: replace only on change, restart, revert on failure. ------
-if [ -f "$CONFIG" ] && [ "$(cat "$CONFIG")" = "$DESIRED" ]; then
+if config_matches; then
     log "in sync (${#KEEP[@]} database(s)); no change"
     exit 0
 fi
@@ -214,8 +229,26 @@ fi
 CONFIG_DIR="$(dirname "$CONFIG")"
 TMP="$(mktemp "$CONFIG_DIR/.litestream.yml.XXXXXX")" || fail "cannot create temp file in $CONFIG_DIR"
 BACKUP=""
-cleanup() { rm -f "$TMP" ${BACKUP:+"$BACKUP"}; }
-trap cleanup EXIT
+CONFIG_CREATED=0
+RESTART_OK=1
+# Single exit path owns the rollback: between the mv below and a
+# successful restart, ANY exit (restart failure, or this process being
+# signalled in that window) restores the previous config -- or removes
+# a newly created one -- so the file never claims coverage the running
+# daemon does not have while later syncs report "in sync". (SIGKILL
+# cannot be trapped; that residue is irreducible in a shell script.)
+on_exit() {
+    rm -f "$TMP"
+    if [ "$RESTART_OK" != "1" ]; then
+        if [ -n "$BACKUP" ]; then mv -f "$BACKUP" "$CONFIG" 2>/dev/null || true;
+        elif [ "$CONFIG_CREATED" = "1" ]; then rm -f "$CONFIG"; fi
+    else
+        rm -f ${BACKUP:+"$BACKUP"}
+    fi
+}
+trap on_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 printf '%s\n' "$DESIRED" >"$TMP"
 chmod 0600 "$TMP"
 [ -z "$CONFIG_OWNER" ] || chown "$CONFIG_OWNER" "$TMP" || fail "chown $CONFIG_OWNER failed"
@@ -231,21 +264,16 @@ for name in "${CURRENT_NAMES[@]+"${CURRENT_NAMES[@]}"}"; do in_list "$name" "${K
 if [ -f "$CONFIG" ]; then
     BACKUP="$(mktemp "$CONFIG_DIR/.litestream.yml.bak.XXXXXX")"
     cp -p "$CONFIG" "$BACKUP"
+else
+    CONFIG_CREATED=1
 fi
+RESTART_OK=0
 mv -f "$TMP" "$CONFIG"
-trap 'rm -f ${BACKUP:+"$BACKUP"}' EXIT
 log "config updated: ${#KEEP[@]} database(s) (added: ${ADDED[*]:-none}; removed: ${REMOVED[*]:-none})"
 
 if [ -n "$RESTART_CMD" ]; then
-    if ! bash -c "$RESTART_CMD"; then
-        if [ -n "$BACKUP" ]; then
-            mv -f "$BACKUP" "$CONFIG"
-            trap - EXIT
-            fail "restart failed ($RESTART_CMD); previous config restored -- next sync will retry"
-        else
-            rm -f "$CONFIG"
-            fail "restart failed ($RESTART_CMD); new config removed -- next sync will retry"
-        fi
-    fi
+    bash -c "$RESTART_CMD" \
+        || fail "restart failed ($RESTART_CMD); previous config restored -- next sync will retry"
     log "sidecar restarted"
 fi
+RESTART_OK=1
