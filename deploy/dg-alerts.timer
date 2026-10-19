@@ -1,0 +1,19 @@
+# 15-minute timer for dg-alerts.service (non-installing template).
+#
+# Copy to /etc/systemd/system/dg-alerts.timer on the target host
+# alongside dg-alerts.service, then
+#   systemctl daemon-reload && systemctl enable --now dg-alerts.timer
+# Every 15 minutes: disk and replication lag are the two failures
+# that get worse while nobody looks, and a quarter-hour detection
+# bound is well inside both floors (15% disk, 900s WAL lag is the
+# *staleness* threshold the check itself applies to WAL mtimes).
+
+[Unit]
+Description=15-minute DB Gateway disk + lag alerts
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+
+[Install]
+WantedBy=timers.target

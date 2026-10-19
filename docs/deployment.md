@@ -78,6 +78,7 @@ placeholders for future/repeated deployments.
 | `{{DG_RESTORE_DRILL_SCRIPT}}` | Absolute path of the installed weekly bucket restore drill (`scripts/bucket-restore-drill.sh`) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/bucket-restore-drill.sh`) |
 | `{{DG_OWNER_KEY_FILE}}` | Absolute path of the mode-0600 owner credential file the drill reads (never its contents) | **Unresolved** — target layout decision (e.g. `/etc/dg/owner.key`) |
 | `{{DG_RESOURCE_SAMPLE_SCRIPT}}` | Absolute path of the installed composed resource sampler (`scripts/resource-sample.sh`) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/resource-sample.sh`) |
+| `{{DG_ALERTS_SCRIPT}}` | Absolute path of the installed disk/lag alert checker (`scripts/dg-alerts.sh`) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/dg-alerts.sh`) |
 
 The backup units (`deploy/dg-backup.{service,timer}` hourly producer,
 `deploy/dg-backup-digest.{service,timer}` daily digest) are templates in
@@ -87,6 +88,23 @@ the same style: substitute the placeholders above, install under
 templates (rendered with the reference-host values, comments/blank
 lines ignored) and fails on drift, so a hand edit on the host cannot
 silently diverge from the repo.
+
+**Alerts and journal retention (audit A8):** `deploy/dg-alerts.{service,timer}`
+runs the disk-headroom + Litestream-lag checker every 15 minutes
+(structured `dg-alert` journal lines + nonzero exit on alert;
+delivery is the journal, per `docs/observability-contract.md` §3).
+`deploy/journald-10-dg.conf` is the journald drop-in template
+(install at `/etc/systemd/journald.conf.d/10-dg.conf`, restart
+`systemd-journald`): SystemMaxUse=128M, SystemKeepFree=2G,
+MaxRetentionSec=14day — sized so dg journal evidence survives on
+the 1 GB host instead of being vacuumed by defaults.
+
+**Digest canonical mechanism:** on any systemd deployment the daily
+digest is the external `dg-backup-digest.timer` above, and
+`dg.service` must keep `--backup-digest-secs 0` (off, the default) —
+the in-server digest flags are only for non-systemd single-process
+runs. Running both double-delivers and lets each mask the other's
+failure (`docs/observability-contract.md` §3a-0).
 
 ## Preserved properties
 

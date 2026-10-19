@@ -32,7 +32,7 @@ Related: `docs/deployment.md` (install configuration),
 | Request pressure | counts/rates for `capacity_exceeded`, `busy`, and `query_deadline_exceeded` | bounded load within the documented limits | sustained growth indicates overload or a resource regression; do not silently retry |
 | Queue waits | per-database `queue_waits`/`queue_wait_ms`/`queue_timeouts` in `GET /v1/status` | waits near zero, timeouts zero | sustained `queue_timeouts` growth means per-database writer starvation under read flood; escalate to the writer-preferring bound (scale proposal Phase 2) |
 | Disk pressure | free bytes/inodes for the data directory, WAL, staging, and recovery workspace | enough headroom for active files plus the retention policy | low disk or failed staging blocks safe writes/imports and needs operator action |
-| Resource pressure | gateway RSS, SQLite/page-cache behavior, CPU, and future sidecar RSS/I/O | measurements remain inside the accepted host budget | threshold and alarm action remain owner decisions until the resource budget is complete |
+| Resource pressure | gateway RSS, SQLite/page-cache behavior, CPU, and future sidecar RSS/I/O | measurements remain inside the accepted host budget | measured by the composed sampler series since 2026-10-19 (audit A7); thresholds are the budget's half-cap ceilings |
 | Backup freshness | newest verified copy per database, lag after committed changes, last success, last failure, and restore-test result | the newest verified copy is within the selected snapshot-cadence objective after committed changes | `stale`, `failed`, or `unknown` must be visible; a scheduled job alone is not healthy |
 | Restore readiness | checksum, SQLite integrity, foreign-key check, protected-table check, and exact application-data comparison | a separate-target restore passes all checks | any mismatch blocks trust in the backup and raises an incident |
 
@@ -73,7 +73,15 @@ status remains `unknown`, not `fresh`.
 Minimum future alerts are:
 
 1. service inactive or unexpectedly restarting;
-2. disk/inode headroom below the accepted operating floor;
+2. disk/inode headroom below the accepted operating floor. **Delivered
+   2026-10-19 (audit A8)** — `scripts/dg-alerts.sh` (disk check:
+   free bytes/inodes vs floor; lag check: sidecar active, replica
+   coverage, WAL staleness proxy) on `dg-alerts.timer` (15 min),
+   journal-delivered like the digest. Failure drills: forced disk
+   floor and aged-WAL sandbox both fire; healthy inputs stay silent
+   (`docs/audit-2026-10-19.md` A8 record). The Litestream-lag half of
+   this alert is new with it — previously only freshness (§2/§3a)
+   existed, nothing watched the sidecar itself;
 3. sustained request pressure or deadline failures;
 4. backup attempt failure, committed changes not represented by a verified
    copy within the owner-approved snapshot cadence (§2), missing database,

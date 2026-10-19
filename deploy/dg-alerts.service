@@ -1,0 +1,31 @@
+# Disk-headroom + Litestream-lag alerts (non-installing template; audit A8).
+#
+# Copy to /etc/systemd/system/dg-alerts.service on the target host,
+# replace every braced placeholder, then
+#   systemctl daemon-reload
+# Nothing in this repository installs, enables, or starts this unit.
+#
+# Runs scripts/dg-alerts.sh (installed as {{DG_ALERTS_SCRIPT}}):
+# exits nonzero and writes one structured `dg-alert ...` line per
+# check to the journal when the data filesystem's free bytes/inodes
+# fall below the floor, the Litestream sidecar is inactive, a live
+# database lacks replica coverage, or a WAL sits un-checkpointed past
+# the lag threshold. The journal line + failed unit is the delivery —
+# this project has no alert stack by design
+# (docs/observability-contract.md §3a); the digest uses the same
+# channel. Runs as the dg user with the journal group so the coverage
+# sub-check can read what it needs.
+
+[Unit]
+Description=DB Gateway disk + replication-lag alerts
+After=dg.service dg-litestream.service
+
+[Service]
+Type=oneshot
+User={{DG_USER}}
+Group={{DG_USER}}
+SupplementaryGroups=systemd-journal
+Environment=DG_ALERTS_DATA_DIR={{DG_DATA_DIR}}
+Environment=DG_ALERTS_SYNC_CHECK=/usr/local/bin/litestream-sync.sh
+ExecStart={{DG_ALERTS_SCRIPT}}
+NoNewPrivileges=true
