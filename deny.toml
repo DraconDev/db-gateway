@@ -9,8 +9,8 @@
 # they get triaged without blocking every dependency update.
 vulnerability = "deny"
 yanked = "warn"
-unmaintained = "warn"
-unsound = "warn"
+unmaintained = "all"
+unsound = "all"
 notice = "warn"
 
 [bans]
@@ -42,7 +42,6 @@ allow = [
     "Unlicense",
     "Zlib",
 ]
-copyleft = "deny"
 # dg and dg-client are publish = false; do not license-gate our own code.
 private = { ignore = true }
 
