@@ -93,11 +93,10 @@ if command -v python3 >/dev/null 2>&1; then
     # is invisible to `mapfile ... || fail`, so malformed JSON would
     # otherwise surface as a misleading "no live databases".
     PARSED_NAMES="$(printf '%s' "$LIST_JSON" | python3 -c '
-' 2>/dev/null
 import json, sys
 for name in json.load(sys.stdin).get("databases", []):
     print(name)
-')" || fail "could not parse 'dg list' JSON"
+' 2>/dev/null)" || fail "could not parse 'dg list' JSON"
     LIVE=()
     [ -z "$PARSED_NAMES" ] || mapfile -t LIVE <<< "$PARSED_NAMES"
 else
