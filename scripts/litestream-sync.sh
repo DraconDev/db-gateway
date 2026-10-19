@@ -38,6 +38,10 @@
 #                            empty string disables the restart)
 #   LITESTREAM_CONFIG_OWNER chown target for the config (default: dg:dg;
 #                            empty string skips chown)
+#   DG_LITESTREAM_INCLUDE_REGISTRY  replicate metadata.sqlite as the fixed
+#                            `metadata` entry (default: 1; 0 opts out)
+#   DG_LITESTREAM_RETENTION replica retention  (default: 168h)
+#   DG_LITESTREAM_SNAPSHOT_INTERVAL              (default: 24h)
 #
 # The S3 access/secret keys are never inlined: the rendered config keeps
 # ${LITESTREAM_S3_*} references for the two credential keys (expanded by
@@ -222,7 +226,7 @@ config_matches() { [ -f "$CONFIG" ] && printf '%s\n' "$DESIRED" | cmp -s - "$CON
 
 if [ "$MODE" = "check" ]; then
     drift=0
-    for name in "${KEEP[@]}"; do
+    for name in "${EXPECTED[@]}"; do
         if in_list "$name" "${CURRENT_NAMES[@]+"${CURRENT_NAMES[@]}"}"; then
             echo "litestream-coverage db=$name state=covered"
         else
@@ -231,7 +235,12 @@ if [ "$MODE" = "check" ]; then
         fi
     done
     for name in "${CURRENT_NAMES[@]+"${CURRENT_NAMES[@]}"}"; do
-        if ! in_list "$name" "${KEEP[@]}" && ! in_list "$name" "${SKIPPED[@]+"${SKIPPED[@]}"}"; then
+        # A configured registry whose file vanished is reported once, as
+        # missing/no-registry-file below -- not also as a spurious extra.
+        if [ "$name" = "metadata" ] && [ "$INCLUDE_REGISTRY" = "1" ] && [ "$REGISTRY_PRESENT" != "1" ]; then
+            continue
+        fi
+        if ! in_list "$name" "${EXPECTED[@]}" && ! in_list "$name" "${SKIPPED[@]+"${SKIPPED[@]}"}"; then
             echo "litestream-coverage db=$name state=extra"
             drift=1
         fi
@@ -240,6 +249,10 @@ if [ "$MODE" = "check" ]; then
         echo "litestream-coverage db=$name state=missing detail=no-database-file"
         drift=1
     done
+    if [ "$INCLUDE_REGISTRY" = "1" ] && [ "$REGISTRY_PRESENT" != "1" ]; then
+        echo "litestream-coverage db=metadata state=missing detail=no-registry-file"
+        drift=1
+    fi
     # Same database set but different bytes (endpoint/region/URL change,
     # hand edit) is still drift the next apply would rewrite.
     if [ "$drift" = "0" ] && ! config_matches; then
@@ -252,7 +265,7 @@ fi
 
 # --- 3. Apply: replace only on change, restart, revert on failure. ------
 if config_matches; then
-    log "in sync (${#KEEP[@]} database(s)); no change"
+    log "in sync (${#EXPECTED[@]} database(s) incl. registry if present); no change"
     exit 0
 fi
 
@@ -284,8 +297,8 @@ chmod 0600 "$TMP"
 [ -z "$CONFIG_OWNER" ] || chown "$CONFIG_OWNER" "$TMP" || fail "chown $CONFIG_OWNER failed"
 
 ADDED=(); REMOVED=()
-for name in "${KEEP[@]}"; do in_list "$name" "${CURRENT_NAMES[@]+"${CURRENT_NAMES[@]}"}" || ADDED+=("$name"); done
-for name in "${CURRENT_NAMES[@]+"${CURRENT_NAMES[@]}"}"; do in_list "$name" "${KEEP[@]}" || REMOVED+=("$name"); done
+for name in "${EXPECTED[@]}"; do in_list "$name" "${CURRENT_NAMES[@]+"${CURRENT_NAMES[@]}"}" || ADDED+=("$name"); done
+for name in "${CURRENT_NAMES[@]+"${CURRENT_NAMES[@]}"}"; do in_list "$name" "${EXPECTED[@]}" || REMOVED+=("$name"); done
 
 # Keep the previous config until the restart succeeds. If the restart
 # fails we roll the file back: otherwise the file would claim the new
@@ -299,7 +312,7 @@ else
 fi
 RESTART_OK=0
 mv -f "$TMP" "$CONFIG"
-log "config updated: ${#KEEP[@]} database(s) (added: ${ADDED[*]:-none}; removed: ${REMOVED[*]:-none})"
+log "config updated: ${#EXPECTED[@]} database(s) incl. registry if present (added: ${ADDED[*]:-none}; removed: ${REMOVED[*]:-none})"
 
 if [ -n "$RESTART_CMD" ]; then
     bash -c "$RESTART_CMD" \

@@ -368,7 +368,10 @@ litestream_cov='{"status":"skipped","reason":"no litestream config"}'
 if [ -f /etc/litestream.yml ] && [ -x /usr/local/bin/dg ]; then
     cfg_names="$(sudo -n -u dg sed -n 's/^[[:space:]]*- path:[[:space:]]*//p' /etc/litestream.yml 2>/dev/null | sed -n 's|.*/\([^/]*\)\.sqlite$|\1|p' | LC_ALL=C sort -u || true)"
     live_json="$(sudo -n -u dg /usr/local/bin/dg --key-file "$kf" list 2>/dev/null || true)"
+    # The registry (metadata) is a required config entry too -- without
+    # it the bucket cannot rebuild credentials (recovery-policy).
     live_names="$(printf '%s' "$live_json" | sed -n 's/.*"databases":\[\(.*\)\].*/\1/p' | tr -d '" ' | tr ',' '\n' | grep -v '^$' | LC_ALL=C sort -u || true)"
+    live_names="$(printf '%s\nmetadata\n' "$live_names" | LC_ALL=C sort -u)"
     if [ -z "$live_names" ]; then
         litestream_cov='{"status":"fail","reason":"dg list returned no databases"}'
     else
