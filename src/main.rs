@@ -248,6 +248,22 @@ enum Command {
         #[arg(long)]
         idempotency_key: Option<String>,
     },
+    /// Run a SQL file against a database, reporting each statement.
+    ///
+    /// The file is split into statements by SQLite itself, so a
+    /// semicolon inside a string or a trigger body does not end a
+    /// statement. The statements run as one atomic batch: either every
+    /// statement lands or none does.
+    Execute {
+        /// Database to run the script against.
+        name: String,
+        /// The SQL file to run.
+        file: PathBuf,
+        /// Replay key: a retry with the same key and identical body returns
+        /// the stored first response instead of re-running the script.
+        #[arg(long)]
+        idempotency_key: Option<String>,
+    },
     /// Execute an atomic JSON batch from a file. The file is read whole and is capped at 64 KiB.
     Batch {
         /// Database to run the batch against.
@@ -295,6 +311,15 @@ enum Command {
 enum KeyCommand {
     /// List outstanding credentials with scope and role (hashes never shown).
     List,
+    /// List the credentials that can act on one database.
+    ///
+    /// The owner key reaches every database; an application key reaches
+    /// the databases it was scoped to. This is the first question of a
+    /// leaked-key incident.
+    Tokens {
+        /// Database to list the credentials for.
+        database: String,
+    },
     /// Create a scoped credential; prints the raw key once.
     Create {
         /// Name for the new credential.
@@ -452,6 +477,21 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             )
             .await?
         }
+        Command::Execute {
+            name,
+            file,
+            idempotency_key,
+        } => {
+            cmd_data::execute(
+                &cli.server,
+                cli.json,
+                &key_path,
+                name,
+                file,
+                idempotency_key,
+            )
+            .await?
+        }
         Command::Batch {
             name,
             file,
@@ -468,6 +508,9 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         Command::Key {
             command: KeyCommand::List,
         } => cmd_keys::list(&cli.server, cli.json, &key_path).await?,
+        Command::Key {
+            command: KeyCommand::Tokens { database },
+        } => cmd_keys::tokens(&cli.server, cli.json, &key_path, database).await?,
         Command::Key {
             command: KeyCommand::Revoke { name },
         } => cmd_keys::revoke(name).await?,

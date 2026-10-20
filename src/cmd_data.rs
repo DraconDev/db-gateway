@@ -444,6 +444,107 @@ pub async fn shell(
     .map_err(Application);
 }
 
+/// Run a SQL file against a database, reporting each statement.
+///
+/// A script is split into statements by SQLite itself, so a semicolon
+/// inside a string or a trigger body does not end a statement. The
+/// statements run as ONE atomic batch: either every statement lands or
+/// none does, which is what a migration script means.
+pub async fn execute(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
+    name: String,
+    file: PathBuf,
+    idempotency_key: Option<String>,
+) -> Result<Option<Request>, dg::ServerError> {
+    dg::store::validate_name(&name).map_err(Application)?;
+    let script = std::fs::read_to_string(&file)
+        .map_err(|_| Application(Error::new(400, "unreadable_file", "cannot read the SQL file")))?;
+    let statements = dg::sqlsplit::split_statements(&script);
+    if statements.is_empty() {
+        return Err(Application(Error::new(
+            400,
+            "empty_script",
+            "the SQL file holds no statements",
+        )));
+    }
+    if !json && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+        let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
+            400,
+            "missing_credential",
+            "--key-file required",
+        )))?)
+        .map_err(Application)?;
+        let body = json!({
+            "statements": statements.iter().map(|sql| json!({"sql": sql, "args": []})).collect::<Vec<_>>(),
+            "atomic": true,
+        });
+        let result = dg::client::request(
+            server,
+            &key,
+            Method::POST,
+            &format!("/v1/databases/{name}/batch"),
+            Some(body),
+            idempotency_key.as_deref(),
+        )
+        .await
+        .map_err(Application)?;
+        // The per-statement outcomes are the point of running a script,
+        // so they are drawn rather than dumped.
+        let mut out = std::io::stdout();
+        let theme = terminal_theme();
+        let mut table = Table::new();
+        table.column("#", Align::Right);
+        table.column("statement", Align::Left);
+        table.column("result", Align::Right);
+        let results = result["results"].as_array().cloned().unwrap_or_default();
+        for (index, statement) in statements.iter().enumerate() {
+            let outcome = match results.get(index) {
+                Some(one) => match one["error"].as_str() {
+                    Some(message) => Cell::styled(
+                        message.to_string(),
+                        dg::render::Style::Red,
+                    ),
+                    None => match one["rows_affected"].as_u64() {
+                        Some(rows) => Cell::text(format!("{rows} rows")),
+                        None => {
+                            let rows = one["rows"].as_array().map(|rows| rows.len()).unwrap_or(0);
+                            Cell::text(format!("{rows} rows"))
+                        }
+                    },
+                },
+                None => Cell::text("-"),
+            };
+            table.row(vec![
+                Cell::number(index + 1),
+                Cell::text(statement),
+                outcome,
+            ]);
+        }
+        table
+            .write(&mut out, &theme)
+            .map_err(Application)?;
+        if result.get("error").is_some() {
+            return Err(Application(Error::new(
+                400,
+                "api_error",
+                "API request failed; see response above",
+            )));
+        }
+        return Ok(None);
+    }
+    Ok(Some((
+        Method::POST,
+        format!("/v1/databases/{name}/batch"),
+        Some(json!({
+            "statements": statements.iter().map(|sql| json!({"sql": sql, "args": []})).collect::<Vec<_>>(),
+            "atomic": true,
+        })),
+        idempotency_key,
+    )))
+}
+
 pub async fn query(
     server: &str,
     json: bool,
