@@ -1,6 +1,9 @@
 //! Database lifecycle commands: clone, export, import, delete.
 
-use super::{Request, api_error, api_failed, export_stage_file, human_result, publish_export_file};
+use super::{
+    Request, api_error, api_failed, export_stage_file, human_result, publish_export_file,
+    show_error,
+};
 use dg::ServerError::Application;
 use dg::error::Error;
 use reqwest::Method;
@@ -82,7 +85,7 @@ pub async fn export(
     .await
     .map_err(Application)?;
     if api_failed(&begin) {
-        println!("{begin}");
+        show_error(&begin, json);
         return Err(Application(api_error()));
     }
     let snapshot = begin["snapshot"]
@@ -140,7 +143,7 @@ pub async fn export(
             .await
             .map_err(Application)?;
             if api_failed(&chunk) {
-                println!("{chunk}");
+                show_error(&chunk, json);
                 return Err(Application(api_error()));
             }
             if chunk["snapshot"].as_str() != Some(snapshot.as_str())
@@ -249,7 +252,7 @@ pub async fn import(
     .await
     .map_err(Application)?;
     if api_failed(&begin) {
-        println!("{begin}");
+        show_error(&begin, json);
         return Err(Application(api_error()));
     }
     let upload = begin["upload"]
@@ -295,7 +298,7 @@ pub async fn import(
             .await
             .map_err(Application)?;
             if api_failed(&ack) {
-                println!("{ack}");
+                show_error(&ack, json);
                 return Err(Application(api_error()));
             }
             offset += n as u64;

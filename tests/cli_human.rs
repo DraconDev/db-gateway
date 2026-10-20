@@ -337,3 +337,85 @@ fn dg_export_shows_what_it_wrote_and_its_hash() {
     assert!(parsed["size"].as_u64().unwrap() > 0);
     assert!(parsed["sha256"].as_str().unwrap().len() == 64);
 }
+
+#[test]
+fn a_failing_command_shows_a_one_line_error_on_a_terminal() {
+    // The rule covers failures as well as successes: an error envelope
+    // is JSON, and a terminal shows the error in words.
+    let fleet = Fleet::boot();
+    let server = &fleet.cli.server;
+    let key = fleet.cli.key_file.to_str().unwrap();
+    let dg = env!("CARGO_BIN_EXE_dg");
+
+    let (ok, screen) = pty(&[
+        dg,
+        "--server",
+        server,
+        "--key-file",
+        key,
+        "export",
+        "no_such_db",
+        "--out",
+        "/tmp/never-written.sqlite",
+    ]);
+    assert!(!ok, "the export should have failed: {screen}");
+    assert!(
+        screen.contains("database_not_found"),
+        "the error is not shown in words: {screen}"
+    );
+    assert!(
+        !screen.contains("\"error\""),
+        "the error envelope is drawn raw on a terminal: {screen}"
+    );
+
+    // And a pipe still gets the envelope.
+    let (ok, stdout) = piped(&[
+        "--server",
+        server,
+        "--key-file",
+        key,
+        "export",
+        "no_such_db",
+        "--out",
+        "/tmp/never-written.sqlite",
+    ]);
+    assert!(!ok, "the export should have failed: {stdout}");
+    let envelope: serde_json::Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|_| panic!("not JSON: {stdout}"));
+    assert_eq!(envelope["error"]["code"], "database_not_found", "{stdout}");
+}
+
+#[test]
+fn the_backup_digest_follows_the_rule_too() {
+    // The digest reads the data dir directly rather than the server,
+    // so it has to honour the rule itself: JSON for a pipe, the human
+    // view for a terminal.
+    let dir = tempfile::tempdir().unwrap();
+    let data_dir = dir.path().join("data");
+    let dg = env!("CARGO_BIN_EXE_dg");
+
+    let (ok, stdout) = piped(&["backup", "digest", "--data-dir", data_dir.to_str().unwrap()]);
+    // The digest exits nonzero when a database is unrepresented, which
+    // is the point of it; the ANSWER is still JSON.
+    let _ = ok;
+    let note: serde_json::Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|_| panic!("not JSON: {stdout}"));
+    assert_eq!(note["kind"], "backup_digest", "{stdout}");
+
+    let (ok, screen) = pty(&[
+        dg,
+        "backup",
+        "digest",
+        "--data-dir",
+        data_dir.to_str().unwrap(),
+    ]);
+    let _ = ok;
+    assert!(
+        screen.contains("backup digest"),
+        "the terminal view is not shown: {screen}"
+    );
+    assert!(
+        !screen.contains("\"kind\""),
+        "the digest is drawn raw on a terminal: {screen}"
+    );
+}

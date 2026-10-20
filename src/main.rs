@@ -65,6 +65,19 @@ fn terminal_theme() -> dg::render::Theme {
     dg::render::Theme::for_stream(std::io::stdout().is_terminal())
 }
 
+/// Show an API error envelope.
+///
+/// A terminal gets the same one-line error the shell draws; a pipe
+/// gets the JSON envelope, because that is what a machine reads. The
+/// error is still an error either way: the command exits nonzero.
+fn show_error(result: &Value, json: bool) {
+    if json || !std::io::stdout().is_terminal() {
+        println!("{result}");
+        return;
+    }
+    let _ = dg::shell::render_with(result, false, &terminal_theme(), &mut std::io::stdout());
+}
+
 /// How a command draws its result for a person.
 ///
 /// It owns what it needs: the view outlives the call, so it cannot
