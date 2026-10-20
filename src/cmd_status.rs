@@ -4,7 +4,6 @@ use super::{Request, table_json};
 use dg::render::{Align, Cell, Section, Style, Table, Theme};
 use dg::ServerError::Application;
 use reqwest::Method;
-use serde_json::json;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 

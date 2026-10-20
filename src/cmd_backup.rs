@@ -6,7 +6,7 @@ use dg::render::{Align, Cell, Section, Style, Table, Theme};
 use dg::ServerError::Application;
 use dg::error::Error;
 use reqwest::Method;
-use serde_json::{Value, json};
+use serde_json::json;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 

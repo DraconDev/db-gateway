@@ -68,7 +68,7 @@ pub async fn run_with_theme(
     interactive: bool,
     initial_database: Option<&str>,
     input: impl Read,
-    mut out: impl Write,
+    out: impl Write,
     theme: &crate::render::Theme,
 ) -> Result<()> {
     if let Some(name) = initial_database {
