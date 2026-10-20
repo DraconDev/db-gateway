@@ -644,6 +644,9 @@ pub async fn query(
 }
 
 pub async fn batch(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
     name: String,
     file: PathBuf,
     idempotency_key: Option<String>,
@@ -682,6 +685,51 @@ pub async fn batch(
     }
     let body: dg::execution::Batch =
         serde_json::from_slice(&batch_bytes).map_err(|_| Application(Error::invalid()))?;
+    let view_body = body.clone();
+    if human_result(
+        server,
+        json,
+        key_path,
+        Method::POST,
+        &format!("/v1/databases/{name}/batch"),
+        Some(serde_json::to_value(body).map_err(|_| Application(Error::invalid()))?),
+        idempotency_key.as_deref(),
+        Box::new(move |result| {
+            // A batch is a list of statements, so its result is a list
+            // of results: one row per statement, in order.
+            let mut table = Table::new();
+            table.column("#", Align::Right);
+            table.column("statement", Align::Left);
+            table.column("result", Align::Right);
+            for (index, statement) in view_body.statements.iter().enumerate() {
+                let outcome = match result["results"].as_array().and_then(|r| r.get(index)) {
+                    Some(one) => match one["error"].as_str() {
+                        Some(message) => Cell::styled(message.to_string(), dg::render::Style::Red),
+                        None => match one["rows_affected"].as_u64() {
+                            Some(rows) => Cell::text(format!("{rows} rows")),
+                            None => {
+                                let rows =
+                                    one["rows"].as_array().map(|rows| rows.len()).unwrap_or(0);
+                                Cell::text(format!("{rows} rows"))
+                            }
+                        },
+                    },
+                    None => Cell::text("-"),
+                };
+                table.row(vec![
+                    Cell::number(index + 1),
+                    Cell::text(&statement.sql),
+                    outcome,
+                ]);
+            }
+            dg::render::Outcome::list("statements", table)
+        }),
+    )
+    .await?
+    .is_some()
+    {
+        return Ok(None);
+    }
     Ok(Some((
         Method::POST,
         format!("/v1/databases/{name}/batch"),

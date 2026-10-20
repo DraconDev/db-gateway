@@ -561,7 +561,10 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             name,
             file,
             idempotency_key,
-        } => cmd_data::batch(name, file, idempotency_key).await?,
+        } => {
+            cmd_data::batch(&cli.server, cli.json, &key_path, name, file, idempotency_key)
+                .await?
+        }
         Command::Key {
             command:
                 KeyCommand::Create {
