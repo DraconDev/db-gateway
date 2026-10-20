@@ -67,11 +67,14 @@ pub async fn status(
             let mut published = Section::new("published sets");
             let mut table = Table::new();
             table.column("set", Align::Left);
-            table.column("published", Align::Left);
+            table.column("coverage from", Align::Left);
             table.column("databases", Align::Right);
             table.column("registry", Align::Left);
             for set in &sets {
                 table.row(vec![
+                    // The set keeps its raw stamp: that is the exact
+                    // argument `dg backup verify --set` takes, so
+                    // rewriting it would make the two disagree.
                     Cell::text(set["timestamp"].as_str().unwrap_or("?")),
                     Cell::text(
                         set["coverage_start"]

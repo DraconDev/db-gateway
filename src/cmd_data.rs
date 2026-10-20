@@ -129,7 +129,10 @@ pub async fn info(
         );
         facts.field(
             "size",
-            Cell::number(
+            // A humanised size is text, not a number: "16.0 KiB" is a
+            // quantity with a unit, and labelling it a number would
+            // promise a right-aligned figure it is not.
+            Cell::text(
                 info["size_bytes"]
                     .as_u64()
                     .map(dg::render::human_bytes)
@@ -137,7 +140,7 @@ pub async fn info(
             ),
         );
         if info["tombstoned"].as_bool() == Some(true) {
-            facts.field("purge after", Cell::number(purge_after_text(&info)));
+            facts.field("purge after", Cell::text(purge_after_text(&info)));
         } else {
             facts.field("created", Cell::text(created_text(&info)));
         }

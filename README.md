@@ -93,7 +93,7 @@ and durations are humanised, column widths are measured by display width
 (so CJK text and emoji do not shear the grid), colour is decoration only
 (`NO_COLOR` turns it off, and every coloured state is also spelled out),
 and a value's control characters are escaped so a cell can never repaint
-the terminal.
+the terminal (the renderer owns that rule, for every view).
 
 ## Checks
 

@@ -19,6 +19,19 @@ fixes; 1.0.0 waits for production acceptance.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A wire value can no longer repaint the terminal.** The escaping of
+  control characters moved from the JSON result path into the renderer
+  itself, so it now covers every cell, column header, table footer and
+  section title -- a database name, a key name, a service version or a
+  backup state included. The dashboards introduced with the pretty-print
+  layer had briefly drawn wire values unescaped.
+- **A malformed backup-set stamp no longer panics the CLI.** The stamp
+  is validated on its bytes before it is interpreted, so a stamp whose
+  prefix is multi-byte is shown as it arrived instead of crashing the
+  command.
+
 ## [0.2.0] — 2026-10-19
 
 The first release-identified state: the feature set that has been

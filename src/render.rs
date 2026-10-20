@@ -17,6 +17,7 @@
 //!   rendering of a state word that is already spelled out ("fresh",
 //!   "stale", "unknown"). `NO_COLOR` and a dumb terminal turn it off.
 
+use std::borrow::Cow;
 use std::io::Write;
 use unicode_width::UnicodeWidthStr;
 
@@ -163,12 +164,18 @@ pub enum Cell {
 
 impl Cell {
     /// The text and style this cell renders as.
-    pub fn parts(&self) -> (&str, Style) {
+    ///
+    /// The text is escaped here, at the one point where a cell's
+    /// contents become terminal bytes. Every view -- a query table, a
+    /// dashboard section, the interactive shell -- draws its cells
+    /// through this function, so a value from the wire cannot repaint
+    /// the terminal in any of them.
+    pub fn parts(&self) -> (Cow<'_, str>, Style) {
         match self {
-            Cell::Text(text) => (text, Style::Plain),
-            Cell::Number(text) => (text, Style::Plain),
-            Cell::Null => ("NULL", Style::Dim),
-            Cell::Styled(text, style) => (text, *style),
+            Cell::Text(text) => (sanitize(text), Style::Plain),
+            Cell::Number(text) => (sanitize(text), Style::Plain),
+            Cell::Null => (Cow::Borrowed("NULL"), Style::Dim),
+            Cell::Styled(text, style) => (sanitize(text), *style),
         }
     }
 
@@ -203,8 +210,12 @@ impl Table {
     }
 
     /// Add a column. The alignment applies to every row of that column.
+    ///
+    /// The header is escaped, because a column name can come from the
+    /// wire (a query's result columns) and the header is drawn like any
+    /// other cell.
     pub fn column(&mut self, header: impl Into<String>, align: Align) -> &mut Self {
-        self.columns.push((header.into(), align));
+        self.columns.push((sanitize_owned(&header.into()), align));
         self
     }
 
@@ -217,8 +228,10 @@ impl Table {
     }
 
     /// A line printed under the table, such as a row count.
+    ///
+    /// Escaped like a cell: a footer can carry a name from the wire.
     pub fn footer(&mut self, text: impl Into<String>) -> &mut Self {
-        self.footer = Some(text.into());
+        self.footer = Some(sanitize_owned(&text.into()));
         self
     }
 
@@ -260,9 +273,14 @@ impl Table {
                     None => Cell::Text(String::new()),
                     Some(serde_json::Value::Null) => Cell::Null,
                     Some(serde_json::Value::Number(number)) => Cell::Number(number.to_string()),
-                    Some(serde_json::Value::String(text)) => Cell::Text(sanitize(text)),
+                    // The value is NOT escaped here. Escaping belongs to
+                    // the renderer, at the point where a cell becomes
+                    // terminal bytes, so that every view is covered by
+                    // the one rule rather than by each command's
+                    // diligence.
+                    Some(serde_json::Value::String(text)) => Cell::Text(text.clone()),
                     Some(serde_json::Value::Bool(flag)) => Cell::Text(flag.to_string()),
-                    Some(other) => Cell::Text(sanitize(&other.to_string())),
+                    Some(other) => Cell::Text(other.to_string()),
                 })
                 .collect();
             table.row(cells);
@@ -337,19 +355,19 @@ impl Table {
         for (index, (_, align)) in self.columns.iter().enumerate() {
             let width = widths.get(index).copied().unwrap_or(0);
             let cell = row.get(index);
-            let (text, style) = cell.map_or(("", Style::Dim), Cell::parts);
+            let (text, style) = cell.map_or((Cow::Borrowed(""), Style::Dim), Cell::parts);
             line.push_str(&self.vertical(theme));
             line.push(' ');
             let used = text.width();
             let pad = width.saturating_sub(used);
             match align {
                 Align::Left => {
-                    line.push_str(&paint(text, style, theme));
+                    line.push_str(&paint(&text, style, theme));
                     line.push_str(&" ".repeat(pad));
                 }
                 Align::Right => {
                     line.push_str(&" ".repeat(pad));
-                    line.push_str(&paint(text, style, theme));
+                    line.push_str(&paint(&text, style, theme));
                 }
             }
             line.push(' ');
@@ -446,16 +464,42 @@ fn paint(text: &str, style: Style, theme: &Theme) -> String {
 /// or forge a row of the table; escaping the control characters keeps a
 /// value inside its own cell. The escape is visible (`\u{1b}`), so
 /// nothing is silently swallowed.
-fn sanitize(text: &str) -> String {
-    text.chars()
-        .flat_map(|c| {
-            if c.is_control() {
-                c.escape_default().collect::<Vec<_>>()
-            } else {
-                vec![c]
-            }
-        })
-        .collect()
+///
+/// This is the renderer's single escaping rule, applied at the moment
+/// text becomes terminal bytes -- in [`Cell::parts`] and in the table's
+/// column, footer and section setters. A command cannot forget it: a
+/// cell reaches the screen only through this function, whether the
+/// value came from a JSON row, a database name, a key name or a
+/// service version.
+fn sanitize(text: &str) -> Cow<'_, str> {
+    if !text.chars().any(char::is_control) {
+        return Cow::Borrowed(text);
+    }
+    Cow::Owned(
+        text.chars()
+            .flat_map(|c| {
+                if c.is_control() {
+                    c.escape_default().collect::<Vec<_>>()
+                } else {
+                    vec![c]
+                }
+            })
+            .collect(),
+    )
+}
+
+/// Escape a value that is kept, not just drawn.
+fn sanitize_owned(text: &str) -> String {
+    sanitize(text).into_owned()
+}
+
+/// Escape a value that came from the wire, for a caller outside this
+/// module that draws it itself.
+///
+/// The same rule as the cells: the gateway is untrusted, so a control
+/// character in a value must not reach the terminal raw.
+pub fn escape_text(text: &str) -> String {
+    sanitize_owned(text)
 }
 
 /// A block of a section: a list of fields, or a table.
@@ -480,14 +524,18 @@ pub struct Section {
 
 impl Section {
     /// A titled section.
+    ///
+    /// The title is escaped, because it is drawn like any other text.
     pub fn new(title: impl Into<String>) -> Self {
         Self {
-            title: title.into(),
+            title: sanitize_owned(&title.into()),
             blocks: Vec::new(),
         }
     }
 
     /// Add a key/value field.
+    ///
+    /// The key is escaped, like every other text the renderer draws.
     pub fn field(&mut self, key: impl Into<String>, value: Cell) -> &mut Self {
         let fields = match self.blocks.last_mut() {
             Some(Block::Fields(fields)) => fields,
@@ -499,7 +547,7 @@ impl Section {
                 }
             }
         };
-        fields.push((key.into(), value));
+        fields.push((sanitize_owned(&key.into()), value));
         self
     }
 
@@ -541,7 +589,7 @@ impl Section {
                 "  {}{}  {}",
                 paint(key, Style::Dim, theme),
                 " ".repeat(pad),
-                paint(text, style, theme)
+                paint(&text, style, theme)
             )
             .map_err(io)?;
         }
@@ -607,24 +655,31 @@ pub fn human_epoch(epoch: i64) -> String {
 
 /// A backup-set stamp (`20261019T231511Z`) as a person reads it:
 /// `2026-10-19 23:15`.
+///
+/// The stamp comes from the wire, so it is checked before it is
+/// interpreted. The shape is validated on the BYTES: a string slice at
+/// a non-character boundary panics, and a malformed stamp is not worth
+/// a crash. A stamp that is not exactly `YYYYMMDDTHHMM` in ASCII is
+/// passed through unchanged for the reader to make sense of.
 pub fn human_set_stamp(stamp: &str) -> String {
     let bytes = stamp.as_bytes();
     if bytes.len() < 13 || bytes[8] != b'T' {
         return stamp.to_string();
     }
+    // The date and time parts must be ASCII digits, and the separator
+    // must be `T`. Checking the bytes is what makes the slicing below
+    // safe: a multi-byte character anywhere in the prefix would put a
+    // slice point inside a character.
+    let digits = |range: std::ops::Range<usize>| bytes[range].iter().all(u8::is_ascii_digit);
+    if !digits(0..8) || !digits(9..13) {
+        return stamp.to_string();
+    }
+    // The slices are now known to be on character boundaries.
     let year = &stamp[0..4];
     let month = &stamp[4..6];
     let day = &stamp[6..8];
     let hour = &stamp[9..11];
     let minute = &stamp[11..13];
-    if !year.bytes().all(|b| b.is_ascii_digit())
-        || !month.bytes().all(|b| b.is_ascii_digit())
-        || !day.bytes().all(|b| b.is_ascii_digit())
-        || !hour.bytes().all(|b| b.is_ascii_digit())
-        || !minute.bytes().all(|b| b.is_ascii_digit())
-    {
-        return stamp.to_string();
-    }
     format!("{year}-{month}-{day} {hour}:{minute}")
 }
 
@@ -849,6 +904,113 @@ mod tests {
         // Anything that is not a stamp is passed through untouched.
         assert_eq!(human_set_stamp("latest"), "latest");
         assert_eq!(human_set_stamp("2026-10-19"), "2026-10-19");
+    }
+
+    #[test]
+    fn a_malformed_stamp_is_never_interpreted() {
+        // The stamp comes from the wire, so it may be anything at all. A
+        // multi-byte character before a slice point used to panic the CLI
+        // ("byte index 4 is not a char boundary") because the shape was
+        // checked on the bytes but the string was sliced anyway.
+        for hostile in [
+            "日本abT123456",
+            "\u{1b}[31mT123456",
+            "2026-10-19T23:15",
+            "aaaaTaaaa",
+            "",
+            "T",
+        ] {
+            // The contract is that it does not panic, and that a value
+            // that is not a well-formed stamp is shown as it arrived.
+            let shown = human_set_stamp(hostile);
+            if hostile == "日本abT123456" || hostile == "\u{1b}[31mT123456" {
+                assert_eq!(shown, hostile, "a malformed stamp was rewritten");
+            }
+        }
+        // A stamp whose date is fine but whose separator is not is not a
+        // stamp, and is not rewritten into one.
+        assert_eq!(human_set_stamp("20261019X231511Z"), "20261019X231511Z");
+        // A well-formed stamp is still humanised.
+        assert_eq!(human_set_stamp("20261019T231511Z"), "2026-10-19 23:15");
+    }
+
+    #[test]
+    fn a_cell_never_carries_a_raw_control_character() {
+        // The renderer's escaping rule: whatever a cell holds, the bytes
+        // that reach the terminal carry no control character of their
+        // own. This is the one rule that protects every view, so it is
+        // tested on the renderer rather than on each command.
+        let hostile = "evil\u{1b}[31mRED\u{1b}[0m\u{1b}[2J";
+        let mut table = Table::new();
+        table.column(hostile, Align::Left);
+        table.row(vec![Cell::styled(hostile, Style::Cyan)]);
+        table.footer(hostile);
+        let mut out = Vec::new();
+        table.write(&mut out, &Theme::fixed(false, false)).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        // The value is shown, escaped: nothing is swallowed.
+        assert!(text.contains("evil"), "the value was dropped: {text:?}");
+        assert!(
+            text.contains("\\u{1b}"),
+            "the value was not escaped: {text:?}"
+        );
+        // And no raw control byte reached the output. With colour off
+        // the renderer emits no escape sequences of its own, so every
+        // control character here would have come from the value -- the
+        // only exception being the line break the renderer writes itself.
+        for c in text.chars().filter(|c| *c != '\n') {
+            assert!(
+                !c.is_control(),
+                "raw control character in the output: {text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_value_adds_no_escape_bytes_to_the_ones_the_renderer_uses() {
+        // With colour on, the renderer emits its own escape sequences, so
+        // "no control character at all" is not the contract. The contract
+        // is that the VALUE adds none: a table holding a hostile value
+        // has exactly as many escape bytes as the same table holding a
+        // benign one of the same shape.
+        let count_escapes = |value: &str| {
+            let mut table = Table::new();
+            table.column("database", Align::Left);
+            table.row(vec![Cell::styled(value, Style::Cyan)]);
+            let mut out = Vec::new();
+            table.write(&mut out, &Theme::fixed(true, true)).unwrap();
+            String::from_utf8(out)
+                .unwrap()
+                .chars()
+                .filter(|c| *c == '\u{1b}')
+                .count()
+        };
+        let benign = count_escapes("good_name");
+        let hostile = count_escapes("evil\u{1b}[31mRED\u{1b}[0m\u{1b}[2J");
+        assert_eq!(
+            benign, hostile,
+            "the value contributed escape bytes to the terminal"
+        );
+    }
+
+    #[test]
+    fn a_section_never_carries_a_raw_control_character() {
+        // The same rule for a dashboard section: a title, a key and a
+        // value are all drawn text.
+        let hostile = "evil\u{1b}[31mRED";
+        let mut section = Section::new(hostile);
+        section.field(hostile, Cell::styled(hostile, Style::Cyan));
+        let mut out = Vec::new();
+        section
+            .write(&mut out, &Theme::fixed(false, false))
+            .unwrap();
+        let text = String::from_utf8(out).unwrap();
+        for c in text.chars().filter(|c| *c != '\n') {
+            assert!(
+                !c.is_control(),
+                "raw control character in the output: {text:?}"
+            );
+        }
     }
 
     #[test]

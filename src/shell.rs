@@ -384,12 +384,16 @@ pub fn render_with(
         return writeln!(out, "{response}").map_err(io);
     }
     if let Some(error) = response.get("error") {
+        // The code and the message come from the wire, so they are
+        // escaped like any other value: a hostile gateway must not be
+        // able to repaint the terminal through an error message. The
+        // envelope's shape is unchanged.
         return writeln!(
             out,
             "error [{}] {}: {}",
             response["status"],
-            error["code"].as_str().unwrap_or("unknown"),
-            error["message"].as_str().unwrap_or("")
+            crate::render::escape_text(error["code"].as_str().unwrap_or("unknown")),
+            crate::render::escape_text(error["message"].as_str().unwrap_or(""))
         )
         .map_err(io);
     }
@@ -406,9 +410,9 @@ pub fn render_with(
     {
         // `columns` and `rows` are untrusted wire data: the shell accepts
         // any `--server` origin including plain http. The shared renderer
-        // escapes control characters in a cell, so a value cannot repaint
-        // the terminal or forge a row, and it renders a short row as empty
-        // cells and truncates an over-long one to the header's width.
+        // escapes control characters in a cell and in a column header, so
+        // a value cannot repaint the terminal or forge a row, and it
+        // renders a short row as empty cells.
         let headers: Vec<String> = columns.iter().map(cell_text).collect();
         let values: Vec<Vec<Value>> = rows
             .iter()
@@ -442,19 +446,16 @@ fn io(_: std::io::Error) -> Error {
     Error::new(500, "shell_io_error", "shell input/output failed")
 }
 
+/// A wire value as the text of a column header.
+///
+/// The escaping is NOT done here: the shared renderer owns it, and does
+/// it for the header as well as for every cell. Doing it in both places
+/// would mean two rules that could drift apart, and one of them would
+/// eventually be forgotten.
 fn cell_text(cell: &Value) -> String {
     match cell {
         Value::Null => "NULL".into(),
-        Value::String(text) => text
-            .chars()
-            .flat_map(|c| {
-                if c.is_control() {
-                    c.escape_default().collect::<Vec<_>>()
-                } else {
-                    vec![c]
-                }
-            })
-            .collect(),
+        Value::String(text) => text.clone(),
         other => other.to_string(),
     }
 }
@@ -606,7 +607,23 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(error.code, "shell_io_error");
-        assert_eq!(cell_text(&json!("a\n\u{1b}b")), "a\\n\\u{1b}b");
+        // The header's escaping belongs to the renderer now; what the
+        // shell must still promise is that a control character in a
+        // column name never reaches the terminal.
+        let mut out = Vec::new();
+        render_with(
+            &json!({"columns":["a\n\u{1b}b"],"rows":[["v"]]}),
+            false,
+            &crate::render::Theme::for_stream(false),
+            &mut out,
+        )
+        .unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(
+            !text.contains('\u{1b}'),
+            "raw escape in the header: {text:?}"
+        );
+        assert!(text.contains("\\u{1b}"), "header not escaped: {text:?}");
     }
 
     #[tokio::test]

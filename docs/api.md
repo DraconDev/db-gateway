@@ -170,7 +170,11 @@ CLI looks the same everywhere. The rules it follows:
   ASCII grid instead of box-drawing characters.
 - **A cell's contents cannot repaint the terminal.** Control characters
   in a value are escaped visibly (``), because a cell's contents come
-  from the wire over a connection the CLI accepts on any origin.
+  from the wire over a connection the CLI accepts on any origin. The
+  renderer owns this rule: it applies to every cell, column header,
+  table footer and section title, whether the value came from a query
+  row, a database name, a key name, a service version or a backup
+  state, so no view can be the one that forgets it.
 - **`dg status` and `dg backup status` are dashboards**, grouped into
   titled sections (service, admission, requests, per-database) rather
   than one long `property | value` list.
