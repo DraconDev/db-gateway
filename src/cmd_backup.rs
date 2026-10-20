@@ -2,9 +2,9 @@
 //! offline `digest`/`verify` pair that read the backup root directly.
 
 use super::{Request, table_json};
-use dg::render::{Align, Cell, Section, Style, Table, Theme};
 use dg::ServerError::Application;
 use dg::error::Error;
+use dg::render::{Align, Cell, Section, Style, Table, Theme};
 use reqwest::Method;
 use std::io::IsTerminal;
 use std::path::PathBuf;
@@ -43,7 +43,9 @@ pub async fn status(
         root.field(
             "root",
             Cell::styled(
-                backups["backup_root"].as_str().unwrap_or("(none configured)"),
+                backups["backup_root"]
+                    .as_str()
+                    .unwrap_or("(none configured)"),
                 Style::Cyan,
             ),
         );
@@ -173,8 +175,16 @@ pub async fn digest(
                 Cell::styled(
                     format!(
                         "{} at step {}",
-                        if failure.ts.is_empty() { "?" } else { &failure.ts },
-                        if failure.step.is_empty() { "?" } else { &failure.step }
+                        if failure.ts.is_empty() {
+                            "?"
+                        } else {
+                            &failure.ts
+                        },
+                        if failure.step.is_empty() {
+                            "?"
+                        } else {
+                            &failure.step
+                        }
                     ),
                     Style::Red,
                 ),

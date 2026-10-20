@@ -67,10 +67,17 @@ impl Theme {
 /// Colour is off when `NO_COLOR` is set (https://no-color.org) or the
 /// terminal is dumb. Everything else gets colour.
 fn color_allowed() -> bool {
-    if std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty()) {
+    color_allowed_with(std::env::var_os("NO_COLOR"), std::env::var("TERM").ok())
+}
+
+/// The colour rule, with the environment passed in rather than read, so
+/// the rule itself is testable without mutating the process's
+/// environment.
+fn color_allowed_with(no_color: Option<std::ffi::OsString>, term: Option<String>) -> bool {
+    if no_color.is_some_and(|value| !value.is_empty()) {
         return false;
     }
-    !matches!(std::env::var("TERM").as_deref(), Ok("dumb"))
+    !matches!(term.as_deref(), Some("dumb"))
 }
 
 /// Unicode box drawing when the locale says UTF-8. An unset locale is
@@ -78,14 +85,21 @@ fn color_allowed() -> bool {
 /// explicitly non-UTF-8 (C, POSIX) gets ASCII so the grid still lines up
 /// in a terminal that cannot render the box characters.
 fn unicode_allowed() -> bool {
-    for key in ["LC_ALL", "LC_CTYPE", "LANG"] {
-        if let Ok(value) = std::env::var(key) {
-            if value.is_empty() {
-                continue;
-            }
-            let upper = value.to_ascii_uppercase();
-            return upper.contains("UTF-8") || upper.contains("UTF8");
+    unicode_allowed_with([
+        std::env::var("LC_ALL").ok(),
+        std::env::var("LC_CTYPE").ok(),
+        std::env::var("LANG").ok(),
+    ])
+}
+
+/// The character-set rule, with the locales passed in rather than read.
+fn unicode_allowed_with(locales: [Option<String>; 3]) -> bool {
+    for locale in locales.into_iter().flatten() {
+        if locale.is_empty() {
+            continue;
         }
+        let upper = locale.to_ascii_uppercase();
+        return upper.contains("UTF-8") || upper.contains("UTF8");
     }
     true
 }
@@ -239,7 +253,12 @@ impl Table {
         for row in rows {
             let cells = (0..columns.len())
                 .map(|index| match row.get(index) {
-                    Some(serde_json::Value::Null) | None => Cell::Null,
+                    // A row shorter than the header is malformed wire
+                    // data. It renders as an empty cell rather than as
+                    // NULL: no value was sent, and claiming a SQL NULL
+                    // would be a different statement.
+                    None => Cell::Text(String::new()),
+                    Some(serde_json::Value::Null) => Cell::Null,
                     Some(serde_json::Value::Number(number)) => Cell::Number(number.to_string()),
                     Some(serde_json::Value::String(text)) => Cell::Text(sanitize(text)),
                     Some(serde_json::Value::Bool(flag)) => Cell::Text(flag.to_string()),
@@ -318,7 +337,7 @@ impl Table {
         for (index, (_, align)) in self.columns.iter().enumerate() {
             let width = widths.get(index).copied().unwrap_or(0);
             let cell = row.get(index);
-            let (text, style) = cell.map_or((&""[..], Style::Dim), Cell::parts);
+            let (text, style) = cell.map_or(("", Style::Dim), Cell::parts);
             line.push_str(&self.vertical(theme));
             line.push(' ');
             let used = text.width();
@@ -351,9 +370,17 @@ impl Table {
             line.push_str(&paint(&fill.repeat(width + 2), Style::Dim, theme));
         }
         let mut rendered = String::new();
-        rendered.push_str(&paint(self.corner(kind, Corner::Left, theme), Style::Dim, theme));
+        rendered.push_str(&paint(
+            self.corner(kind, Corner::Left, theme),
+            Style::Dim,
+            theme,
+        ));
         rendered.push_str(&line);
-        rendered.push_str(&paint(self.corner(kind, Corner::Right, theme), Style::Dim, theme));
+        rendered.push_str(&paint(
+            self.corner(kind, Corner::Right, theme),
+            Style::Dim,
+            theme,
+        ));
         writeln!(out, "{rendered}").map_err(io)
     }
 
@@ -505,11 +532,7 @@ impl Section {
         theme: &Theme,
         fields: &[(String, Cell)],
     ) -> Result<()> {
-        let width = fields
-            .iter()
-            .map(|(key, _)| key.width())
-            .max()
-            .unwrap_or(0);
+        let width = fields.iter().map(|(key, _)| key.width()).max().unwrap_or(0);
         for (key, cell) in fields {
             let (text, style) = cell.parts();
             let pad = width.saturating_sub(key.width());
@@ -695,7 +718,10 @@ mod tests {
     fn a_short_row_renders_empty_and_a_long_row_is_truncated() {
         let text = plain_table(
             &[("a", Align::Left), ("b", Align::Left), ("c", Align::Left)],
-            &[vec![Cell::text("1")], vec![Cell::text("1"), Cell::text("2"), Cell::text("3")]],
+            &[
+                vec![Cell::text("1")],
+                vec![Cell::text("1"), Cell::text("2"), Cell::text("3")],
+            ],
         );
         let lines: Vec<&str> = text.lines().collect();
         // A short row renders its missing cells as empty rather than
@@ -735,7 +761,10 @@ mod tests {
         assert_eq!(lines[0], "+----+");
         assert_eq!(lines[1], "| id |");
         assert_eq!(lines[3], "|  1 |");
-        assert!(!text.contains('─'), "unicode fill in an ascii table: {text:?}");
+        assert!(
+            !text.contains('─'),
+            "unicode fill in an ascii table: {text:?}"
+        );
     }
 
     #[test]
@@ -778,10 +807,7 @@ mod tests {
 
     #[test]
     fn a_json_column_with_one_text_value_stays_left_aligned() {
-        let rows = vec![
-            vec![serde_json::json!(1)],
-            vec![serde_json::json!("two")],
-        ];
+        let rows = vec![vec![serde_json::json!(1)], vec![serde_json::json!("two")]];
         let table = Table::from_json(&["v".into()], &rows);
         let mut out = Vec::new();
         table.write(&mut out, &Theme::fixed(false, true)).unwrap();
@@ -823,5 +849,40 @@ mod tests {
         // Anything that is not a stamp is passed through untouched.
         assert_eq!(human_set_stamp("latest"), "latest");
         assert_eq!(human_set_stamp("2026-10-19"), "2026-10-19");
+    }
+
+    #[test]
+    fn no_color_disables_colour_and_a_dumb_terminal_disables_it_too() {
+        // The documented environment rules, exercised directly.
+        let no_color = |value: &str| Some(std::ffi::OsString::from(value));
+        let term = |value: &str| Some(value.to_string());
+        assert!(color_allowed_with(None, term("xterm-256color")));
+        assert!(color_allowed_with(None, None));
+        // NO_COLOR set to anything non-empty turns colour off.
+        assert!(!color_allowed_with(no_color("1"), term("xterm")));
+        assert!(!color_allowed_with(no_color("true"), term("xterm")));
+        // An empty NO_COLOR is not a request to disable colour.
+        assert!(color_allowed_with(no_color(""), term("xterm")));
+        // A dumb terminal cannot interpret colour.
+        assert!(!color_allowed_with(None, term("dumb")));
+    }
+
+    #[test]
+    fn a_non_utf8_locale_selects_the_ascii_grid() {
+        // The first locale that is set decides, in the order the
+        // environment reports them.
+        assert!(unicode_allowed_with([some("en_US.UTF-8"), None, None]));
+        assert!(unicode_allowed_with([some("en_GB.utf8"), None, None]));
+        assert!(unicode_allowed_with([None, some("C.UTF-8"), None]));
+        // An explicit non-UTF-8 locale gets ASCII.
+        assert!(!unicode_allowed_with([some("C"), None, None]));
+        assert!(!unicode_allowed_with([some("POSIX"), None, None]));
+        // An empty locale is skipped, and the next one decides.
+        assert!(unicode_allowed_with([some(""), some("en_US.UTF-8"), None]));
+        // Nothing set at all is treated as UTF-8.
+        assert!(unicode_allowed_with([None, None, None]));
+        fn some(value: &str) -> Option<String> {
+            Some(value.to_string())
+        }
     }
 }

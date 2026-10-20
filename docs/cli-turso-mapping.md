@@ -20,7 +20,7 @@ maps each Turso CLI verb to its `dg` equivalent.
 | Turso | dg | Notes |
 |---|---|---|
 | `turso db shell <name>` | `dg shell [name]` | Optional preselect; `use <db>` switches inside. Piped stdin works. |
-| `turso db execute <name> "<sql>"` | `dg query <name> "<sql>"` | Interactive terminals get an aligned table, else JSON. `--args`, `--idempotency-key`. |
+| `turso db execute <name> "<sql>"` | `dg query <name> "<sql>"` | Interactive terminals get a table (numbers right-aligned, `NULL` distinct, wide characters measured), else JSON. `--args`, `--idempotency-key`. |
 | — | `dg batch <name> <file>` | Atomic JSON batch from file. No Turso equivalent; kept. |
 
 ## Tokens / credentials

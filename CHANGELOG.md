@@ -50,6 +50,17 @@ running as a supervised non-production deployment on micro2, plus the
 - The deployed micro2 binary still reports `dg 0.1.0` until the next
   upgrade window; 0.2.0 is the repository state that window will
   deploy.
+- **The CLI now draws its terminal output through one shared renderer**
+  (`src/render.rs`): box-drawn tables with numbers right-aligned under
+  their headers, a `NULL` that is distinct from the text `"NULL"`,
+  humanised byte counts, durations, epochs and backup-set stamps, column
+  widths measured by display width so wide characters do not shear the
+  grid, and colour as decoration only (`NO_COLOR` turns it off; every
+  coloured state is also spelled out in words). `dg status` and
+  `dg backup status` became dashboards (titled sections for service,
+  admission, requests and per-database state) instead of one long
+  `property | value` list. Piped output and `--json` remain
+  byte-identical JSON, so scripts are unaffected.
 
 ## [0.1.0] — 2026-09-18
 

@@ -1,8 +1,8 @@
 //! The `dg status` service summary.
 
 use super::{Request, table_json};
-use dg::render::{Align, Cell, Section, Style, Table, Theme};
 use dg::ServerError::Application;
+use dg::render::{Align, Cell, Section, Style, Table, Theme};
 use reqwest::Method;
 use std::io::IsTerminal;
 use std::path::PathBuf;
@@ -22,7 +22,10 @@ pub async fn status(
         // the service is, how it admits work, what it has been asked for,
         // and what each database is doing.
         let mut service = Section::new("service");
-        service.field("version", Cell::styled(status["version"].as_str().unwrap_or(""), Style::Cyan));
+        service.field(
+            "version",
+            Cell::styled(status["version"].as_str().unwrap_or(""), Style::Cyan),
+        );
         service.field(
             "uptime",
             Cell::text(
@@ -53,16 +56,27 @@ pub async fn status(
         );
 
         let mut requests = Section::new("requests");
-        requests.field("total", Cell::number(status["requests"]["total"].as_u64().unwrap_or(0)));
+        requests.field(
+            "total",
+            Cell::number(status["requests"]["total"].as_u64().unwrap_or(0)),
+        );
         // A counter that is non-zero is the reason a reader is looking at
         // this view at all, so it is the one value that gets a colour.
         requests.field(
             "capacity exceeded",
-            counter(status["requests"]["capacity_exceeded"].as_u64().unwrap_or(0)),
+            counter(
+                status["requests"]["capacity_exceeded"]
+                    .as_u64()
+                    .unwrap_or(0),
+            ),
         );
         requests.field(
             "deadline exceeded",
-            counter(status["requests"]["query_deadline_exceeded"].as_u64().unwrap_or(0)),
+            counter(
+                status["requests"]["query_deadline_exceeded"]
+                    .as_u64()
+                    .unwrap_or(0),
+            ),
         );
         requests.field(
             "internal errors",

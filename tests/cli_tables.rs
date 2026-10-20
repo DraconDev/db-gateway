@@ -13,6 +13,33 @@ mod common;
 use common::Fleet;
 use std::process::Command;
 
+/// Strip ANSI escapes so a terminal's colouring does not break a text
+/// assertion. The colour itself is asserted separately: the pty leg
+/// proves the styled output is actually styled.
+fn plain(screen: &str) -> String {
+    let mut out = String::with_capacity(screen.len());
+    let mut chars = screen.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\u{1b}' {
+            out.push(c);
+            continue;
+        }
+        // A CSI sequence is ESC '[' params final. The '[' is the
+        // introducer, not the terminator, so it is consumed explicitly
+        // before the final byte is looked for; treating it as the
+        // terminator would leave the parameter bytes in the text.
+        if chars.peek() == Some(&'[') {
+            chars.next();
+        }
+        for c in chars.by_ref() {
+            if ('\u{40}'..='\u{7e}').contains(&c) {
+                break;
+            }
+        }
+    }
+    out
+}
+
 #[test]
 fn query_piped_json_pty_table() {
     let fleet = Fleet::boot();
@@ -63,7 +90,14 @@ fn query_piped_json_pty_table() {
         "--json differs from piped default"
     );
 
-    // Pty: aligned table, no JSON envelope.
+    // Pty: the table, no JSON envelope.
+    //
+    // The pty leg runs with an EXPLICIT environment, so the colour
+    // assertion does not depend on the machine the test runs on: a CI
+    // runner with NO_COLOR set, or a TERM=dumb terminal, would otherwise
+    // fail a test that is about the table, not about the runner's
+    // environment. The colour-off behaviour is asserted separately, in
+    // tests/cli_pretty.rs, against the documented rules.
     let inner = format!(
         "{} --server {} --key-file {} query tables_db \"SELECT id, name FROM t ORDER BY id\"",
         env!("CARGO_BIN_EXE_dg"),
@@ -71,16 +105,21 @@ fn query_piped_json_pty_table() {
         fleet.cli.key_file.to_str().unwrap(),
     );
     let pty = Command::new("script")
+        .env_remove("NO_COLOR")
+        .env("TERM", "xterm-256color")
         .args(["-qec", &inner, "/dev/null"])
         .output()
         .unwrap();
     assert!(pty.status.success(), "pty query failed: {pty:?}");
     let screen = String::from_utf8_lossy(&pty.stdout).into_owned();
-    assert!(screen.contains("id | name"), "no table header: {screen:?}");
-    assert!(screen.contains("1  | ada"), "no table row: {screen:?}");
+    let text = plain(&screen);
+    assert!(text.contains("│ id │ name │"), "no table header: {text:?}");
+    assert!(text.contains("│  1 │ ada"), "no table row: {text:?}");
+    assert!(!text.contains("\"rows\""), "JSON leaked to tty: {text:?}");
+    // A terminal gets the styled table, not the plain one.
     assert!(
-        !screen.contains("\"rows\""),
-        "JSON leaked to tty: {screen:?}"
+        screen.contains("\u{1b}["),
+        "no colour in the terminal table: {screen:?}"
     );
 }
 
@@ -122,11 +161,12 @@ fn list_info_piped_json_pty_table() {
         .unwrap();
     assert!(list.status.success(), "pty list failed: {list:?}");
     let screen = String::from_utf8_lossy(&list.stdout).into_owned();
-    assert!(screen.contains("name"), "no list header: {screen:?}");
-    assert!(screen.contains("tables_cli"), "no list row: {screen:?}");
+    let text = plain(&screen);
+    assert!(text.contains("database"), "no list header: {text:?}");
+    assert!(text.contains("tables_cli"), "no list row: {text:?}");
     assert!(
-        !screen.contains("\"databases\""),
-        "JSON leaked to tty: {screen:?}"
+        !text.contains("\"databases\""),
+        "JSON leaked to tty: {text:?}"
     );
 
     let info = Command::new("script")
@@ -135,20 +175,17 @@ fn list_info_piped_json_pty_table() {
         .unwrap();
     assert!(info.status.success(), "pty info failed: {info:?}");
     let screen = String::from_utf8_lossy(&info.stdout).into_owned();
+    let text = plain(&screen);
     for (label, needle) in [
-        ("header", "property"),
-        ("header value column", "value"),
         ("name row", "tables_cli"),
-        ("usage row", "rows_read"),
-        ("usage value", "rows_written | 1"),
-        ("tables row", "t (1 rows)"),
+        ("size row", "KiB"),
+        ("usage row", "rows read"),
+        ("usage value", "rows written"),
+        ("tables row", "t"),
     ] {
-        assert!(screen.contains(needle), "no {label}: {screen:?}");
+        assert!(text.contains(needle), "no {label}: {text:?}");
     }
-    assert!(
-        !screen.contains("\"tables\""),
-        "JSON leaked to tty: {screen:?}"
-    );
+    assert!(!text.contains("\"tables\""), "JSON leaked to tty: {text:?}");
 }
 
 #[test]
@@ -191,16 +228,18 @@ fn status_backup_keys_piped_json_pty_table() {
             .output()
             .unwrap();
         assert!(out.status.success(), "pty {args} failed: {out:?}");
-        String::from_utf8_lossy(&out.stdout).into_owned()
+        plain(&String::from_utf8_lossy(&out.stdout))
     };
 
     let screen = run_pty("status");
     for (label, needle) in [
-        ("header", "property"),
-        ("header value column", "value"),
+        ("service section", "service"),
         ("version row", "version"),
-        ("usage row", "usage tables_status"),
-        ("queue waits", "queue 1 waits/0ms/0 timeouts"),
+        ("admission section", "admission"),
+        ("requests section", "requests"),
+        ("per-database section", "per-database"),
+        ("database row", "tables_status"),
+        ("queue waits column", "waits"),
     ] {
         assert!(screen.contains(needle), "no {label}: {screen:?}");
     }
@@ -210,7 +249,8 @@ fn status_backup_keys_piped_json_pty_table() {
     );
 
     let screen = run_pty("backup status");
-    assert!(screen.contains("backup_root"), "no root row: {screen:?}");
+    assert!(screen.contains("backup"), "no root section: {screen:?}");
+    assert!(screen.contains("root"), "no root row: {screen:?}");
     assert!(
         !screen.contains("\"backup_root\""),
         "JSON leaked to tty: {screen:?}"

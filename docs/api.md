@@ -140,7 +140,40 @@ Single-shot export/import carries the whole file in one JSON body and is capped 
 
 ## CLI
 
-Non-shell command output is JSON; the shell defaults to aligned text. Terminal exception: `dg list`, `dg info`, `dg query`, `dg status`, `dg backup status`, and `dg key list` render aligned tables when stdout is a terminal and `--json` is absent — piped output always stays JSON, so scripts are unaffected. `dg info` also joins per-database `rows_read`/`rows_written` from `/v1/status` in its table (degraded to `unavailable` when status is unreachable), and `dg status` shows per-database queue waits/timeouts the same way. Global flags: `--server <url>` (default `http://127.0.0.1:7432`; HTTPS or literal loopback only), `--key-file <path>` (required; `0600`), `--json`.
+Non-shell command output is JSON; the shell defaults to aligned text. Terminal exception: `dg list`, `dg info`, `dg query`, `dg status`, `dg backup status`, and `dg key list` render a table when stdout is a terminal and `--json` is absent — piped output always stays JSON, so scripts are unaffected. `dg info` also joins per-database `rows_read`/`rows_written` from `/v1/status` in its table (degraded to `unavailable` when status is unreachable), and `dg status` shows per-database queue waits/timeouts the same way. Global flags: `--server <url>` (default `http://127.0.0.1:7432`; HTTPS or literal loopback only), `--key-file <path>` (required; `0600`), `--json`.
+
+### How the terminal output is drawn
+
+Every human-facing view goes through one renderer (`src/render.rs`), so the
+CLI looks the same everywhere. The rules it follows:
+
+- **The machine surface is untouched.** Piped stdout and `--json` stay
+  byte-identical JSON. Decoration happens only on the terminal path, and
+  a table border or an escape sequence never reaches a pipeline.
+- **Layout is measured, not counted.** Column widths come from the
+  display width of the text, so a CJK value or an emoji in a cell does not
+  shear the grid.
+- **Numbers are right-aligned** under their header when a column's values
+  are all numeric; a column holding any text stays left-aligned. A SQL
+  `NULL` renders as a dim `NULL`, distinct from the text `"NULL"`. A row
+  shorter than the header renders empty cells rather than claiming a
+  `NULL` that was never sent.
+- **Values are humanised where a human reads them**: byte counts as
+  `16.0 KiB`, durations as `1h 30m`, epoch timestamps as
+  `2026-10-19 23:15 UTC` (with the raw epoch kept alongside it), and
+  backup-set stamps as `2026-10-19 23:15`. The machine forms are still
+  in the JSON output.
+- **Colour is decoration, never information.** A state that is coloured
+  (`fresh`, `stale`, `unknown`, a non-zero error counter) is also spelled
+  out in words, so the output reads the same without colour. `NO_COLOR`
+  and a `TERM=dumb` terminal turn it off; a non-UTF-8 locale gets an
+  ASCII grid instead of box-drawing characters.
+- **A cell's contents cannot repaint the terminal.** Control characters
+  in a value are escaped visibly (``), because a cell's contents come
+  from the wire over a connection the CLI accepts on any origin.
+- **`dg status` and `dg backup status` are dashboards**, grouped into
+  titled sections (service, admission, requests, per-database) rather
+  than one long `property | value` list.
 
 Connection resolution, highest precedence first: `--server` / `--key-file` flags, then `DG_SERVER` / `DG_KEY_FILE` environment variables, then defaults (`http://127.0.0.1:7432` and `$HOME/.config/dg/key`). With the env vars set — or the default key file in place — daily commands need no flags at all: `dg list`, `dg query game_a "SELECT …"`.
 

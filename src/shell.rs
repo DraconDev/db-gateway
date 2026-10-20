@@ -32,6 +32,26 @@ struct Session<'a> {
     theme: &'a crate::render::Theme,
 }
 
+/// How a shell session is set up.
+///
+/// The theme travels with the options because the shell draws to a
+/// caller-supplied stream: it cannot ask whether that stream is a
+/// terminal, so the caller says which theme the session is drawn with.
+pub struct Options<'a> {
+    /// The gateway origin.
+    pub server: &'a str,
+    /// The credential the session authenticates with.
+    pub key: &'a str,
+    /// Emit JSON instead of text.
+    pub json_mode: bool,
+    /// Show prompts (a terminal in text mode).
+    pub interactive: bool,
+    /// The database selected at the start.
+    pub initial_database: Option<&'a str>,
+    /// How the session's output is drawn.
+    pub theme: &'a crate::render::Theme,
+}
+
 /// Blocking stdin is used only by this dedicated CLI session, not the server.
 /// Prompts are enabled only for a terminal in text mode, never for piped input.
 pub async fn run(
@@ -43,34 +63,36 @@ pub async fn run(
     input: impl Read,
     out: impl Write,
 ) -> Result<()> {
-    // The shell draws to a caller-supplied stream, so it cannot ask
-    // whether that stream is a terminal. The caller knows, and passes the
-    // theme it wants the session drawn with.
     let theme = crate::render::Theme::for_stream(interactive);
-    run_with_theme(
+    run_with_options(
+        Options {
+            server,
+            key,
+            json_mode,
+            interactive,
+            initial_database,
+            theme: &theme,
+        },
+        input,
+        out,
+    )
+    .await
+}
+
+/// The shell session, with explicit options.
+pub async fn run_with_options(
+    options: Options<'_>,
+    input: impl Read,
+    mut out: impl Write,
+) -> Result<()> {
+    let Options {
         server,
         key,
         json_mode,
         interactive,
         initial_database,
-        input,
-        out,
-        &theme,
-    )
-    .await
-}
-
-/// The shell session, with an explicit theme.
-pub async fn run_with_theme(
-    server: &str,
-    key: &str,
-    json_mode: bool,
-    interactive: bool,
-    initial_database: Option<&str>,
-    input: impl Read,
-    mut out: impl Write,
-    theme: &crate::render::Theme,
-) -> Result<()> {
+        theme,
+    } = options;
     if let Some(name) = initial_database {
         validate_name(name)?;
     }
@@ -352,13 +374,6 @@ impl Session<'_> {
 ///
 /// The table is the shared renderer in [`crate::render`], so the shell
 /// and the one-shot commands draw the same grid for the same rows.
-pub fn render(response: &Value, json_mode: bool, out: &mut dyn Write) -> Result<()> {
-    render_with(response, json_mode, &crate::render::Theme::for_stream(false), out)
-}
-
-/// Render with an explicit theme. The one-shot commands pass a theme
-/// built from the real stdout, so the table is drawn for a terminal; the
-/// shell passes the same theme for the session.
 pub fn render_with(
     response: &Value,
     json_mode: bool,
@@ -397,11 +412,7 @@ pub fn render_with(
         let headers: Vec<String> = columns.iter().map(cell_text).collect();
         let values: Vec<Vec<Value>> = rows
             .iter()
-            .map(|row| {
-                (0..columns.len())
-                    .map(|index| row.get(index).cloned().unwrap_or(Value::Null))
-                    .collect()
-            })
+            .map(|row| row.as_array().cloned().unwrap_or_default())
             .collect();
         let table = crate::render::Table::from_json(&headers, &values);
         table.write(out, theme)?;
@@ -507,18 +518,43 @@ mod tests {
             "rows": [["1"], ["1", "2", "3", "4"], []],
         });
         let mut out = Vec::new();
-        render(&response, false, &mut out).unwrap();
+        let theme = crate::render::Theme::fixed(false, true);
+        render_with(&response, false, &theme, &mut out).unwrap();
         let text = String::from_utf8(out).unwrap();
         let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines[0], "a | b | c");
-        assert_eq!(lines[1], "--+---+--");
+        assert_eq!(lines[0], "┌───┬───┬───┐");
+        assert_eq!(lines[1], "│ a │ b │ c │");
+        assert_eq!(lines[2], "├───┼───┼───┤");
         // Short row: missing cells render empty instead of panicking.
-        assert!(lines[2].starts_with('1'), "{text}");
-        // Over-long row: truncated to the header width.
-        assert_eq!(lines[3], "1 | 2 | 3");
+        assert_eq!(lines[3], "│ 1 │   │   │");
+        // Over-long row: truncated to the header's column count.
+        assert_eq!(lines[4], "│ 1 │ 2 │ 3 │");
         // Empty row: all cells empty, still rendered.
-        assert_eq!(lines[4], "  |   |  ");
-        assert_eq!(lines.len(), 5, "{text}");
+        assert_eq!(lines[5], "│   │   │   │");
+        assert_eq!(lines[6], "└───┴───┴───┘");
+        // The row count closes the table.
+        assert_eq!(lines[7], "3 rows");
+        assert_eq!(lines.len(), 8, "{text}");
+    }
+
+    #[test]
+    fn control_characters_in_a_cell_are_escaped() {
+        // A cell's contents come from the wire. A raw ESC or newline in a
+        // value would let it repaint the terminal or forge a row of the
+        // table, so the control characters are escaped visibly.
+        let response = serde_json::json!({
+            "columns": ["v"],
+            "rows": [["\u{1b}[31mred\u{1b}[0m\nsecond line"]],
+        });
+        let mut out = Vec::new();
+        let theme = crate::render::Theme::fixed(false, true);
+        render_with(&response, false, &theme, &mut out).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(!text.contains('\u{1b}'), "escape leaked: {text:?}");
+        assert!(text.contains("\\u{1b}"), "escape not shown: {text:?}");
+        // The escaped value stays inside one row: the table is top
+        // border, header, rule, the single row, bottom border, count.
+        assert_eq!(text.lines().count(), 6, "{text:?}");
     }
 
     #[tokio::test]
@@ -533,6 +569,7 @@ mod tests {
             json_mode: true,
             pending_key: None,
             batch: Some("x".repeat(MAX_INPUT)),
+            theme: &crate::render::Theme::fixed(false, true),
         };
         let mut out = Vec::new();
         let error = session

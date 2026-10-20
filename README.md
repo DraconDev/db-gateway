@@ -45,6 +45,56 @@ Prefer an uninstalled debug build instead: `cargo build --locked` plus `export P
 
 `client/` ships `@dracon/db-gateway` (execute, atomic batch, idempotent replay), verified against a running server by `npm test` (from the repo root). Bots and coding agents should use scoped `database_read_only`/`database_read_write` keys — never the owner key. See docs/api.md for the credential model and retry policy.
 
+## Reading the output
+
+On a terminal the CLI draws tables and dashboards; piped output and
+`--json` stay machine-readable JSON, so scripts are unaffected.
+
+```
+$ dg query game_a "SELECT id, name, score FROM players ORDER BY id"
+┌────┬─────────┬───────┐
+│ id │ name    │ score │
+├────┼─────────┼───────┤
+│  1 │ aria    │  93.5 │
+│  2 │ octavia │  88.0 │
+└────┴─────────┴───────┘
+2 rows
+```
+
+```
+$ dg status
+service
+  version  0.2.0
+  uptime   3d 4h
+
+admission
+  acquire timeout  500 ms
+  read permits     8
+  write permits    4
+
+requests
+  total              1043
+  capacity exceeded  0
+  deadline exceeded  0
+  internal errors    0
+
+per-database
+┌──────────┬──────┬─────────┬───────┬─────────┬──────────┐
+│ database │ read │ written │ waits │ wait ms │ timeouts │
+├──────────┼──────┼─────────┼───────┼─────────┼──────────┤
+│ game_a   │    2 │       2 │     3 │       0 │        0 │
+└──────────┴──────┴─────────┴───────┴─────────┴──────────┘
+```
+
+The rules the drawing follows are in
+[docs/api.md](docs/api.md#how-the-terminal-output-is-drawn): numbers are
+right-aligned, `NULL` is distinct from the text `"NULL"`, byte counts
+and durations are humanised, column widths are measured by display width
+(so CJK text and emoji do not shear the grid), colour is decoration only
+(`NO_COLOR` turns it off, and every coloured state is also spelled out),
+and a value's control characters are escaped so a cell can never repaint
+the terminal.
+
 ## Checks
 
 ```sh

@@ -175,22 +175,30 @@ fn shell_session_covers_use_query_error_recovery_batch_and_quit() {
         "pre-use error surfaced: {stdout}"
     );
     // Aligned text result for the ordered SELECT.
-    assert!(stdout.contains("id | v"), "table header: {stdout}");
-    assert!(stdout.contains("1  | alpha"), "row rendering: {stdout}");
-    assert!(stdout.contains("2  | beta"), "row rendering: {stdout}");
+    assert!(stdout.contains("│ id │ v     │"), "table header: {stdout}");
+    assert!(stdout.contains("│  1 │ alpha │"), "row rendering: {stdout}");
+    assert!(stdout.contains("│  2 │ beta  │"), "row rendering: {stdout}");
     assert!(
         stdout.contains("invalid_sql"),
         "failed statement printed with stable code: {stdout}"
     );
     let lines: Vec<_> = stdout.lines().map(str::trim_end).collect();
     assert!(
-        lines.windows(3).any(|w| w == ["count(*)", "--------", "2"]),
+        lines
+            .windows(3)
+            .any(|w| w == ["│ count(*) │", "├──────────┤", "│        2 │"]),
         "recovery count: {stdout}"
     );
     assert!(
-        lines
-            .windows(4)
-            .any(|w| w == ["statement 2:", "count(*)", "--------", "3"]),
+        lines.windows(5).any(|w| {
+            w == [
+                "statement 2:",
+                "┌──────────┐",
+                "│ count(*) │",
+                "├──────────┤",
+                "│        3 │",
+            ]
+        }),
         "batch result rendered: {stdout}"
     );
     let result: Value = serde_json::from_str(stdout.lines().last().unwrap()).unwrap();
@@ -568,7 +576,7 @@ fn shell_errors_are_stable_and_never_kill_the_session() {
     assert!(
         lines
             .windows(3)
-            .any(|w| w == ["remaining", "---------", "0"]),
+            .any(|w| w == ["│ remaining │", "├───────────┤", "│         0 │"]),
         "constraint rolled back and session recovered: {stdout}"
     );
 }

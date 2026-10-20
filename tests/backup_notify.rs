@@ -590,10 +590,12 @@ fn dg_backup_digest_reports_the_same_thing_the_sink_sends_and_works_stopped() {
         ])
         .output()
         .unwrap();
+    // The human digest names the database, in a per-database table row
+    // that carries its state alongside the name.
+    let digest = String::from_utf8_lossy(&stopped.stdout);
     assert!(
-        String::from_utf8_lossy(&stopped.stdout).contains("backup alpha"),
-        "human digest must name the database: {}",
-        String::from_utf8_lossy(&stopped.stdout)
+        digest.contains("│ alpha") && digest.contains("unknown"),
+        "human digest must name the database and its state: {digest}"
     );
     assert_eq!(stopped.status.code(), Some(1));
 }

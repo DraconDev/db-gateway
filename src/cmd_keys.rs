@@ -1,8 +1,8 @@
 //! Credential administration commands (owner only at the API).
 
 use super::{Request, table_json};
-use dg::render::{Align, Cell, Style, Table, Theme};
 use dg::ServerError::Application;
+use dg::render::{Align, Cell, Style, Table, Theme};
 use reqwest::Method;
 use serde_json::{Value, json};
 use std::io::IsTerminal;
@@ -71,7 +71,9 @@ pub async fn list(
             ]);
         }
         let mut out = std::io::stdout();
-        table.write(&mut out, &terminal_theme()).map_err(Application)?;
+        table
+            .write(&mut out, &terminal_theme())
+            .map_err(Application)?;
         return Ok(None);
     }
     Ok(Some((Method::GET, "/v1/keys".into(), None, None)))

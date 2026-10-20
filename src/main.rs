@@ -87,7 +87,13 @@ async fn table_json(
         .await
         .map_err(Application)?;
     if api_failed(&result) {
-        dg::shell::render(&result, false, &mut std::io::stdout()).map_err(Application)?;
+        dg::shell::render_with(
+            &result,
+            false,
+            &dg::render::Theme::for_stream(std::io::stdout().is_terminal()),
+            &mut std::io::stdout(),
+        )
+        .map_err(Application)?;
         return Err(Application(api_error()));
     }
     Ok(Some(result))

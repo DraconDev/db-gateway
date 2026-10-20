@@ -2,9 +2,9 @@
 //! query/batch, and the interactive shell.
 
 use super::{Request, api_error, api_failed};
-use dg::render::{Align, Cell, Section, Style, Table, Theme};
 use dg::ServerError::Application;
 use dg::error::Error;
+use dg::render::{Align, Cell, Section, Style, Table, Theme};
 use reqwest::Method;
 use serde_json::{Value, json};
 use std::fs::OpenOptions;
@@ -36,7 +36,8 @@ pub async fn list(
             .await
             .map_err(Application)?;
         if api_failed(&result) {
-            dg::shell::render(&result, false, &mut std::io::stdout()).map_err(Application)?;
+            dg::shell::render_with(&result, false, &terminal_theme(), &mut std::io::stdout())
+                .map_err(Application)?;
             return Err(Application(api_error()));
         }
         let names: Vec<String> = result["databases"]
@@ -51,9 +52,15 @@ pub async fn list(
         for name in &names {
             table.row(vec![Cell::styled(name.clone(), Style::Cyan)]);
         }
-        table.footer(format!("{} database(s)", names.len()));
+        table.footer(if names.len() == 1 {
+            "1 database".to_string()
+        } else {
+            format!("{} databases", names.len())
+        });
         let mut out = std::io::stdout();
-        table.write(&mut out, &terminal_theme()).map_err(Application)?;
+        table
+            .write(&mut out, &terminal_theme())
+            .map_err(Application)?;
         return Ok(None);
     }
     Ok(Some((Method::GET, "/v1/databases".into(), None, None)))
@@ -84,7 +91,8 @@ pub async fn info(
         .await
         .map_err(Application)?;
         if api_failed(&info) {
-            dg::shell::render(&info, false, &mut std::io::stdout()).map_err(Application)?;
+            dg::shell::render_with(&info, false, &terminal_theme(), &mut std::io::stdout())
+                .map_err(Application)?;
             return Err(Application(api_error()));
         }
         // Usage is auxiliary: a failed status fetch degrades the
@@ -107,7 +115,10 @@ pub async fn info(
         // A dashboard, not a flat property list: what the database is,
         // then what it holds, then how it has been used.
         let mut facts = Section::new("database");
-        facts.field("name", Cell::styled(info["name"].as_str().unwrap_or(""), Style::Cyan));
+        facts.field(
+            "name",
+            Cell::styled(info["name"].as_str().unwrap_or(""), Style::Cyan),
+        );
         facts.field(
             "tombstoned",
             if info["tombstoned"].as_bool() == Some(true) {
@@ -256,7 +267,10 @@ pub async fn query(
         )
         .await
         .map_err(Application)?;
-        dg::shell::render(&result, false, &mut std::io::stdout()).map_err(Application)?;
+        // The theme comes from the real stdout, so the table is drawn
+        // for a terminal: the same grid the shell draws.
+        dg::shell::render_with(&result, false, &terminal_theme(), &mut std::io::stdout())
+            .map_err(Application)?;
         if result.get("error").is_some() {
             return Err(Application(Error::new(
                 400,
