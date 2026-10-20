@@ -140,7 +140,23 @@ Single-shot export/import carries the whole file in one JSON body and is capped 
 
 ## CLI
 
-Non-shell command output is JSON; the shell defaults to aligned text. Terminal exception: `dg list`, `dg info`, `dg query`, `dg status`, `dg backup status`, and `dg key list` render a table when stdout is a terminal and `--json` is absent — piped output always stays JSON, so scripts are unaffected. `dg info` also joins per-database `rows_read`/`rows_written` from `/v1/status` in its table (degraded to `unavailable` when status is unreachable), and `dg status` shows per-database queue waits/timeouts the same way. Global flags: `--server <url>` (default `http://127.0.0.1:7432`; HTTPS or literal loopback only), `--key-file <path>` (required; `0600`), `--json`.
+**One rule decides how every command answers.** A terminal gets a human
+view; a pipe or `--json` gets JSON. The rule lives in one place, so a
+command gets it by asking for a view rather than by remembering it.
+
+The human views are: `dg list`, `dg info`, `dg inspect`, `dg query`,
+`dg execute`, `dg status`, `dg watch`, `dg backup status`, `dg key list`
+and `dg key tokens` (tables and dashboards), and `dg create`, `dg delete`,
+`dg export`, `dg import`, `dg clone`, `dg key create`, `dg key revoke`,
+`dg key rotate-owner`, `dg backup verify`, `dg batch` and `dg init` (a
+headline and the facts behind it). Piped output always stays JSON, so
+scripts are unaffected.
+
+`dg info` also joins per-database `rows_read`/`rows_written` from
+`/v1/status` in its table (degraded to `unavailable` when status is
+unreachable). Global flags: `--server <url>` (default
+`http://127.0.0.1:7432`; HTTPS or literal loopback only), `--key-file
+<path>` (required; `0600`), `--json`.
 
 ### How the terminal output is drawn
 
@@ -175,9 +191,22 @@ CLI looks the same everywhere. The rules it follows:
   table footer and section title, whether the value came from a query
   row, a database name, a key name, a service version or a backup
   state, so no view can be the one that forgets it.
-- **`dg status` and `dg backup status` are dashboards**, grouped into
-  titled sections (service, admission, requests, per-database) rather
-  than one long `property | value` list.
+- **`dg status` and `dg watch` are dashboards**, grouped into
+  titled sections (service, activity, admission, per-database) rather
+  than one long `property | value` list. They answer the questions an
+  operator has — how many databases are live and how many are
+  tombstoned, how busy the service is and how fast, how often it
+  fails, and which database is doing the work — rather than listing
+  the server's properties. `dg watch` is the same dashboard read once:
+  it exits rather than refreshing in place, so it stays pipeable and
+  diffable.
+- **`dg inspect <db>` is one database**: what it holds AND what it has
+  been doing. `dg info` is what a database IS; `dg inspect` is what it
+  has been DOING.
+- **The shell is the control surface.** `dg shell` has dot-commands for
+  the operator's whole surface — `.status`, `.keys`, `.backups`, plus
+  `.tables` and `.schema` — and they draw the SAME views as the
+  one-shot commands, so the two cannot drift apart.
 
 Connection resolution, highest precedence first: `--server` / `--key-file` flags, then `DG_SERVER` / `DG_KEY_FILE` environment variables, then defaults (`http://127.0.0.1:7432` and `$HOME/.config/dg/key`). With the env vars set — or the default key file in place — daily commands need no flags at all: `dg list`, `dg query game_a "SELECT …"`.
 
@@ -197,6 +226,15 @@ dg --key-file owner.key query game_a "INSERT INTO matches VALUES (?)" --args '[7
 printf '%s\n' '{"atomic":true,"statements":[{"sql":"SELECT count(*) FROM players"}]}' > batch.json
 dg --key-file owner.key batch game_a batch.json
 dg --key-file owner.key key revoke bot_a
+dg --key-file owner.key key tokens game_a   # the credentials that can act on one database
+```
+
+Running a SQL file (the statements are split by SQLite itself, so a
+semicolon inside a string or a trigger body is not a boundary, and the
+whole file runs as one atomic batch):
+
+```sh
+dg --key-file owner.key execute game_a migrations.sql
 ```
 
 Lifecycle commands (M2):
@@ -211,7 +249,9 @@ dg --key-file owner.key delete game_a_copy --confirm game_a_copy   # tombstone; 
 Operator visibility (owner-only; the AI-operator surface — poll these, not log files):
 
 ```sh
-dg --key-file owner.key status          # version, uptime, admission config, request-pressure counters
+dg --key-file owner.key status          # the service dashboard: counts, rate, error rate, per-db table
+dg --key-file owner.key watch           # the same dashboard, read once (it exits, so it stays pipeable)
+dg --key-file owner.key inspect game_a  # one database: what it holds and what it has been doing
 dg --key-file owner.key backup status   # versioned sets plus per-database fresh/stale/unknown
 dg backup digest                        # the delivered daily digest, computed from the data dir (no server needed)
 dg backup verify --backup-root <dir> latest   # re-verify a published set offline (no server needed)
