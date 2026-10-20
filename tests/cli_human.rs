@@ -164,6 +164,8 @@ fn every_contract_command_shows_a_human_view_on_a_terminal() {
 
     // The commands, in the order the contract names them. Each is
     // driven under a pty, and the words a person reads are checked.
+    let again = dir.path().join("again.sqlite");
+    let fresh = dir.path().join("fresh");
     let cases: Vec<(&str, Vec<&str>, &str)> = vec![
         (
             "create",
@@ -204,7 +206,7 @@ fn every_contract_command_shows_a_human_view_on_a_terminal() {
                 "export",
                 "human_created",
                 "--out",
-                dir.path().join("again.sqlite").to_str().unwrap(),
+                again.to_str().unwrap(),
             ],
             "exported human_created",
         ),
@@ -296,12 +298,7 @@ fn every_contract_command_shows_a_human_view_on_a_terminal() {
         ),
         (
             "init",
-            vec![
-                dg,
-                "init",
-                "--data-dir",
-                dir.path().join("fresh").to_str().unwrap(),
-            ],
+            vec![dg, "init", "--data-dir", fresh.to_str().unwrap()],
             "initialized",
         ),
     ];
