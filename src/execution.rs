@@ -505,15 +505,14 @@ pub fn execute_detailed(
     // envelope it has always had.
     let attribute = statements.len() > 1;
     for (index, statement) in statements.iter().enumerate() {
-        let result = run_statement(&tx, statement, read_only, remaining_result_bytes).map_err(
-            |error| {
+        let result =
+            run_statement(&tx, statement, read_only, remaining_result_bytes).map_err(|error| {
                 if attribute {
                     error.at_statement(index as u32)
                 } else {
                     error
                 }
-            },
-        )?;
+            })?;
         remaining_result_bytes = remaining_result_bytes.saturating_sub(
             serde_json::to_vec(&result)
                 .map_err(|_| Error::internal())?

@@ -102,7 +102,12 @@ pub async fn tokens(
             let role = key["role"].as_str().unwrap_or("");
             let databases: Vec<String> = key["databases"]
                 .as_array()
-                .map(|dbs| dbs.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .map(|dbs| {
+                    dbs.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                })
                 .unwrap_or_default();
             // The owner key is scoped to everything, so it reaches every
             // database; an application key reaches only its own.
@@ -135,11 +140,8 @@ pub async fn tokens(
             // No table: the answer is "nobody", and an empty grid would
             // read as a rendering failure rather than an answer.
             let mut out = std::io::stdout();
-            writeln!(
-                out,
-                "no credential can act on {database}"
-            )
-            .map_err(|_| Application(dg::error::Error::internal()))?;
+            writeln!(out, "no credential can act on {database}")
+                .map_err(|_| Application(dg::error::Error::internal()))?;
             return Ok(None);
         }
         let mut out = std::io::stdout();

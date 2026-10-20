@@ -459,8 +459,13 @@ pub async fn execute(
     idempotency_key: Option<String>,
 ) -> Result<Option<Request>, dg::ServerError> {
     dg::store::validate_name(&name).map_err(Application)?;
-    let script = std::fs::read_to_string(&file)
-        .map_err(|_| Application(Error::new(400, "unreadable_file", "cannot read the SQL file")))?;
+    let script = std::fs::read_to_string(&file).map_err(|_| {
+        Application(Error::new(
+            400,
+            "unreadable_file",
+            "cannot read the SQL file",
+        ))
+    })?;
     let statements = dg::sqlsplit::split_statements(&script);
     if statements.is_empty() {
         return Err(Application(Error::new(
@@ -550,9 +555,7 @@ pub async fn execute(
                 outcome,
             ]);
         }
-        table
-            .write(&mut out, &theme)
-            .map_err(Application)?;
+        table.write(&mut out, &theme).map_err(Application)?;
         return Ok(None);
     }
     Ok(Some((

@@ -58,9 +58,7 @@ fn is_complete(text: &str) -> bool {
     let mut buffer = Vec::with_capacity(text.len() + 1);
     buffer.extend_from_slice(text.as_bytes());
     buffer.push(0);
-    unsafe {
-        rusqlite::ffi::sqlite3_complete(buffer.as_ptr() as *const std::os::raw::c_char) != 0
-    }
+    unsafe { rusqlite::ffi::sqlite3_complete(buffer.as_ptr() as *const std::os::raw::c_char) != 0 }
 }
 
 /// The statement text with its leading comments removed.
