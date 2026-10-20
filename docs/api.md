@@ -152,6 +152,11 @@ and `dg key tokens` (tables and dashboards), and `dg create`, `dg delete`,
 headline and the facts behind it). Piped output always stays JSON, so
 scripts are unaffected.
 
+The one exception is `dg backup digest`, which is a REPORT rather than
+a command with a machine form: the scheduled unit runs it and its
+output lands in the journal, where a human reads it. Its human note is
+therefore the default, and `--json` asks for the structured form.
+
 `dg info` also joins per-database `rows_read`/`rows_written` from
 `/v1/status` in its table (degraded to `unavailable` when status is
 unreachable). Global flags: `--server <url>` (default
