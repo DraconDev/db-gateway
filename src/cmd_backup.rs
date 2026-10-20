@@ -2,11 +2,28 @@
 //! offline `digest`/`verify` pair that read the backup root directly.
 
 use super::{Request, table_json};
+use dg::render::{Align, Cell, Section, Style, Table, Theme};
 use dg::ServerError::Application;
 use dg::error::Error;
 use reqwest::Method;
 use serde_json::{Value, json};
 use std::path::PathBuf;
+
+/// The theme for a command that is drawing to the terminal.
+fn terminal_theme() -> Theme {
+    Theme::for_stream(std::io::stdout().is_terminal())
+}
+
+/// The style for a backup freshness state. The state word itself is
+/// always spelled out, so the colour is a second rendering of the same
+/// information rather than the only rendering of it.
+fn state_style(state: &str) -> Style {
+    match state {
+        "fresh" => Style::Green,
+        "stale" => Style::Yellow,
+        _ => Style::Red,
+    }
+}
 
 pub async fn status(
     server: &str,
@@ -14,51 +31,97 @@ pub async fn status(
     key_path: &Option<PathBuf>,
 ) -> Result<Option<Request>, dg::ServerError> {
     if let Some(backups) = table_json(server, json, key_path, Method::GET, "/v1/backups").await? {
-        let mut rows = vec![
-            json!(["backup_root", backups["backup_root"]]),
-            json!(["stale_after_secs", backups["stale_after_secs"]]),
-        ];
-        if let Some(sets) = backups["sets"].as_array() {
-            rows.push(json!([
-                "sets",
-                if sets.is_empty() {
-                    "none".to_string()
-                } else {
-                    sets.iter()
-                        .filter_map(|set| set["timestamp"].as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                }
-            ]));
+        let mut root = Section::new("backup");
+        root.field(
+            "root",
+            Cell::styled(
+                backups["backup_root"].as_str().unwrap_or("(none configured)"),
+                Style::Cyan,
+            ),
+        );
+        root.field(
+            "stale after",
+            Cell::text(
+                backups["stale_after_secs"]
+                    .as_u64()
+                    .map(dg::render::human_duration)
+                    .unwrap_or_else(|| "unknown".to_string()),
+            ),
+        );
+        let sets = backups["sets"].as_array().cloned().unwrap_or_default();
+        root.field("sets", Cell::number(sets.len()));
+
+        let mut sections = vec![root];
+
+        if !sets.is_empty() {
+            let mut published = Section::new("published sets");
+            let mut table = Table::new();
+            table.column("set", Align::Left);
+            table.column("published", Align::Left);
+            table.column("databases", Align::Right);
+            table.column("registry", Align::Left);
+            for set in &sets {
+                table.row(vec![
+                    Cell::text(set["timestamp"].as_str().unwrap_or("?")),
+                    Cell::text(
+                        set["coverage_start"]
+                            .as_i64()
+                            .map(dg::render::human_epoch)
+                            .unwrap_or_else(|| "unknown".to_string()),
+                    ),
+                    Cell::number(
+                        set["databases"]
+                            .as_array()
+                            .map(|dbs| dbs.len())
+                            .unwrap_or(0),
+                    ),
+                    Cell::text(if set["has_registry"].as_bool() == Some(true) {
+                        "yes"
+                    } else {
+                        "no"
+                    }),
+                ]);
+            }
+            published.table(table);
+            sections.push(published);
         }
+
         if let Some(per_database) = backups["per_database"].as_object() {
             let mut names: Vec<&String> = per_database.keys().collect();
             names.sort();
-            for name in names {
-                let fresh = &per_database[name.as_str()];
-                rows.push(json!([
-                    format!("backup {name}"),
-                    format!(
-                        "{}{}{}",
-                        fresh["state"].as_str().unwrap_or("unknown"),
-                        fresh["newest_set"]
-                            .as_str()
-                            .map(|set| format!(" @ {set}"))
-                            .unwrap_or_default(),
-                        fresh["age_secs"]
-                            .as_u64()
-                            .map(|age| format!(" ({age}s ago)"))
-                            .unwrap_or_default()
-                    )
-                ]));
+            if !names.is_empty() {
+                let mut freshness = Section::new("per-database");
+                let mut table = Table::new();
+                table.column("database", Align::Left);
+                table.column("state", Align::Left);
+                table.column("newest set", Align::Left);
+                table.column("age", Align::Right);
+                for name in names {
+                    let fresh = &per_database[name.as_str()];
+                    let state = fresh["state"].as_str().unwrap_or("unknown");
+                    table.row(vec![
+                        Cell::styled(name.clone(), Style::Cyan),
+                        Cell::styled(state, state_style(state)),
+                        Cell::text(
+                            fresh["newest_set"]
+                                .as_str()
+                                .map(dg::render::human_set_stamp)
+                                .unwrap_or("—"),
+                        ),
+                        Cell::text(
+                            fresh["age_secs"]
+                                .as_u64()
+                                .map(dg::render::human_duration)
+                                .unwrap_or_else(|| "unknown".to_string()),
+                        ),
+                    ]);
+                }
+                freshness.table(table);
+                sections.push(freshness);
             }
         }
-        dg::shell::render(
-            &json!({"columns":["property","value"],"rows":rows}),
-            false,
-            &mut std::io::stdout(),
-        )
-        .map_err(Application)?;
+        let mut out = std::io::stdout();
+        dg::render::write_sections(&mut out, &terminal_theme(), &sections).map_err(Application)?;
         return Ok(None);
     }
     Ok(Some((Method::GET, "/v1/backups".into(), None, None)))
