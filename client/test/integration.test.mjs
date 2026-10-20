@@ -179,9 +179,16 @@ test('status reports service facts and per-database usage', async () => {
       queue_wait_ms: status.databases.status_db.queue_wait_ms,
       queue_timeouts: 0,
       queue_wait_max_us: status.databases.status_db.queue_wait_max_us,
+      queue_wait_p95_us: status.databases.status_db.queue_wait_p95_us,
       last_write: status.databases.status_db.last_write,
     });
     assert.equal(typeof status.databases.status_db.queue_wait_ms, 'number');
+    // The per-database percentile is a real percentile, so it can
+    // never exceed the database's worst single wait.
+    assert.equal(
+      status.databases.status_db.queue_wait_p95_us <= status.databases.status_db.queue_wait_max_us,
+      true,
+    );
     // The richer facts are there, and the counts are right: one live
     // database, and the window is a bounded number of seconds.
     assert.equal(status.database_counts.live, 1);
