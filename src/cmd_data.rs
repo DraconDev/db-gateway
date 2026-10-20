@@ -414,13 +414,15 @@ pub async fn create(
 ) -> Result<Option<Request>, dg::ServerError> {
     dg::store::validate_name(&name).map_err(Application)?;
     if human_result(
-        server,
-        json,
-        key_path,
-        Method::POST,
-        "/v1/databases",
-        Some(json!({"name":name})),
-        None,
+        super::Call {
+            server,
+            json,
+            key_path,
+            method: Method::POST,
+            path: "/v1/databases".to_string(),
+            body: Some(json!({"name":name})),
+            idempotency: None,
+        },
         Box::new(|result| {
             dg::render::Outcome::done(format!("created {}", result["name"].as_str().unwrap_or("")))
         }),
@@ -686,14 +688,17 @@ pub async fn batch(
     let body: dg::execution::Batch =
         serde_json::from_slice(&batch_bytes).map_err(|_| Application(Error::invalid()))?;
     let view_body = body.clone();
+    let body_value = serde_json::to_value(&body).map_err(|_| Application(Error::invalid()))?;
     if human_result(
-        server,
-        json,
-        key_path,
-        Method::POST,
-        &format!("/v1/databases/{name}/batch"),
-        Some(serde_json::to_value(body).map_err(|_| Application(Error::invalid()))?),
-        idempotency_key.as_deref(),
+        super::Call {
+            server,
+            json,
+            key_path,
+            method: Method::POST,
+            path: format!("/v1/databases/{name}/batch"),
+            body: Some(body_value.clone()),
+            idempotency: idempotency_key.clone(),
+        },
         Box::new(move |result| {
             // A batch is a list of statements, so its result is a list
             // of results: one row per statement, in order.
@@ -733,7 +738,7 @@ pub async fn batch(
     Ok(Some((
         Method::POST,
         format!("/v1/databases/{name}/batch"),
-        Some(serde_json::to_value(body).map_err(|_| Application(Error::invalid()))?),
+        Some(body_value),
         idempotency_key,
     )))
 }

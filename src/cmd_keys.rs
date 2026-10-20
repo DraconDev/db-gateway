@@ -31,13 +31,15 @@ pub async fn create(
     let view_role = role.clone();
     let view_database = database.clone();
     if human_result(
-        server,
-        json,
-        key_path,
-        Method::POST,
-        "/v1/keys",
-        Some(json!({"name":name,"role":role,"databases":database})),
-        None,
+        super::Call {
+            server,
+            json,
+            key_path,
+            method: Method::POST,
+            path: "/v1/keys".to_string(),
+            body: Some(json!({"name":name,"role":role,"databases":database})),
+            idempotency: None,
+        },
         Box::new(move |result| {
             // The key is shown ONCE and never again, so it is on the
             // screen. The scope is shown with it, because a key

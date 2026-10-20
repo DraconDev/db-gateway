@@ -74,7 +74,15 @@ fn every_mutating_command_shows_a_human_view_on_a_terminal() {
     let cases: Vec<(&str, Vec<&str>, &str)> = vec![
         (
             "create",
-            vec![dg, "--server", server, "--key-file", key, "create", "human_db"],
+            vec![
+                dg,
+                "--server",
+                server,
+                "--key-file",
+                key,
+                "create",
+                "human_db",
+            ],
             "created human_db",
         ),
         (
@@ -254,9 +262,10 @@ fn dg_init_shows_the_key_to_a_person_and_json_to_a_pipe() {
     // The key itself is 64 hex characters, so it can be picked out of
     // the view.
     assert!(
-        screen.contains(&"a".repeat(64)) || screen.split_whitespace().any(|word| {
-            word.len() == 64 && word.chars().all(|c| c.is_ascii_hexdigit())
-        }),
+        screen.contains(&"a".repeat(64))
+            || screen
+                .split_whitespace()
+                .any(|word| { word.len() == 64 && word.chars().all(|c| c.is_ascii_hexdigit()) }),
         "the terminal view does not carry the key: {screen}"
     );
 
@@ -268,7 +277,11 @@ fn dg_init_shows_the_key_to_a_person_and_json_to_a_pipe() {
     let parsed: serde_json::Value =
         serde_json::from_str(&stdout).unwrap_or_else(|_| panic!("not JSON: {stdout}"));
     let owner = parsed["owner_key"].as_str().unwrap_or("");
-    assert_eq!(owner.len(), 64, "the owner key is not 64 characters: {stdout}");
+    assert_eq!(
+        owner.len(),
+        64,
+        "the owner key is not 64 characters: {stdout}"
+    );
     assert!(
         owner.chars().all(|c| c.is_ascii_hexdigit()),
         "the owner key is not hex: {stdout}"

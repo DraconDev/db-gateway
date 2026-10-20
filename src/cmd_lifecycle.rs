@@ -24,13 +24,15 @@ pub async fn clone_db(
     let view_source = source.clone();
     let view_destination = destination.clone();
     if human_result(
-        server,
-        json,
-        key_path,
-        Method::POST,
-        &format!("/v1/databases/{source}/clone"),
-        Some(json!({"destination":destination})),
-        None,
+        super::Call {
+            server,
+            json,
+            key_path,
+            method: Method::POST,
+            path: format!("/v1/databases/{source}/clone"),
+            body: Some(json!({"destination":destination})),
+            idempotency: None,
+        },
         Box::new(move |result| {
             dg::render::Outcome::done(format!(
                 "cloned {} to {}",
@@ -371,13 +373,15 @@ pub async fn delete(
     }
     let view_name = name.clone();
     if human_result(
-        server,
-        json,
-        key_path,
-        Method::DELETE,
-        &format!("/v1/databases/{name}"),
-        None,
-        None,
+        super::Call {
+            server,
+            json,
+            key_path,
+            method: Method::DELETE,
+            path: format!("/v1/databases/{name}"),
+            body: None,
+            idempotency: None,
+        },
         Box::new(move |result| {
             // A tombstone is not a deletion: the name is taken until
             // the retention window purges it, and the operator has to

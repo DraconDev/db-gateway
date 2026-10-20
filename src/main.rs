@@ -71,6 +71,17 @@ fn terminal_theme() -> dg::render::Theme {
 /// borrow the command's arguments.
 type View = Box<dyn Fn(&Value) -> dg::render::Outcome>;
 
+/// What a command needs to make a request and show its result.
+struct Call<'a> {
+    server: &'a str,
+    json: bool,
+    key_path: &'a Option<PathBuf>,
+    method: reqwest::Method,
+    path: String,
+    body: Option<Value>,
+    idempotency: Option<String>,
+}
+
 /// Fetch a result and show it to a person, or hand back the JSON when
 /// the output is a machine's.
 ///
@@ -85,20 +96,14 @@ type View = Box<dyn Fn(&Value) -> dg::render::Outcome>;
 /// way: a command that draws the view must not also hand the request
 /// back for the caller to run again.
 async fn human_result(
-    server: &str,
-    json: bool,
-    key_path: &Option<PathBuf>,
-    method: reqwest::Method,
-    path: &str,
-    body: Option<Value>,
-    idempotency: Option<&str>,
+    call: Call<'_>,
     view: View,
 ) -> Result<Option<Value>, dg::ServerError> {
     use dg::ServerError::Application;
-    if json || !std::io::stdout().is_terminal() {
+    if call.json || !std::io::stdout().is_terminal() {
         return Ok(None);
     }
-    let key = dg::client::read_key(key_path.as_deref().ok_or_else(|| {
+    let key = dg::client::read_key(call.key_path.as_deref().ok_or_else(|| {
         Application(dg::error::Error::new(
             400,
             "missing_credential",
@@ -106,9 +111,16 @@ async fn human_result(
         ))
     })?)
     .map_err(Application)?;
-    let result = dg::client::request(server, &key, method, path, body, idempotency)
-        .await
-        .map_err(Application)?;
+    let result = dg::client::request(
+        call.server,
+        &key,
+        call.method,
+        &call.path,
+        call.body,
+        call.idempotency.as_deref(),
+    )
+    .await
+    .map_err(Application)?;
     if api_failed(&result) {
         dg::shell::render_with(&result, false, &terminal_theme(), &mut std::io::stdout())
             .map_err(Application)?;
@@ -562,8 +574,15 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             file,
             idempotency_key,
         } => {
-            cmd_data::batch(&cli.server, cli.json, &key_path, name, file, idempotency_key)
-                .await?
+            cmd_data::batch(
+                &cli.server,
+                cli.json,
+                &key_path,
+                name,
+                file,
+                idempotency_key,
+            )
+            .await?
         }
         Command::Key {
             command:
