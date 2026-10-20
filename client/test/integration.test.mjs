@@ -160,7 +160,17 @@ test('status reports service facts and per-database usage', async () => {
     assert.equal(typeof status.version, 'string');
     assert.equal(typeof status.uptime_secs, 'number');
     assert.deepEqual(Object.keys(status.admission).sort(), ['acquire_timeout_ms', 'read_permits', 'write_permits']);
-    assert.deepEqual(Object.keys(status.requests).sort(), ['capacity_exceeded', 'internal_error', 'query_deadline_exceeded', 'total']);
+    assert.deepEqual(Object.keys(status.requests).sort(), [
+      'capacity_exceeded',
+      'internal_error',
+      'query_deadline_exceeded',
+      'recent_per_second',
+      'recent_span_secs',
+      'total',
+      'wait_p50_us',
+      'wait_p95_us',
+      'wait_samples',
+    ]);
     assert.equal(status.requests.total >= 4, true);
     assert.deepEqual(status.databases.status_db, {
       rows_read: 1,
@@ -168,7 +178,16 @@ test('status reports service facts and per-database usage', async () => {
       queue_waits: 3,
       queue_wait_ms: status.databases.status_db.queue_wait_ms,
       queue_timeouts: 0,
+      queue_wait_max_us: status.databases.status_db.queue_wait_max_us,
+      last_write: status.databases.status_db.last_write,
     });
     assert.equal(typeof status.databases.status_db.queue_wait_ms, 'number');
+    // The richer facts are there, and the counts are right: one live
+    // database, and the window is a bounded number of seconds.
+    assert.equal(status.database_counts.live, 1);
+    assert.equal(status.database_counts.tombstoned, 0);
+    assert.equal(status.requests.recent_per_second.length, 60);
+    assert.equal(status.requests.recent_span_secs >= 1, true);
+    assert.equal(typeof status.databases.status_db.last_write, 'number');
   });
 });
