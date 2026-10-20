@@ -66,6 +66,205 @@ pub async fn list(
     Ok(Some((Method::GET, "/v1/databases".into(), None, None)))
 }
 
+/// The per-database live view: what this database holds and what it
+/// has been doing.
+///
+/// `dg info` is what a database IS; `dg inspect` is what it has been
+/// DOING. It reads the same facts the service dashboard shows, but for
+/// one database, so an operator can look at the one that is busy
+/// without reading the whole list.
+pub async fn inspect(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
+    name: String,
+) -> Result<Option<Request>, dg::ServerError> {
+    dg::store::validate_name(&name).map_err(Application)?;
+    if !json && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+        let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
+            400,
+            "missing_credential",
+            "--key-file required",
+        )))?)
+        .map_err(Application)?;
+        let info = dg::client::request(
+            server,
+            &key,
+            Method::GET,
+            &format!("/v1/databases/{name}"),
+            None,
+            None,
+        )
+        .await
+        .map_err(Application)?;
+        if api_failed(&info) {
+            dg::shell::render_with(&info, false, &terminal_theme(), &mut std::io::stdout())
+                .map_err(Application)?;
+            return Err(Application(api_error()));
+        }
+        // The usage and backup facts are auxiliary: a failed fetch
+        // degrades those sections instead of failing the command.
+        let status = dg::client::request(server, &key, Method::GET, "/v1/status", None, None)
+            .await
+            .ok()
+            .filter(|status| !api_failed(status));
+        let backups = dg::client::request(server, &key, Method::GET, "/v1/backups", None, None)
+            .await
+            .ok()
+            .filter(|backups| !api_failed(backups));
+
+        let mut facts = Section::new("database");
+        facts.field("name", Cell::styled(&name, Style::Cyan));
+        facts.field(
+            "size",
+            Cell::text(
+                info["size_bytes"]
+                    .as_u64()
+                    .map(dg::render::human_bytes)
+                    .unwrap_or_else(|| "unknown".to_string()),
+            ),
+        );
+        facts.field(
+            "state",
+            if info["tombstoned"].as_bool() == Some(true) {
+                Cell::styled("tombstoned", Style::Yellow)
+            } else {
+                Cell::styled("live", Style::Green)
+            },
+        );
+        if info["tombstoned"].as_bool() == Some(true) {
+            facts.field("purge after", Cell::text(purge_after_text(&info)));
+        } else {
+            facts.field("created", Cell::text(created_text(&info)));
+        }
+        let mut sections = vec![facts];
+
+        // What this database has been doing.
+        let mut activity = Section::new("activity");
+        let entry = status
+            .as_ref()
+            .and_then(|status| status["databases"][&name].as_object().cloned())
+            .unwrap_or_default();
+        activity.field(
+            "rows read",
+            Cell::number(entry.get("rows_read").and_then(Value::as_u64).unwrap_or(0)),
+        );
+        activity.field(
+            "rows written",
+            Cell::number(
+                entry
+                    .get("rows_written")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0),
+            ),
+        );
+        let waits = entry.get("queue_waits").and_then(Value::as_u64).unwrap_or(0);
+        activity.field("queue waits", Cell::number(waits));
+        activity.field(
+            "wait p95",
+            match (waits, entry.get("queue_wait_max_ms").and_then(Value::as_u64)) {
+                (0, _) => Cell::text("no waits recorded"),
+                (_, Some(max)) => Cell::text(format!("{max} ms")),
+                (_, None) => Cell::text("-"),
+            },
+        );
+        activity.field(
+            "last write",
+            match entry.get("last_write").and_then(Value::as_u64) {
+                Some(epoch) => Cell::text(last_write_ago(epoch)),
+                None => Cell::text("never"),
+            },
+        );
+        sections.push(activity);
+
+        // How its backup is doing.
+        let mut backup = Section::new("backup");
+        let health = backups
+            .as_ref()
+            .and_then(|backups| backups["per_database"][&name].as_object().cloned())
+            .unwrap_or_default();
+        let state = health.get("state").and_then(Value::as_str).unwrap_or("unknown");
+        backup.field(
+            "state",
+            Cell::styled(state, backup_state_style(state)),
+        );
+        backup.field(
+            "newest set",
+            Cell::text(
+                health
+                    .get("newest_set")
+                    .and_then(Value::as_str)
+                    .map(dg::render::human_set_stamp)
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+        );
+        backup.field(
+            "age",
+            Cell::text(
+                health
+                    .get("age_secs")
+                    .and_then(Value::as_u64)
+                    .map(dg::render::human_duration)
+                    .unwrap_or_else(|| "unknown".to_string()),
+            ),
+        );
+        sections.push(backup);
+
+        // What it holds.
+        if info["tombstoned"].as_bool() != Some(true) {
+            let mut tables_section = Section::new("tables");
+            match info["tables"].as_array() {
+                Some(entries) if !entries.is_empty() => {
+                    let mut table = Table::new();
+                    table.column("table", Align::Left);
+                    table.column("rows", Align::Right);
+                    for entry in entries {
+                        table.row(vec![
+                            Cell::text(entry["name"].as_str().unwrap_or("?")),
+                            Cell::number(entry["rows"].as_u64().unwrap_or(0)),
+                        ]);
+                    }
+                    tables_section.table(table);
+                }
+                _ => {
+                    tables_section.field("none", Cell::text("this database has no tables"));
+                }
+            }
+            sections.push(tables_section);
+        }
+        let mut out = std::io::stdout();
+        dg::render::write_sections(&mut out, &terminal_theme(), &sections).map_err(Application)?;
+        return Ok(None);
+    }
+    Ok(Some((
+        Method::GET,
+        format!("/v1/databases/{name}"),
+        None,
+        None,
+    )))
+}
+
+/// The freshness of a backup, as a colour that means something.
+fn backup_state_style(state: &str) -> Style {
+    match state {
+        "fresh" => Style::Green,
+        "stale" => Style::Yellow,
+        _ => Style::Red,
+    }
+}
+
+/// How long ago a write happened, as a person reads it.
+fn last_write_ago(epoch: u64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(epoch);
+    format!(
+        "{} ago",
+        dg::render::human_duration(now.saturating_sub(epoch))
+    )
+}
+
 pub async fn info(
     server: &str,
     json: bool,

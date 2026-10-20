@@ -175,6 +175,15 @@ enum Command {
     Watch,
     /// List database names visible to the credential (owner sees all).
     List,
+    /// Inspect one database: what it holds and what it has been doing.
+    ///
+    /// `dg info` is what a database is; `dg inspect` is what it has been
+    /// doing -- its traffic, its queue waits, its last write, and the
+    /// freshness of its backup.
+    Inspect {
+        /// Database to inspect.
+        name: String,
+    },
     /// Create an empty database.
     Create {
         /// Name for the new database: lowercase letters, digits, and `_`,
@@ -416,6 +425,9 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             command: BackupCommand::Status,
         } => cmd_backup::status(&cli.server, cli.json, &key_path).await?,
         Command::List => cmd_data::list(&cli.server, cli.json, &key_path).await?,
+        Command::Inspect { name } => {
+            cmd_data::inspect(&cli.server, cli.json, &key_path, name).await?
+        }
         Command::Info { name } => cmd_data::info(&cli.server, cli.json, &key_path, name).await?,
         Command::Create { name } => cmd_data::create(name).await?,
         Command::Clone {
