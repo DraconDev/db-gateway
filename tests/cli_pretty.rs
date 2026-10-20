@@ -145,7 +145,18 @@ fn piped_output_stays_json_and_identical_to_the_json_flag() {
             "rows_written",
             "queue_waits",
             "queue_wait_ms",
+            "queue_wait_max_us",
             "queue_timeouts",
+            "last_write",
+            "wait_p50_us",
+            "wait_p95_us",
+            "wait_samples",
+            "recent_span_secs",
+            // The per-second request window is a live measurement of
+            // the last minute, and the request the first call made
+            // lands in it. It is masked as a whole, so its SHAPE is
+            // still compared.
+            "recent_per_second",
         ];
         let mask = |value: &mut serde_json::Value| mask_live(value, &live);
         let mut left: serde_json::Value = serde_json::from_str(&forced_text).unwrap();
