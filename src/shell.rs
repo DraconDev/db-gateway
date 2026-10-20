@@ -29,6 +29,7 @@ struct Session<'a> {
     json_mode: bool,
     pending_key: Option<String>,
     batch: Option<String>,
+    theme: &'a crate::render::Theme,
 }
 
 /// Blocking stdin is used only by this dedicated CLI session, not the server.
@@ -42,6 +43,34 @@ pub async fn run(
     input: impl Read,
     mut out: impl Write,
 ) -> Result<()> {
+    // The shell draws to a caller-supplied stream, so it cannot ask
+    // whether that stream is a terminal. The caller knows, and passes the
+    // theme it wants the session drawn with.
+    let theme = crate::render::Theme::for_stream(interactive);
+    run_with_theme(
+        server,
+        key,
+        json_mode,
+        interactive,
+        initial_database,
+        input,
+        out,
+        &theme,
+    )
+    .await
+}
+
+/// The shell session, with an explicit theme.
+pub async fn run_with_theme(
+    server: &str,
+    key: &str,
+    json_mode: bool,
+    interactive: bool,
+    initial_database: Option<&str>,
+    input: impl Read,
+    mut out: impl Write,
+    theme: &crate::render::Theme,
+) -> Result<()> {
     if let Some(name) = initial_database {
         validate_name(name)?;
     }
@@ -52,6 +81,7 @@ pub async fn run(
         json_mode,
         pending_key: None,
         batch: None,
+        theme,
     };
     let mut reader = std::io::BufReader::new(input);
     loop {
@@ -137,9 +167,10 @@ pub async fn run(
 
 impl Session<'_> {
     fn error(&self, error: Error, out: &mut dyn Write) -> Result<()> {
-        render(
+        render_with(
             &json!({"status": error.status, "error": error}),
             self.json_mode,
+            self.theme,
             out,
         )
     }
@@ -220,7 +251,7 @@ impl Session<'_> {
                 let response = self
                     .request("query", json!({"sql":sql,"args":args}), None)
                     .await?;
-                render(&response, self.json_mode, out)?;
+                render_with(&response, self.json_mode, self.theme, out)?;
             }
             _ if command.starts_with(['.', ':']) => {
                 return Err(Error::new(
@@ -233,7 +264,7 @@ impl Session<'_> {
                 let response = self
                     .request_attempt("query", json!({"sql":line,"args":[]}))
                     .await?;
-                render(&response, self.json_mode, out)?;
+                render_with(&response, self.json_mode, self.theme, out)?;
             }
         }
         Ok(false)
@@ -285,7 +316,7 @@ impl Session<'_> {
         };
         let body = serde_json::to_value(batch).map_err(|_| Error::internal())?;
         let response = self.request_attempt("batch", body).await?;
-        render(&response, self.json_mode, out)?;
+        render_with(&response, self.json_mode, self.theme, out)?;
         Ok(false)
     }
 
