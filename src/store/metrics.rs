@@ -13,6 +13,80 @@ pub struct Metrics {
     internal_error: AtomicU64,
     usage: Mutex<HashMap<String, DbUsage>>,
     queue: Mutex<HashMap<String, DbQueue>>,
+    /// A bounded ring of recent request counts, one bucket per second.
+    ///
+    /// This is deliberately a WINDOW, not a time series: a fixed-size ring
+    /// of the last `WINDOW_BUCKETS` seconds, advanced when a read asks for
+    /// it. It answers "how busy was it just now" without becoming a
+    /// metrics database, and it costs one counter and one lock.
+    window: Mutex<RequestWindow>,
+}
+
+/// How many seconds of history the request window keeps. Long enough to
+/// show a minute of activity, short enough to stay a fixed-size ring.
+pub const WINDOW_BUCKETS: usize = 60;
+
+/// A request-rate window: one bucket per second, oldest first.
+///
+/// The ring is advanced on read, so a service nobody is watching costs
+/// nothing: the buckets are only materialised when someone asks. A
+/// bucket that the service slept through reads as zero, which is
+/// honest -- no requests arrived.
+#[derive(Debug, Clone)]
+struct RequestWindow {
+    /// The epoch second each bucket covers.
+    seconds: Vec<u64>,
+    /// The request count in each bucket.
+    counts: Vec<u64>,
+    /// The epoch second the newest bucket covers.
+    newest: u64,
+}
+
+impl Default for RequestWindow {
+    fn default() -> Self {
+        Self {
+            seconds: vec![0; WINDOW_BUCKETS],
+            counts: vec![0; WINDOW_BUCKETS],
+            newest: 0,
+        }
+    }
+}
+
+impl RequestWindow {
+    /// The request counts of the last `WINDOW_BUCKETS` seconds, oldest
+    /// first. Seconds with no requests read as zero.
+    fn series(&self, now: u64) -> Vec<u64> {
+        if self.newest == 0 {
+            return vec![0; WINDOW_BUCKETS];
+        }
+        // Walk backwards from the newest bucket, filling in the seconds
+        // between it and now (the service may have been idle) and then
+        // the older buckets the ring still holds.
+        let mut out = Vec::with_capacity(WINDOW_BUCKETS);
+        for age in 0..WINDOW_BUCKETS as u64 {
+            let second = self.newest + 1 + age;
+            let _ = second;
+            out.push(0);
+        }
+        out.clear();
+        // Oldest first: the bucket `WINDOW_BUCKETS - 1` seconds ago is
+        // the first one in the series.
+        for index in 0..WINDOW_BUCKETS {
+            let age = (WINDOW_BUCKETS - 1 - index) as u64;
+            let second = self.newest + 1 + age;
+            if second > now {
+                out.push(0);
+                continue;
+            }
+            let position = (second % WINDOW_BUCKETS as u64) as usize;
+            if self.seconds[position] == second {
+                out.push(self.counts[position]);
+            } else {
+                out.push(0);
+            }
+        }
+        out
+    }
 }
 
 /// Rows read/written per database since boot. Recorded at the API layer
