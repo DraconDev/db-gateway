@@ -89,14 +89,19 @@ pub fn dashboard(status: &Value) -> Vec<Section> {
     activity.field("rate", Cell::text(human_rate(recent, span)));
     activity.field("errors", Cell::text(human_count(errors, "")));
     activity.field("error rate", Cell::text(human_percent(errors, total)));
-    // The recent shape of the traffic, as a chart in one line.
+    sections.push(activity);
+
+    // The recent shape of the traffic, as a chart in one line. Its own
+    // section, so the chart starts at the left margin instead of being
+    // pushed across by the key column.
     if let Some(values) = requests["recent_per_second"].as_array() {
         let counts: Vec<u64> = values.iter().filter_map(Value::as_u64).collect();
         if !counts.is_empty() {
-            activity.field("recent", Cell::Sparkline(counts));
+            let mut recent = Section::new("recent activity");
+            recent.field("req/s", Cell::Sparkline(counts));
+            sections.push(recent);
         }
     }
-    sections.push(activity);
 
     // Whether the admission queue is hurting anyone.
     let mut admission = Section::new("admission");
