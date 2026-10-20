@@ -406,8 +406,33 @@ fn purge_after_text(info: &Value) -> String {
     }
 }
 
-pub async fn create(name: String) -> Result<Option<Request>, dg::ServerError> {
+pub async fn create(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
+    name: String,
+) -> Result<Option<Request>, dg::ServerError> {
     dg::store::validate_name(&name).map_err(Application)?;
+    if human_result(
+        server,
+        json,
+        key_path,
+        Method::POST,
+        "/v1/databases",
+        Some(json!({"name":name})),
+        None,
+        |result| {
+            dg::render::Outcome::done(format!(
+                "created {}",
+                result["name"].as_str().unwrap_or("")
+            ))
+        },
+    )
+    .await?
+    .is_some()
+    {
+        return Ok(None);
+    }
     Ok(Some((
         Method::POST,
         "/v1/databases".into(),

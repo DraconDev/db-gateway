@@ -1,6 +1,6 @@
 //! Credential administration commands (owner only at the API).
 
-use super::{Request, table_json};
+use super::{Request, human_result, table_json};
 use dg::ServerError::Application;
 use dg::render::{Align, Cell, Style, Table, Theme};
 use reqwest::Method;
@@ -14,6 +14,9 @@ fn terminal_theme() -> Theme {
 }
 
 pub async fn create(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
     name: String,
     role: String,
     database: Vec<String>,
@@ -21,6 +24,34 @@ pub async fn create(
     dg::store::validate_name(&name).map_err(Application)?;
     for db in &database {
         dg::store::validate_name(db).map_err(Application)?;
+    }
+    if human_result(
+        server,
+        json,
+        key_path,
+        Method::POST,
+        "/v1/keys",
+        Some(json!({"name":name,"role":role,"databases":database})),
+        None,
+        |result| {
+            // The key is shown ONCE and never again, so it is on the
+            // screen. The scope is shown with it, because a key
+            // without its scope is a key nobody can use safely.
+            let scope = database.join(", ");
+            dg::render::Outcome::with_facts(
+                format!("issued {name}"),
+                vec![
+                    ("key".to_string(), result["key"].as_str().unwrap_or("").to_string()),
+                    ("role".to_string(), role.clone()),
+                    ("scope".to_string(), scope),
+                ],
+            )
+        },
+    )
+    .await?
+    .is_some()
+    {
+        return Ok(None);
     }
     Ok(Some((
         Method::POST,
@@ -153,8 +184,28 @@ pub async fn tokens(
     Ok(Some((Method::GET, "/v1/keys".into(), None, None)))
 }
 
-pub async fn revoke(name: String) -> Result<Option<Request>, dg::ServerError> {
+pub async fn revoke(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
+    name: String,
+) -> Result<Option<Request>, dg::ServerError> {
     dg::store::validate_name(&name).map_err(Application)?;
+    if human_result(
+        server,
+        json,
+        key_path,
+        Method::DELETE,
+        &format!("/v1/keys/{name}"),
+        None,
+        None,
+        |_result| dg::render::Outcome::done(format!("revoked {name}")),
+    )
+    .await?
+    .is_some()
+    {
+        return Ok(None);
+    }
     Ok(Some((
         Method::DELETE,
         format!("/v1/keys/{name}"),
@@ -163,7 +214,43 @@ pub async fn revoke(name: String) -> Result<Option<Request>, dg::ServerError> {
     )))
 }
 
-pub async fn rotate_owner() -> Result<Option<Request>, dg::ServerError> {
+pub async fn rotate_owner(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
+) -> Result<Option<Request>, dg::ServerError> {
+    if human_result(
+        server,
+        json,
+        key_path,
+        Method::POST,
+        "/v1/keys/owner/rotate",
+        None,
+        None,
+        |result| {
+            // The old owner key dies the moment this one is issued, so
+            // the new key is on the screen, and the operator has to be
+            // told the old one is already gone.
+            dg::render::Outcome::with_facts(
+                "rotated the owner credential",
+                vec![
+                    (
+                        "key".to_string(),
+                        result["key"].as_str().unwrap_or("").to_string(),
+                    ),
+                    (
+                        "old key".to_string(),
+                        "dead immediately".to_string(),
+                    ),
+                ],
+            )
+        },
+    )
+    .await?
+    .is_some()
+    {
+        return Ok(None);
+    }
     Ok(Some((
         Method::POST,
         "/v1/keys/owner/rotate".into(),

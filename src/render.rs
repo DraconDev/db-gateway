@@ -508,6 +508,92 @@ pub fn escape_text(text: &str) -> String {
     sanitize_owned(text)
 }
 
+/// A result a command reports to a person.
+///
+/// A command that does something answers with a headline (what
+/// happened) and, when there is more to say, a set of facts about it.
+/// A command that reports a list answers with a table.
+///
+/// This is the shape every command's human output takes, so a reader
+/// learns one format instead of one per command.
+pub enum Outcome {
+    /// Something happened: a headline, and the facts that matter.
+    Done {
+        /// What happened, in a few words: "created game_a".
+        headline: String,
+        /// The facts behind the headline, if there are any.
+        facts: Vec<(String, String)>,
+    },
+    /// Nothing to report: the command did what was asked and there is
+    /// nothing more to say.
+    Quiet,
+    /// A list of things, under a heading.
+    List {
+        /// What the list is: "databases".
+        title: String,
+        /// The rows, already shaped for the table.
+        table: Table,
+    },
+}
+
+impl Outcome {
+    /// A headline on its own.
+    pub fn done(headline: impl Into<String>) -> Self {
+        Outcome::Done {
+            headline: headline.into(),
+            facts: Vec::new(),
+        }
+    }
+
+    /// A headline with facts behind it.
+    pub fn with_facts(headline: impl Into<String>, facts: Vec<(String, String)>) -> Self {
+        Outcome::Done {
+            headline: headline.into(),
+            facts,
+        }
+    }
+
+    /// A list of things.
+    pub fn list(title: impl Into<String>, table: Table) -> Self {
+        Outcome::List {
+            title: title.into(),
+            table,
+        }
+    }
+
+    /// Draw the outcome.
+    pub fn write(&self, out: &mut dyn Write, theme: &Theme) -> Result<()> {
+        match self {
+            Outcome::Done { headline, facts } => {
+                writeln!(out, "{}", paint(headline, Style::Green, theme)).map_err(io)?;
+                if !facts.is_empty() {
+                    let width = facts
+                        .iter()
+                        .map(|(key, _)| key.width())
+                        .max()
+                        .unwrap_or(0);
+                    for (key, value) in facts {
+                        writeln!(
+                            out,
+                            "  {}{}  {}",
+                            paint(key, Style::Dim, theme),
+                            " ".repeat(width.saturating_sub(key.width())),
+                            paint(value, Style::Plain, theme)
+                        )
+                        .map_err(io)?;
+                    }
+                }
+                Ok(())
+            }
+            Outcome::Quiet => Ok(()),
+            Outcome::List { title, table } => {
+                writeln!(out, "{}", paint(title, Style::Bold, theme)).map_err(io)?;
+                table.write(out, theme)
+            }
+        }
+    }
+}
+
 /// A block of a section: a list of fields, or a table.
 pub enum Block {
     /// Key/value pairs, rendered as an indented two-column list.

@@ -60,6 +60,55 @@ fn api_error() -> dg::error::Error {
     dg::error::Error::new(400, "api_error", "API request failed; see JSON response")
 }
 
+/// The theme for a command that is drawing to the terminal.
+fn terminal_theme() -> dg::render::Theme {
+    dg::render::Theme::for_stream(std::io::stdout().is_terminal())
+}
+
+/// Fetch a result and show it to a person, or hand back the JSON when
+/// the output is a machine's.
+///
+/// This is the ONE rule every command follows: a terminal gets the
+/// human view, a pipe or `--json` gets the JSON. `view` is what the
+/// command's result looks like to a person; it is only consulted for a
+/// terminal, so the machine surface never changes because of it.
+async fn human_result(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
+    method: reqwest::Method,
+    path: &str,
+    body: Option<Value>,
+    idempotency: Option<&str>,
+    view: fn(&Value) -> dg::render::Outcome,
+) -> Result<Option<Value>, dg::ServerError> {
+    use dg::ServerError::Application;
+    if json || !std::io::stdout().is_terminal() {
+        return Ok(None);
+    }
+    let key = dg::client::read_key(key_path.as_deref().ok_or_else(|| {
+        Application(dg::error::Error::new(
+            400,
+            "missing_credential",
+            "--key-file required",
+        ))
+    })?)
+    .map_err(Application)?;
+    let result = dg::client::request(server, &key, method, path, body, idempotency)
+        .await
+        .map_err(Application)?;
+    if api_failed(&result) {
+        dg::shell::render_with(&result, false, &terminal_theme(), &mut std::io::stdout())
+            .map_err(Application)?;
+        return Err(Application(api_error()));
+    }
+    let mut out = std::io::stdout();
+    view(&result)
+        .write(&mut out, &terminal_theme())
+        .map_err(Application)?;
+    Ok(None)
+}
+
 /// Terminal-table fetch shared by the JSON-listing commands. Returns
 /// `Ok(None)` when output stays machine JSON (piped stdout or --json);
 /// otherwise fetches, renders any error envelope, and hands the JSON

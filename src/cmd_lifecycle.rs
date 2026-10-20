@@ -1,6 +1,6 @@
 //! Database lifecycle commands: clone, export, import, delete.
 
-use super::{Request, api_error, api_failed, export_stage_file, publish_export_file};
+use super::{Request, api_error, api_failed, export_stage_file, human_result, publish_export_file};
 use dg::ServerError::Application;
 use dg::error::Error;
 use reqwest::Method;
@@ -13,11 +13,35 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 
 pub async fn clone_db(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
     source: String,
     destination: String,
 ) -> Result<Option<Request>, dg::ServerError> {
     dg::store::validate_name(&source).map_err(Application)?;
     dg::store::validate_name(&destination).map_err(Application)?;
+    if human_result(
+        server,
+        json,
+        key_path,
+        Method::POST,
+        &format!("/v1/databases/{source}/clone"),
+        Some(json!({"destination":destination})),
+        None,
+        |result| {
+            dg::render::Outcome::done(format!(
+                "cloned {} to {}",
+                result["source"].as_str().unwrap_or(&source),
+                result["destination"].as_str().unwrap_or(&destination),
+            ))
+        },
+    )
+    .await?
+    .is_some()
+    {
+        return Ok(None);
+    }
     Ok(Some((
         Method::POST,
         format!("/v1/databases/{source}/clone"),
@@ -295,6 +319,9 @@ pub async fn import(
 }
 
 pub async fn delete(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
     name: String,
     confirm: Option<String>,
 ) -> Result<Option<Request>, dg::ServerError> {
@@ -305,6 +332,33 @@ pub async fn delete(
             "confirmation_required",
             "destructive operation: repeat the exact database name with --confirm NAME",
         )));
+    }
+    if human_result(
+        server,
+        json,
+        key_path,
+        Method::DELETE,
+        &format!("/v1/databases/{name}"),
+        None,
+        None,
+        |result| {
+            // A tombstone is not a deletion: the name is taken until
+            // the retention window purges it, and the operator has to
+            // know when it comes back.
+            let purge_after = result["purge_after_seconds"]
+                .as_u64()
+                .map(dg::render::human_duration)
+                .unwrap_or_else(|| "unknown".to_string());
+            dg::render::Outcome::with_facts(
+                format!("tombstoned {name}"),
+                vec![("purges in".to_string(), purge_after)],
+            )
+        },
+    )
+    .await?
+    .is_some()
+    {
+        return Ok(None);
     }
     Ok(Some((
         Method::DELETE,
