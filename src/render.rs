@@ -1073,13 +1073,24 @@ mod tests {
     #[test]
     fn rates_are_scaled_to_the_window_that_was_observed() {
         // Ten requests in ten seconds is one per minute, not ten.
-        assert_eq!(human_rate(10, 10), "60 min");
+        assert_eq!(human_rate(10, 10), "60/min");
         // Ten requests in a minute is ten per minute.
-        assert_eq!(human_rate(10, 60), "10 min");
+        assert_eq!(human_rate(10, 60), "10/min");
         // A service up for a second reports its one request honestly.
-        assert_eq!(human_rate(1, 1), "60 min");
+        assert_eq!(human_rate(1, 1), "60/min");
         // A zero window does not divide by zero.
-        assert_eq!(human_rate(5, 0), "300 min");
+        assert_eq!(human_rate(5, 0), "300/min");
+        // A large rate is grouped.
+        assert_eq!(human_rate(1_204_800, 60), "1,204,800/min");
+    }
+
+    #[test]
+    fn a_short_wait_is_still_a_wait() {
+        // A wait shorter than a millisecond must not read as "no wait".
+        assert_eq!(human_micros(400), "400 us");
+        assert_eq!(human_micros(1_500), "1.5 ms");
+        assert_eq!(human_micros(12_000), "12 ms");
+        assert_eq!(human_micros(1_400_000), "1.4 s");
     }
 
     #[test]
