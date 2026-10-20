@@ -18,13 +18,32 @@ export interface DatabaseUsage {
   queue_waits: number;
   queue_wait_ms: number;
   queue_timeouts: number;
+  /** The longest single admission wait, in microseconds. */
+  queue_wait_max_us?: number;
+  /** When the database was last written, as unix seconds. */
+  last_write?: number;
 }
 export interface StatusResponse {
   version: string;
   uptime_secs: number;
   admission: { acquire_timeout_ms: number; read_permits: number; write_permits: number };
-  requests: { total: number; capacity_exceeded: number; query_deadline_exceeded: number; internal_error: number };
+  requests: {
+    total: number;
+    capacity_exceeded: number;
+    query_deadline_exceeded: number;
+    internal_error: number;
+    /** The per-second request counts of the recent window, oldest first. */
+    recent_per_second?: number[];
+    /** How many seconds the window observed. */
+    recent_span_secs?: number;
+    /** The median and 95th percentile admission wait, in microseconds. */
+    wait_p50_us?: number | null;
+    wait_p95_us?: number | null;
+    wait_samples?: number;
+  };
   databases?: Record<string, DatabaseUsage>;
+  /** How many databases are live, and how many are tombstoned. */
+  database_counts?: { live: number; tombstoned: number };
 }
 export interface BackupResponse {
   backup_root: string | null;
