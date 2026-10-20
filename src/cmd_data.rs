@@ -169,7 +169,7 @@ pub async fn inspect(
         // shared helper, so this view and the dashboard cannot disagree
         // about which is which.
         let figures = dg::render::wait_figures(&entry, "no waits recorded");
-        activity.field("wait p95", figures.max);
+        activity.field("wait p95", figures.p95);
         activity.field("wait max", figures.max);
         activity.field(
             "last write",
