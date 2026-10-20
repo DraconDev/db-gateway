@@ -1042,10 +1042,7 @@ mod tests {
         let line = sparkline(&[0, 1, 2, 3, 4]);
         assert_eq!(line.chars().count(), 5, "one bar per value: {line:?}");
         assert!(line.starts_with(' '), "the zero bar is flat: {line:?}");
-        assert!(
-            line.ends_with('█'),
-            "the peak is the tallest bar: {line:?}"
-        );
+        assert!(line.ends_with('█'), "the peak is the tallest bar: {line:?}");
         // A row of nothing is a flat line, not a chart of noise.
         assert_eq!(sparkline(&[0, 0, 0]), "   ");
         // An empty row is empty.
