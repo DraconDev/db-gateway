@@ -12,7 +12,10 @@ pub struct Metrics {
     deadline_exceeded: AtomicU64,
     internal_error: AtomicU64,
     usage: Mutex<HashMap<String, DbUsage>>,
-    queue: Mutex<HashMap<String, DbQueue>>,
+    /// Per-database admission state: the counters plus the bounded ring
+    /// of that database's own recent waits, so the per-database
+    /// percentile is the DATABASE's rather than the service's.
+    queue: Mutex<HashMap<String, DbQueueLive>>,
     /// A bounded ring of per-second request counts.
     ///
     /// This is deliberately a WINDOW, not a time series: a fixed-size
@@ -31,8 +34,16 @@ pub struct Metrics {
 /// How many seconds of history the request window keeps.
 pub const WINDOW_BUCKETS: usize = 60;
 
-/// How many recent waits the percentile sample keeps.
+/// How many recent waits the service-wide percentile sample keeps.
 pub const WAIT_SAMPLES: usize = 1024;
+
+/// How many recent waits each database's own percentile sample keeps.
+///
+/// Smaller than the service-wide ring because this one is paid for
+/// PER DATABASE: at the registry's cap that is a few hundred kilobytes
+/// of samples, not a few. A percentile over a small sample is still a
+/// percentile; it just speaks about a shorter recent past.
+pub const DB_WAIT_SAMPLES: usize = 64;
 
 /// Rows read/written per database since boot. Recorded at the API layer
 /// after a successful query/batch (replayed responses count: they are
@@ -46,6 +57,39 @@ pub const WAIT_SAMPLES: usize = 1024;
 pub struct DbUsage {
     pub rows_read: u64,
     pub rows_written: u64,
+}
+
+/// One database's live admission state: the counters, plus the bounded
+/// ring of that database's own recent waits.
+///
+/// The ring is per database on purpose. A service-wide percentile
+/// answers "how contended is the service"; a per-database percentile
+/// answers "which database is contended", and only the second can name
+/// one. The global ring in `Metrics` answers the first.
+#[derive(Debug, Default)]
+struct DbQueueLive {
+    queue: DbQueue,
+    samples: WaitSamples,
+}
+
+impl Default for DbQueueLive {
+    fn default() -> Self {
+        Self {
+            queue: DbQueue::default(),
+            samples: WaitSamples::with_capacity(DB_WAIT_SAMPLES),
+        }
+    }
+}
+
+impl DbQueueLive {
+    /// The served snapshot: the counters, plus this database's own
+    /// percentile of its own recent waits.
+    fn snapshot(&self) -> DbQueue {
+        DbQueue {
+            wait_p95_us: self.samples.percentile(95.0),
+            ..self.queue
+        }
+    }
 }
 
 /// A bounded ring of recent wait durations, in MICROSECONDS.
@@ -151,12 +195,16 @@ impl Metrics {
         let millis = waited.as_millis() as u64;
         if let Ok(mut queue) = self.queue.lock() {
             let entry = queue.entry(name.to_string()).or_default();
-            entry.waits += 1;
-            entry.wait_ms += millis;
-            entry.max_wait_us = entry.max_wait_us.max(micros);
+            entry.queue.waits += 1;
+            entry.queue.wait_ms += millis;
+            entry.queue.max_wait_us = entry.queue.max_wait_us.max(micros);
             if timed_out {
-                entry.timeouts += 1;
+                entry.queue.timeouts += 1;
             }
+            // The database's own ring, so its percentile answers "how
+            // bad is THIS database's queue" rather than "how bad is the
+            // queue everywhere".
+            entry.samples.push(micros);
         }
         // Only the contended path reaches here, so the ring's lock is
         // not on the request hot path.
@@ -167,7 +215,12 @@ impl Metrics {
     pub fn queue_snapshot(&self) -> HashMap<String, DbQueue> {
         self.queue
             .lock()
-            .map(|queue| queue.clone())
+            .map(|queue| {
+                queue
+                    .iter()
+                    .map(|(name, live)| (name.clone(), live.snapshot()))
+                    .collect()
+            })
             .unwrap_or_default()
     }
     pub fn record_usage(&self, name: &str, rows_read: u64, rows_written: u64) {
