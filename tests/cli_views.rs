@@ -107,8 +107,8 @@ fn the_per_database_wait_columns_name_what_they_hold() {
     // under a "wait p95" header, which is a wrong number under a false
     // name: on a contended database the max overstates the p95 and
     // disagrees with the genuine p95 in the admission block of the same
-    // screen. The columns must say which is which, and the p95 must be
-    // a percentile.
+    // screen. The columns must say which is which, and the p95 column
+    // must hold the server's p95.
     let fleet = Fleet::boot();
     fleet.cli.ok("create", &["create", "wait_db"]);
     fleet
@@ -125,15 +125,38 @@ fn the_per_database_wait_columns_name_what_they_hold() {
         screen.contains("wait max"),
         "the per-database table has no wait max column: {screen}"
     );
-    // A database that has never waited says so rather than claiming
-    // a measurement that was never made.
+
+    // The rendered values are the server's own: the p95 column holds
+    // the p95, and the max column holds the max. Reading them from the
+    // JSON is what makes this a check of the RENDERING rather than a
+    // check that some digits appear.
+    let (ok, stdout, _) = fleet.cli.run(&["--json", "status"]);
+    assert!(ok, "status failed: {stdout}");
+    let status: serde_json::Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|_| panic!("not JSON: {stdout}"));
+    let entry = &status["databases"]["wait_db"];
+    let p95 = entry["queue_wait_p95_us"].as_u64();
+    let max = entry["queue_wait_max_us"].as_u64();
+    assert!(
+        p95.is_some() && max.is_some(),
+        "the server reported no wait measurements: {entry}"
+    );
+    let (p95, max) = (p95.unwrap(), max.unwrap());
+
     let row = screen
         .lines()
         .find(|line| line.contains("wait_db"))
         .unwrap_or_else(|| panic!("the database is not in the table: {screen}"));
+    // The p95 is at or below the max, always: a percentile cannot
+    // exceed the worst sample.
     assert!(
-        row.contains('-'),
-        "an uncontended database should show no measurement: {row}"
+        p95 <= max,
+        "the p95 {p95} exceeds the max {max}: {entry}"
+    );
+    // And the rendered row carries the p95.
+    assert!(
+        row.contains(&format!("{} us", p95)) || row.contains(&format!("{} ms", p95 / 1000)),
+        "the row does not carry the p95 {p95}: {row}"
     );
 }
 
