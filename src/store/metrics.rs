@@ -32,7 +32,7 @@ pub struct Metrics {
 pub const WINDOW_BUCKETS: usize = 60;
 
 /// How many recent waits the percentile sample keeps.
-const WAIT_SAMPLES: usize = 1024;
+pub const WAIT_SAMPLES: usize = 1024;
 
 /// Rows read/written per database since boot. Recorded at the API layer
 /// after a successful query/batch (replayed responses count: they are
@@ -98,6 +98,7 @@ impl WaitSamples {
 }
 
 /// Point-in-time copy for `/v1/status`. Plain data, no locks held.
+#[derive(Debug)]
 pub struct MetricsSnapshot {
     pub uptime_secs: u64,
     pub total: u64,
@@ -129,7 +130,7 @@ impl Metrics {
             usage: Mutex::new(HashMap::new()),
             queue: Mutex::new(HashMap::new()),
             window: (0..WINDOW_BUCKETS)
-                .map(|_| AtomicU64::new(0))
+                .map(|_| AtomicU64::new(WINDOW_EMPTY))
                 .collect::<Vec<_>>()
                 .into_boxed_slice(),
             waits: Mutex::new(WaitSamples::default()),
@@ -198,24 +199,24 @@ impl Metrics {
         let now = self.started.elapsed().as_secs();
         let slot = (now % WINDOW_BUCKETS as u64) as usize;
         let current = self.window[slot].load(Ordering::Acquire);
-        if current >> WINDOW_COUNT_BITS == now {
+        if current != WINDOW_EMPTY && (current >> WINDOW_COUNT_BITS) == now {
             // Same second: the count lives in the low half, and adding
             // one cannot carry into the second until the count reaches
             // 2^32 requests in one second.
             self.window[slot].fetch_add(1, Ordering::AcqRel);
             return;
         }
-        // The second rolled over (or the slot is stale): claim it. A
+        // The second rolled over (or the slot is empty): claim it. A
         // request that lands on the boundary may be attributed to the
         // new second, which moves the rate by one request.
         let claimed = (now << WINDOW_COUNT_BITS) | 1;
         let mut current = current;
         loop {
-            if current >> WINDOW_COUNT_BITS == now {
+            if current != WINDOW_EMPTY && (current >> WINDOW_COUNT_BITS) == now {
                 self.window[slot].fetch_add(1, Ordering::AcqRel);
                 return;
             }
-            if current >> WINDOW_COUNT_BITS > now {
+            if current != WINDOW_EMPTY && (current >> WINDOW_COUNT_BITS) > now {
                 // The slot holds a later second: the clock went
                 // backwards, or another thread already claimed it.
                 return;
@@ -245,18 +246,26 @@ impl Metrics {
         let uptime_secs = self.started.elapsed().as_secs();
         let now = uptime_secs;
         // The window, oldest first. A slot holds its second in the high
-        // half, so a stale slot is simply not counted.
-        let mut request_window = Vec::with_capacity(WINDOW_BUCKETS);
-        for age in (0..WINDOW_BUCKETS as u64).rev() {
-            let second = now.saturating_sub(age);
-            let slot = (second % WINDOW_BUCKETS as u64) as usize;
+        // half, so a stale slot is simply not counted, and an empty
+        // slot is not mistaken for the first second of the service's
+        // life.
+        let mut request_window = vec![0u64; WINDOW_BUCKETS];
+        for slot in 0..WINDOW_BUCKETS {
             let packed = self.window[slot].load(load);
-            let count = if packed >> WINDOW_COUNT_BITS == second {
-                packed & WINDOW_COUNT_MASK
-            } else {
-                0
-            };
-            request_window.push(count);
+            if packed == WINDOW_EMPTY {
+                continue;
+            }
+            let second = packed >> WINDOW_COUNT_BITS;
+            if second > now {
+                // A later second: the clock went backwards.
+                continue;
+            }
+            let age = now - second;
+            if age >= WINDOW_BUCKETS as u64 {
+                // Outside the window.
+                continue;
+            }
+            request_window[WINDOW_BUCKETS - 1 - age as usize] = packed & WINDOW_COUNT_MASK;
         }
         // The window only observed the service's whole life once it is
         // older than the window itself.
@@ -288,3 +297,8 @@ impl Metrics {
 /// half holds the count itself.
 const WINDOW_COUNT_BITS: u32 = 32;
 const WINDOW_COUNT_MASK: u64 = (1u64 << WINDOW_COUNT_BITS) - 1;
+
+/// A slot that has never been claimed. It must be distinct from a
+/// claimed slot, because "second 0 with no requests" and "no second at
+/// all" are different facts.
+const WINDOW_EMPTY: u64 = u64::MAX;
