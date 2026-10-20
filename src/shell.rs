@@ -381,6 +381,146 @@ impl Session<'_> {
         )
         .await
     }
+
+    /// A GET against the service, for the operator's dot-commands.
+    ///
+    /// These are the owner's surface, and the shell's credential may
+    /// be an application key that cannot read them. A refused request
+    /// is reported as such rather than as a broken command.
+    async fn get(&self, path: &str) -> Result<Value> {
+        client::request(
+            self.server,
+            self.key,
+            reqwest::Method::GET,
+            path,
+            None,
+            None,
+        )
+        .await
+    }
+
+    /// Draw the service dashboard, exactly as `dg status` draws it.
+    fn draw_service_status(&self, response: &Value, out: &mut dyn Write) -> Result<()> {
+        if self.json_mode {
+            return writeln!(out, "{response}").map_err(io);
+        }
+        if response.get("error").is_some() {
+            return writeln!(
+                out,
+                "error [{}] {}: {}",
+                response["status"],
+                response["error"]["code"].as_str().unwrap_or("unknown"),
+                response["error"]["message"].as_str().unwrap_or("")
+            )
+            .map_err(io);
+        }
+        let sections = crate::cmd_status::dashboard(response);
+        crate::render::write_sections(out, self.theme, &sections).map_err(io)
+    }
+
+    /// Draw the credentials and their scope.
+    fn draw_keys(&self, response: &Value, out: &mut dyn Write) -> Result<()> {
+        if self.json_mode {
+            return writeln!(out, "{response}").map_err(io);
+        }
+        if response.get("error").is_some() {
+            return writeln!(
+                out,
+                "error [{}] {}: {}",
+                response["status"],
+                response["error"]["code"].as_str().unwrap_or("unknown"),
+                response["error"]["message"].as_str().unwrap_or("")
+            )
+            .map_err(io);
+        }
+        let mut table = crate::render::Table::new();
+        table.column("name", crate::render::Align::Left);
+        table.column("role", crate::render::Align::Left);
+        table.column("databases", crate::render::Align::Left);
+        for key in response["keys"].as_array().cloned().unwrap_or_default().iter() {
+            let role = key["role"].as_str().unwrap_or("");
+            let databases = key["databases"]
+                .as_array()
+                .map(|dbs| {
+                    dbs.iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default();
+            table.row(vec![
+                crate::render::Cell::styled(key["name"].as_str().unwrap_or(""), crate::render::Style::Cyan),
+                crate::render::Cell::styled(
+                    role,
+                    if role == "owner" {
+                        crate::render::Style::Yellow
+                    } else {
+                        crate::render::Style::Plain
+                    },
+                ),
+                crate::render::Cell::text(if databases.is_empty() && role == "owner" {
+                    "all".to_string()
+                } else {
+                    databases
+                }),
+            ]);
+        }
+        table.write(out, self.theme).map_err(io)
+    }
+
+    /// Draw the backup freshness of every database.
+    fn draw_backups(&self, response: &Value, out: &mut dyn Write) -> Result<()> {
+        if self.json_mode {
+            return writeln!(out, "{response}").map_err(io);
+        }
+        if response.get("error").is_some() {
+            return writeln!(
+                out,
+                "error [{}] {}: {}",
+                response["status"],
+                response["error"]["code"].as_str().unwrap_or("unknown"),
+                response["error"]["message"].as_str().unwrap_or("")
+            )
+            .map_err(io);
+        }
+        let mut table = crate::render::Table::new();
+        table.column("database", crate::render::Align::Left);
+        table.column("state", crate::render::Align::Left);
+        table.column("newest set", crate::render::Align::Left);
+        table.column("age", crate::render::Align::Right);
+        if let Some(per_database) = response["per_database"].as_object() {
+            let mut names: Vec<&String> = per_database.keys().collect();
+            names.sort();
+            for name in names {
+                let fresh = &per_database[name.as_str()];
+                let state = fresh["state"].as_str().unwrap_or("unknown");
+                table.row(vec![
+                    crate::render::Cell::styled(name.clone(), crate::render::Style::Cyan),
+                    crate::render::Cell::styled(
+                        state,
+                        match state {
+                            "fresh" => crate::render::Style::Green,
+                            "stale" => crate::render::Style::Yellow,
+                            _ => crate::render::Style::Red,
+                        },
+                    ),
+                    crate::render::Cell::text(
+                        fresh["newest_set"]
+                            .as_str()
+                            .map(crate::render::human_set_stamp)
+                            .unwrap_or_else(|| "-".to_string()),
+                    ),
+                    crate::render::Cell::text(
+                        fresh["age_secs"]
+                            .as_u64()
+                            .map(crate::render::human_duration)
+                            .unwrap_or_else(|| "unknown".to_string()),
+                    ),
+                ]);
+            }
+        }
+        table.write(out, self.theme).map_err(io)
+    }
 }
 
 /// Human-readable renderer shared by the shell and one-shot tty output.
