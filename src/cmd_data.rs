@@ -426,7 +426,7 @@ pub async fn create(
                 "created {}",
                 result["name"].as_str().unwrap_or("")
             ))
-        },
+        }),
     )
     .await?
     .is_some()

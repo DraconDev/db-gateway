@@ -66,6 +66,9 @@ fn terminal_theme() -> dg::render::Theme {
 }
 
 /// How a command draws its result for a person.
+///
+/// It owns what it needs: the view outlives the call, so it cannot
+/// borrow the command's arguments.
 type View = Box<dyn Fn(&Value) -> dg::render::Outcome>;
 
 /// Fetch a result and show it to a person, or hand back the JSON when

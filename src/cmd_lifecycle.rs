@@ -35,7 +35,7 @@ pub async fn clone_db(
                 result["source"].as_str().unwrap_or(&source),
                 result["destination"].as_str().unwrap_or(&destination),
             ))
-        },
+        }),
     )
     .await?
     .is_some()

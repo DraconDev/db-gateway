@@ -33,16 +33,21 @@ pub async fn create(
         "/v1/keys",
         Some(json!({"name":name,"role":role,"databases":database})),
         None,
-        Box::new(|result| {
+        Box::new(move |result| {
             // The key is shown ONCE and never again, so it is on the
             // screen. The scope is shown with it, because a key
             // without its scope is a key nobody can use safely.
             let scope = database.join(", ");
+            let name = name.clone();
+            let role = role.clone();
             dg::render::Outcome::with_facts(
                 format!("issued {name}"),
                 vec![
-                    ("key".to_string(), result["key"].as_str().unwrap_or("").to_string()),
-                    ("role".to_string(), role.clone()),
+                    (
+                        "key".to_string(),
+                        result["key"].as_str().unwrap_or("").to_string(),
+                    ),
+                    ("role".to_string(), role),
                     ("scope".to_string(), scope),
                 ],
             )
@@ -199,7 +204,10 @@ pub async fn revoke(
         &format!("/v1/keys/{name}"),
         None,
         None,
-        Box::new(|_result| dg::render::Outcome::done(format!("revoked {name}"))),
+        Box::new(move |_result| {
+            let name = name.clone();
+            dg::render::Outcome::done(format!("revoked {name}"))
+        }),
     )
     .await?
     .is_some()
