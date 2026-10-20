@@ -126,6 +126,10 @@ pub async fn list(
 /// application key reaches the databases it was scoped to. The answer
 /// to "who can touch this database" is the question a leaked-key
 /// incident starts with.
+///
+/// The answer is narrowed for BOTH forms: a script that asks which
+/// credentials can reach a database gets the credentials that can, not
+/// every credential the gateway holds.
 pub async fn tokens(
     server: &str,
     json: bool,
@@ -133,65 +137,80 @@ pub async fn tokens(
     database: String,
 ) -> Result<Option<Request>, dg::ServerError> {
     dg::store::validate_name(&database).map_err(Application)?;
-    if let Some(keys) = table_json(server, json, key_path, Method::GET, "/v1/keys").await? {
-        let mut table = Table::new();
-        table.column("name", Align::Left);
-        table.column("role", Align::Left);
-        table.column("scope", Align::Left);
-        let mut found = 0usize;
-        for key in keys["keys"].as_array().cloned().unwrap_or_default().iter() {
+    let keys = super::fetch(server, key_path, Method::GET, "/v1/keys").await?;
+    if super::api_failed(&keys) {
+        super::show_error(&keys, json);
+        return Err(Application(super::api_error()));
+    }
+    // The credentials that reach this database: the owner key reaches
+    // everything, an application key reaches only its own.
+    let reaching: Vec<Value> = keys["keys"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|key| {
             let role = key["role"].as_str().unwrap_or("");
-            let databases: Vec<String> = key["databases"]
-                .as_array()
-                .map(|dbs| {
-                    dbs.iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_owned)
-                        .collect()
-                })
-                .unwrap_or_default();
-            // The owner key is scoped to everything, so it reaches every
-            // database; an application key reaches only its own.
-            let reaches = role == "owner" || databases.iter().any(|name| name == &database);
-            if !reaches {
-                continue;
-            }
-            found += 1;
-            let scope = if role == "owner" {
-                "all".to_string()
-            } else if databases.is_empty() {
-                "-".to_string()
-            } else {
-                databases.join(", ")
-            };
-            table.row(vec![
-                Cell::styled(key["name"].as_str().unwrap_or(""), Style::Cyan),
-                Cell::styled(
-                    role,
-                    if role == "owner" {
-                        Style::Yellow
-                    } else {
-                        Style::Plain
-                    },
-                ),
-                Cell::text(scope),
-            ]);
-        }
-        if found == 0 {
-            // No table: the answer is "nobody", and an empty grid would
-            // read as a rendering failure rather than an answer.
-            let mut out = std::io::stdout();
-            writeln!(out, "no credential can act on {database}")
-                .map_err(|_| Application(dg::error::Error::internal()))?;
-            return Ok(None);
-        }
-        let mut out = std::io::stdout();
-        table
-            .write(&mut out, &terminal_theme())
-            .map_err(Application)?;
+            role == "owner"
+                || key["databases"]
+                    .as_array()
+                    .map(|dbs| dbs.iter().any(|name| name.as_str() == Some(&database)))
+                    .unwrap_or(false)
+        })
+        .collect();
+    let answer = json!({"keys": reaching});
+    if json || !std::io::stdout().is_terminal() {
+        println!("{answer}");
         return Ok(None);
     }
-    Ok(Some((Method::GET, "/v1/keys".into(), None, None)))
+    if reaching.is_empty() {
+        // No table: the answer is "nobody", and an empty grid would
+        // read as a rendering failure rather than an answer.
+        let mut out = std::io::stdout();
+        writeln!(out, "no credential can act on {database}")
+            .map_err(|_| Application(dg::error::Error::internal()))?;
+        return Ok(None);
+    }
+    let mut table = Table::new();
+    table.column("name", Align::Left);
+    table.column("role", Align::Left);
+    table.column("scope", Align::Left);
+    for key in reaching.iter() {
+        let role = key["role"].as_str().unwrap_or("");
+        let databases: Vec<String> = key["databases"]
+            .as_array()
+            .map(|dbs| {
+                dbs.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let scope = if role == "owner" {
+            "all".to_string()
+        } else if databases.is_empty() {
+            "-".to_string()
+        } else {
+            databases.join(", ")
+        };
+        table.row(vec![
+            Cell::styled(key["name"].as_str().unwrap_or(""), Style::Cyan),
+            Cell::styled(
+                role,
+                if role == "owner" {
+                    Style::Yellow
+                } else {
+                    Style::Plain
+                },
+            ),
+            Cell::text(scope),
+        ]);
+    }
+    let mut out = std::io::stdout();
+    table
+        .write(&mut out, &terminal_theme())
+        .map_err(Application)?;
+    Ok(None)
 }
 
 pub async fn revoke(
