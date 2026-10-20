@@ -111,6 +111,9 @@ fn the_per_database_wait_columns_name_what_they_hold() {
     // a percentile.
     let fleet = Fleet::boot();
     fleet.cli.ok("create", &["create", "wait_db"]);
+    fleet
+        .cli
+        .q("seed", "wait_db", "CREATE TABLE t (id INTEGER)");
 
     let screen = pty(&fleet, "status");
     // The header names the two different facts.
