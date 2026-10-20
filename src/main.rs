@@ -463,7 +463,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             )
             .await;
         }
-        Command::Init { data_dir } => return cmd_serve::init(data_dir).await,
+        Command::Init { data_dir } => return cmd_serve::init(data_dir, cli.json).await,
         Command::Web {
             port,
             entry,
@@ -503,12 +503,18 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             cmd_data::inspect(&cli.server, cli.json, &key_path, name).await?
         }
         Command::Info { name } => cmd_data::info(&cli.server, cli.json, &key_path, name).await?,
-        Command::Create { name } => cmd_data::create(name).await?,
+        Command::Create { name } => {
+            cmd_data::create(&cli.server, cli.json, &key_path, name).await?
+        }
         Command::Clone {
             source,
             destination,
-        } => cmd_lifecycle::clone_db(source, destination).await?,
-        Command::Delete { name, confirm } => cmd_lifecycle::delete(name, confirm).await?,
+        } => {
+            cmd_lifecycle::clone_db(&cli.server, cli.json, &key_path, source, destination).await?
+        }
+        Command::Delete { name, confirm } => {
+            cmd_lifecycle::delete(&cli.server, cli.json, &key_path, name, confirm).await?
+        }
         Command::Query {
             name,
             sql,
@@ -553,7 +559,9 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                     role,
                     database,
                 },
-        } => cmd_keys::create(name, role, database).await?,
+        } => {
+            cmd_keys::create(&cli.server, cli.json, &key_path, name, role, database).await?
+        }
         Command::Key {
             command: KeyCommand::List,
         } => cmd_keys::list(&cli.server, cli.json, &key_path).await?,
@@ -562,10 +570,14 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         } => cmd_keys::tokens(&cli.server, cli.json, &key_path, database).await?,
         Command::Key {
             command: KeyCommand::Revoke { name },
-        } => cmd_keys::revoke(name).await?,
+        } => {
+            cmd_keys::revoke(&cli.server, cli.json, &key_path, name).await?
+        }
         Command::Key {
             command: KeyCommand::RotateOwner,
-        } => cmd_keys::rotate_owner().await?,
+        } => {
+            cmd_keys::rotate_owner(&cli.server, cli.json, &key_path).await?
+        }
     };
     let Some((method, path, body, idempotency)) = request else {
         return Ok(());

@@ -240,12 +240,60 @@ pub async fn digest(
     )))
 }
 
-pub async fn verify(backup_root: PathBuf, set: String) -> Result<(), dg::ServerError> {
+pub async fn verify(
+    backup_root: PathBuf,
+    set: String,
+    json: bool,
+) -> Result<(), dg::ServerError> {
     let report = dg::backup::verify_set(&backup_root, &set).map_err(Application)?;
-    println!(
-        "{}",
-        serde_json::to_value(&report).map_err(|_| Application(Error::internal()))?
-    );
+    let value =
+        serde_json::to_value(&report).map_err(|_| Application(Error::internal()))?;
+    if json || !std::io::stdout().is_terminal() {
+        println!("{value}");
+    } else {
+        // The report is the point of the command, so it is drawn: which
+        // databases were checked, how big they are, and what failed.
+        let mut out = std::io::stdout();
+        let theme = dg::render::Theme::for_stream(true);
+        let mut table = Table::new();
+        table.column("database", Align::Left);
+        table.column("size", Align::Right);
+        table.column("sha256", Align::Left);
+        for database in report.databases.iter() {
+            table.row(vec![
+                Cell::styled(database.name.clone(), Style::Cyan),
+                Cell::number(dg::render::human_bytes(database.size)),
+                Cell::text(&database.sha256),
+            ]);
+        }
+        let headline = if report.ok {
+            format!("verified {}", report.set)
+        } else {
+            format!("FAILED {}", report.set)
+        };
+        let mut section = dg::render::Section::new("");
+        section.field(
+            "",
+            Cell::styled(
+                headline,
+                if report.ok { Style::Green } else { Style::Red },
+            ),
+        );
+        if !report.failures.is_empty() {
+            let mut failures = dg::render::Section::new("failures");
+            for failure in &report.failures {
+                failures.field("-", Cell::styled(failure.clone(), Style::Red));
+            }
+            dg::render::write_sections(&mut out, &theme, &[section, failures])
+                .map_err(Application)?;
+        } else {
+            dg::render::write_sections(&mut out, &theme, &[section]).map_err(Application)?;
+        }
+        if !report.databases.is_empty() {
+            writeln!(out).map_err(|_| Application(Error::internal()))?;
+            table.write(&mut out, &theme).map_err(Application)?;
+        }
+    }
     if report.ok {
         return Ok(());
     }
