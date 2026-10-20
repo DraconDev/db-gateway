@@ -364,8 +364,6 @@ fn every_contract_command_still_emits_json_when_piped() {
     let fleet = &world.fleet;
     let server = &fleet.cli.server;
     let key = fleet.cli.key_file.to_str().unwrap();
-    let dg = env!("CARGO_BIN_EXE_dg");
-
     fleet.cli.ok("create", &["create", "pipe_db"]);
     fleet
         .cli
@@ -377,7 +375,6 @@ fn every_contract_command_still_emits_json_when_piped() {
         (
             "create",
             vec![
-                dg,
                 "--server",
                 server,
                 "--key-file",
@@ -389,7 +386,6 @@ fn every_contract_command_still_emits_json_when_piped() {
         (
             "delete",
             vec![
-                dg,
                 "--server",
                 server,
                 "--key-file",
@@ -403,7 +399,6 @@ fn every_contract_command_still_emits_json_when_piped() {
         (
             "export",
             vec![
-                dg,
                 "--server",
                 server,
                 "--key-file",
@@ -417,7 +412,6 @@ fn every_contract_command_still_emits_json_when_piped() {
         (
             "import",
             vec![
-                dg,
                 "--server",
                 server,
                 "--key-file",
@@ -431,7 +425,6 @@ fn every_contract_command_still_emits_json_when_piped() {
         (
             "clone",
             vec![
-                dg,
                 "--server",
                 server,
                 "--key-file",
@@ -444,7 +437,6 @@ fn every_contract_command_still_emits_json_when_piped() {
         (
             "key create",
             vec![
-                dg,
                 "--server",
                 server,
                 "--key-file",
@@ -461,7 +453,6 @@ fn every_contract_command_still_emits_json_when_piped() {
         (
             "key revoke",
             vec![
-                dg,
                 "--server",
                 server,
                 "--key-file",
@@ -474,7 +465,6 @@ fn every_contract_command_still_emits_json_when_piped() {
         (
             "key rotate-owner",
             vec![
-                dg,
                 "--server",
                 server,
                 "--key-file",
@@ -496,7 +486,7 @@ fn every_contract_command_still_emits_json_when_piped() {
         ),
         (
             "init",
-            vec![dg, "init", "--data-dir", fresh.to_str().unwrap()],
+            vec!["init", "--data-dir", fresh.to_str().unwrap()],
         ),
     ];
 
