@@ -1019,6 +1019,74 @@ mod tests {
     }
 
     #[test]
+    fn a_sparkline_draws_the_shape_of_its_values() {
+        // The sparkline is scaled against its own peak, so the shape is
+        // what the reader sees: a rising row rises.
+        let line = sparkline(&[0, 1, 2, 3, 4]);
+        assert_eq!(line.chars().count(), 5, "one bar per value: {line:?}");
+        assert!(line.starts_with(' '), "the zero bar is flat: {line:?}");
+        assert!(
+            line.chars().last().unwrap() == '█',
+            "the peak is the tallest bar: {line:?}"
+        );
+        // A row of nothing is a flat line, not a chart of noise.
+        assert_eq!(sparkline(&[0, 0, 0]), "   ");
+        // An empty row is empty.
+        assert_eq!(sparkline(&[]), "");
+        // Every bar is one column wide, whatever the values are.
+        let wide = sparkline(&[u64::MAX, 1]);
+        assert_eq!(wide.chars().count(), 2);
+    }
+
+    #[test]
+    fn a_sparkline_is_a_cell_and_keeps_the_grid_square() {
+        let mut table = Table::new();
+        table.column("activity", Align::Left);
+        table.row(vec![Cell::Sparkline(vec![0, 1, 2, 3])]);
+        let mut out = Vec::new();
+        table.write(&mut out, &Theme::fixed(false, false)).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        // The row is as wide as the header plus the bars, and the
+        // borders match.
+        assert!(lines[3].starts_with('|'), "no row: {text:?}");
+        assert_eq!(lines[3].chars().count(), lines[1].chars().count());
+    }
+
+    #[test]
+    fn rates_are_scaled_to_the_window_that_was_observed() {
+        // Ten requests in ten seconds is one per minute, not ten.
+        assert_eq!(human_rate(10, 10), "60 min");
+        // Ten requests in a minute is ten per minute.
+        assert_eq!(human_rate(10, 60), "10 min");
+        // A service up for a second reports its one request honestly.
+        assert_eq!(human_rate(1, 1), "60 min");
+        // A zero window does not divide by zero.
+        assert_eq!(human_rate(5, 0), "300 min");
+    }
+
+    #[test]
+    fn counts_are_grouped_for_reading() {
+        assert_eq!(human_count(0, ""), "0");
+        assert_eq!(human_count(999, ""), "999");
+        assert_eq!(human_count(1000, ""), "1,000");
+        assert_eq!(human_count(1234567, ""), "1,234,567");
+        assert_eq!(human_count(42, "rows"), "42 rows");
+    }
+
+    #[test]
+    fn percentages_keep_the_precision_the_ratio_needs() {
+        // Three errors in 48,213 requests: a small ratio is worth the
+        // digits, because "0.00%" would read as "no errors".
+        assert_eq!(human_percent(3, 48_213), "0.0062%");
+        assert_eq!(human_percent(0, 100), "0%");
+        assert_eq!(human_percent(1, 2), "50.0%");
+        assert_eq!(human_percent(1, 100), "1.00%");
+        // No denominator means no ratio, not a zero.
+        assert_eq!(human_percent(0, 0), "-");
+    }
+
+    #[test]
     fn a_cell_never_carries_a_raw_control_character() {
         // The renderer's escaping rule: whatever a cell holds, the bytes
         // that reach the terminal carry no control character of their
