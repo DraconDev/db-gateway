@@ -132,6 +132,52 @@ fn a_single_statement_error_envelope_is_unchanged() {
 }
 
 #[test]
+fn key_tokens_narrows_the_answer_for_a_script_too() {
+    // The answer is narrowed for BOTH forms. A script that asks which
+    // credentials can reach a database must get the credentials that
+    // can -- not every credential the gateway holds, which is what the
+    // raw endpoint answers.
+    let fleet = Fleet::boot();
+    fleet.cli.ok("create", &["create", "reached_db"]);
+    fleet.cli.ok("create", &["create", "other_db"]);
+    fleet.cli.ok(
+        "issue",
+        &[
+            "key",
+            "create",
+            "bot",
+            "--role",
+            "database_read_only",
+            "--database",
+            "reached_db",
+        ],
+    );
+
+    for database in ["reached_db", "other_db"] {
+        let (ok, stdout, stderr) = fleet.cli.run(&["--json", "key", "tokens", database]);
+        assert!(ok, "failed: {stderr}");
+        let answer: serde_json::Value =
+            serde_json::from_str(&stdout).unwrap_or_else(|_| panic!("not JSON: {stdout}"));
+        let names: Vec<String> = answer["keys"]
+            .as_array()
+            .expect("keys is an array")
+            .iter()
+            .map(|key| key["name"].as_str().unwrap_or("").to_string())
+            .collect();
+        assert!(
+            names.contains(&"owner".to_string()),
+            "the owner key is missing for {database}: {names:?}"
+        );
+        let scoped = names.contains(&"bot".to_string());
+        assert_eq!(
+            scoped,
+            database == "reached_db",
+            "the scoped key is in the answer for the wrong database: {names:?}"
+        );
+    }
+}
+
+#[test]
 fn key_tokens_stays_machine_readable_when_piped() {
     let fleet = Fleet::boot();
     fleet.cli.ok("create", &["create", "piped_db"]);
