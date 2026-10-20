@@ -25,10 +25,15 @@ fn the_query_shape_the_scripts_read_is_unchanged() {
         .cli
         .q("seed", "shape_db", "CREATE TABLE t (id INTEGER)");
 
-    let result = fleet.cli.ok("query", &["query", "shape_db", "SELECT count(*) AS n FROM t"]);
+    let result = fleet.cli.ok(
+        "query",
+        &["query", "shape_db", "SELECT count(*) AS n FROM t"],
+    );
     let rows = result["rows"].as_array().expect("rows is an array");
     assert_eq!(rows.len(), 1, "one row: {result}");
-    assert_eq!(rows[0][0], 1, "the first column of the first row: {result}");
+    // The count is zero: the table was created but nothing was put in
+    // it. The point is the SHAPE, not the number.
+    assert_eq!(rows[0][0], 0, "the first column of the first row: {result}");
     assert!(
         result["columns"].is_array(),
         "the columns are named: {result}"
@@ -43,7 +48,9 @@ fn the_list_shape_the_scripts_read_is_unchanged() {
     fleet.cli.ok("create", &["create", "listed_db"]);
 
     let result = fleet.cli.ok("list", &["list"]);
-    let databases = result["databases"].as_array().expect("databases is an array");
+    let databases = result["databases"]
+        .as_array()
+        .expect("databases is an array");
     assert!(
         databases.iter().all(|name| name.is_string()),
         "the database names are strings: {result}"
@@ -89,11 +96,26 @@ fn the_create_and_import_shapes_the_scripts_read_are_unchanged() {
     let created = fleet.cli.ok("create", &["create", "made_db"]);
     assert_eq!(created["name"], "made_db", "{created}");
 
-    let imported = fleet.cli.ok("import", &["import", "imported_db", "--from", "/dev/null"]);
-    // The import of an empty file is refused, but the answer is still
-    // the documented shape: a name, or an error envelope.
-    assert!(
-        imported["imported"].is_string() || imported["error"].is_object(),
-        "the import answers with a name or an error: {imported}"
-    );
+    // A refused import still answers with the documented shape: an
+    // error envelope, not a panic and not a bare string.
+    let dir = tempfile::tempdir().unwrap();
+    let empty = dir.path().join("empty.sqlite");
+    std::fs::write(&empty, b"").unwrap();
+    let (ok, stdout, _stderr) =
+        fleet
+            .cli
+            .run(&["import", "imported_db", "--from", empty.to_str().unwrap()]);
+    if ok {
+        let imported: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        assert!(
+            imported["imported"].is_string(),
+            "a successful import names the database: {imported}"
+        );
+    } else {
+        let refused: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        assert!(
+            refused["error"]["code"].is_string(),
+            "a refused import says why: {refused}"
+        );
+    }
 }
