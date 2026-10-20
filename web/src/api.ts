@@ -20,6 +20,8 @@ export interface DatabaseUsage {
   queue_timeouts: number;
   /** The longest single admission wait, in microseconds. */
   queue_wait_max_us?: number;
+  /** This database's own 95th percentile of its own recent admission waits, in microseconds. */
+  queue_wait_p95_us?: number | null;
   /** When the database was last written, as unix seconds. */
   last_write?: number;
 }

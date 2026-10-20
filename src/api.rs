@@ -176,6 +176,11 @@ async fn status(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<J
                         "queue_waits": waits.waits,
                         "queue_wait_ms": waits.wait_ms,
                         "queue_wait_max_us": waits.max_wait_us,
+                        // This database's OWN p95 of its own recent
+                        // admission waits. The service-wide p95 lives
+                        // under `requests` and covers every database,
+                        // so a single contended database can hide in it.
+                        "queue_wait_p95_us": waits.wait_p95_us,
                         "queue_timeouts": waits.timeouts,
                         "last_write": last_write,
                     }),
