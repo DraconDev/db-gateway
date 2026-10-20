@@ -48,8 +48,8 @@ fn wait_percentiles_are_exact_and_absent_when_nothing_waited() {
     // No waits yet: a percentile of nothing is nothing. Reporting zero
     // would claim the queue never contended.
     let snapshot = metrics.snapshot();
-    assert_eq!(snapshot.wait_p50_ms, None);
-    assert_eq!(snapshot.wait_p95_ms, None);
+    assert_eq!(snapshot.wait_p50_us, None);
+    assert_eq!(snapshot.wait_p95_us, None);
     assert_eq!(snapshot.wait_samples, 0);
 
     // Ten waits of 1ms..10ms. The nearest-rank p50 is the 5th value
@@ -58,8 +58,8 @@ fn wait_percentiles_are_exact_and_absent_when_nothing_waited() {
         metrics.record_queue_wait("demo", Duration::from_millis(millis), false);
     }
     let snapshot = metrics.snapshot();
-    assert_eq!(snapshot.wait_p50_ms, Some(5));
-    assert_eq!(snapshot.wait_p95_ms, Some(10));
+    assert_eq!(snapshot.wait_p50_us, Some(5_000));
+    assert_eq!(snapshot.wait_p95_us, Some(10_000));
     assert_eq!(snapshot.wait_samples, 10);
 }
 
@@ -72,7 +72,7 @@ fn the_wait_sample_ring_is_bounded() {
     let snapshot = metrics.snapshot();
     // The ring keeps its size; it does not grow with the traffic.
     assert_eq!(snapshot.wait_samples, WAIT_SAMPLES);
-    assert_eq!(snapshot.wait_p50_ms, Some(3));
+    assert_eq!(snapshot.wait_p50_us, Some(3_000));
 }
 
 #[test]
@@ -96,7 +96,7 @@ fn per_database_usage_and_waits_are_counted_separately() {
     assert_eq!(queue["alpha"].timeouts, 1);
     // The worst wait is kept, because that is the one an operator
     // feels.
-    assert_eq!(queue["alpha"].max_wait_ms, 30);
+    assert_eq!(queue["alpha"].max_wait_us, 30_000);
 }
 
 #[test]

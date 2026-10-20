@@ -3,8 +3,8 @@
 use super::{Request, table_json};
 use dg::ServerError::Application;
 use dg::render::{
-    Align, Cell, Section, Style, Table, Theme, human_count, human_duration, human_percent,
-    human_rate,
+    Align, Cell, Section, Style, Table, Theme, human_count, human_duration, human_micros,
+    human_percent, human_rate,
 };
 use reqwest::Method;
 use serde_json::Value;
@@ -118,12 +118,12 @@ pub fn dashboard(status: &Value) -> Vec<Section> {
         Cell::number(status["admission"]["write_permits"].as_u64().unwrap_or(0)),
     );
     match (
-        requests["wait_p50_ms"].as_u64(),
-        requests["wait_p95_ms"].as_u64(),
+        requests["wait_p50_us"].as_u64(),
+        requests["wait_p95_us"].as_u64(),
     ) {
         (Some(p50), Some(p95)) => {
-            admission.field("wait p50", Cell::text(format!("{p50} ms")));
-            admission.field("wait p95", Cell::text(format!("{p95} ms")));
+            admission.field("wait p50", Cell::text(human_micros(p50)));
+            admission.field("wait p95", Cell::text(human_micros(p95)));
         }
         // No wait has been recorded: the queue has never contended, and
         // saying "0 ms" would claim a measurement that was never made.
@@ -148,9 +148,9 @@ pub fn dashboard(status: &Value) -> Vec<Section> {
         table.column("last write", Align::Left);
         for (name, entry) in usage {
             let waits = entry["queue_waits"].as_u64().unwrap_or(0);
-            let wait_p95 = match (waits, entry["queue_wait_max_ms"].as_u64()) {
+            let wait_p95 = match (waits, entry["queue_wait_max_us"].as_u64()) {
                 (0, _) => Cell::text("-"),
-                (_, Some(max)) => Cell::text(format!("{max} ms")),
+                (_, Some(max)) => Cell::text(human_micros(max)),
                 (_, None) => Cell::text("-"),
             };
             let last_write = match entry["last_write"].as_u64() {

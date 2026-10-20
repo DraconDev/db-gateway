@@ -162,9 +162,9 @@ pub async fn inspect(
         activity.field("queue waits", Cell::number(waits));
         activity.field(
             "wait p95",
-            match (waits, entry.get("queue_wait_max_ms").and_then(Value::as_u64)) {
+            match (waits, entry.get("queue_wait_max_us").and_then(Value::as_u64)) {
                 (0, _) => Cell::text("no waits recorded"),
-                (_, Some(max)) => Cell::text(format!("{max} ms")),
+                (_, Some(max)) => Cell::text(dg::render::human_micros(max)),
                 (_, None) => Cell::text("-"),
             },
         );
