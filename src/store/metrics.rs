@@ -66,7 +66,7 @@ pub struct DbUsage {
 /// answers "how contended is the service"; a per-database percentile
 /// answers "which database is contended", and only the second can name
 /// one. The global ring in `Metrics` answers the first.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct DbQueueLive {
     queue: DbQueue,
     samples: WaitSamples,
@@ -97,6 +97,7 @@ impl DbQueueLive {
 /// The percentile of the recent past is what an operator acts on ("p95
 /// wait is 40ms"); the average over the whole uptime is not, because one
 /// bad hour would define it forever.
+#[derive(Debug)]
 struct WaitSamples {
     values: Vec<u64>,
     next: usize,

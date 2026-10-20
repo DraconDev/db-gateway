@@ -163,15 +163,21 @@ pub async fn inspect(
             .and_then(Value::as_u64)
             .unwrap_or(0);
         activity.field("queue waits", Cell::number(waits));
+        // The p95 and the max are different facts and are labelled as
+        // such: the p95 says how bad this database's queue usually is,
+        // the max says how bad it ever got.
         activity.field(
             "wait p95",
-            match (
-                waits,
-                entry.get("queue_wait_max_us").and_then(Value::as_u64),
-            ) {
-                (0, _) => Cell::text("no waits recorded"),
-                (_, Some(max)) => Cell::text(dg::render::human_micros(max)),
-                (_, None) => Cell::text("-"),
+            match entry.get("queue_wait_p95_us").and_then(Value::as_u64) {
+                Some(p95) => Cell::text(dg::render::human_micros(p95)),
+                None => Cell::text("no waits recorded"),
+            },
+        );
+        activity.field(
+            "wait max",
+            match entry.get("queue_wait_max_us").and_then(Value::as_u64) {
+                Some(max) => Cell::text(dg::render::human_micros(max)),
+                None => Cell::text("no waits recorded"),
             },
         );
         activity.field(

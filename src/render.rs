@@ -702,13 +702,22 @@ pub fn service_dashboard(status: &serde_json::Value) -> Vec<Section> {
         table.column("rows written", Align::Right);
         table.column("waits", Align::Right);
         table.column("wait p95", Align::Right);
+        table.column("wait max", Align::Right);
         table.column("last write", Align::Left);
         for (name, entry) in usage {
             let waits = entry["queue_waits"].as_u64().unwrap_or(0);
-            let wait_p95 = match (waits, entry["queue_wait_max_us"].as_u64()) {
-                (0, _) => Cell::text("-"),
-                (_, Some(max)) => Cell::text(human_micros(max)),
-                (_, None) => Cell::text("-"),
+            // The p95 is this database's own, and the max is its worst
+            // single wait. They are different facts: a p95 says how bad
+            // the queue usually is, a max says how bad it ever got. A
+            // column labelled "p95" that holds a maximum is a wrong
+            // number, so the two are shown separately.
+            let wait_p95 = match entry["queue_wait_p95_us"].as_u64() {
+                Some(p95) => Cell::text(human_micros(p95)),
+                None => Cell::text("-"),
+            };
+            let wait_max = match entry["queue_wait_max_us"].as_u64() {
+                Some(max) => Cell::text(human_micros(max)),
+                None => Cell::text("-"),
             };
             let last_write = match entry["last_write"].as_u64() {
                 Some(epoch) => Cell::text(human_epoch_ago(epoch)),
@@ -720,9 +729,11 @@ pub fn service_dashboard(status: &serde_json::Value) -> Vec<Section> {
                 Cell::number(entry["rows_written"].as_u64().unwrap_or(0)),
                 Cell::number(waits),
                 wait_p95,
+                wait_max,
                 last_write,
             ]);
         }
+        table.footer("wait p95 is this database's own recent waits; wait max is its worst single wait");
         per_database.table(table);
         sections.push(per_database);
     }
