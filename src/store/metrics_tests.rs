@@ -159,7 +159,7 @@ fn a_database_with_no_waits_has_no_percentile() {
     let metrics = Metrics::new();
     metrics.record_usage("idle", 1, 1);
     let queue = metrics.queue_snapshot();
-    assert_eq!(queue.get("idle"), None);
+    assert!(queue.get("idle").is_none(), "an idle database has no entry");
 }
 
 #[test]
