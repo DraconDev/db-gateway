@@ -707,18 +707,9 @@ pub fn service_dashboard(status: &serde_json::Value) -> Vec<Section> {
         for (name, entry) in usage {
             let waits = entry["queue_waits"].as_u64().unwrap_or(0);
             // The p95 is this database's own, and the max is its worst
-            // single wait. They are different facts: a p95 says how bad
-            // the queue usually is, a max says how bad it ever got. A
-            // column labelled "p95" that holds a maximum is a wrong
-            // number, so the two are shown separately.
-            let wait_p95 = match entry["queue_wait_p95_us"].as_u64() {
-                Some(p95) => Cell::text(human_micros(p95)),
-                None => Cell::text("-"),
-            };
-            let wait_max = match entry["queue_wait_max_us"].as_u64() {
-                Some(max) => Cell::text(human_micros(max)),
-                None => Cell::text("-"),
-            };
+            // single wait. They are different facts, and the pairing is
+            // built in one place so the two columns cannot be swapped.
+            let figures = wait_figures(entry, "-");
             let last_write = match entry["last_write"].as_u64() {
                 Some(epoch) => Cell::text(human_epoch_ago(epoch)),
                 None => Cell::text("never"),
@@ -728,8 +719,8 @@ pub fn service_dashboard(status: &serde_json::Value) -> Vec<Section> {
                 Cell::number(entry["rows_read"].as_u64().unwrap_or(0)),
                 Cell::number(entry["rows_written"].as_u64().unwrap_or(0)),
                 Cell::number(waits),
-                wait_p95,
-                wait_max,
+                figures.p95,
+                figures.max,
                 last_write,
             ]);
         }
@@ -860,6 +851,38 @@ pub fn write_sections(out: &mut dyn Write, theme: &Theme, sections: &[Section]) 
         section.write(out, theme)?;
     }
     Ok(())
+}
+
+/// The two wait figures a per-database view shows.
+///
+/// The p95 and the max are DIFFERENT facts: the p95 says how bad the
+/// queue usually is, the max says how bad it ever got. They are built
+/// together, in one place, so that a view cannot put the wrong one
+/// under a header -- which is the defect this replaces, where a
+/// maximum was drawn under a "p95" label.
+pub struct WaitFigures {
+    /// The p95 of that database's own recent admission waits.
+    pub p95: Cell,
+    /// The longest single wait that database has seen.
+    pub max: Cell,
+}
+
+/// The wait figures of one database, from its `/v1/status` entry.
+///
+/// `absent` is what to draw when the database has never waited: a
+/// percentile of nothing is nothing, and a zero would claim a
+/// measurement that was never made. The views draw it differently (a
+/// table cell says "-", a field says "no waits recorded"), so the
+/// wording is the caller's.
+pub fn wait_figures(entry: &serde_json::Value, absent: &str) -> WaitFigures {
+    let cell = |key: &str| match entry[key].as_u64() {
+        Some(micros) => Cell::text(human_micros(micros)),
+        None => Cell::text(absent),
+    };
+    WaitFigures {
+        p95: cell("queue_wait_p95_us"),
+        max: cell("queue_wait_max_us"),
+    }
 }
 
 /// A count per minute, as a person reads it.
