@@ -13,81 +13,26 @@ pub struct Metrics {
     internal_error: AtomicU64,
     usage: Mutex<HashMap<String, DbUsage>>,
     queue: Mutex<HashMap<String, DbQueue>>,
-    /// A bounded ring of recent request counts, one bucket per second.
+    /// A bounded ring of per-second request counts.
     ///
-    /// This is deliberately a WINDOW, not a time series: a fixed-size ring
-    /// of the last `WINDOW_BUCKETS` seconds, advanced when a read asks for
-    /// it. It answers "how busy was it just now" without becoming a
-    /// metrics database, and it costs one counter and one lock.
-    window: Mutex<RequestWindow>,
+    /// This is deliberately a WINDOW, not a time series: a fixed-size
+    /// ring of the last `WINDOW_BUCKETS` seconds. It answers "how busy
+    /// was it just now" without becoming a metrics database, and it
+    /// costs one atomic add per request.
+    window: Box<[AtomicU64]>,
+    /// The most recent admission-wait durations, for percentiles.
+    ///
+    /// A ring rather than a growing list: the percentile of the last
+    /// few thousand waits is what an operator can act on, and the memory
+    /// is fixed. Only the contended path writes here.
+    waits: Mutex<WaitSamples>,
 }
 
-/// How many seconds of history the request window keeps. Long enough to
-/// show a minute of activity, short enough to stay a fixed-size ring.
+/// How many seconds of history the request window keeps.
 pub const WINDOW_BUCKETS: usize = 60;
 
-/// A request-rate window: one bucket per second, oldest first.
-///
-/// The ring is advanced on read, so a service nobody is watching costs
-/// nothing: the buckets are only materialised when someone asks. A
-/// bucket that the service slept through reads as zero, which is
-/// honest -- no requests arrived.
-#[derive(Debug, Clone)]
-struct RequestWindow {
-    /// The epoch second each bucket covers.
-    seconds: Vec<u64>,
-    /// The request count in each bucket.
-    counts: Vec<u64>,
-    /// The epoch second the newest bucket covers.
-    newest: u64,
-}
-
-impl Default for RequestWindow {
-    fn default() -> Self {
-        Self {
-            seconds: vec![0; WINDOW_BUCKETS],
-            counts: vec![0; WINDOW_BUCKETS],
-            newest: 0,
-        }
-    }
-}
-
-impl RequestWindow {
-    /// The request counts of the last `WINDOW_BUCKETS` seconds, oldest
-    /// first. Seconds with no requests read as zero.
-    fn series(&self, now: u64) -> Vec<u64> {
-        if self.newest == 0 {
-            return vec![0; WINDOW_BUCKETS];
-        }
-        // Walk backwards from the newest bucket, filling in the seconds
-        // between it and now (the service may have been idle) and then
-        // the older buckets the ring still holds.
-        let mut out = Vec::with_capacity(WINDOW_BUCKETS);
-        for age in 0..WINDOW_BUCKETS as u64 {
-            let second = self.newest + 1 + age;
-            let _ = second;
-            out.push(0);
-        }
-        out.clear();
-        // Oldest first: the bucket `WINDOW_BUCKETS - 1` seconds ago is
-        // the first one in the series.
-        for index in 0..WINDOW_BUCKETS {
-            let age = (WINDOW_BUCKETS - 1 - index) as u64;
-            let second = self.newest + 1 + age;
-            if second > now {
-                out.push(0);
-                continue;
-            }
-            let position = (second % WINDOW_BUCKETS as u64) as usize;
-            if self.seconds[position] == second {
-                out.push(self.counts[position]);
-            } else {
-                out.push(0);
-            }
-        }
-        out
-    }
-}
+/// How many recent waits the percentile sample keeps.
+const WAIT_SAMPLES: usize = 1024;
 
 /// Rows read/written per database since boot. Recorded at the API layer
 /// after a successful query/batch (replayed responses count: they are
@@ -103,6 +48,55 @@ pub struct DbUsage {
     pub rows_written: u64,
 }
 
+/// A bounded ring of recent wait durations, in milliseconds.
+///
+/// The percentile of the recent past is what an operator acts on ("p95
+/// wait is 40ms"); the average over the whole uptime is not, because one
+/// bad hour would define it forever.
+struct WaitSamples {
+    values: Vec<u64>,
+    next: usize,
+}
+
+impl Default for WaitSamples {
+    fn default() -> Self {
+        Self {
+            values: Vec::with_capacity(WAIT_SAMPLES),
+            next: 0,
+        }
+    }
+}
+
+impl WaitSamples {
+    /// Record a wait, keeping the ring bounded.
+    fn push(&mut self, millis: u64) {
+        if self.values.len() < WAIT_SAMPLES {
+            self.values.push(millis);
+            return;
+        }
+        self.values[self.next] = millis;
+        self.next = (self.next + 1) % WAIT_SAMPLES;
+    }
+
+    /// The p-th percentile of the recorded waits, in milliseconds.
+    ///
+    /// `None` when no wait has been recorded: a percentile of nothing is
+    /// nothing, and reporting zero would claim the queue never
+    /// contended.
+    fn percentile(&self, p: f64) -> Option<u64> {
+        if self.values.is_empty() {
+            return None;
+        }
+        let mut sorted = self.values.clone();
+        sorted.sort_unstable();
+        // The nearest-rank method: the smallest value at or above which
+        // p percent of the samples fall.
+        let rank = (p / 100.0 * sorted.len() as f64).ceil() as usize;
+        let index = rank.saturating_sub(1).min(sorted.len() - 1);
+        Some(sorted[index])
+    }
+}
+
 /// Point-in-time copy for `/v1/status`. Plain data, no locks held.
 pub struct MetricsSnapshot {
     pub uptime_secs: u64,
@@ -110,6 +104,18 @@ pub struct MetricsSnapshot {
     pub capacity_exceeded: u64,
     pub deadline_exceeded: u64,
     pub internal_error: u64,
+    /// The per-second request counts of the window, oldest first.
+    pub request_window: Vec<u64>,
+    /// How many seconds the window actually observed. Less than the
+    /// window's length right after boot, so a rate is scaled honestly
+    /// rather than reported against a span the service never lived.
+    pub window_span_secs: u64,
+    /// The median and 95th percentile of the recent admission waits, in
+    /// milliseconds. `None` when no wait has been recorded.
+    pub wait_p50_ms: Option<u64>,
+    pub wait_p95_ms: Option<u64>,
+    /// How many waits the percentile sample holds.
+    pub wait_samples: usize,
 }
 
 impl Metrics {
@@ -122,16 +128,28 @@ impl Metrics {
             internal_error: AtomicU64::new(0),
             usage: Mutex::new(HashMap::new()),
             queue: Mutex::new(HashMap::new()),
+            window: (0..WINDOW_BUCKETS)
+                .map(|_| AtomicU64::new(0))
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+            waits: Mutex::new(WaitSamples::default()),
         }
     }
     pub fn record_queue_wait(&self, name: &str, waited: Duration, timed_out: bool) {
+        let millis = waited.as_millis() as u64;
         if let Ok(mut queue) = self.queue.lock() {
             let entry = queue.entry(name.to_string()).or_default();
             entry.waits += 1;
             entry.wait_ms += waited.as_millis() as u64;
+            entry.max_wait_ms = entry.max_wait_ms.max(millis);
             if timed_out {
                 entry.timeouts += 1;
             }
+        }
+        // Only the contended path reaches here, so the ring's lock is
+        // not on the request hot path.
+        if let Ok(mut samples) = self.waits.lock() {
+            samples.push(millis);
         }
     }
     pub fn queue_snapshot(&self) -> HashMap<String, DbQueue> {
@@ -167,6 +185,51 @@ impl Metrics {
     }
     pub fn record_request(&self) {
         self.total.fetch_add(1, Ordering::Relaxed);
+        self.record_window();
+    }
+    /// Count this request in the current second of the window.
+    ///
+    /// The hot path is one load and one add. Only when the second rolls
+    /// over does the slot have to be claimed, which happens once a
+    /// second per slot, not once a request.
+    fn record_window(&self) {
+        // Seconds since boot: monotonic, so a clock adjustment cannot
+        // make the window go backwards.
+        let now = self.started.elapsed().as_secs();
+        let slot = (now % WINDOW_BUCKETS as u64) as usize;
+        let current = self.window[slot].load(Ordering::Acquire);
+        if current >> WINDOW_COUNT_BITS == now {
+            // Same second: the count lives in the low half, and adding
+            // one cannot carry into the second until the count reaches
+            // 2^32 requests in one second.
+            self.window[slot].fetch_add(1, Ordering::AcqRel);
+            return;
+        }
+        // The second rolled over (or the slot is stale): claim it. A
+        // request that lands on the boundary may be attributed to the
+        // new second, which moves the rate by one request.
+        let claimed = (now << WINDOW_COUNT_BITS) | 1;
+        let mut current = current;
+        loop {
+            if current >> WINDOW_COUNT_BITS == now {
+                self.window[slot].fetch_add(1, Ordering::AcqRel);
+                return;
+            }
+            if current >> WINDOW_COUNT_BITS > now {
+                // The slot holds a later second: the clock went
+                // backwards, or another thread already claimed it.
+                return;
+            }
+            match self.window[slot].compare_exchange_weak(
+                current,
+                claimed,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return,
+                Err(actual) => current = actual,
+            }
+        }
     }
     pub fn record_error(&self, code: &str) {
         let counter = match code {
@@ -179,12 +242,49 @@ impl Metrics {
     }
     pub fn snapshot(&self) -> MetricsSnapshot {
         let load = Ordering::Relaxed;
+        let uptime_secs = self.started.elapsed().as_secs();
+        let now = uptime_secs;
+        // The window, oldest first. A slot holds its second in the high
+        // half, so a stale slot is simply not counted.
+        let mut request_window = Vec::with_capacity(WINDOW_BUCKETS);
+        for age in (0..WINDOW_BUCKETS as u64).rev() {
+            let second = now.saturating_sub(age);
+            let slot = (second % WINDOW_BUCKETS as u64) as usize;
+            let packed = self.window[slot].load(load);
+            let count = if packed >> WINDOW_COUNT_BITS == second {
+                packed & WINDOW_COUNT_MASK
+            } else {
+                0
+            };
+            request_window.push(count);
+        }
+        // The window only observed the service's whole life once it is
+        // older than the window itself.
+        let window_span_secs = uptime_secs.min(WINDOW_BUCKETS as u64).max(1);
+        let (wait_p50_ms, wait_p95_ms, wait_samples) = match self.waits.lock() {
+            Ok(samples) => (
+                samples.percentile(50.0),
+                samples.percentile(95.0),
+                samples.values.len(),
+            ),
+            Err(_) => (None, None, 0),
+        };
         MetricsSnapshot {
-            uptime_secs: self.started.elapsed().as_secs(),
+            uptime_secs,
             total: self.total.load(load),
             capacity_exceeded: self.capacity_exceeded.load(load),
             deadline_exceeded: self.deadline_exceeded.load(load),
             internal_error: self.internal_error.load(load),
+            request_window,
+            window_span_secs,
+            wait_p50_ms,
+            wait_p95_ms,
+            wait_samples,
         }
     }
 }
+
+/// The high half of a window slot holds the second it counts; the low
+/// half holds the count itself.
+const WINDOW_COUNT_BITS: u32 = 32;
+const WINDOW_COUNT_MASK: u64 = (1u64 << WINDOW_COUNT_BITS) - 1;

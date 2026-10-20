@@ -233,6 +233,10 @@ pub struct DbQueue {
     pub waits: u64,
     pub wait_ms: u64,
     pub timeouts: u64,
+    /// The longest single wait seen for this database. The average is
+    /// what a total alone gives; the worst case is what an operator
+    /// feels.
+    pub max_wait_ms: u64,
 }
 
 impl Store {

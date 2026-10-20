@@ -153,6 +153,8 @@ async fn status(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<J
         let m = s.metrics.snapshot();
         let usage = s.metrics.usage_snapshot();
         let queue = s.metrics.queue_snapshot();
+        let (live_databases, tombstoned_databases) = s.database_counts()?;
+        let last_writes = s.last_writes();
         let mut databases: Vec<String> = usage.keys().chain(queue.keys()).cloned().collect();
         databases.sort();
         databases.dedup();
@@ -168,7 +170,12 @@ async fn status(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<J
                         "rows_written": rows.rows_written,
                         "queue_waits": waits.waits,
                         "queue_wait_ms": waits.wait_ms,
+                        "queue_wait_max_ms": waits.max_wait_ms,
                         "queue_timeouts": waits.timeouts,
+                        "last_write": last_writes
+                            .get(&name)
+                            .and_then(|at| at.duration_since(UNIX_EPOCH).ok())
+                            .map(|at| at.as_secs()),
                     }),
                 )
             })
@@ -186,8 +193,20 @@ async fn status(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<J
                 "capacity_exceeded": m.capacity_exceeded,
                 "query_deadline_exceeded": m.deadline_exceeded,
                 "internal_error": m.internal_error,
+                // The per-second counts of the recent window, oldest
+                // first. A window, not a time series: enough to show
+                // recent activity, bounded so it cannot grow.
+                "recent_per_second": m.request_window,
+                "recent_span_secs": m.window_span_secs,
+                "wait_p50_ms": m.wait_p50_ms,
+                "wait_p95_ms": m.wait_p95_ms,
+                "wait_samples": m.wait_samples,
             },
             "databases": databases,
+            "database_counts": {
+                "live": live_databases,
+                "tombstoned": tombstoned_databases,
+            },
         })))
     })
     .await

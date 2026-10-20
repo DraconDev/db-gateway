@@ -140,6 +140,28 @@ impl Store {
             .collect())
     }
 
+    /// How many databases are live and how many are tombstoned.
+    ///
+    /// The operator's first question about a service is "how much of
+    /// what I made is still there", and the answer is two numbers, not
+    /// a list. Tombstoned databases still occupy a name until the
+    /// retention window purges them, so the count is not the same as
+    /// the length of `list`.
+    pub fn database_counts(&self) -> Result<(u64, u64)> {
+        let conn = self.meta()?;
+        let mut stmt = conn.prepare(
+            "SELECT COUNT(*), COALESCE(SUM(CASE WHEN deleted_at IS NOT NULL THEN 1 ELSE 0 END), 0) \
+             FROM databases",
+        )?;
+        let counts = stmt.query_row([], |row| {
+            Ok((
+                row.get::<_, i64>(0)? as u64,
+                row.get::<_, i64>(1)? as u64,
+            ))
+        })?;
+        Ok(counts)
+    }
+
     /// Every live database, unscoped: the owner view, and the view backup
     /// freshness needs. Deliberately a separate statement from `list` rather
     /// than a shared one with the filter applied later -- `list` has to carry

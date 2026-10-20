@@ -188,6 +188,16 @@ impl Store {
             .and_then(|writes| writes.get(name).copied())
     }
 
+    /// The last write time of every database that has one.
+    ///
+    /// A snapshot rather than a per-database call: the usage view asks
+    /// for every database at once, and taking the marker lock once is
+    /// both faster and a consistent read.
+    pub fn last_writes(&self) -> HashMap<String, SystemTime> {
+        let _marker_guard = self.marker_lock.lock().ok();
+        self.writes.lock().map(|writes| writes.clone()).unwrap_or_default()
+    }
+
     fn persist_marker_value(&self, name: &str, seconds: i64) -> Result<()> {
         // Marker writes are tiny, but the same SQLite metadata file is also
         // used by authentication and lifecycle operations. Serialize our own
