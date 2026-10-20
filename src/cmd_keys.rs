@@ -203,13 +203,15 @@ pub async fn revoke(
     dg::store::validate_name(&name).map_err(Application)?;
     let view_name = name.clone();
     if human_result(
-        server,
-        json,
-        key_path,
-        Method::DELETE,
-        &format!("/v1/keys/{name}"),
-        None,
-        None,
+        super::Call {
+            server,
+            json,
+            key_path,
+            method: Method::DELETE,
+            path: format!("/v1/keys/{name}"),
+            body: None,
+            idempotency: None,
+        },
         Box::new(move |_result| dg::render::Outcome::done(format!("revoked {view_name}"))),
     )
     .await?
@@ -231,14 +233,16 @@ pub async fn rotate_owner(
     key_path: &Option<PathBuf>,
 ) -> Result<Option<Request>, dg::ServerError> {
     if human_result(
-        server,
-        json,
-        key_path,
-        Method::POST,
-        "/v1/keys/owner/rotate",
-        None,
-        None,
-        Box::new(|result| {
+        super::Call {
+            server,
+            json,
+            key_path,
+            method: Method::POST,
+            path: "/v1/keys/owner/rotate".to_string(),
+            body: None,
+            idempotency: None,
+        },
+        Box::new(|result: &Value| {
             // The old owner key dies the moment this one is issued, so
             // the new key is on the screen, and the operator has to be
             // told the old one is already gone.

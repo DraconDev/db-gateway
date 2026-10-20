@@ -95,10 +95,7 @@ struct Call<'a> {
 /// still make the request. The request is made exactly once either
 /// way: a command that draws the view must not also hand the request
 /// back for the caller to run again.
-async fn human_result(
-    call: Call<'_>,
-    view: View,
-) -> Result<Option<Value>, dg::ServerError> {
+async fn human_result(call: Call<'_>, view: View) -> Result<Option<Value>, dg::ServerError> {
     use dg::ServerError::Application;
     if call.json || !std::io::stdout().is_terminal() {
         return Ok(None);

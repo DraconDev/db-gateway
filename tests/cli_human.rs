@@ -155,7 +155,6 @@ fn every_mutating_command_still_emits_json_when_piped() {
     let fleet = Fleet::boot();
     let server = &fleet.cli.server;
     let key = fleet.cli.key_file.to_str().unwrap();
-    let dg = env!("CARGO_BIN_EXE_dg");
 
     let cases: Vec<Vec<&str>> = vec![
         vec!["--server", server, "--key-file", key, "create", "piped_db"],
