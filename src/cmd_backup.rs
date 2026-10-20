@@ -157,10 +157,12 @@ pub async fn digest(
     };
     let health = dg::backup_health::snapshot(&store).map_err(Application)?;
     let note = dg::notify::digest_note(&health);
-    // The ONE rule: a terminal gets the human view, a pipe or --json
-    // gets the JSON. The digest reads the data dir directly rather
-    // than the server, so it has to honour the rule itself.
-    if as_json || !std::io::stdout().is_terminal() {
+    // The digest is a REPORT, not a command with a machine form: the
+    // scheduled unit runs it and its output lands in the journal,
+    // where a human reads it. So the human note is the default, and
+    // `--json` asks for the structured form. This is the one
+    // deliberate exception to the rule the other commands follow.
+    if as_json {
         println!(
             "{}",
             serde_json::to_string(&note).map_err(|_| Application(dg::error::Error::internal()))?

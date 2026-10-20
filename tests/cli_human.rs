@@ -386,36 +386,36 @@ fn a_failing_command_shows_a_one_line_error_on_a_terminal() {
 }
 
 #[test]
-fn the_backup_digest_follows_the_rule_too() {
-    // The digest reads the data dir directly rather than the server,
-    // so it has to honour the rule itself: JSON for a pipe, the human
-    // view for a terminal.
+fn the_backup_digest_is_the_one_deliberate_exception() {
+    // The digest is a REPORT, not a command with a machine form: the
+    // scheduled unit runs it and its output lands in the journal,
+    // where a human reads it. So the human note is the default even
+    // when stdout is a pipe, and `--json` asks for the structured
+    // form. Every other command follows the rule.
     let dir = tempfile::tempdir().unwrap();
     let data_dir = dir.path().join("data");
     let dg = env!("CARGO_BIN_EXE_dg");
 
+    // The human note, even through a pipe.
     let (ok, stdout) = piped(&["backup", "digest", "--data-dir", data_dir.to_str().unwrap()]);
     // The digest exits nonzero when a database is unrepresented, which
-    // is the point of it; the ANSWER is still JSON.
+    // is the point of it.
     let _ = ok;
-    let note: serde_json::Value =
-        serde_json::from_str(&stdout).unwrap_or_else(|_| panic!("not JSON: {stdout}"));
-    assert_eq!(note["kind"], "backup_digest", "{stdout}");
+    assert!(
+        stdout.contains("backup digest"),
+        "the human note is not shown: {stdout}"
+    );
 
-    let (ok, screen) = pty(&[
-        dg,
+    // The structured form, when asked for.
+    let (ok, stdout) = piped(&[
         "backup",
         "digest",
         "--data-dir",
         data_dir.to_str().unwrap(),
+        "--json",
     ]);
     let _ = ok;
-    assert!(
-        screen.contains("backup digest"),
-        "the terminal view is not shown: {screen}"
-    );
-    assert!(
-        !screen.contains("\"kind\""),
-        "the digest is drawn raw on a terminal: {screen}"
-    );
+    let note: serde_json::Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|_| panic!("not JSON: {stdout}"));
+    assert_eq!(note["kind"], "backup_digest", "{stdout}");
 }
