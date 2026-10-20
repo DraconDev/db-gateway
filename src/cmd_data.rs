@@ -140,44 +140,11 @@ pub async fn inspect(
         let mut sections = vec![facts];
 
         // What this database has been doing.
-        let mut activity = Section::new("activity");
         let entry = status
             .as_ref()
             .and_then(|status| status["databases"][&name].as_object().cloned())
             .unwrap_or_default();
-        activity.field(
-            "rows read",
-            Cell::number(entry.get("rows_read").and_then(Value::as_u64).unwrap_or(0)),
-        );
-        activity.field(
-            "rows written",
-            Cell::number(
-                entry
-                    .get("rows_written")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0),
-            ),
-        );
-        let waits = entry
-            .get("queue_waits")
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
-        activity.field("queue waits", Cell::number(waits));
-        // The p95 and the max are different facts and are labelled as
-        // such: the p95 says how bad this database's queue usually is,
-        // the max says how bad it ever got. The label and the value
-        // travel together from the shared helper, so this view and the
-        // dashboard cannot disagree about which is which.
-        for (label, cell) in dg::render::wait_figure_fields(&entry, "no waits recorded") {
-            activity.field(label, cell);
-        }
-        activity.field(
-            "last write",
-            match entry.get("last_write").and_then(Value::as_u64) {
-                Some(epoch) => Cell::text(last_write_ago(epoch)),
-                None => Cell::text("never"),
-            },
-        );
+        let activity = activity_section(&entry);
         sections.push(activity);
 
         // How its backup is doing.
