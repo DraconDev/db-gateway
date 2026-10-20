@@ -2,6 +2,7 @@
 //! query/batch, and the interactive shell.
 
 use super::{Request, api_error, api_failed};
+use dg::render::{Align, Cell, Section, Style, Table, Theme};
 use dg::ServerError::Application;
 use dg::error::Error;
 use reqwest::Method;
@@ -12,13 +13,29 @@ use std::io::{IsTerminal, Read};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 
+/// The theme for a command that is drawing to the terminal.
+fn terminal_theme() -> Theme {
+    Theme::for_stream(std::io::stdout().is_terminal())
+}
+
+/// The style for a backup freshness state. The state word itself is
+/// always spelled out, so the colour is a second rendering of the same
+/// information rather than the only rendering of it.
+pub fn state_style(state: &str) -> Style {
+    match state {
+        "fresh" => Style::Green,
+        "stale" => Style::Yellow,
+        _ => Style::Red,
+    }
+}
+
 pub async fn list(
     server: &str,
     json: bool,
     key_path: &Option<PathBuf>,
 ) -> Result<Option<Request>, dg::ServerError> {
-    // Interactive terminals get an aligned table; piped output
-    // and --json stay machine-readable JSON.
+    // Interactive terminals get a table; piped output and --json stay
+    // machine-readable JSON.
     if !json && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
         let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
             400,
@@ -33,19 +50,21 @@ pub async fn list(
             dg::shell::render(&result, false, &mut std::io::stdout()).map_err(Application)?;
             return Err(Application(api_error()));
         }
-        let rows: Vec<Value> = result["databases"]
+        let names: Vec<String> = result["databases"]
             .as_array()
             .cloned()
             .unwrap_or_default()
             .iter()
-            .map(|name| json!([name]))
+            .map(|name| name.as_str().unwrap_or("").to_string())
             .collect();
-        dg::shell::render(
-            &json!({"columns":["name"],"rows":rows}),
-            false,
-            &mut std::io::stdout(),
-        )
-        .map_err(Application)?;
+        let mut table = Table::new();
+        table.column("database", Align::Left);
+        for name in &names {
+            table.row(vec![Cell::styled(name.clone(), Style::Cyan)]);
+        }
+        table.footer(format!("{} database(s)", names.len()));
+        let mut out = std::io::stdout();
+        table.write(&mut out, &terminal_theme()).map_err(Application)?;
         return Ok(None);
     }
     Ok(Some((Method::GET, "/v1/databases".into(), None, None)))
@@ -95,41 +114,62 @@ pub async fn info(
                     )
                 })
                 .unwrap_or_else(|| ("unavailable".to_string(), "unavailable".to_string()));
-        let mut rows = vec![
-            json!(["name", info["name"]]),
-            json!(["tombstoned", info["tombstoned"]]),
-            json!(["size_bytes", info["size_bytes"]]),
-            json!(["rows_read", rows_read]),
-            json!(["rows_written", rows_written]),
-        ];
+
+        // A dashboard, not a flat property list: what the database is,
+        // then what it holds, then how it has been used.
+        let mut facts = Section::new("database");
+        facts.field("name", Cell::styled(info["name"].as_str().unwrap_or(""), Style::Cyan));
+        facts.field(
+            "tombstoned",
+            if info["tombstoned"].as_bool() == Some(true) {
+                Cell::styled("yes", Style::Yellow)
+            } else {
+                Cell::text("no")
+            },
+        );
+        facts.field(
+            "size",
+            Cell::number(
+                info["size_bytes"]
+                    .as_u64()
+                    .map(dg::render::human_bytes)
+                    .unwrap_or_else(|| "unknown".to_string()),
+            ),
+        );
         if info["tombstoned"].as_bool() == Some(true) {
-            rows.push(json!(["purge_after", info["purge_after"]]));
+            facts.field("purge after", Cell::number(purge_after_text(&info)));
         } else {
-            rows.push(json!(["created_at", info["created_at"]]));
-            let tables = info["tables"]
-                .as_array()
-                .map(|tables| {
-                    tables
-                        .iter()
-                        .map(|t| {
-                            format!(
-                                "{} ({} rows)",
-                                t["name"].as_str().unwrap_or("?"),
-                                t["rows"].as_u64().unwrap_or(0)
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                })
-                .unwrap_or_default();
-            rows.push(json!(["tables", tables]));
+            facts.field("created", Cell::text(created_text(&info)));
         }
-        dg::shell::render(
-            &json!({"columns":["property","value"],"rows":rows}),
-            false,
-            &mut std::io::stdout(),
-        )
-        .map_err(Application)?;
+
+        let mut usage = Section::new("usage");
+        usage.field("rows read", Cell::number(rows_read));
+        usage.field("rows written", Cell::number(rows_written));
+
+        let mut sections = vec![facts, usage];
+        if info["tombstoned"].as_bool() != Some(true) {
+            let mut tables = Section::new("tables");
+            match info["tables"].as_array() {
+                Some(tables) if !tables.is_empty() => {
+                    let mut table = Table::new();
+                    table.column("table", Align::Left);
+                    table.column("rows", Align::Right);
+                    for entry in tables {
+                        table.row(vec![
+                            Cell::text(entry["name"].as_str().unwrap_or("?")),
+                            Cell::number(entry["rows"].as_u64().unwrap_or(0)),
+                        ]);
+                    }
+                    tables.table(table);
+                }
+                _ => {
+                    tables.field("none", Cell::text("this database has no tables"));
+                }
+            }
+            sections.push(tables);
+        }
+        let mut out = std::io::stdout();
+        dg::render::write_sections(&mut out, &terminal_theme(), &sections).map_err(Application)?;
         return Ok(None);
     }
     Ok(Some((
@@ -138,6 +178,24 @@ pub async fn info(
         None,
         None,
     )))
+}
+
+/// The creation time as a person reads it, with the raw value kept
+/// alongside it: the human form is for reading, the epoch is for
+/// comparing.
+fn created_text(info: &Value) -> String {
+    match info["created_at"].as_i64() {
+        Some(epoch) => format!("{} ({epoch})", dg::render::human_epoch(epoch)),
+        None => "unknown".to_string(),
+    }
+}
+
+/// The purge time as a person reads it.
+fn purge_after_text(info: &Value) -> String {
+    match info["purge_after"].as_i64() {
+        Some(epoch) => format!("{} ({epoch})", dg::render::human_epoch(epoch)),
+        None => "unknown".to_string(),
+    }
 }
 
 pub async fn create(name: String) -> Result<Option<Request>, dg::ServerError> {
