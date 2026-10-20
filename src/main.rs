@@ -78,6 +78,12 @@ type View = Box<dyn Fn(&Value) -> dg::render::Outcome>;
 /// human view, a pipe or `--json` gets the JSON. `view` is what the
 /// command's result looks like to a person; it is only consulted for a
 /// terminal, so the machine surface never changes because of it.
+///
+/// Returns `Ok(Some(result))` when it has drawn the view, and
+/// `Ok(None)` when the output is a machine's and the caller must
+/// still make the request. The request is made exactly once either
+/// way: a command that draws the view must not also hand the request
+/// back for the caller to run again.
 async fn human_result(
     server: &str,
     json: bool,
@@ -112,7 +118,7 @@ async fn human_result(
     view(&result)
         .write(&mut out, &terminal_theme())
         .map_err(Application)?;
-    Ok(None)
+    Ok(Some(result))
 }
 
 /// Terminal-table fetch shared by the JSON-listing commands. Returns
