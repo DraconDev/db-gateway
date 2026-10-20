@@ -125,11 +125,24 @@ fn the_per_database_wait_columns_name_what_they_hold() {
     // A contended database, so its p95 and its max are DIFFERENT
     // numbers. With a single wait they are the same, and a swapped
     // pair of cells would look correct.
+    //
+    // The credentials are copied into the threads: the fleet owns the
+    // server process, and it cannot be borrowed across threads. The
+    // burst is wide enough that the wait distribution has a tail --
+    // most readers wait a few microseconds and one waits far longer.
+    let server = fleet.cli.server.clone();
+    let key = fleet.cli.key_file.to_str().unwrap().to_string();
     let mut readers = Vec::new();
-    for _ in 0..16 {
-        let cli = &fleet.cli;
+    for _ in 0..48 {
+        let server = server.clone();
+        let key = key.clone();
         readers.push(std::thread::spawn(move || {
-            let _ = cli.run(&["query", "wait_db", "SELECT count(*) FROM t"]);
+            let out = Command::new(env!("CARGO_BIN_EXE_dg"))
+                .args(["--server", &server, "--key-file", &key])
+                .args(["query", "wait_db", "SELECT count(*) FROM t"])
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "the concurrent query failed");
         }));
     }
     for reader in readers {
@@ -166,10 +179,17 @@ fn the_per_database_wait_columns_name_what_they_hold() {
     // The p95 is at or below the max, always: a percentile cannot
     // exceed the worst sample.
     assert!(p95 <= max, "the p95 {p95} exceeds the max {max}: {entry}");
+    // And the scenario must make them DIFFERENT, or a swapped pair of
+    // cells would look correct and this test would prove nothing.
+    assert!(
+        p95 < max,
+        "the scenario did not produce distinct values (p95 {p95}, max {max}): {entry}"
+    );
 
     // Each cell, at its own column, holds its own value. The columns
     // are located by their headers, so the check survives a change to
-    // the column order.
+    // the column order, and the values are compared as the renderer
+    // draws them rather than as raw numbers.
     let header: Vec<String> = screen
         .lines()
         .find(|line| line.contains("wait p95") && line.contains("wait max"))
@@ -194,13 +214,15 @@ fn the_per_database_wait_columns_name_what_they_hold() {
         .iter()
         .position(|cell| cell == "wait max")
         .expect("no wait max column");
-    assert!(
-        row[p95_column].contains(&p95.to_string()),
-        "the wait p95 column does not hold the p95 {p95}: {row:?}"
+    assert_eq!(
+        row[p95_column],
+        dg::render::human_micros(p95),
+        "the wait p95 column does not hold the p95: {row:?}"
     );
-    assert!(
-        row[max_column].contains(&max.to_string()),
-        "the wait max column does not hold the max {max}: {row:?}"
+    assert_eq!(
+        row[max_column],
+        dg::render::human_micros(max),
+        "the wait max column does not hold the max: {row:?}"
     );
 }
 

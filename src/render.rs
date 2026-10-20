@@ -891,10 +891,7 @@ pub fn wait_figures(entry: &serde_json::Value, absent: &str) -> WaitFigures {
 /// A view that draws them as labelled fields takes them from here, so
 /// the label and the value travel together and cannot be swapped at
 /// the call site.
-pub fn wait_figure_fields(
-    entry: &serde_json::Value,
-    absent: &str,
-) -> Vec<(&'static str, Cell)> {
+pub fn wait_figure_fields(entry: &serde_json::Value, absent: &str) -> Vec<(&'static str, Cell)> {
     let figures = wait_figures(entry, absent);
     vec![("wait p95", figures.p95), ("wait max", figures.max)]
 }
