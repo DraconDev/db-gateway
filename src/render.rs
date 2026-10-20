@@ -1537,7 +1537,7 @@ mod tests {
         });
         let sections = service_dashboard(&status);
         let mut out = Vec::new();
-        write_sections(&mut out, &Theme::fixed(false, true)).unwrap();
+        write_sections(&mut out, &Theme::fixed(false, true), &sections).unwrap();
         let text = String::from_utf8(out).unwrap();
 
         let header = header_cells(&text);
