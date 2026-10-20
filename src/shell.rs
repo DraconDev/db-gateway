@@ -317,8 +317,23 @@ impl Session<'_> {
 
 /// Human-readable renderer shared by the shell and one-shot tty output.
 /// `json_mode` forces raw JSON; otherwise errors print one line, column
-/// results print an aligned table, and write results print a row count.
+/// results print a table, and write results print a row count.
+///
+/// The table is the shared renderer in [`crate::render`], so the shell
+/// and the one-shot commands draw the same grid for the same rows.
 pub fn render(response: &Value, json_mode: bool, out: &mut dyn Write) -> Result<()> {
+    render_with(response, json_mode, &crate::render::Theme::for_stream(false), out)
+}
+
+/// Render with an explicit theme. The one-shot commands pass a theme
+/// built from the real stdout, so the table is drawn for a terminal; the
+/// shell passes the same theme for the session.
+pub fn render_with(
+    response: &Value,
+    json_mode: bool,
+    theme: &crate::render::Theme,
+    out: &mut dyn Write,
+) -> Result<()> {
     if json_mode {
         return writeln!(out, "{response}").map_err(io);
     }
@@ -335,7 +350,7 @@ pub fn render(response: &Value, json_mode: bool, out: &mut dyn Write) -> Result<
     if let Some(results) = response["results"].as_array() {
         for (index, result) in results.iter().enumerate() {
             writeln!(out, "statement {}:", index + 1).map_err(io)?;
-            render(result, false, out)?;
+            render_with(result, false, theme, out)?;
         }
         return Ok(());
     }
@@ -343,57 +358,36 @@ pub fn render(response: &Value, json_mode: bool, out: &mut dyn Write) -> Result<
         (response["columns"].as_array(), response["rows"].as_array())
         && !columns.is_empty()
     {
-        let header: Vec<String> = columns.iter().map(cell_text).collect();
-        // `row` is untrusted wire data, and the shell accepts any
-        // `--server` origin including plain http. Indexing it by
-        // `columns.len()` panicked the client on a short row -- a remote
-        // panic reachable from a mismatched gateway or an intercepting
-        // proxy. Zip instead: a missing cell renders as empty, and an
-        // over-long row is truncated to the header.
-        let rows: Vec<Vec<String>> = rows
+        // `columns` and `rows` are untrusted wire data: the shell accepts
+        // any `--server` origin including plain http. The shared renderer
+        // escapes control characters in a cell, so a value cannot repaint
+        // the terminal or forge a row, and it renders a short row as empty
+        // cells and truncates an over-long one to the header's width.
+        let headers: Vec<String> = columns.iter().map(cell_text).collect();
+        let values: Vec<Vec<Value>> = rows
             .iter()
             .map(|row| {
                 (0..columns.len())
-                    .map(|i| row.get(i).map_or(String::new(), cell_text))
+                    .map(|index| row.get(index).cloned().unwrap_or(Value::Null))
                     .collect()
             })
             .collect();
-        let widths: Vec<usize> = header
-            .iter()
-            .enumerate()
-            .map(|(i, column)| {
-                rows.iter()
-                    .map(|row| row[i].chars().count())
-                    .fold(column.chars().count(), usize::max)
-            })
-            .collect();
-        write_row(&header, &widths, out)?;
-        writeln!(
-            out,
-            "{}",
-            widths
-                .iter()
-                .map(|w| "-".repeat(*w))
-                .collect::<Vec<_>>()
-                .join("-+-")
-        )
-        .map_err(io)?;
-        for row in rows {
-            write_row(&row, &widths, out)?;
-        }
+        let table = crate::render::Table::from_json(&headers, &values);
+        table.write(out, theme)?;
+        let count = values.len();
+        writeln!(out, "{}", count_line(count)).map_err(io)?;
         return Ok(());
     }
     writeln!(out, "ok, {} row(s) affected", response["rows_affected"]).map_err(io)
 }
 
-fn write_row(cells: &[String], widths: &[usize], out: &mut dyn Write) -> Result<()> {
-    let row = cells
-        .iter()
-        .zip(widths)
-        .map(|(text, width)| format!("{text:<width$}"))
-        .collect::<Vec<_>>()
-        .join(" | ");
-    writeln!(out, "{row}").map_err(io)
+/// The line under a table saying how many rows it holds.
+fn count_line(count: usize) -> String {
+    if count == 1 {
+        "1 row".to_string()
+    } else {
+        format!("{count} rows")
+    }
 }
 
 fn split_command(line: &str) -> (&str, &str) {
