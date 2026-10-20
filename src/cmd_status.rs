@@ -4,7 +4,7 @@ use super::{Request, table_json};
 use dg::ServerError::Application;
 use dg::render::{
     Align, Cell, Section, Style, Table, Theme, human_count, human_duration, human_percent,
-    human_rate, sparkline,
+    human_rate,
 };
 use reqwest::Method;
 use serde_json::Value;

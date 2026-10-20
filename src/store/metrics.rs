@@ -78,7 +78,7 @@ impl WaitSamples {
         self.next = (self.next + 1) % WAIT_SAMPLES;
     }
 
-    /// The p-th percentile of the recorded waits, in milliseconds.
+    /// The p-th percentile of the recorded waits, in microseconds.
     ///
     /// `None` when no wait has been recorded: a percentile of nothing is
     /// nothing, and reporting zero would claim the queue never
@@ -112,9 +112,9 @@ pub struct MetricsSnapshot {
     /// rather than reported against a span the service never lived.
     pub window_span_secs: u64,
     /// The median and 95th percentile of the recent admission waits, in
-    /// milliseconds. `None` when no wait has been recorded.
-    pub wait_p50_ms: Option<u64>,
-    pub wait_p95_ms: Option<u64>,
+    /// MICROSECONDS. `None` when no wait has been recorded.
+    pub wait_p50_us: Option<u64>,
+    pub wait_p95_us: Option<u64>,
     /// How many waits the percentile sample holds.
     pub wait_samples: usize,
 }
@@ -137,12 +137,13 @@ impl Metrics {
         }
     }
     pub fn record_queue_wait(&self, name: &str, waited: Duration, timed_out: bool) {
+        let micros = waited.as_micros() as u64;
         let millis = waited.as_millis() as u64;
         if let Ok(mut queue) = self.queue.lock() {
             let entry = queue.entry(name.to_string()).or_default();
             entry.waits += 1;
-            entry.wait_ms += waited.as_millis() as u64;
-            entry.max_wait_ms = entry.max_wait_ms.max(millis);
+            entry.wait_ms += millis;
+            entry.max_wait_us = entry.max_wait_us.max(micros);
             if timed_out {
                 entry.timeouts += 1;
             }
@@ -150,7 +151,7 @@ impl Metrics {
         // Only the contended path reaches here, so the ring's lock is
         // not on the request hot path.
         if let Ok(mut samples) = self.waits.lock() {
-            samples.push(millis);
+            samples.push(micros);
         }
     }
     pub fn queue_snapshot(&self) -> HashMap<String, DbQueue> {
@@ -270,7 +271,7 @@ impl Metrics {
         // The window only observed the service's whole life once it is
         // older than the window itself.
         let window_span_secs = uptime_secs.min(WINDOW_BUCKETS as u64).max(1);
-        let (wait_p50_ms, wait_p95_ms, wait_samples) = match self.waits.lock() {
+        let (wait_p50_us, wait_p95_us, wait_samples) = match self.waits.lock() {
             Ok(samples) => (
                 samples.percentile(50.0),
                 samples.percentile(95.0),
@@ -286,8 +287,8 @@ impl Metrics {
             internal_error: self.internal_error.load(load),
             request_window,
             window_span_secs,
-            wait_p50_ms,
-            wait_p95_ms,
+            wait_p50_us,
+            wait_p95_us,
             wait_samples,
         }
     }

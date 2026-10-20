@@ -624,7 +624,24 @@ pub fn write_sections(out: &mut dyn Write, theme: &Theme, sections: &[Section]) 
 pub fn human_rate(count: u64, span_secs: u64) -> String {
     let span = span_secs.max(1);
     let per_minute = count as f64 * 60.0 / span as f64;
-    human_count(per_minute as u64, "min")
+    format!("{}/min", human_count(per_minute as u64, ""))
+}
+
+/// A duration in microseconds, as a person reads it.
+///
+/// A wait that is shorter than a millisecond is still a wait, and
+/// rounding it to "0 ms" would read as "no wait at all".
+pub fn human_micros(micros: u64) -> String {
+    if micros < 1_000 {
+        return format!("{micros} us");
+    }
+    if micros < 10_000 {
+        return format!("{:.1} ms", micros as f64 / 1_000.0);
+    }
+    if micros < 1_000_000 {
+        return format!("{} ms", micros / 1_000);
+    }
+    format!("{:.1} s", micros as f64 / 1_000_000.0)
 }
 
 /// A count as a person reads it: `1,204` with a thousands separator,
