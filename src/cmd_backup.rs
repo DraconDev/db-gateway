@@ -157,7 +157,10 @@ pub async fn digest(
     };
     let health = dg::backup_health::snapshot(&store).map_err(Application)?;
     let note = dg::notify::digest_note(&health);
-    if as_json {
+    // The ONE rule: a terminal gets the human view, a pipe or --json
+    // gets the JSON. The digest reads the data dir directly rather
+    // than the server, so it has to honour the rule itself.
+    if as_json || !std::io::stdout().is_terminal() {
         println!(
             "{}",
             serde_json::to_string(&note).map_err(|_| Application(dg::error::Error::internal()))?
