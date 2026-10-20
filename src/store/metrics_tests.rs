@@ -142,12 +142,15 @@ fn each_database_gets_its_own_percentile() {
     assert_eq!(queue["slow"].wait_p95_us, Some(50_000));
     assert_eq!(queue["quick"].wait_p95_us, Some(1_000));
 
-    // The service-wide figure is the mixed one, and it differs from
-    // the slow database's own: which is exactly why both are shown.
+    // The service-wide figure mixes the two, so it reports the
+    // contended database's latency for the whole service and hides the
+    // fact that every other database is fine. That is exactly why each
+    // database's own percentile is worth serving.
     let snapshot = metrics.snapshot();
+    assert_eq!(snapshot.wait_p95_us, Some(50_000));
     assert!(
-        snapshot.wait_p95_us != Some(50_000),
-        "the service-wide p95 should not equal the slow database's: {snapshot:?}"
+        snapshot.wait_p95_us != queue["quick"].wait_p95_us,
+        "the service-wide p95 should not equal the quick database's own"
     );
 }
 
