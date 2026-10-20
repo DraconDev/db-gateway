@@ -350,29 +350,14 @@ impl Table {
         let mut line = String::new();
         for (index, width) in widths.iter().enumerate() {
             if index > 0 {
-                line.push_str(&paint(self.joint(kind), Style::Dim, theme));
+                line.push_str(&paint(self.joint(kind, theme), Style::Dim, theme));
             }
-            let fill = "─".repeat(width + 2);
-            line.push_str(&paint(&fill, Style::Dim, theme));
+            line.push_str(&paint(&"─".repeat(width + 2), Style::Dim, theme));
         }
-        let edge = match kind {
-            Rule::Top => (self.corner(Corner::TopLeft), self.corner(Corner::TopRight)),
-            Rule::Middle => (self.corner(Corner::MidLeft), self.corner(Corner::MidRight)),
-            Rule::Bottom => (self.corner(Corner::BottomLeft), self.corner(Corner::BottomRight)),
-        };
         let mut rendered = String::new();
-        rendered.push_str(&paint(&edge.0, Style::Dim, theme));
-        // The joints above were appended after the first segment, so the
-        // leading corner has to be prepended rather than appended.
-        let mut body = String::new();
-        for (index, width) in widths.iter().enumerate() {
-            if index > 0 {
-                body.push_str(&paint(self.joint(kind), Style::Dim, theme));
-            }
-            body.push_str(&paint(&"─".repeat(width + 2), Style::Dim, theme));
-        }
-        rendered.push_str(&body);
-        rendered.push_str(&paint(&edge.1, Style::Dim, theme));
+        rendered.push_str(&paint(self.corner(kind, Corner::Left, theme), Style::Dim, theme));
+        rendered.push_str(&line);
+        rendered.push_str(&paint(self.corner(kind, Corner::Right, theme), Style::Dim, theme));
         writeln!(out, "{rendered}").map_err(io)
     }
 
@@ -382,9 +367,8 @@ impl Table {
     }
 
     /// A rule joint.
-    fn joint(&self, kind: Rule) -> &'static str {
-        let unicode = self.unicode;
-        match (kind, unicode) {
+    fn joint(&self, kind: Rule, theme: &Theme) -> &'static str {
+        match (kind, theme.unicode) {
             (Rule::Top, true) => "┬",
             (Rule::Middle, true) => "┼",
             (Rule::Bottom, true) => "┴",
@@ -393,24 +377,26 @@ impl Table {
     }
 
     /// A corner.
-    fn corner(&self, corner: Corner) -> &'static str {
-        if !self.unicode {
+    fn corner(&self, kind: Rule, side: Corner, theme: &Theme) -> &'static str {
+        if !theme.unicode {
             return "+";
         }
-        match corner {
-            Corner::TopLeft => "┌",
-            Corner::TopRight => "┐",
-            Corner::MidLeft => "├",
-            Corner::MidRight => "┤",
-            Corner::BottomLeft => "└",
-            Corner::BottomRight => "┘",
+        match (kind, side) {
+            (Rule::Top, Corner::Left) => "┌",
+            (Rule::Top, Corner::Right) => "┐",
+            (Rule::Middle, Corner::Left) => "├",
+            (Rule::Middle, Corner::Right) => "┤",
+            (Rule::Bottom, Corner::Left) => "└",
+            (Rule::Bottom, Corner::Right) => "┘",
         }
     }
+}
 
-    /// Whether this table uses Unicode borders.
-    fn unicode(&self) -> bool {
-        true
-    }
+/// Which side of a rule a corner is on.
+#[derive(Clone, Copy)]
+enum Corner {
+    Left,
+    Right,
 }
 
 /// Which rule is being drawn.
@@ -419,17 +405,6 @@ enum Rule {
     Top,
     Middle,
     Bottom,
-}
-
-/// Which corner is being drawn.
-#[derive(Clone, Copy)]
-enum Corner {
-    TopLeft,
-    TopRight,
-    MidLeft,
-    MidRight,
-    BottomLeft,
-    BottomRight,
 }
 
 /// Apply a style to text, if the theme allows colour.

@@ -8,6 +8,7 @@ pub mod client;
 pub mod error;
 pub mod execution;
 pub mod notify;
+pub mod render;
 pub mod shell;
 pub mod store;
 pub mod values;
