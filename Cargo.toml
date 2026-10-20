@@ -24,6 +24,7 @@ tempfile = "3.27.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "process", "signal", "time"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json"] }
+unicode-width = "0.2"
 
 [profile.test]
 debug = 0
