@@ -7,6 +7,7 @@ use dg::ServerError::Application;
 use dg::error::Error;
 use reqwest::Method;
 use serde_json::{Value, json};
+use std::io::IsTerminal;
 use std::path::PathBuf;
 
 /// The theme for a command that is drawing to the terminal.
@@ -22,6 +23,14 @@ fn state_style(state: &str) -> Style {
         "fresh" => Style::Green,
         "stale" => Style::Yellow,
         _ => Style::Red,
+    }
+}
+
+/// The style for a notification's severity.
+fn severity_style(severity: &dg::notify::Severity) -> Style {
+    match severity {
+        dg::notify::Severity::Alert => Style::Red,
+        dg::notify::Severity::Digest => Style::Green,
     }
 }
 
@@ -106,7 +115,7 @@ pub async fn status(
                             fresh["newest_set"]
                                 .as_str()
                                 .map(dg::render::human_set_stamp)
-                                .unwrap_or("—"),
+                                .unwrap_or_else(|| "—".to_string()),
                         ),
                         Cell::text(
                             fresh["age_secs"]
@@ -153,7 +162,7 @@ pub async fn digest(
         let mut root = Section::new("backup");
         root.field(
             "state",
-            Cell::styled(note.title.clone(), state_style(&note.state)),
+            Cell::styled(note.title.clone(), severity_style(&note.severity)),
         );
         root.field(
             "stale after",
@@ -185,12 +194,12 @@ pub async fn digest(
             for db in &health.databases {
                 table.row(vec![
                     Cell::styled(db.name.clone(), Style::Cyan),
-                    Cell::styled(db.state.as_str(), state_style(&db.state)),
+                    Cell::styled(db.state, state_style(db.state)),
                     Cell::text(
                         db.newest_set
                             .as_deref()
                             .map(dg::render::human_set_stamp)
-                            .unwrap_or("—"),
+                            .unwrap_or_else(|| "—".to_string()),
                     ),
                     Cell::text(
                         db.age_secs
