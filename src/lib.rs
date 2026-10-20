@@ -10,6 +10,7 @@ pub mod execution;
 pub mod notify;
 pub mod render;
 pub mod shell;
+pub mod sqlsplit;
 pub mod store;
 pub mod values;
 
