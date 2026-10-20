@@ -109,6 +109,13 @@ fn the_per_database_wait_columns_name_what_they_hold() {
     // disagrees with the genuine p95 in the admission block of the same
     // screen. The columns must say which is which, and the p95 column
     // must hold the server's p95.
+    //
+    // The assertion is PER COLUMN, not per row: with one wait a
+    // database's p95 and its max are the same number, so a check that
+    // looks for the p95 anywhere in the row passes even when the two
+    // cells are swapped. The renderer-level test in src/render.rs
+    // pins the two cells apart with values that differ; this one
+    // checks the same wiring end to end.
     let fleet = Fleet::boot();
     fleet.cli.ok("create", &["create", "wait_db"]);
     fleet
@@ -142,18 +149,44 @@ fn the_per_database_wait_columns_name_what_they_hold() {
         "the server reported no wait measurements: {entry}"
     );
     let (p95, max) = (p95.unwrap(), max.unwrap());
-
-    let row = screen
-        .lines()
-        .find(|line| line.contains("wait_db"))
-        .unwrap_or_else(|| panic!("the database is not in the table: {screen}"));
     // The p95 is at or below the max, always: a percentile cannot
     // exceed the worst sample.
     assert!(p95 <= max, "the p95 {p95} exceeds the max {max}: {entry}");
-    // And the rendered row carries the p95.
+
+    // Each cell, at its own column, holds its own value. The columns
+    // are located by their headers, so the check survives a change to
+    // the column order.
+    let header: Vec<String> = screen
+        .lines()
+        .find(|line| line.contains("wait p95") && line.contains("wait max"))
+        .unwrap_or_else(|| panic!("no per-database header: {screen}"))
+        .split('│')
+        .map(|cell| cell.trim().to_string())
+        .filter(|cell| !cell.is_empty())
+        .collect();
+    let row: Vec<String> = screen
+        .lines()
+        .find(|line| line.contains("wait_db") && line.contains('│'))
+        .unwrap_or_else(|| panic!("the database is not in the table: {screen}"))
+        .split('│')
+        .map(|cell| cell.trim().to_string())
+        .filter(|cell| !cell.is_empty())
+        .collect();
+    let p95_column = header
+        .iter()
+        .position(|cell| cell == "wait p95")
+        .expect("no wait p95 column");
+    let max_column = header
+        .iter()
+        .position(|cell| cell == "wait max")
+        .expect("no wait max column");
     assert!(
-        row.contains(&format!("{} us", p95)) || row.contains(&format!("{} ms", p95 / 1000)),
-        "the row does not carry the p95 {p95}: {row}"
+        row[p95_column].contains(&p95.to_string()),
+        "the wait p95 column does not hold the p95 {p95}: {row:?}"
+    );
+    assert!(
+        row[max_column].contains(&max.to_string()),
+        "the wait max column does not hold the max {max}: {row:?}"
     );
 }
 

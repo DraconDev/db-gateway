@@ -144,7 +144,7 @@ pub async fn inspect(
             .as_ref()
             .and_then(|status| status["databases"][&name].as_object().cloned())
             .unwrap_or_default();
-        let activity = activity_section(&entry);
+        let activity = activity_section(&Value::Object(entry));
         sections.push(activity);
 
         // How its backup is doing.
@@ -233,6 +233,46 @@ fn last_write_ago(epoch: u64) -> String {
         "{} ago",
         dg::render::human_duration(now.saturating_sub(epoch))
     )
+}
+
+/// What one database has been doing, as the `activity` section.
+///
+/// The p95 and the max are different facts and are labelled as such:
+/// the p95 says how bad this database's queue usually is, the max says
+/// how bad it ever got. The label and the value travel together from
+/// the shared helper, so this view and the dashboard cannot disagree
+/// about which is which.
+fn activity_section(entry: &Value) -> Section {
+    let mut activity = Section::new("activity");
+    activity.field(
+        "rows read",
+        Cell::number(entry.get("rows_read").and_then(Value::as_u64).unwrap_or(0)),
+    );
+    activity.field(
+        "rows written",
+        Cell::number(
+            entry
+                .get("rows_written")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+        ),
+    );
+    let waits = entry
+        .get("queue_waits")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    activity.field("queue waits", Cell::number(waits));
+    for (label, cell) in dg::render::wait_figure_fields(entry, "no waits recorded") {
+        activity.field(label, cell);
+    }
+    activity.field(
+        "last write",
+        match entry.get("last_write").and_then(Value::as_u64) {
+            Some(epoch) => Cell::text(last_write_ago(epoch)),
+            None => Cell::text("never"),
+        },
+    );
+    activity
 }
 
 pub async fn info(
@@ -705,4 +745,48 @@ pub async fn batch(
         Some(body_value),
         idempotency_key,
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_inspect_view_labels_the_p95_and_the_max_under_their_own_names() {
+        // The defect this protects against: the wait-latency field once
+        // held the database's MAXIMUM wait under a "wait p95" label.
+        // The two values here are far apart, so a swapped pair is
+        // visible; a row-wide assertion could not tell.
+        let entry = serde_json::json!({
+            "rows_read": 1,
+            "rows_written": 2,
+            "queue_waits": 21,
+            "queue_wait_p95_us": 1_000,
+            "queue_wait_max_us": 900_000,
+        });
+        let section = activity_section(&entry);
+        let mut out = Vec::new();
+        section
+            .write(&mut out, &dg::render::Theme::fixed(false, true))
+            .unwrap();
+        let text = String::from_utf8(out).unwrap();
+
+        let p95_line = text
+            .lines()
+            .find(|line| line.trim_start().starts_with("wait p95"))
+            .unwrap_or_else(|| panic!("no wait p95 field: {text}"));
+        let max_line = text
+            .lines()
+            .find(|line| line.trim_start().starts_with("wait max"))
+            .unwrap_or_else(|| panic!("no wait max field: {text}"));
+
+        assert!(
+            p95_line.contains("1.0 ms"),
+            "the wait p95 field does not hold the p95: {p95_line}"
+        );
+        assert!(
+            max_line.contains("900 ms"),
+            "the wait max field does not hold the max: {max_line}"
+        );
+    }
 }
