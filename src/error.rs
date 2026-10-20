@@ -11,6 +11,14 @@ pub struct Error {
     pub message: &'static str,
     #[serde(skip)]
     pub status: u16,
+    /// The statement of a batch that failed, when the failure belongs
+    /// to one. A batch runs as a whole, so without this the operator
+    /// cannot tell WHICH statement broke the script.
+    ///
+    /// It is omitted when there is none, so every existing error
+    /// envelope stays byte for byte what it was.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub statement: Option<u32>,
 }
 impl Error {
     pub fn new(status: u16, code: &'static str, message: &'static str) -> Self {
@@ -18,7 +26,13 @@ impl Error {
             status,
             code,
             message,
+            statement: None,
         }
+    }
+    /// The same error, attributed to a statement of a batch.
+    pub fn at_statement(mut self, index: u32) -> Self {
+        self.statement = Some(index);
+        self
     }
     pub fn invalid() -> Self {
         Self::new(400, "invalid_request", "invalid request")

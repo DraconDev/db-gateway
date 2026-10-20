@@ -494,6 +494,37 @@ pub async fn execute(
         // so they are drawn rather than dumped.
         let mut out = std::io::stdout();
         let theme = terminal_theme();
+        if let Some(error) = result.get("error") {
+            // A batch that fails fails as a whole. The error says which
+            // statement broke it, and the statements that did not get
+            // that far are shown as rolled back rather than as "-".
+            let message = error["message"].as_str().unwrap_or("failed");
+            let code = error["code"].as_str().unwrap_or("error");
+            let failed = error["statement"].as_u64();
+            let mut table = Table::new();
+            table.column("#", Align::Right);
+            table.column("statement", Align::Left);
+            table.column("result", Align::Left);
+            for (index, statement) in statements.iter().enumerate() {
+                let outcome = match failed {
+                    Some(failed) if failed as usize == index => {
+                        Cell::styled(format!("{code}: {message}"), dg::render::Style::Red)
+                    }
+                    _ => Cell::styled("rolled back", dg::render::Style::Dim),
+                };
+                table.row(vec![
+                    Cell::number(index + 1),
+                    Cell::text(statement),
+                    outcome,
+                ]);
+            }
+            table.write(&mut out, &theme).map_err(Application)?;
+            return Err(Application(Error::new(
+                400,
+                "api_error",
+                "API request failed; see response above",
+            )));
+        }
         let mut table = Table::new();
         table.column("#", Align::Right);
         table.column("statement", Align::Left);
@@ -502,10 +533,7 @@ pub async fn execute(
         for (index, statement) in statements.iter().enumerate() {
             let outcome = match results.get(index) {
                 Some(one) => match one["error"].as_str() {
-                    Some(message) => Cell::styled(
-                        message.to_string(),
-                        dg::render::Style::Red,
-                    ),
+                    Some(message) => Cell::styled(message.to_string(), dg::render::Style::Red),
                     None => match one["rows_affected"].as_u64() {
                         Some(rows) => Cell::text(format!("{rows} rows")),
                         None => {
@@ -525,13 +553,6 @@ pub async fn execute(
         table
             .write(&mut out, &theme)
             .map_err(Application)?;
-        if result.get("error").is_some() {
-            return Err(Application(Error::new(
-                400,
-                "api_error",
-                "API request failed; see response above",
-            )));
-        }
         return Ok(None);
     }
     Ok(Some((
