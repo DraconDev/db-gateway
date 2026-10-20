@@ -150,48 +150,60 @@ pub async fn digest(
             serde_json::to_string(&note).map_err(|_| Application(dg::error::Error::internal()))?
         );
     } else {
-        let mut rows: Vec<Value> = vec![json!(["state", note.title.clone()])];
-        for db in &health.databases {
-            rows.push(json!([
-                format!("backup {}", db.name),
-                format!(
-                    "{}{}{}",
-                    db.state,
-                    db.newest_set
-                        .as_deref()
-                        .map(|set| format!(" @ {set}"))
-                        .unwrap_or_default(),
-                    db.age_secs
-                        .map(|age| format!(" ({age}s ago)"))
-                        .unwrap_or_default()
-                )
-            ]));
-        }
+        let mut root = Section::new("backup");
+        root.field(
+            "state",
+            Cell::styled(note.title.clone(), state_style(&note.state)),
+        );
+        root.field(
+            "stale after",
+            Cell::text(dg::render::human_duration(note.stale_after_secs)),
+        );
         if let Some(failure) = &health.last_failure {
-            rows.push(json!([
+            root.field(
                 "last failure",
-                format!(
-                    "{} at step {}",
-                    if failure.ts.is_empty() {
-                        "?"
-                    } else {
-                        &failure.ts
-                    },
-                    if failure.step.is_empty() {
-                        "?"
-                    } else {
-                        &failure.step
-                    }
-                )
-            ]));
+                Cell::styled(
+                    format!(
+                        "{} at step {}",
+                        if failure.ts.is_empty() { "?" } else { &failure.ts },
+                        if failure.step.is_empty() { "?" } else { &failure.step }
+                    ),
+                    Style::Red,
+                ),
+            );
         }
-        rows.push(json!(["action", note.action.clone()]));
-        dg::shell::render(
-            &json!({"columns":["property","value"],"rows":rows}),
-            false,
-            &mut std::io::stdout(),
-        )
-        .map_err(Application)?;
+        root.field("action", Cell::text(note.action.clone()));
+
+        let mut sections = vec![root];
+        if !health.databases.is_empty() {
+            let mut per_database = Section::new("per-database");
+            let mut table = Table::new();
+            table.column("database", Align::Left);
+            table.column("state", Align::Left);
+            table.column("newest set", Align::Left);
+            table.column("age", Align::Right);
+            for db in &health.databases {
+                table.row(vec![
+                    Cell::styled(db.name.clone(), Style::Cyan),
+                    Cell::styled(db.state.as_str(), state_style(&db.state)),
+                    Cell::text(
+                        db.newest_set
+                            .as_deref()
+                            .map(dg::render::human_set_stamp)
+                            .unwrap_or("—"),
+                    ),
+                    Cell::text(
+                        db.age_secs
+                            .map(dg::render::human_duration)
+                            .unwrap_or_else(|| "unknown".to_string()),
+                    ),
+                ]);
+            }
+            per_database.table(table);
+            sections.push(per_database);
+        }
+        let mut out = std::io::stdout();
+        dg::render::write_sections(&mut out, &terminal_theme(), &sections).map_err(Application)?;
     }
     // Alert 4 is a condition, not a report: a digest that exits 0
     // while a database is unrepresented is how a schedule gets
