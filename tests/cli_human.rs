@@ -476,7 +476,6 @@ fn every_contract_command_still_emits_json_when_piped() {
         (
             "backup verify",
             vec![
-                dg,
                 "backup",
                 "verify",
                 "--backup-root",
