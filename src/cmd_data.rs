@@ -148,25 +148,25 @@ pub async fn info(
 
         let mut sections = vec![facts, usage];
         if info["tombstoned"].as_bool() != Some(true) {
-            let mut tables = Section::new("tables");
+            let mut tables_section = Section::new("tables");
             match info["tables"].as_array() {
-                Some(tables) if !tables.is_empty() => {
+                Some(entries) if !entries.is_empty() => {
                     let mut table = Table::new();
                     table.column("table", Align::Left);
                     table.column("rows", Align::Right);
-                    for entry in tables {
+                    for entry in entries {
                         table.row(vec![
                             Cell::text(entry["name"].as_str().unwrap_or("?")),
                             Cell::number(entry["rows"].as_u64().unwrap_or(0)),
                         ]);
                     }
-                    tables.table(table);
+                    tables_section.table(table);
                 }
                 _ => {
-                    tables.field("none", Cell::text("this database has no tables"));
+                    tables_section.field("none", Cell::text("this database has no tables"));
                 }
             }
-            sections.push(tables);
+            sections.push(tables_section);
         }
         let mut out = std::io::stdout();
         dg::render::write_sections(&mut out, &terminal_theme(), &sections).map_err(Application)?;
