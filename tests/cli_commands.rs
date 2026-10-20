@@ -187,9 +187,48 @@ fn execute_reports_a_failing_statement() {
         &["execute", "failing_db", script.to_str().unwrap()],
     );
     assert!(!ok, "a failing script was accepted: {stdout}");
+    // The failure names the statement that broke the script, so the
+    // operator does not have to bisect it by hand. The error itself is
+    // the gateway's stable one: it does not leak the table name.
+    let reported: serde_json::Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|_| panic!("the failure is not JSON: {stdout}"));
+    assert_eq!(
+        reported["error"]["statement"], 0,
+        "the failing statement is not identified: {stdout}"
+    );
+    assert_eq!(reported["error"]["code"], "invalid_sql", "{stdout}");
+    assert!(stderr.contains("api_error"), "no error on stderr: {stderr}");
+}
+
+#[test]
+fn a_failing_script_names_the_statement_that_broke_it_on_a_terminal() {
+    // On a terminal the failure is drawn with the statement it came
+    // from, not as a bare envelope.
+    let fleet = Fleet::boot();
+    fleet.cli.ok("create", &["create", "failing_pty_db"]);
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("bad.sql");
+    std::fs::write(
+        &script,
+        "SELECT 1;\nSELECT * FROM no_such_table;\nSELECT 2;\n",
+    )
+    .unwrap();
+    let screen = pty(
+        &fleet,
+        &format!(
+            "execute failing_pty_db {}",
+            script.to_str().unwrap()
+        ),
+    );
+    // Every statement is listed, and the one that failed is marked.
+    assert_eq!(screen.matches("SELECT").count(), 3, "{screen}");
     assert!(
-        stdout.contains("no_such_table") || stderr.contains("no_such_table"),
-        "the failure is not named: {stdout} {stderr}"
+        screen.contains("rolled back"),
+        "the statements that did not run are not marked: {screen}"
+    );
+    assert!(
+        screen.contains("invalid_sql"),
+        "the failure is not shown: {screen}"
     );
 }
 
