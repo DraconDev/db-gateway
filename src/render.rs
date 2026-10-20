@@ -567,11 +567,7 @@ impl Outcome {
             Outcome::Done { headline, facts } => {
                 writeln!(out, "{}", paint(headline, Style::Green, theme)).map_err(io)?;
                 if !facts.is_empty() {
-                    let width = facts
-                        .iter()
-                        .map(|(key, _)| key.width())
-                        .max()
-                        .unwrap_or(0);
+                    let width = facts.iter().map(|(key, _)| key.width()).max().unwrap_or(0);
                     for (key, value) in facts {
                         writeln!(
                             out,

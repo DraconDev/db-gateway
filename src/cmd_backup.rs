@@ -6,7 +6,7 @@ use dg::ServerError::Application;
 use dg::error::Error;
 use dg::render::{Align, Cell, Section, Style, Table, Theme};
 use reqwest::Method;
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 
 /// The theme for a command that is drawing to the terminal.
@@ -240,14 +240,9 @@ pub async fn digest(
     )))
 }
 
-pub async fn verify(
-    backup_root: PathBuf,
-    set: String,
-    json: bool,
-) -> Result<(), dg::ServerError> {
+pub async fn verify(backup_root: PathBuf, set: String, json: bool) -> Result<(), dg::ServerError> {
     let report = dg::backup::verify_set(&backup_root, &set).map_err(Application)?;
-    let value =
-        serde_json::to_value(&report).map_err(|_| Application(Error::internal()))?;
+    let value = serde_json::to_value(&report).map_err(|_| Application(Error::internal()))?;
     if json || !std::io::stdout().is_terminal() {
         println!("{value}");
     } else {
@@ -274,10 +269,7 @@ pub async fn verify(
         let mut section = dg::render::Section::new("");
         section.field(
             "",
-            Cell::styled(
-                headline,
-                if report.ok { Style::Green } else { Style::Red },
-            ),
+            Cell::styled(headline, if report.ok { Style::Green } else { Style::Red }),
         );
         if !report.failures.is_empty() {
             let mut failures = dg::render::Section::new("failures");

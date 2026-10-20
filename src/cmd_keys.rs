@@ -25,6 +25,11 @@ pub async fn create(
     for db in &database {
         dg::store::validate_name(db).map_err(Application)?;
     }
+    // The view owns its copy of the names: it outlives this call, and
+    // the request body needs them too.
+    let view_name = name.clone();
+    let view_role = role.clone();
+    let view_database = database.clone();
     if human_result(
         server,
         json,
@@ -37,17 +42,15 @@ pub async fn create(
             // The key is shown ONCE and never again, so it is on the
             // screen. The scope is shown with it, because a key
             // without its scope is a key nobody can use safely.
-            let scope = database.join(", ");
-            let name = name.clone();
-            let role = role.clone();
+            let scope = view_database.join(", ");
             dg::render::Outcome::with_facts(
-                format!("issued {name}"),
+                format!("issued {view_name}"),
                 vec![
                     (
                         "key".to_string(),
                         result["key"].as_str().unwrap_or("").to_string(),
                     ),
-                    ("role".to_string(), role),
+                    ("role".to_string(), view_role.clone()),
                     ("scope".to_string(), scope),
                 ],
             )
@@ -196,6 +199,7 @@ pub async fn revoke(
     name: String,
 ) -> Result<Option<Request>, dg::ServerError> {
     dg::store::validate_name(&name).map_err(Application)?;
+    let view_name = name.clone();
     if human_result(
         server,
         json,
@@ -204,10 +208,7 @@ pub async fn revoke(
         &format!("/v1/keys/{name}"),
         None,
         None,
-        Box::new(move |_result| {
-            let name = name.clone();
-            dg::render::Outcome::done(format!("revoked {name}"))
-        }),
+        Box::new(move |_result| dg::render::Outcome::done(format!("revoked {view_name}"))),
     )
     .await?
     .is_some()
@@ -246,10 +247,7 @@ pub async fn rotate_owner(
                         "key".to_string(),
                         result["key"].as_str().unwrap_or("").to_string(),
                     ),
-                    (
-                        "old key".to_string(),
-                        "dead immediately".to_string(),
-                    ),
+                    ("old key".to_string(), "dead immediately".to_string()),
                 ],
             )
         }),

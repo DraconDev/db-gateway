@@ -7,7 +7,7 @@ use reqwest::Method;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::fs::OpenOptions;
-use std::io::{BufReader, Read, Write};
+use std::io::{BufReader, IsTerminal, Read, Write};
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
@@ -21,6 +21,8 @@ pub async fn clone_db(
 ) -> Result<Option<Request>, dg::ServerError> {
     dg::store::validate_name(&source).map_err(Application)?;
     dg::store::validate_name(&destination).map_err(Application)?;
+    let view_source = source.clone();
+    let view_destination = destination.clone();
     if human_result(
         server,
         json,
@@ -29,11 +31,11 @@ pub async fn clone_db(
         &format!("/v1/databases/{source}/clone"),
         Some(json!({"destination":destination})),
         None,
-        Box::new(|result| {
+        Box::new(move |result| {
             dg::render::Outcome::done(format!(
                 "cloned {} to {}",
-                result["source"].as_str().unwrap_or(&source),
-                result["destination"].as_str().unwrap_or(&destination),
+                result["source"].as_str().unwrap_or(&view_source),
+                result["destination"].as_str().unwrap_or(&view_destination),
             ))
         }),
     )
@@ -183,14 +185,8 @@ pub async fn export(
     dg::render::Outcome::with_facts(
         format!("exported {name}"),
         vec![
-            (
-                "file".to_string(),
-                out.display().to_string(),
-            ),
-            (
-                "size".to_string(),
-                dg::render::human_bytes(size),
-            ),
+            ("file".to_string(), out.display().to_string()),
+            ("size".to_string(), dg::render::human_bytes(size)),
             ("sha256".to_string(), sha256),
         ],
     )
@@ -373,6 +369,7 @@ pub async fn delete(
             "destructive operation: repeat the exact database name with --confirm NAME",
         )));
     }
+    let view_name = name.clone();
     if human_result(
         server,
         json,
@@ -381,7 +378,7 @@ pub async fn delete(
         &format!("/v1/databases/{name}"),
         None,
         None,
-        Box::new(|result| {
+        Box::new(move |result| {
             // A tombstone is not a deletion: the name is taken until
             // the retention window purges it, and the operator has to
             // know when it comes back.
@@ -390,7 +387,7 @@ pub async fn delete(
                 .map(dg::render::human_duration)
                 .unwrap_or_else(|| "unknown".to_string());
             dg::render::Outcome::with_facts(
-                format!("tombstoned {name}"),
+                format!("tombstoned {view_name}"),
                 vec![("purges in".to_string(), purge_after)],
             )
         }),

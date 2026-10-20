@@ -3,6 +3,7 @@
 
 use dg::ServerError::Application;
 use serde_json::json;
+use std::io::IsTerminal;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 

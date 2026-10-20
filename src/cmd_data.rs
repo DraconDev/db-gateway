@@ -422,10 +422,7 @@ pub async fn create(
         Some(json!({"name":name})),
         None,
         Box::new(|result| {
-            dg::render::Outcome::done(format!(
-                "created {}",
-                result["name"].as_str().unwrap_or("")
-            ))
+            dg::render::Outcome::done(format!("created {}", result["name"].as_str().unwrap_or("")))
         }),
     )
     .await?

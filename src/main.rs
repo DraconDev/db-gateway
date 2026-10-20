@@ -515,9 +515,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         Command::Clone {
             source,
             destination,
-        } => {
-            cmd_lifecycle::clone_db(&cli.server, cli.json, &key_path, source, destination).await?
-        }
+        } => cmd_lifecycle::clone_db(&cli.server, cli.json, &key_path, source, destination).await?,
         Command::Delete { name, confirm } => {
             cmd_lifecycle::delete(&cli.server, cli.json, &key_path, name, confirm).await?
         }
@@ -565,9 +563,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                     role,
                     database,
                 },
-        } => {
-            cmd_keys::create(&cli.server, cli.json, &key_path, name, role, database).await?
-        }
+        } => cmd_keys::create(&cli.server, cli.json, &key_path, name, role, database).await?,
         Command::Key {
             command: KeyCommand::List,
         } => cmd_keys::list(&cli.server, cli.json, &key_path).await?,
@@ -576,14 +572,10 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         } => cmd_keys::tokens(&cli.server, cli.json, &key_path, database).await?,
         Command::Key {
             command: KeyCommand::Revoke { name },
-        } => {
-            cmd_keys::revoke(&cli.server, cli.json, &key_path, name).await?
-        }
+        } => cmd_keys::revoke(&cli.server, cli.json, &key_path, name).await?,
         Command::Key {
             command: KeyCommand::RotateOwner,
-        } => {
-            cmd_keys::rotate_owner(&cli.server, cli.json, &key_path).await?
-        }
+        } => cmd_keys::rotate_owner(&cli.server, cli.json, &key_path).await?,
     };
     let Some((method, path, body, idempotency)) = request else {
         return Ok(());
