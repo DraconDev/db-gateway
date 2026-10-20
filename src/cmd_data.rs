@@ -165,12 +165,12 @@ pub async fn inspect(
         activity.field("queue waits", Cell::number(waits));
         // The p95 and the max are different facts and are labelled as
         // such: the p95 says how bad this database's queue usually is,
-        // the max says how bad it ever got. The pairing comes from the
-        // shared helper, so this view and the dashboard cannot disagree
-        // about which is which.
-        let figures = dg::render::wait_figures(&entry, "no waits recorded");
-        activity.field("wait p95", figures.p95);
-        activity.field("wait max", figures.max);
+        // the max says how bad it ever got. The label and the value
+        // travel together from the shared helper, so this view and the
+        // dashboard cannot disagree about which is which.
+        for (label, cell) in dg::render::wait_figure_fields(&entry, "no waits recorded") {
+            activity.field(label, cell);
+        }
         activity.field(
             "last write",
             match entry.get("last_write").and_then(Value::as_u64) {
