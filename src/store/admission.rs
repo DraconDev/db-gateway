@@ -228,6 +228,12 @@ impl AdmissionQueue {
 /// the bound is kept honest: under a read flood on one database `timeouts`
 /// should stay flat, and sustained growth means the writer-preferring bound
 /// in `AdmissionQueue` is not holding.
+///
+/// This is the per-database answer, as `/v1/status` serves it. The
+/// percentiles here are this DATABASE's own, which is not the same question
+/// as the service-wide percentiles in `MetricsSnapshot`: one database
+/// contending hard while the rest of the service is idle is exactly the
+/// situation a service-wide percentile hides.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DbQueue {
     pub waits: u64,
@@ -237,6 +243,11 @@ pub struct DbQueue {
     /// The average is what a total alone gives; the worst case is what
     /// an operator feels.
     pub max_wait_us: u64,
+    /// The 95th percentile of this database's own recent admission waits,
+    /// in microseconds. `None` when the database has never waited: a
+    /// percentile of nothing is nothing, and reporting zero would claim
+    /// the queue never contended.
+    pub wait_p95_us: Option<u64>,
 }
 
 impl Store {
