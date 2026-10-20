@@ -86,12 +86,52 @@ fn the_status_view_answers_the_operators_questions() {
         screen.contains("view_db"),
         "the database is not in the table: {screen}"
     );
-    for column in ["rows read", "rows written", "waits", "last write"] {
+    for column in [
+        "rows read",
+        "rows written",
+        "waits",
+        "wait p95",
+        "wait max",
+        "last write",
+    ] {
         assert!(
             screen.contains(column),
             "the per-database table has no `{column}` column: {screen}"
         );
     }
+}
+
+#[test]
+fn the_per_database_wait_columns_name_what_they_hold() {
+    // The wait-latency column used to hold the database's MAXIMUM wait
+    // under a "wait p95" header, which is a wrong number under a false
+    // name: on a contended database the max overstates the p95 and
+    // disagrees with the genuine p95 in the admission block of the same
+    // screen. The columns must say which is which, and the p95 must be
+    // a percentile.
+    let fleet = Fleet::boot();
+    fleet.cli.ok("create", &["create", "wait_db"]);
+
+    let screen = pty(&fleet, "status");
+    // The header names the two different facts.
+    assert!(
+        screen.contains("wait p95"),
+        "the per-database table has no wait p95 column: {screen}"
+    );
+    assert!(
+        screen.contains("wait max"),
+        "the per-database table has no wait max column: {screen}"
+    );
+    // A database that has never waited says so rather than claiming
+    // a measurement that was never made.
+    let row = screen
+        .lines()
+        .find(|line| line.contains("wait_db"))
+        .unwrap_or_else(|| panic!("the database is not in the table: {screen}"));
+    assert!(
+        row.contains('-'),
+        "an uncontended database should show no measurement: {row}"
+    );
 }
 
 #[test]
