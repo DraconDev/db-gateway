@@ -195,7 +195,10 @@ impl Store {
     /// both faster and a consistent read.
     pub fn last_writes(&self) -> HashMap<String, SystemTime> {
         let _marker_guard = self.marker_lock.lock().ok();
-        self.writes.lock().map(|writes| writes.clone()).unwrap_or_default()
+        self.writes
+            .lock()
+            .map(|writes| writes.clone())
+            .unwrap_or_default()
     }
 
     fn persist_marker_value(&self, name: &str, seconds: i64) -> Result<()> {

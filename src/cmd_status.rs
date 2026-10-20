@@ -23,7 +23,8 @@ pub async fn status(
 ) -> Result<Option<Request>, dg::ServerError> {
     if let Some(status) = table_json(server, json, key_path, Method::GET, "/v1/status").await? {
         let mut out = std::io::stdout();
-        dg::render::write_sections(&mut out, &terminal_theme(), &dashboard(&status)).map_err(Application)?;
+        dg::render::write_sections(&mut out, &terminal_theme(), &dashboard(&status))
+            .map_err(Application)?;
         return Ok(None);
     }
     Ok(Some((Method::GET, "/v1/status".into(), None, None)))
@@ -53,7 +54,10 @@ pub fn dashboard(status: &Value) -> Vec<Section> {
 
     // What the service is, and whether it is up.
     let mut service = Section::new("service");
-    service.field("version", Cell::text(status["version"].as_str().unwrap_or("?")));
+    service.field(
+        "version",
+        Cell::text(status["version"].as_str().unwrap_or("?")),
+    );
     service.field(
         "uptime",
         Cell::text(
@@ -64,12 +68,12 @@ pub fn dashboard(status: &Value) -> Vec<Section> {
         ),
     );
     let live = status["database_counts"]["live"].as_u64().unwrap_or(0);
-    let tombstoned = status["database_counts"]["tombstoned"].as_u64().unwrap_or(0);
+    let tombstoned = status["database_counts"]["tombstoned"]
+        .as_u64()
+        .unwrap_or(0);
     service.field(
         "databases",
-        Cell::text(format!(
-            "{live} live, {tombstoned} tombstoned"
-        )),
+        Cell::text(format!("{live} live, {tombstoned} tombstoned")),
     );
     sections.push(service);
 

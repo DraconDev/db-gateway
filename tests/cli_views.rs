@@ -59,8 +59,12 @@ fn pty(fleet: &Fleet, args: &str) -> String {
 fn the_status_view_answers_the_operators_questions() {
     let fleet = Fleet::boot();
     fleet.cli.ok("create", &["create", "view_db"]);
-    fleet.cli.q("seed", "view_db", "CREATE TABLE t (id INTEGER)");
-    fleet.cli.q("insert", "view_db", "INSERT INTO t VALUES (1), (2)");
+    fleet
+        .cli
+        .q("seed", "view_db", "CREATE TABLE t (id INTEGER)");
+    fleet
+        .cli
+        .q("insert", "view_db", "INSERT INTO t VALUES (1), (2)");
 
     let screen = pty(&fleet, "status");
 
@@ -120,8 +124,12 @@ fn the_watch_view_is_the_status_view_read_once() {
 fn the_inspect_view_shows_one_database_and_what_it_did() {
     let fleet = Fleet::boot();
     fleet.cli.ok("create", &["create", "inspect_db"]);
-    fleet.cli.q("seed", "inspect_db", "CREATE TABLE t (id INTEGER)");
-    fleet.cli.q("insert", "inspect_db", "INSERT INTO t VALUES (1), (2)");
+    fleet
+        .cli
+        .q("seed", "inspect_db", "CREATE TABLE t (id INTEGER)");
+    fleet
+        .cli
+        .q("insert", "inspect_db", "INSERT INTO t VALUES (1), (2)");
 
     let screen = pty(&fleet, "inspect inspect_db");
 
@@ -131,10 +139,7 @@ fn the_inspect_view_shows_one_database_and_what_it_did() {
     assert!(screen.contains("size"), "no size: {screen}");
     // What it has been DOING.
     assert!(screen.contains("activity"), "no activity section: {screen}");
-    assert!(
-        screen.contains("rows written"),
-        "no rows written: {screen}"
-    );
+    assert!(screen.contains("rows written"), "no rows written: {screen}");
     assert!(screen.contains("queue waits"), "no queue waits: {screen}");
     assert!(screen.contains("last write"), "no last write: {screen}");
     // How its backup is doing.
@@ -177,8 +182,9 @@ fn a_tombstoned_database_is_still_counted_and_still_inspectable() {
     // see that.
     let fleet = Fleet::boot();
     fleet.cli.ok("create", &["create", "doomed_db"]);
-    let (ok, _stdout, _stderr) =
-        fleet.cli.run(&["delete", "doomed_db", "--confirm", "doomed_db"]);
+    let (ok, _stdout, _stderr) = fleet
+        .cli
+        .run(&["delete", "doomed_db", "--confirm", "doomed_db"]);
     assert!(ok, "delete failed");
 
     let screen = pty(&fleet, "status");

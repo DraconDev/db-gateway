@@ -158,11 +158,17 @@ pub async fn inspect(
                     .unwrap_or(0),
             ),
         );
-        let waits = entry.get("queue_waits").and_then(Value::as_u64).unwrap_or(0);
+        let waits = entry
+            .get("queue_waits")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
         activity.field("queue waits", Cell::number(waits));
         activity.field(
             "wait p95",
-            match (waits, entry.get("queue_wait_max_us").and_then(Value::as_u64)) {
+            match (
+                waits,
+                entry.get("queue_wait_max_us").and_then(Value::as_u64),
+            ) {
                 (0, _) => Cell::text("no waits recorded"),
                 (_, Some(max)) => Cell::text(dg::render::human_micros(max)),
                 (_, None) => Cell::text("-"),
@@ -183,11 +189,11 @@ pub async fn inspect(
             .as_ref()
             .and_then(|backups| backups["per_database"][&name].as_object().cloned())
             .unwrap_or_default();
-        let state = health.get("state").and_then(Value::as_str).unwrap_or("unknown");
-        backup.field(
-            "state",
-            Cell::styled(state, backup_state_style(state)),
-        );
+        let state = health
+            .get("state")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        backup.field("state", Cell::styled(state, backup_state_style(state)));
         backup.field(
             "newest set",
             Cell::text(

@@ -150,14 +150,12 @@ impl Store {
     pub fn database_counts(&self) -> Result<(u64, u64)> {
         let conn = self.meta()?;
         let mut stmt = conn.prepare(
-            "SELECT COUNT(*), COALESCE(SUM(CASE WHEN deleted_at IS NOT NULL THEN 1 ELSE 0 END), 0) \
+            "SELECT COALESCE(SUM(CASE WHEN deleted_at IS NULL THEN 1 ELSE 0 END), 0), \
+                    COALESCE(SUM(CASE WHEN deleted_at IS NOT NULL THEN 1 ELSE 0 END), 0) \
              FROM databases",
         )?;
         let counts = stmt.query_row([], |row| {
-            Ok((
-                row.get::<_, i64>(0)? as u64,
-                row.get::<_, i64>(1)? as u64,
-            ))
+            Ok((row.get::<_, i64>(0)? as u64, row.get::<_, i64>(1)? as u64))
         })?;
         Ok(counts)
     }
