@@ -347,12 +347,13 @@ impl Table {
     /// A horizontal rule.
     fn rule(&self, out: &mut dyn Write, theme: &Theme, kind: Rule) -> Result<()> {
         let widths = self.widths();
+        let fill = if theme.unicode { "─" } else { "-" };
         let mut line = String::new();
         for (index, width) in widths.iter().enumerate() {
             if index > 0 {
                 line.push_str(&paint(self.joint(kind, theme), Style::Dim, theme));
             }
-            line.push_str(&paint(&"─".repeat(width + 2), Style::Dim, theme));
+            line.push_str(&paint(&fill.repeat(width + 2), Style::Dim, theme));
         }
         let mut rendered = String::new();
         rendered.push_str(&paint(self.corner(kind, Corner::Left, theme), Style::Dim, theme));
@@ -626,7 +627,10 @@ mod tests {
             &[vec![Cell::text("1")], vec![Cell::text("1"), Cell::text("2"), Cell::text("3")]],
         );
         let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines[3], "│ 1       │");
+        // A short row renders its missing cells as empty rather than
+        // panicking: a row is untrusted wire data.
+        assert_eq!(lines[3], "│ 1 │   │   │");
+        // An over-long row is truncated to the header's column count.
         assert_eq!(lines[4], "│ 1 │ 2 │ 3 │");
     }
 
@@ -638,9 +642,9 @@ mod tests {
             &[vec![Cell::text("日本語"), Cell::number(7)]],
         );
         let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines[0], "┌──────┬────┐");
-        assert_eq!(lines[1], "│ cjk  │  n │");
-        assert_eq!(lines[3], "│ 日本語 │   7 │");
+        assert_eq!(lines[0], "┌────────┬───┐");
+        assert_eq!(lines[1], "│ cjk    │ n │");
+        assert_eq!(lines[3], "│ 日本語 │ 7 │");
         // Every row is the same display width: the table lines up.
         let widths: Vec<usize> = lines.iter().map(|l| l.width()).collect();
         assert!(widths.windows(2).all(|w| w[0] == w[1]), "{lines:?}");
@@ -654,8 +658,13 @@ mod tests {
         let mut out = Vec::new();
         table.write(&mut out, &Theme::fixed(false, false)).unwrap();
         let text = String::from_utf8(out).unwrap();
-        assert_eq!(text.lines().next().unwrap(), "+----+");
-        assert!(text.contains("| id |"), "{text}");
+        let lines: Vec<&str> = text.lines().collect();
+        // The horizontal fill must be ASCII too: a box-drawing dash in an
+        // ASCII table is a character the terminal may not have.
+        assert_eq!(lines[0], "+----+");
+        assert_eq!(lines[1], "| id |");
+        assert_eq!(lines[3], "|  1 |");
+        assert!(!text.contains('─'), "unicode fill in an ascii table: {text:?}");
     }
 
     #[test]
@@ -732,7 +741,7 @@ mod tests {
     fn epochs_are_human_readable() {
         assert_eq!(human_epoch(0), "1970-01-01 00:00 UTC");
         assert_eq!(human_epoch(1_000_000_000), "2001-09-09 01:46 UTC");
-        assert_eq!(human_epoch(1_795_000_000), "2026-11-14 03:06 UTC");
+        assert_eq!(human_epoch(1_795_000_000), "2026-11-18 11:06 UTC");
         // A leap day, to catch an off-by-one in the civil conversion.
         assert_eq!(human_epoch(1_709_164_800), "2024-02-29 00:00 UTC");
     }
