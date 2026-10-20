@@ -18,17 +18,6 @@ fn terminal_theme() -> Theme {
     Theme::for_stream(std::io::stdout().is_terminal())
 }
 
-/// The style for a backup freshness state. The state word itself is
-/// always spelled out, so the colour is a second rendering of the same
-/// information rather than the only rendering of it.
-pub fn state_style(state: &str) -> Style {
-    match state {
-        "fresh" => Style::Green,
-        "stale" => Style::Yellow,
-        _ => Style::Red,
-    }
-}
-
 pub async fn list(
     server: &str,
     json: bool,

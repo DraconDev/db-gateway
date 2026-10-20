@@ -41,7 +41,7 @@ pub async fn run(
     interactive: bool,
     initial_database: Option<&str>,
     input: impl Read,
-    mut out: impl Write,
+    out: impl Write,
 ) -> Result<()> {
     // The shell draws to a caller-supplied stream, so it cannot ask
     // whether that stream is a terminal. The caller knows, and passes the
@@ -68,7 +68,7 @@ pub async fn run_with_theme(
     interactive: bool,
     initial_database: Option<&str>,
     input: impl Read,
-    out: impl Write,
+    mut out: impl Write,
     theme: &crate::render::Theme,
 ) -> Result<()> {
     if let Some(name) = initial_database {
