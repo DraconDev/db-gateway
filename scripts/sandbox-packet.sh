@@ -381,8 +381,12 @@ for i in $(seq 1 60); do
     sleep 0.05
 done
 STATUS_AFTER="$("${DG[@]}" status --json 2>/dev/null || echo '{}')"
+# The shed and deadline signals are what replication must not add. The
+# status response also carries a per-second request window and the
+# database counts, but the gate is about failures, so it counts the
+# failure signals and nothing else.
 READ_Err="$(printf '%s' "$STATUS_AFTER" | python3 -c 'import json,sys
-d=json.load(sys.stdin); print(d.get("requests",{}).get("busy",0)+d.get("requests",{}).get("capacity_exceeded",0)+d.get("requests",{}).get("query_deadline_exceeded",0))' 2>/dev/null || echo 0)"
+d=json.load(sys.stdin); r=d.get("requests",{}); print(r.get("capacity_exceeded",0)+r.get("query_deadline_exceeded",0)+r.get("internal_error",0))' 2>/dev/null || echo 0)"
 REPLICA_FRESH=0
 for _ in $(seq 1 40); do
     # A replicated WAL/ltx segment newer than the last write is the signal
