@@ -35,8 +35,10 @@ fn plain(screen: &str) -> String {
     out
 }
 
-/// Run a command under a pty so the CLI takes its terminal path.
-fn pty(fleet: &Fleet, args: &str) -> String {
+/// Run a command under a pty so the CLI takes its terminal path, and
+/// return what it drew. The exit code comes back too: a command that
+/// fails still draws its view, and that view is the point.
+fn pty(fleet: &Fleet, args: &str) -> (bool, String) {
     let out = Command::new("script")
         .args([
             "-qec",
@@ -50,8 +52,10 @@ fn pty(fleet: &Fleet, args: &str) -> String {
         ])
         .output()
         .unwrap();
-    assert!(out.status.success(), "pty `{args}` failed: {out:?}");
-    plain(&String::from_utf8_lossy(&out.stdout))
+    (
+        out.status.success(),
+        plain(&String::from_utf8_lossy(&out.stdout)),
+    )
 }
 
 /// Run a command and return its stdout, whatever the exit code.
@@ -68,7 +72,7 @@ fn key_tokens_lists_the_credentials_that_can_reach_a_database() {
         .cli
         .ok("issue", &["key", "create", "bot", "--role", "database_read_only", "--database", "reached_db"]);
 
-    let screen = pty(&fleet, "key tokens reached_db");
+    let (_ok, screen) = pty(&fleet, "key tokens reached_db");
     // The scoped key reaches the database it was scoped to.
     assert!(screen.contains("bot"), "the scoped key is missing: {screen}");
     assert!(
@@ -82,7 +86,7 @@ fn key_tokens_lists_the_credentials_that_can_reach_a_database() {
     );
 
     // A key scoped to another database does NOT reach this one.
-    let screen = pty(&fleet, "key tokens other_db");
+    let (_ok, screen) = pty(&fleet, "key tokens other_db");
     assert!(
         !screen.contains("bot"),
         "the scoped key reached the wrong database: {screen}"
@@ -124,7 +128,7 @@ fn execute_runs_every_statement_of_a_script_and_reports_each_one() {
     )
     .unwrap();
 
-    let screen = pty(
+    let (_ok, screen) = pty(
         &fleet,
         &format!(
             "execute script_db {}",
@@ -213,13 +217,15 @@ fn a_failing_script_names_the_statement_that_broke_it_on_a_terminal() {
         "SELECT 1;\nSELECT * FROM no_such_table;\nSELECT 2;\n",
     )
     .unwrap();
-    let screen = pty(
+    let (ok, screen) = pty(
         &fleet,
         &format!(
             "execute failing_pty_db {}",
             script.to_str().unwrap()
         ),
     );
+    // The script failed, and the view says which statement broke it.
+    assert!(!ok, "the failing script exited zero: {screen}");
     // Every statement is listed, and the one that failed is marked.
     assert_eq!(screen.matches("SELECT").count(), 3, "{screen}");
     assert!(

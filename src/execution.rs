@@ -499,12 +499,21 @@ pub fn execute_detailed(
     // reserve covers JSON punctuation and column metadata; the exact encoded
     // response is checked once before commit.
     let mut remaining_result_bytes = MAX_RESULT.saturating_sub(4096);
+    // A batch runs as a whole, so a failure has to say WHICH statement
+    // broke it: without that, the operator has to bisect the script by
+    // hand. A single statement is unambiguous, so it keeps the error
+    // envelope it has always had.
+    let attribute = statements.len() > 1;
     for (index, statement) in statements.iter().enumerate() {
-        // A batch runs as a whole, so a failure has to say WHICH
-        // statement broke it: without that, the operator has to bisect
-        // the script by hand.
-        let result = run_statement(&tx, statement, read_only, remaining_result_bytes)
-            .map_err(|error| error.at_statement(index as u32))?;
+        let result = run_statement(&tx, statement, read_only, remaining_result_bytes).map_err(
+            |error| {
+                if attribute {
+                    error.at_statement(index as u32)
+                } else {
+                    error
+                }
+            },
+        )?;
         remaining_result_bytes = remaining_result_bytes.saturating_sub(
             serde_json::to_vec(&result)
                 .map_err(|_| Error::internal())?
