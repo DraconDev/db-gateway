@@ -122,6 +122,20 @@ fn the_per_database_wait_columns_name_what_they_hold() {
         .cli
         .q("seed", "wait_db", "CREATE TABLE t (id INTEGER)");
 
+    // A contended database, so its p95 and its max are DIFFERENT
+    // numbers. With a single wait they are the same, and a swapped
+    // pair of cells would look correct.
+    let mut readers = Vec::new();
+    for _ in 0..16 {
+        let cli = &fleet.cli;
+        readers.push(std::thread::spawn(move || {
+            let _ = cli.run(&["query", "wait_db", "SELECT count(*) FROM t"]);
+        }));
+    }
+    for reader in readers {
+        reader.join().unwrap();
+    }
+
     let screen = pty(&fleet, "status");
     // The header names the two different facts.
     assert!(
