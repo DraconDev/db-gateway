@@ -19,6 +19,37 @@ fixes; 1.0.0 waits for production acceptance.
 
 ## [Unreleased]
 
+### Added
+
+- **`dg watch`** — the service dashboard, read once. It exits rather
+  than refreshing in place, so it stays pipeable and diffable.
+- **`dg inspect <db>`** — one database: what it holds and what it has
+  been doing. `dg info` is what a database IS; `dg inspect` is what it
+  has been DOING.
+- **`dg key tokens <db>`** — the credentials that can act on one
+  database. The owner key reaches everything, an application key
+  reaches the databases it was scoped to: the first question of a
+  leaked-key incident.
+- **`dg execute <db> <file.sql>`** — runs a SQL file and reports each
+  statement. The file is split by SQLite's own `sqlite3_complete`, so
+  a semicolon inside a string, a comment or a trigger body is not a
+  statement boundary, and the statements run as one atomic batch.
+- **The shell is the control surface.** `dg shell` gained `.status`,
+  `.keys` and `.backups` beside `.tables` and `.schema`, and they draw
+  the same views as the one-shot commands.
+- **The service dashboard answers questions.** `dg status` now shows
+  live and tombstoned database counts, a request rate, an error rate,
+  admission-wait percentiles, a sparkline of recent activity and a
+  per-database table with each database's traffic, waits and last
+  write. The server gained the facts it needs, including a bounded
+  rolling window of recent request counts.
+- **Every command has a human view.** `create`, `delete`, `export`,
+  `import`, `clone`, `key create`, `key revoke`, `key rotate-owner`,
+  `backup verify`, `batch` and `init` used to print raw JSON on a
+  terminal. They now report what happened, through the same renderer
+  the read commands use. One rule, in one place: a terminal gets the
+  human view, a pipe or `--json` gets the JSON.
+
 ### Fixed
 
 - **A wire value can no longer repaint the terminal.** The escaping of
@@ -31,6 +62,9 @@ fixes; 1.0.0 waits for production acceptance.
   is validated on its bytes before it is interpreted, so a stamp whose
   prefix is multi-byte is shown as it arrived instead of crashing the
   command.
+- **A failing script says which statement broke it.** A batch runs as a
+  whole, so without that the operator had to bisect the script by hand.
+  A single statement keeps the error envelope it has always had.
 
 ## [0.2.0] — 2026-10-19
 
