@@ -12,6 +12,9 @@ const HELP: &str = "dot-commands:
   use <db> / .use <db>  select a database locally (never creates one)
   .tables              list user tables
   .schema [table]      show CREATE statements
+  .status              the service dashboard
+  .keys                the credentials and their scope
+  .backups             the backup freshness of every database
   :batch [JSON]        paste a JSON batch, possibly over multiple lines; . cancels
   :key [key]           key for the next SQL/batch request; empty clears it
   .json                toggle JSON output
@@ -274,6 +277,18 @@ impl Session<'_> {
                     .request("query", json!({"sql":sql,"args":args}), None)
                     .await?;
                 render_with(&response, self.json_mode, self.theme, out)?;
+            }
+            ".status" => {
+                let response = self.get("/v1/status").await?;
+                self.draw_service_status(&response, out)?;
+            }
+            ".keys" => {
+                let response = self.get("/v1/keys").await?;
+                self.draw_keys(&response, out)?;
+            }
+            ".backups" => {
+                let response = self.get("/v1/backups").await?;
+                self.draw_backups(&response, out)?;
             }
             _ if command.starts_with(['.', ':']) => {
                 return Err(Error::new(
