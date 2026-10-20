@@ -166,6 +166,13 @@ enum Command {
     /// Owner-only service status: version, uptime, admission config, and
     /// request-pressure counters.
     Status,
+    /// A one-shot snapshot of the service dashboard.
+    ///
+    /// The same view as `dg status`, read once and printed. It exits
+    /// rather than refreshing in place, so it stays pipeable and
+    /// diffable: `dg watch > before.json` then `dg watch > after.json`
+    /// compares two moments.
+    Watch,
     /// List database names visible to the credential (owner sees all).
     List,
     /// Create an empty database.
@@ -404,6 +411,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             command: BackupCommand::Verify { backup_root, set },
         } => return cmd_backup::verify(backup_root, set).await,
         Command::Status => cmd_status::status(&cli.server, cli.json, &key_path).await?,
+        Command::Watch => cmd_status::watch(&cli.server, cli.json, &key_path).await?,
         Command::Backup {
             command: BackupCommand::Status,
         } => cmd_backup::status(&cli.server, cli.json, &key_path).await?,
