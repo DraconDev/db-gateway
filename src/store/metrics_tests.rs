@@ -76,7 +76,7 @@ fn the_wait_sample_ring_is_bounded() {
 }
 
 #[test]
-fn per_database_usage_and_waits_are_counted_separately() {
+fn per_database_waits_and_waits_are_counted_separately() {
     let metrics = Metrics::new();
     metrics.record_usage("alpha", 10, 5);
     metrics.record_usage("alpha", 2, 1);
@@ -97,6 +97,69 @@ fn per_database_usage_and_waits_are_counted_separately() {
     // The worst wait is kept, because that is the one an operator
     // feels.
     assert_eq!(queue["alpha"].max_wait_us, 30_000);
+}
+
+#[test]
+fn the_per_database_percentile_is_a_percentile_and_not_the_max() {
+    // The per-database table showed a MAXIMUM under a "wait p95"
+    // header, which is a wrong number under a false name: on a
+    // contended database the max overstates the p95 and disagrees
+    // with the service-wide p95 shown in the admission block of the
+    // same screen. The percentile is computed from that database's own
+    // waits, so it answers "how bad is THIS database's queue".
+    let metrics = Metrics::new();
+    // Twenty 1ms waits and one 100ms wait: the p95 over 21 samples is
+    // the 20th smallest (1ms), while the max is 100ms. A column that
+    // held the max would show 100ms here.
+    for _ in 0..20 {
+        metrics.record_queue_wait("alpha", Duration::from_millis(1), false);
+    }
+    metrics.record_queue_wait("alpha", Duration::from_millis(100), false);
+
+    let queue = metrics.queue_snapshot();
+    assert_eq!(queue["alpha"].max_wait_us, 100_000);
+    assert_eq!(
+        queue["alpha"].wait_p95_us,
+        Some(1_000),
+        "the p95 must not be the max: {queue:?}"
+    );
+}
+
+#[test]
+fn each_database_gets_its_own_percentile() {
+    // The service-wide p95 mixes every database, so one contended
+    // database hides inside it. Each database's percentile is its own,
+    // which is how the per-database table can name the slow one.
+    let metrics = Metrics::new();
+    for _ in 0..20 {
+        metrics.record_queue_wait("slow", Duration::from_millis(50), false);
+    }
+    for _ in 0..20 {
+        metrics.record_queue_wait("quick", Duration::from_millis(1), false);
+    }
+
+    let queue = metrics.queue_snapshot();
+    assert_eq!(queue["slow"].wait_p95_us, Some(50_000));
+    assert_eq!(queue["quick"].wait_p95_us, Some(1_000));
+
+    // The service-wide figure is the mixed one, and it differs from
+    // the slow database's own: which is exactly why both are shown.
+    let snapshot = metrics.snapshot();
+    assert!(
+        snapshot.wait_p95_us != Some(50_000),
+        "the service-wide p95 should not equal the slow database's: {snapshot:?}"
+    );
+}
+
+#[test]
+fn a_database_with_no_waits_has_no_percentile() {
+    // A percentile of nothing is nothing. Reporting zero would claim
+    // the queue never contended, which is a measurement that was never
+    // made.
+    let metrics = Metrics::new();
+    metrics.record_usage("idle", 1, 1);
+    let queue = metrics.queue_snapshot();
+    assert_eq!(queue.get("idle"), None);
 }
 
 #[test]
