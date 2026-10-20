@@ -13,14 +13,15 @@ maps each Turso CLI verb to its `dg` equivalent.
 | `turso db create <name>` | `dg create <name>` | Owner key only. |
 | `turso db show <name>` | `dg info <name>` | Size, tables + row counts, created_at, tombstone state. Owner only. |
 | `turso db destroy <name>` | `dg delete <name> --confirm <name>` | Tombstones; file purged after retention. Double-type confirm. |
-| `turso db inspect <name>` | `dg info <name>` + `dg status` | Facts from `info`; per-db `rows_read`/`rows_written` from `status`. |
+| `turso db inspect <name>` | `dg inspect <name>` | What one database holds AND what it has been doing: size, tables, rows, traffic, queue waits, last write, and the freshness of its backup. `dg info` is what it IS; `dg inspect` is what it has been DOING. |
 
 ## SQL access
 
 | Turso | dg | Notes |
 |---|---|---|
-| `turso db shell <name>` | `dg shell [name]` | Optional preselect; `use <db>` switches inside. Piped stdin works. |
+| `turso db shell <name>` | `dg shell [name]` | Optional preselect; `use <db>` switches inside. Piped stdin works. The operator's dot-commands (`.status`, `.keys`, `.backups`, `.tables`, `.schema`) draw the same views as the one-shot commands. |
 | `turso db execute <name> "<sql>"` | `dg query <name> "<sql>"` | Interactive terminals get a table (numbers right-aligned, `NULL` distinct, wide characters measured), else JSON. `--args`, `--idempotency-key`. |
+| — | `dg execute <name> <file.sql>` | Runs a SQL FILE, reporting each statement. The file is split by SQLite's own `sqlite3_complete`, so a semicolon inside a string, a comment, or a trigger body is not a statement boundary. The statements run as one atomic batch. |
 | — | `dg batch <name> <file>` | Atomic JSON batch from file. No Turso equivalent; kept. |
 
 ## Tokens / credentials
@@ -29,6 +30,7 @@ maps each Turso CLI verb to its `dg` equivalent.
 |---|---|---|
 | `turso db tokens create <db> ...` | `dg key create <name> --role database_read_only\|database_read_write --database <db>...` | Prints raw key once. |
 | `turso db tokens list <db>` | `dg key list` | Name, role, databases. Hashes never shown. |
+| `turso db tokens list <db>` | `dg key tokens <db>` | The credentials that can act on ONE database: the owner key reaches everything, an application key reaches the databases it was scoped to. The first question of a leaked-key incident. |
 | `turso db tokens revoke ...` | `dg key revoke <name>` | Immediate. |
 | `turso auth login/logout/token` | `dg init --data-dir ...` | Local-first: no cloud account. Owner credential lives in a 0600 key file (`--key-file`, `DG_KEY_FILE`, or `~/.config/dg/key`). |
 | — | `dg key rotate-owner` | Prints the new owner key once; old dies immediately. |
@@ -38,7 +40,11 @@ maps each Turso CLI verb to its `dg` equivalent.
 No Turso equivalent; kept as the single-node operational surface:
 
 - `dg serve` — loopback-only server; remote via SSH tunnel.
-- `dg status` — version, uptime, admission config, request counters, per-db usage.
+- `dg status` — the service dashboard: version, uptime, live and
+  tombstoned database counts, request totals with a rate, the error
+  rate, the admission queue, and a per-database table.
+- `dg watch` — the same dashboard, read once. It exits rather than
+  refreshing in place, so it stays pipeable and diffable.
 - `dg backup status` — versioned sets + per-db fresh/stale/unknown.
 - `dg backup verify --backup-root <dir> [set]` — offline re-verification, JSON report.
 - `dg clone/export/import` — SQLite backup-API clone, `.sqlite` snapshot export/import.
