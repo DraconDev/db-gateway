@@ -394,7 +394,6 @@ fn the_backup_digest_is_the_one_deliberate_exception() {
     // form. Every other command follows the rule.
     let dir = tempfile::tempdir().unwrap();
     let data_dir = dir.path().join("data");
-    let dg = env!("CARGO_BIN_EXE_dg");
 
     // The human note, even through a pipe.
     let (ok, stdout) = piped(&["backup", "digest", "--data-dir", data_dir.to_str().unwrap()]);
