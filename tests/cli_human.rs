@@ -82,8 +82,12 @@ const CONTRACT_COMMANDS: [HumanCase; 10] = [
     HumanCase { name: "clone" },
     HumanCase { name: "key create" },
     HumanCase { name: "key revoke" },
-    HumanCase { name: "key rotate-owner" },
-    HumanCase { name: "backup verify" },
+    HumanCase {
+        name: "key rotate-owner",
+    },
+    HumanCase {
+        name: "backup verify",
+    },
     HumanCase { name: "init" },
 ];
 
@@ -464,14 +468,7 @@ fn every_contract_command_still_emits_json_when_piped() {
         ),
         (
             "key rotate-owner",
-            vec![
-                "--server",
-                server,
-                "--key-file",
-                key,
-                "key",
-                "rotate-owner",
-            ],
+            vec!["--server", server, "--key-file", key, "key", "rotate-owner"],
         ),
         (
             "backup verify",
@@ -483,10 +480,7 @@ fn every_contract_command_still_emits_json_when_piped() {
                 "latest",
             ],
         ),
-        (
-            "init",
-            vec!["init", "--data-dir", fresh.to_str().unwrap()],
-        ),
+        ("init", vec!["init", "--data-dir", fresh.to_str().unwrap()]),
     ];
 
     assert_eq!(
@@ -501,13 +495,9 @@ fn every_contract_command_still_emits_json_when_piped() {
         );
         let (ok, stdout) = piped(&case.1);
         assert!(ok, "{} failed: {stdout}", case.0);
-        let parsed: serde_json::Value =
-            serde_json::from_str(&stdout).unwrap_or_else(|_| panic!("{} is not JSON: {stdout}", case.0));
-        assert!(
-            !parsed.is_null(),
-            "{} emitted null: {stdout}",
-            case.0
-        );
+        let parsed: serde_json::Value = serde_json::from_str(&stdout)
+            .unwrap_or_else(|_| panic!("{} is not JSON: {stdout}", case.0));
+        assert!(!parsed.is_null(), "{} emitted null: {stdout}", case.0);
     }
 }
 

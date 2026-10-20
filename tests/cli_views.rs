@@ -149,10 +149,7 @@ fn the_per_database_wait_columns_name_what_they_hold() {
         .unwrap_or_else(|| panic!("the database is not in the table: {screen}"));
     // The p95 is at or below the max, always: a percentile cannot
     // exceed the worst sample.
-    assert!(
-        p95 <= max,
-        "the p95 {p95} exceeds the max {max}: {entry}"
-    );
+    assert!(p95 <= max, "the p95 {p95} exceeds the max {max}: {entry}");
     // And the rendered row carries the p95.
     assert!(
         row.contains(&format!("{} us", p95)) || row.contains(&format!("{} ms", p95 / 1000)),

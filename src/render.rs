@@ -733,7 +733,9 @@ pub fn service_dashboard(status: &serde_json::Value) -> Vec<Section> {
                 last_write,
             ]);
         }
-        table.footer("wait p95 is this database's own recent waits; wait max is its worst single wait");
+        table.footer(
+            "wait p95 is this database's own recent waits; wait max is its worst single wait",
+        );
         per_database.table(table);
         sections.push(per_database);
     }

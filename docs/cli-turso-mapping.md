@@ -42,7 +42,10 @@ No Turso equivalent; kept as the single-node operational surface:
 - `dg serve` — loopback-only server; remote via SSH tunnel.
 - `dg status` — the service dashboard: version, uptime, live and
   tombstoned database counts, request totals with a rate, the error
-  rate, the admission queue, and a per-database table.
+  rate, the admission queue, and a per-database table. The table's
+  `wait p95` is each database's OWN percentile of its own recent
+  admission waits; `wait max` is its worst single wait. The two are
+  different facts and are labelled as such.
 - `dg watch` — the same dashboard, read once. It exits rather than
   refreshing in place, so it stays pipeable and diffable.
 - `dg backup status` — versioned sets + per-db fresh/stale/unknown.

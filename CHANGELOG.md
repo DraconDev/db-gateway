@@ -43,6 +43,27 @@ fixes; 1.0.0 waits for production acceptance.
   per-database table with each database's traffic, waits and last
   write. The server gained the facts it needs, including a bounded
   rolling window of recent request counts.
+- **A per-database wait percentile.** `/v1/status` now reports
+  `queue_wait_p95_us` per database: that database's OWN 95th
+  percentile of its own recent admission waits. The service-wide
+  percentile mixes every database, so one contended database can hide
+  inside it; this is the figure that names the slow one.
+
+### Fixed
+
+- **The per-database table no longer shows a maximum under a "p95"
+  header.** The wait-latency column held each database's longest
+  single wait while claiming to be a percentile, so on a contended
+  database it overstated the p95 and disagreed with the genuine p95
+  in the admission block of the same screen. The server now computes a
+  real per-database percentile, the table shows it as `wait p95` and
+  shows the worst single wait separately as `wait max`, and `dg
+  inspect` names both.
+- **`dg key tokens <db>` narrows the answer for a script as well as
+  for a person.** The machine form was the raw credential list, so a
+  script asking which credentials can reach a database got every
+  credential the gateway holds. Both forms now answer the same
+  question.
 - **Every command has a human view.** `create`, `delete`, `export`,
   `import`, `clone`, `key create`, `key revoke`, `key rotate-owner`,
   `backup verify`, `batch` and `init` used to print raw JSON on a
