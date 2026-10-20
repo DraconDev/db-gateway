@@ -13,6 +13,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
+use std::time::UNIX_EPOCH;
 
 use base64::Engine as _;
 const BASE64_STANDARD: base64::engine::GeneralPurpose = base64::engine::general_purpose::STANDARD;
@@ -163,6 +164,10 @@ async fn status(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<J
             .map(|name| {
                 let rows = usage.get(&name).copied().unwrap_or_default();
                 let waits = queue.get(&name).copied().unwrap_or_default();
+                let last_write = last_writes
+                    .get(&name)
+                    .and_then(|at| at.duration_since(UNIX_EPOCH).ok())
+                    .map(|at| at.as_secs());
                 (
                     name,
                     json!({
@@ -172,10 +177,7 @@ async fn status(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<J
                         "queue_wait_ms": waits.wait_ms,
                         "queue_wait_max_ms": waits.max_wait_ms,
                         "queue_timeouts": waits.timeouts,
-                        "last_write": last_writes
-                            .get(&name)
-                            .and_then(|at| at.duration_since(UNIX_EPOCH).ok())
-                            .map(|at| at.as_secs()),
+                        "last_write": last_write,
                     }),
                 )
             })
