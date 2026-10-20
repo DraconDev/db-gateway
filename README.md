@@ -31,6 +31,8 @@ dg --key-file owner.key create game_a
 dg --key-file owner.key query game_a "CREATE TABLE players (id INTEGER PRIMARY KEY, name TEXT)"
 dg --key-file owner.key query game_a "INSERT INTO players VALUES (?, ?)" --args '[1, "aria"]'
 dg --key-file owner.key query game_a "SELECT * FROM players"
+dg --key-file owner.key inspect game_a      # one database: what it holds and what it has been doing
+dg --key-file owner.key watch                # the service dashboard, read once
 dg --key-file owner.key web --port 8787   # browser view at http://127.0.0.1:8787 (loopback only)
 ```
 
@@ -64,27 +66,37 @@ $ dg query game_a "SELECT id, name, score FROM players ORDER BY id"
 ```
 $ dg status
 service
-  version  0.2.0
-  uptime   3d 4h
+  version    0.2.0
+  uptime     3d 4h
+  databases  12 live, 2 tombstoned
+
+activity
+  requests    48,213        1.2k/min
+  errors      3             0.0062%
+  error rate  0.0062%
+
+recent activity
+  req/s   ▁▂▃▅▇▆▄▂
 
 admission
   acquire timeout  500 ms
   read permits     8
   write permits    4
-
-requests
-  total              1043
-  capacity exceeded  0
-  deadline exceeded  0
-  internal errors    0
+  wait p50         8 us
+  wait p95         14 us
 
 per-database
-┌──────────┬──────┬─────────┬───────┬─────────┬──────────┐
-│ database │ read │ written │ waits │ wait ms │ timeouts │
-├──────────┼──────┼─────────┼───────┼─────────┼──────────┤
-│ game_a   │    2 │       2 │     3 │       0 │        0 │
-└──────────┴──────┴─────────┴───────┴─────────┴──────────┘
+┌──────────┬───────────┬──────────────┬───────┬──────────┬────────────┐
+│ database │ rows read │ rows written │ waits │ wait p95 │ last write │
+├──────────┼───────────┼──────────────┼───────┼──────────┼────────────┤
+│ game_a   │     12004 │         8120 │    31 │    14 us │ 2m ago     │
+└──────────┴───────────┴──────────────┴───────┴──────────┴────────────┘
 ```
+
+`dg watch` is the same dashboard read once, and `dg inspect game_a` is
+one database — what it holds and what it has been doing. Every command
+follows the same rule: a terminal gets a human view, a pipe or `--json`
+gets JSON.
 
 The rules the drawing follows are in
 [docs/api.md](docs/api.md#how-the-terminal-output-is-drawn): numbers are
