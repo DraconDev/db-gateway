@@ -424,7 +424,14 @@ pub fn render_with(
         writeln!(out, "{}", count_line(count)).map_err(io)?;
         return Ok(());
     }
-    writeln!(out, "ok, {} row(s) affected", response["rows_affected"]).map_err(io)
+    // The count is a number, but it arrives as a wire value like any
+    // other, and a hostile gateway could send a string where a number
+    // belongs. It is escaped for the same reason a cell is.
+    let affected = match &response["rows_affected"] {
+        serde_json::Value::Number(number) => number.to_string(),
+        other => crate::render::escape_text(&other.to_string()),
+    };
+    writeln!(out, "ok, {affected} row(s) affected").map_err(io)
 }
 
 /// The line under a table saying how many rows it holds.
@@ -624,6 +631,51 @@ mod tests {
             "raw escape in the header: {text:?}"
         );
         assert!(text.contains("\\u{1b}"), "header not escaped: {text:?}");
+    }
+
+    #[test]
+    fn a_wire_value_in_a_plain_line_is_escaped() {
+        // Not every line the shell draws is a table row: the error
+        // envelope and the affected-rows line are plain text, and they
+        // carry wire values too. The rule is the same everywhere.
+        let mut out = Vec::new();
+        render_with(
+            &json!({
+                "status": 400,
+                "error": {
+                    "code": "evil\u{1b}[31mRED",
+                    "message": "evil\u{1b}[2J",
+                }
+            }),
+            false,
+            &crate::render::Theme::for_stream(false),
+            &mut out,
+        )
+        .unwrap();
+        let text = String::from_utf8(out).unwrap();
+        for c in text.chars().filter(|c| *c != '\n') {
+            assert!(
+                !c.is_control(),
+                "raw control character in the output: {text:?}"
+            );
+        }
+        assert!(text.contains("evil"), "the value was dropped: {text:?}");
+
+        let mut out = Vec::new();
+        render_with(
+            &json!({"rows_affected": "evil\u{1b}[31mRED"}),
+            false,
+            &crate::render::Theme::for_stream(false),
+            &mut out,
+        )
+        .unwrap();
+        let text = String::from_utf8(out).unwrap();
+        for c in text.chars().filter(|c| *c != '\n') {
+            assert!(
+                !c.is_control(),
+                "raw control character in the output: {text:?}"
+            );
+        }
     }
 
     #[tokio::test]
