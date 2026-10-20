@@ -48,7 +48,7 @@ pub struct DbUsage {
     pub rows_written: u64,
 }
 
-/// A bounded ring of recent wait durations, in milliseconds.
+/// A bounded ring of recent wait durations, in MICROSECONDS.
 ///
 /// The percentile of the recent past is what an operator acts on ("p95
 /// wait is 40ms"); the average over the whole uptime is not, because one
@@ -56,26 +56,36 @@ pub struct DbUsage {
 struct WaitSamples {
     values: Vec<u64>,
     next: usize,
+    /// How many samples the ring keeps. The service-wide ring and each
+    /// database's own ring are bounded differently, so the bound is a
+    /// property of the ring rather than a constant.
+    capacity: usize,
 }
 
 impl Default for WaitSamples {
     fn default() -> Self {
-        Self {
-            values: Vec::with_capacity(WAIT_SAMPLES),
-            next: 0,
-        }
+        Self::with_capacity(WAIT_SAMPLES)
     }
 }
 
 impl WaitSamples {
+    /// A ring that keeps at most `capacity` samples.
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            values: Vec::with_capacity(capacity),
+            next: 0,
+            capacity,
+        }
+    }
+
     /// Record a wait, keeping the ring bounded.
-    fn push(&mut self, millis: u64) {
-        if self.values.len() < WAIT_SAMPLES {
-            self.values.push(millis);
+    fn push(&mut self, micros: u64) {
+        if self.values.len() < self.capacity {
+            self.values.push(micros);
             return;
         }
-        self.values[self.next] = millis;
-        self.next = (self.next + 1) % WAIT_SAMPLES;
+        self.values[self.next] = micros;
+        self.next = (self.next + 1) % self.capacity;
     }
 
     /// The p-th percentile of the recorded waits, in microseconds.
