@@ -143,6 +143,30 @@ async fn human_result(call: Call<'_>, view: View) -> Result<Option<Value>, dg::S
     Ok(Some(result))
 }
 
+/// Fetch a JSON document from the gateway.
+///
+/// A command that needs the response in BOTH forms uses this: it shapes
+/// the answer itself, so a person and a script see the same thing.
+async fn fetch(
+    server: &str,
+    key_path: &Option<PathBuf>,
+    method: reqwest::Method,
+    path: &str,
+) -> Result<Value, dg::ServerError> {
+    use dg::ServerError::Application;
+    let key = dg::client::read_key(key_path.as_deref().ok_or_else(|| {
+        Application(dg::error::Error::new(
+            400,
+            "missing_credential",
+            "--key-file required",
+        ))
+    })?)
+    .map_err(Application)?;
+    dg::client::request(server, &key, method, path, None, None)
+        .await
+        .map_err(Application)
+}
+
 /// Terminal-table fetch shared by the JSON-listing commands. Returns
 /// `Ok(None)` when output stays machine JSON (piped stdout or --json);
 /// otherwise fetches, renders any error envelope, and hands the JSON
