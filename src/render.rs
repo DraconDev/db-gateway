@@ -160,6 +160,11 @@ pub enum Cell {
     Null,
     /// Text with an explicit style.
     Styled(String, Style),
+    /// A sparkline: a row of values drawn as a bar chart in one line.
+    ///
+    /// Its own kind because it is measured by its DISPLAY WIDTH: the
+    /// bars are one column each whatever the values are.
+    Sparkline(Vec<u64>),
 }
 
 impl Cell {
@@ -176,6 +181,7 @@ impl Cell {
             Cell::Number(text) => (sanitize(text), Style::Plain),
             Cell::Null => (Cow::Borrowed("NULL"), Style::Dim),
             Cell::Styled(text, style) => (sanitize(text), *style),
+            Cell::Sparkline(values) => (Cow::Owned(sparkline(values)), Style::Cyan),
         }
     }
 
@@ -606,6 +612,84 @@ pub fn write_sections(out: &mut dyn Write, theme: &Theme, sections: &[Section]) 
         section.write(out, theme)?;
     }
     Ok(())
+}
+
+/// A count per minute, as a person reads it.
+///
+/// A rate is read as "how much per minute", so a count over a window
+/// is scaled to that unit. `span_secs` is how long the window actually
+/// observed: a service up for ten seconds has observed ten seconds, and
+/// its rate is scaled from those ten rather than from a minute it never
+/// lived.
+pub fn human_rate(count: u64, span_secs: u64) -> String {
+    let span = span_secs.max(1);
+    let per_minute = count as f64 * 60.0 / span as f64;
+    human_count(per_minute as u64, "min")
+}
+
+/// A count as a person reads it: `1,204` with a thousands separator,
+/// and a suffix for the unit it is counted in.
+pub fn human_count(value: u64, unit: &str) -> String {
+    let digits = value.to_string();
+    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, ch) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index) % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(ch);
+    }
+    if unit.is_empty() {
+        grouped
+    } else {
+        format!("{grouped} {unit}")
+    }
+}
+
+/// A proportion as a person reads it: `0.006%`.
+///
+/// A ratio below a thousandth is worth more precision than a ratio
+/// above it, so the number of decimal places follows the magnitude
+/// rather than being fixed.
+pub fn human_percent(numerator: u64, denominator: u64) -> String {
+    if denominator == 0 {
+        return "-".to_string();
+    }
+    let ratio = numerator as f64 / denominator as f64 * 100.0;
+    if ratio == 0.0 {
+        return "0%".to_string();
+    }
+    if ratio < 0.01 {
+        // Below a hundredth of a percent, a fixed precision would print
+        // "0.00%", which reads as "no errors" when there were some.
+        format!("{ratio:.4}%")
+    } else if ratio < 1.0 {
+        format!("{ratio:.3}%")
+    } else if ratio < 10.0 {
+        format!("{ratio:.2}%")
+    } else {
+        format!("{ratio:.1}%")
+    }
+}
+
+/// A row of values as a sparkline: a bar chart in one line.
+///
+/// The values are scaled against the largest of them, so the shape of
+/// the row is what the reader sees. A row of zeros is a row of spaces:
+/// a flat line, not a chart of nothing.
+pub fn sparkline(values: &[u64]) -> String {
+    const LEVELS: &[char] = &[' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+    let peak = values.iter().copied().max().unwrap_or(0);
+    if peak == 0 {
+        return " ".repeat(values.len());
+    }
+    values
+        .iter()
+        .map(|value| {
+            // The height of the bar, from the peak down to nothing.
+            let eighths = ((*value as f64 / peak as f64) * (LEVELS.len() - 1) as f64).round();
+            LEVELS[(eighths as usize).min(LEVELS.len() - 1)]
+        })
+        .collect()
 }
 
 /// A byte count as a person reads it.
