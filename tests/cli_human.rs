@@ -87,6 +87,84 @@ const CONTRACT_COMMANDS: [HumanCase; 10] = [
     HumanCase { name: "init" },
 ];
 
+/// The world the ten-command tests need: a fleet, a .sqlite file to
+/// import, and a published backup set to verify.
+///
+/// The backup set and the source file are built here so both passes
+/// (the terminal one and the piped one) drive the SAME shape of world,
+/// and neither depends on the other's leftovers.
+struct World {
+    fleet: Fleet,
+    dir: tempfile::TempDir,
+    source: std::path::PathBuf,
+    backup_root: std::path::PathBuf,
+}
+
+impl World {
+    fn build() -> Self {
+        let fleet = Fleet::boot();
+        let dir = tempfile::tempdir().unwrap();
+
+        // A real .sqlite file to import.
+        let source = dir.path().join("source.sqlite");
+        {
+            let conn = rusqlite::Connection::open(&source).unwrap();
+            conn.execute_batch("CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1)")
+                .unwrap();
+        }
+
+        // A published backup set to verify offline.
+        let backup_root = dir.path().join("backups");
+        let set = backup_root.join("20240101T000000Z");
+        std::fs::create_dir_all(&set).unwrap();
+        let member = set.join("member.sqlite");
+        {
+            let conn = rusqlite::Connection::open(&member).unwrap();
+            conn.execute_batch("CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1)")
+                .unwrap();
+        }
+        let member_bytes = std::fs::read(&member).unwrap();
+        let member_sha = hex::encode(sha2::Sha256::digest(&member_bytes));
+        std::fs::write(set.join("member.sha256"), format!("{member_sha}\n")).unwrap();
+        let registry = set.join("metadata.sqlite.bak");
+        {
+            let conn = rusqlite::Connection::open(&registry).unwrap();
+            conn.execute_batch("CREATE TABLE credentials(name TEXT PRIMARY KEY)")
+                .unwrap();
+        }
+        let registry_bytes = std::fs::read(&registry).unwrap();
+        let registry_sha = hex::encode(sha2::Sha256::digest(&registry_bytes));
+        std::fs::write(
+            set.join("manifest.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "started_at": 1,
+                "completed_at": 2,
+                "registry_captured_at": 2,
+                "databases": [{
+                    "name": "member",
+                    "file": "member.sqlite",
+                    "size": member_bytes.len(),
+                    "sha256": member_sha,
+                }],
+                "registry": {
+                    "file": "metadata.sqlite.bak",
+                    "size": registry_bytes.len(),
+                    "sha256": registry_sha,
+                },
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        Self {
+            fleet,
+            dir,
+            source,
+            backup_root,
+        }
+    }
+}
+
 #[test]
 fn every_contract_command_shows_a_human_view_on_a_terminal() {
     // The contract says every command that prints raw JSON on a
@@ -99,7 +177,8 @@ fn every_contract_command_shows_a_human_view_on_a_terminal() {
     // because they take the ad-hoc terminal path rather than the
     // shared one, and a path with no test is a path that can quietly
     // go back to printing JSON.
-    let fleet = Fleet::boot();
+    let world = World::build();
+    let fleet = &world.fleet;
     let server = &fleet.cli.server;
     let key = fleet.cli.key_file.to_str().unwrap();
     let dg = env!("CARGO_BIN_EXE_dg");
@@ -109,63 +188,9 @@ fn every_contract_command_shows_a_human_view_on_a_terminal() {
     fleet
         .cli
         .q("seed", "human_db", "CREATE TABLE t (id INTEGER)");
-    let dir = tempfile::tempdir().unwrap();
 
-    // A real .sqlite file to import.
-    let source = dir.path().join("source.sqlite");
-    {
-        let conn = rusqlite::Connection::open(&source).unwrap();
-        conn.execute_batch("CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1)")
-            .unwrap();
-    }
-
-    // A published backup set to verify offline.
-    let backup_root = dir.path().join("backups");
-    let set = backup_root.join("20240101T000000Z");
-    std::fs::create_dir_all(&set).unwrap();
-    let member = set.join("member.sqlite");
-    {
-        let conn = rusqlite::Connection::open(&member).unwrap();
-        conn.execute_batch("CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1)")
-            .unwrap();
-    }
-    let member_bytes = std::fs::read(&member).unwrap();
-    let member_sha = hex::encode(sha2::Sha256::digest(&member_bytes));
-    std::fs::write(set.join("member.sha256"), format!("{member_sha}\n")).unwrap();
-    let registry = set.join("metadata.sqlite.bak");
-    {
-        let conn = rusqlite::Connection::open(&registry).unwrap();
-        conn.execute_batch("CREATE TABLE credentials(name TEXT PRIMARY KEY)")
-            .unwrap();
-    }
-    let registry_bytes = std::fs::read(&registry).unwrap();
-    let registry_sha = hex::encode(sha2::Sha256::digest(&registry_bytes));
-    std::fs::write(
-        set.join("manifest.json"),
-        serde_json::to_vec(&serde_json::json!({
-            "started_at": 1,
-            "completed_at": 2,
-            "registry_captured_at": 2,
-            "databases": [{
-                "name": "member",
-                "file": "member.sqlite",
-                "size": member_bytes.len(),
-                "sha256": member_sha,
-            }],
-            "registry": {
-                "file": "metadata.sqlite.bak",
-                "size": registry_bytes.len(),
-                "sha256": registry_sha,
-            },
-        }))
-        .unwrap(),
-    )
-    .unwrap();
-
-    // The commands, in the order the contract names them. Each is
-    // driven under a pty, and the words a person reads are checked.
-    let again = dir.path().join("again.sqlite");
-    let fresh = dir.path().join("fresh");
+    let again = world.dir.path().join("again.sqlite");
+    let fresh = world.dir.path().join("fresh");
     let cases: Vec<(&str, Vec<&str>, &str)> = vec![
         (
             "create",
@@ -221,7 +246,7 @@ fn every_contract_command_shows_a_human_view_on_a_terminal() {
                 "import",
                 "human_imported",
                 "--from",
-                source.to_str().unwrap(),
+                world.source.to_str().unwrap(),
             ],
             "imported human_imported",
         ),
@@ -291,7 +316,7 @@ fn every_contract_command_shows_a_human_view_on_a_terminal() {
                 "backup",
                 "verify",
                 "--backup-root",
-                backup_root.to_str().unwrap(),
+                world.backup_root.to_str().unwrap(),
                 "latest",
             ],
             "verified 20240101T000000Z",
@@ -325,6 +350,173 @@ fn every_contract_command_shows_a_human_view_on_a_terminal() {
         assert!(
             !screen.trim_start().starts_with('{'),
             "{} printed raw JSON on a terminal: {screen}",
+            case.0
+        );
+    }
+}
+
+#[test]
+fn every_contract_command_still_emits_json_when_piped() {
+    // The human view must not cost the machine surface: the same ten
+    // commands, run through a pipe, must each emit JSON a script can
+    // read.
+    let world = World::build();
+    let fleet = &world.fleet;
+    let server = &fleet.cli.server;
+    let key = fleet.cli.key_file.to_str().unwrap();
+    let dg = env!("CARGO_BIN_EXE_dg");
+
+    fleet.cli.ok("create", &["create", "pipe_db"]);
+    fleet
+        .cli
+        .q("seed", "pipe_db", "CREATE TABLE t (id INTEGER)");
+
+    let out = world.dir.path().join("piped.sqlite");
+    let fresh = world.dir.path().join("piped_fresh");
+    let cases: Vec<(&str, Vec<&str>)> = vec![
+        (
+            "create",
+            vec![
+                dg,
+                "--server",
+                server,
+                "--key-file",
+                key,
+                "create",
+                "pipe_created",
+            ],
+        ),
+        (
+            "delete",
+            vec![
+                dg,
+                "--server",
+                server,
+                "--key-file",
+                key,
+                "delete",
+                "pipe_db",
+                "--confirm",
+                "pipe_db",
+            ],
+        ),
+        (
+            "export",
+            vec![
+                dg,
+                "--server",
+                server,
+                "--key-file",
+                key,
+                "export",
+                "pipe_created",
+                "--out",
+                out.to_str().unwrap(),
+            ],
+        ),
+        (
+            "import",
+            vec![
+                dg,
+                "--server",
+                server,
+                "--key-file",
+                key,
+                "import",
+                "pipe_imported",
+                "--from",
+                world.source.to_str().unwrap(),
+            ],
+        ),
+        (
+            "clone",
+            vec![
+                dg,
+                "--server",
+                server,
+                "--key-file",
+                key,
+                "clone",
+                "pipe_created",
+                "pipe_cloned",
+            ],
+        ),
+        (
+            "key create",
+            vec![
+                dg,
+                "--server",
+                server,
+                "--key-file",
+                key,
+                "key",
+                "create",
+                "pipe_bot",
+                "--role",
+                "database_read_only",
+                "--database",
+                "pipe_created",
+            ],
+        ),
+        (
+            "key revoke",
+            vec![
+                dg,
+                "--server",
+                server,
+                "--key-file",
+                key,
+                "key",
+                "revoke",
+                "pipe_bot",
+            ],
+        ),
+        (
+            "key rotate-owner",
+            vec![
+                dg,
+                "--server",
+                server,
+                "--key-file",
+                key,
+                "key",
+                "rotate-owner",
+            ],
+        ),
+        (
+            "backup verify",
+            vec![
+                dg,
+                "backup",
+                "verify",
+                "--backup-root",
+                world.backup_root.to_str().unwrap(),
+                "latest",
+            ],
+        ),
+        (
+            "init",
+            vec![dg, "init", "--data-dir", fresh.to_str().unwrap()],
+        ),
+    ];
+
+    assert_eq!(
+        cases.len(),
+        CONTRACT_COMMANDS.len(),
+        "the case list and the contract list have drifted apart"
+    );
+    for (case, expected) in cases.iter().zip(CONTRACT_COMMANDS.iter()) {
+        assert_eq!(
+            case.0, expected.name,
+            "the case list and the contract list have drifted apart"
+        );
+        let (ok, stdout) = piped(&case.1);
+        assert!(ok, "{} failed: {stdout}", case.0);
+        let parsed: serde_json::Value =
+            serde_json::from_str(&stdout).unwrap_or_else(|_| panic!("{} is not JSON: {stdout}", case.0));
+        assert!(
+            !parsed.is_null(),
+            "{} emitted null: {stdout}",
             case.0
         );
     }
