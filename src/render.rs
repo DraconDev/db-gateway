@@ -730,7 +730,6 @@ pub fn service_dashboard(status: &serde_json::Value) -> Vec<Section> {
     sections
 }
 
-
 /// How long ago a timestamp was, as a person reads it.
 ///
 /// The absolute time is kept alongside, because "3m ago" alone does not

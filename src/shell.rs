@@ -415,7 +415,7 @@ impl Session<'_> {
             .map_err(io);
         }
         let sections = crate::render::service_dashboard(response);
-        crate::render::write_sections(out, self.theme, &sections).map_err(io)
+        crate::render::write_sections(out, self.theme, &sections).map_err(render_error)
     }
 
     /// Draw the credentials and their scope.
@@ -437,7 +437,12 @@ impl Session<'_> {
         table.column("name", crate::render::Align::Left);
         table.column("role", crate::render::Align::Left);
         table.column("databases", crate::render::Align::Left);
-        for key in response["keys"].as_array().cloned().unwrap_or_default().iter() {
+        for key in response["keys"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+        {
             let role = key["role"].as_str().unwrap_or("");
             let databases = key["databases"]
                 .as_array()
@@ -449,7 +454,10 @@ impl Session<'_> {
                 })
                 .unwrap_or_default();
             table.row(vec![
-                crate::render::Cell::styled(key["name"].as_str().unwrap_or(""), crate::render::Style::Cyan),
+                crate::render::Cell::styled(
+                    key["name"].as_str().unwrap_or(""),
+                    crate::render::Style::Cyan,
+                ),
                 crate::render::Cell::styled(
                     role,
                     if role == "owner" {
@@ -465,7 +473,7 @@ impl Session<'_> {
                 }),
             ]);
         }
-        table.write(out, self.theme).map_err(io)
+        table.write(out, self.theme).map_err(render_error)
     }
 
     /// Draw the backup freshness of every database.
@@ -519,7 +527,7 @@ impl Session<'_> {
                 ]);
             }
         }
-        table.write(out, self.theme).map_err(io)
+        table.write(out, self.theme).map_err(render_error)
     }
 }
 
@@ -606,6 +614,14 @@ fn split_command(line: &str) -> (&str, &str) {
 
 fn io(_: std::io::Error) -> Error {
     Error::new(500, "shell_io_error", "shell input/output failed")
+}
+
+/// A renderer failure, as a shell error.
+///
+/// The renderer reports its own failures, so the reason is kept rather
+/// than replaced.
+fn render_error(error: Error) -> Error {
+    error
 }
 
 /// A wire value as the text of a column header.

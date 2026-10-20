@@ -2,12 +2,8 @@
 
 use super::{Request, table_json};
 use dg::ServerError::Application;
-use dg::render::{
-    Align, Cell, Section, Style, Table, Theme, human_count, human_duration, human_micros,
-    human_percent, human_rate,
-};
+use dg::render::Theme;
 use reqwest::Method;
-use serde_json::Value;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 
@@ -23,8 +19,12 @@ pub async fn status(
 ) -> Result<Option<Request>, dg::ServerError> {
     if let Some(status) = table_json(server, json, key_path, Method::GET, "/v1/status").await? {
         let mut out = std::io::stdout();
-        dg::render::write_sections(&mut out, &terminal_theme(), &dashboard(&status))
-            .map_err(Application)?;
+        dg::render::write_sections(
+            &mut out,
+            &terminal_theme(),
+            &dg::render::service_dashboard(&status),
+        )
+        .map_err(Application)?;
         return Ok(None);
     }
     Ok(Some((Method::GET, "/v1/status".into(), None, None)))
@@ -41,17 +41,4 @@ pub async fn watch(
     key_path: &Option<PathBuf>,
 ) -> Result<Option<Request>, dg::ServerError> {
     status(server, json, key_path).await
-}
-
-/// How long ago a timestamp was, as a person reads it.
-///
-/// The absolute time is kept alongside, because "3m ago" alone does not
-/// say when a write happened, only how recently.
-fn human_epoch_ago(epoch: u64) -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(epoch);
-    let age = now.saturating_sub(epoch);
-    format!("{} ago", human_duration(age))
 }
