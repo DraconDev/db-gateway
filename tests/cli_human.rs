@@ -61,6 +61,277 @@ fn piped(args: &[&str]) -> (bool, String) {
     )
 }
 
+/// One command of the contract, and the words a person must see.
+///
+/// The contract names ten commands that used to print raw JSON on a
+/// terminal. Each one is listed here with the phrase its human view
+/// shows, so a command that loses its human view fails HERE rather
+/// than being noticed by a person.
+struct HumanCase {
+    /// The command's name, as the contract names it.
+    name: &'static str,
+}
+
+/// The ten commands the contract names.
+const CONTRACT_COMMANDS: [HumanCase; 10] = [
+    HumanCase { name: "create" },
+    HumanCase { name: "delete" },
+    HumanCase { name: "export" },
+    HumanCase { name: "import" },
+    HumanCase { name: "clone" },
+    HumanCase { name: "key create" },
+    HumanCase { name: "key revoke" },
+    HumanCase { name: "key rotate-owner" },
+    HumanCase { name: "backup verify" },
+    HumanCase { name: "init" },
+];
+
+#[test]
+fn every_contract_command_shows_a_human_view_on_a_terminal() {
+    // The contract says every command that prints raw JSON on a
+    // terminal prints a human view instead, and that a test asserts
+    // this per command for all ten. This is that test: it drives each
+    // of the ten under a pty and checks the words a person reads.
+    //
+    // The four commands an earlier version of this file left out --
+    // import, clone, key rotate-owner and backup verify -- are here
+    // because they take the ad-hoc terminal path rather than the
+    // shared one, and a path with no test is a path that can quietly
+    // go back to printing JSON.
+    let fleet = Fleet::boot();
+    let server = &fleet.cli.server;
+    let key = fleet.cli.key_file.to_str().unwrap();
+    let dg = env!("CARGO_BIN_EXE_dg");
+
+    // A database to export, import, clone and delete.
+    fleet.cli.ok("create", &["create", "human_db"]);
+    fleet
+        .cli
+        .q("seed", "human_db", "CREATE TABLE t (id INTEGER)");
+    let dir = tempfile::tempdir().unwrap();
+
+    // A real .sqlite file to import.
+    let source = dir.path().join("source.sqlite");
+    {
+        let conn = rusqlite::Connection::open(&source).unwrap();
+        conn.execute_batch("CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1)")
+            .unwrap();
+    }
+
+    // A published backup set to verify offline.
+    let backup_root = dir.path().join("backups");
+    let set = backup_root.join("20240101T000000Z");
+    std::fs::create_dir_all(&set).unwrap();
+    let member = set.join("member.sqlite");
+    {
+        let conn = rusqlite::Connection::open(&member).unwrap();
+        conn.execute_batch("CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1)")
+            .unwrap();
+    }
+    let member_bytes = std::fs::read(&member).unwrap();
+    let member_sha = hex::encode(sha2::Sha256::digest(&member_bytes));
+    std::fs::write(set.join("member.sha256"), format!("{member_sha}\n")).unwrap();
+    let registry = set.join("metadata.sqlite.bak");
+    {
+        let conn = rusqlite::Connection::open(&registry).unwrap();
+        conn.execute_batch("CREATE TABLE credentials(name TEXT PRIMARY KEY)")
+            .unwrap();
+    }
+    let registry_bytes = std::fs::read(&registry).unwrap();
+    let registry_sha = hex::encode(sha2::Sha256::digest(&registry_bytes));
+    std::fs::write(
+        set.join("manifest.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "started_at": 1,
+            "completed_at": 2,
+            "registry_captured_at": 2,
+            "databases": [{
+                "name": "member",
+                "file": "member.sqlite",
+                "size": member_bytes.len(),
+                "sha256": member_sha,
+            }],
+            "registry": {
+                "file": "metadata.sqlite.bak",
+                "size": registry_bytes.len(),
+                "sha256": registry_sha,
+            },
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    // The commands, in the order the contract names them. Each is
+    // driven under a pty, and the words a person reads are checked.
+    let cases: Vec<(&str, Vec<&str>, &str)> = vec![
+        (
+            "create",
+            vec![
+                dg,
+                "--server",
+                server,
+                "--key-file",
+                key,
+                "create",
+                "human_created",
+            ],
+            "created human_created",
+        ),
+        (
+            "delete",
+            vec![
+                dg,
+                "--server",
+                server,
+                "--key-file",
+                key,
+                "delete",
+                "human_db",
+                "--confirm",
+                "human_db",
+            ],
+            "tombstoned human_db",
+        ),
+        (
+            "export",
+            vec![
+                dg,
+                "--server",
+                server,
+                "--key-file",
+                key,
+                "export",
+                "human_created",
+                "--out",
+                dir.path().join("again.sqlite").to_str().unwrap(),
+            ],
+            "exported human_created",
+        ),
+        (
+            "import",
+            vec![
+                dg,
+                "--server",
+                server,
+                "--key-file",
+                key,
+                "import",
+                "human_imported",
+                "--from",
+                source.to_str().unwrap(),
+            ],
+            "imported human_imported",
+        ),
+        (
+            "clone",
+            vec![
+                dg,
+                "--server",
+                server,
+                "--key-file",
+                key,
+                "clone",
+                "human_created",
+                "human_cloned",
+            ],
+            "cloned human_created to human_cloned",
+        ),
+        (
+            "key create",
+            vec![
+                dg,
+                "--server",
+                server,
+                "--key-file",
+                key,
+                "key",
+                "create",
+                "human_bot",
+                "--role",
+                "database_read_only",
+                "--database",
+                "human_created",
+            ],
+            "issued human_bot",
+        ),
+        (
+            "key revoke",
+            vec![
+                dg,
+                "--server",
+                server,
+                "--key-file",
+                key,
+                "key",
+                "revoke",
+                "human_bot",
+            ],
+            "revoked human_bot",
+        ),
+        (
+            "key rotate-owner",
+            vec![
+                dg,
+                "--server",
+                server,
+                "--key-file",
+                key,
+                "key",
+                "rotate-owner",
+            ],
+            "rotated the owner credential",
+        ),
+        (
+            "backup verify",
+            vec![
+                dg,
+                "backup",
+                "verify",
+                "--backup-root",
+                backup_root.to_str().unwrap(),
+                "latest",
+            ],
+            "verified 20240101T000000Z",
+        ),
+        (
+            "init",
+            vec![
+                dg,
+                "init",
+                "--data-dir",
+                dir.path().join("fresh").to_str().unwrap(),
+            ],
+            "initialized",
+        ),
+    ];
+
+    // The ten the contract names, in the same order.
+    assert_eq!(
+        cases.len(),
+        CONTRACT_COMMANDS.len(),
+        "the case list and the contract list have drifted apart"
+    );
+    for (case, expected) in cases.iter().zip(CONTRACT_COMMANDS.iter()) {
+        assert_eq!(
+            case.0, expected.name,
+            "the case list and the contract list have drifted apart"
+        );
+        let (ok, screen) = pty(case.1);
+        assert!(ok, "{} failed: {screen}", case.0);
+        assert!(
+            screen.contains(case.2),
+            "{} did not show a human view: {screen}",
+            case.0
+        );
+        // A human view is not JSON: the point is that it reads.
+        assert!(
+            !screen.trim_start().starts_with('{'),
+            "{} printed raw JSON on a terminal: {screen}",
+            case.0
+        );
+    }
+}
+
 #[test]
 fn every_mutating_command_shows_a_human_view_on_a_terminal() {
     // Each of these commands used to print raw JSON on a terminal. The
