@@ -11,6 +11,7 @@
 mod common;
 
 use common::Fleet;
+use sha2::Digest;
 use std::process::Command;
 
 /// Strip ANSI escapes so a text assertion sees the words.
@@ -316,7 +317,7 @@ fn every_contract_command_shows_a_human_view_on_a_terminal() {
             case.0, expected.name,
             "the case list and the contract list have drifted apart"
         );
-        let (ok, screen) = pty(case.1);
+        let (ok, screen) = pty(&case.1);
         assert!(ok, "{} failed: {screen}", case.0);
         assert!(
             screen.contains(case.2),
