@@ -52,6 +52,7 @@ pub async fn clone_db(
 
 pub async fn export(
     server: &str,
+    json: bool,
     key_path: &Option<PathBuf>,
     name: String,
     out: PathBuf,
@@ -171,15 +172,36 @@ pub async fn export(
     .await;
     release_snapshot().await;
     let (size, sha256) = result?;
-    println!(
-        "{}",
-        json!({"name":name,"out":out.display().to_string(),"size":size,"sha256":sha256})
-    );
+    let report = json!({"name":name,"out":out.display().to_string(),"size":size,"sha256":sha256});
+    if json || !std::io::stdout().is_terminal() {
+        println!("{report}");
+        return Ok(());
+    }
+    // A person wants to know it worked and that the file is intact:
+    // the size it is, and the hash to check it against.
+    let mut stdout = std::io::stdout();
+    dg::render::Outcome::with_facts(
+        format!("exported {name}"),
+        vec![
+            (
+                "file".to_string(),
+                out.display().to_string(),
+            ),
+            (
+                "size".to_string(),
+                dg::render::human_bytes(size),
+            ),
+            ("sha256".to_string(), sha256),
+        ],
+    )
+    .write(&mut stdout, &dg::render::Theme::for_stream(true))
+    .map_err(Application)?;
     Ok(())
 }
 
 pub async fn import(
     server: &str,
+    json: bool,
     key_path: &Option<PathBuf>,
     name: String,
     from: PathBuf,
@@ -293,7 +315,25 @@ pub async fn import(
         )
         .await
         .map_err(Application)?;
-        println!("{done}");
+        if json || !std::io::stdout().is_terminal() {
+            println!("{done}");
+        } else {
+            let mut stdout = std::io::stdout();
+            dg::render::Outcome::with_facts(
+                format!("imported {name}"),
+                vec![
+                    ("file".to_string(), from.display().to_string()),
+                    (
+                        "size".to_string(),
+                        dg::render::human_bytes(
+                            std::fs::metadata(&from).map(|meta| meta.len()).unwrap_or(0),
+                        ),
+                    ),
+                ],
+            )
+            .write(&mut stdout, &dg::render::Theme::for_stream(true))
+            .map_err(Application)?;
+        }
         if api_failed(&done) {
             return Err(Application(api_error()));
         }

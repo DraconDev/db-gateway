@@ -77,7 +77,7 @@ pub async fn serve(
     dg::serve(listen, data_dir, backup_root, notify).await
 }
 
-pub async fn init(data_dir: PathBuf) -> Result<(), dg::ServerError> {
+pub async fn init(data_dir: PathBuf, json: bool) -> Result<(), dg::ServerError> {
     let key = dg::store::Store::open(&data_dir)
         .and_then(|store| store.bootstrap())
         .map_err(Application)?;
@@ -90,6 +90,21 @@ pub async fn init(data_dir: PathBuf) -> Result<(), dg::ServerError> {
     eprintln!(
         "dg init: the owner key is on stdout and is shown only once -- redirect it to a mode-0600 file (e.g. `dg init --data-dir DIR > ~/.config/dg/key`) and clear your scrollback."
     );
-    println!("{}", json!({"owner_key":key}));
+    if json || !std::io::stdout().is_terminal() {
+        // A pipe gets the JSON, so the documented extraction keeps
+        // working.
+        println!("{}", json!({"owner_key":key}));
+        return Ok(());
+    }
+    // A terminal gets the same key, in a form a person can read and
+    // copy: the headline says what happened, the key is on its own
+    // line, and the key is on stdout either way.
+    let mut out = std::io::stdout();
+    dg::render::Outcome::with_facts(
+        format!("initialized {}", data_dir.display()),
+        vec![("owner key".to_string(), key)],
+    )
+    .write(&mut out, &dg::render::Theme::for_stream(true))
+    .map_err(Application)?;
     Ok(())
 }
