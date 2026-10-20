@@ -60,7 +60,10 @@ fn the_shell_draws_the_same_status_dashboard_as_the_command() {
     let screen = shell(&fleet, ".status\n.quit\n");
     assert!(screen.contains("service"), "no service section: {screen}");
     assert!(screen.contains("activity"), "no activity section: {screen}");
-    assert!(screen.contains("admission"), "no admission section: {screen}");
+    assert!(
+        screen.contains("admission"),
+        "no admission section: {screen}"
+    );
     assert!(
         screen.contains("live, 0 tombstoned"),
         "no database counts: {screen}"
@@ -86,7 +89,10 @@ fn the_shell_lists_the_credentials() {
 
     let screen = shell(&fleet, ".keys\n.quit\n");
     assert!(screen.contains("shell_bot"), "the key is missing: {screen}");
-    assert!(screen.contains("owner"), "the owner key is missing: {screen}");
+    assert!(
+        screen.contains("owner"),
+        "the owner key is missing: {screen}"
+    );
     // It is a table, not a JSON dump.
     assert!(
         screen.contains('│') || screen.contains('|'),
@@ -104,7 +110,10 @@ fn the_shell_shows_the_backup_freshness() {
     fleet.cli.ok("create", &["create", "shell_db"]);
 
     let screen = shell(&fleet, ".backups\n.quit\n");
-    assert!(screen.contains("shell_db"), "the database is missing: {screen}");
+    assert!(
+        screen.contains("shell_db"),
+        "the database is missing: {screen}"
+    );
     assert!(
         screen.contains("state") && screen.contains("newest set"),
         "the columns are missing: {screen}"
