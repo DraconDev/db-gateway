@@ -225,6 +225,10 @@ dg --key-file owner.key query game_a "SELECT id, name FROM players"
 dg --key-file owner.key query game_a "INSERT INTO matches VALUES (?)" --args '[7]' --idempotency-key match-final-9182
 printf '%s\n' '{"atomic":true,"statements":[{"sql":"SELECT count(*) FROM players"}]}' > batch.json
 dg --key-file owner.key batch game_a batch.json
+printf '%s\n' "SELECT count(*) FROM players;" > script.sql
+dg --key-file owner.key execute game_a script.sql
+dg --key-file owner.key inspect game_a
+dg --key-file owner.key watch
 dg --key-file owner.key key tokens game_a   # the credentials that can act on one database
 dg --key-file owner.key key revoke bot_a
 ```
