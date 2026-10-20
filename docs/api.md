@@ -74,6 +74,29 @@ and exactly-once resubmission is the caller's explicit keyed replay.
 
 Names: `[a-z0-9_]+`, not starting with `_`, max 64 chars. Queries never create databases — a missing database is `404 database_not_found`.
 
+### The status snapshot
+
+`GET /v1/status` answers four questions: how many databases are live and
+how many are on their way out, how busy the service is and how often it
+fails, how long admission waits are, and which database is doing the work.
+The fields below are all additive; the pre-existing ones keep their
+meaning.
+
+| Field | Meaning |
+| --- | --- |
+| `database_counts.live` / `.tombstoned` | Live databases, and databases tombstoned but not yet purged. A tombstone still holds its name, so it still counts against the database cap. |
+| `requests.recent_per_second` | The per-second request counts of the last 60 seconds, oldest first. A fixed-size ring, not a time series: it answers "how busy was it just now" and cannot grow with traffic. |
+| `requests.recent_span_secs` | How many seconds the window actually observed. Less than 60 right after boot, so a rate computed from it is scaled honestly rather than reported against a span the service never lived. |
+| `requests.wait_p50_us` / `.wait_p95_us` | The median and 95th percentile of the recent **admission waits**, in microseconds — across the whole service. `null` when no wait has been recorded: a percentile of nothing is nothing, and `0` would claim the queue never contended. |
+| `requests.wait_samples` | How many waits the percentile sample holds. The sample is a bounded ring of the most recent waits, so it speaks about a recent past, not about the whole uptime. |
+| `databases.<db>.queue_wait_p95_us` | The same percentile, but for **that database's own** recent waits. The service-wide percentile mixes every database, so one contended database can hide inside it; this is the figure that names the slow one. `null` when that database has never waited. |
+| `databases.<db>.queue_wait_max_us` | The longest single wait that database has ever seen, in microseconds. A different fact from the p95: the p95 says how bad the queue usually is, the max says how bad it ever got. |
+| `databases.<db>.queue_waits` / `.queue_wait_ms` / `.queue_timeouts` | Admission attempts for that database, the total time spent waiting, and how many attempts hit the 500 ms bound (`429 capacity_exceeded`). `queue_timeouts` growing under a read flood on one database is the starvation signal. |
+| `databases.<db>.last_write` | When the database was last written, as unix seconds, or `null` if it never has been. |
+
+The TypeScript client and the web console treat every one of these as
+optional, so a server that does not send them still validates.
+
 ### SQL value encoding
 
 Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1`, `number→INTEGER/REAL` (unsigned integers above `2^63-1` are rejected), `string→TEXT`, `array of 0–255 integers→BLOB` (returned as arrays of numbers). Objects (including `{ "integer": "42" }`) are rejected. Two output coercions are silent by design: non-finite REALs (`NaN`/`±Inf`, unrepresentable in JSON) come back as `null`, and TEXT with invalid UTF-8 bytes comes back lossy (replacement characters). The TypeScript client uses JavaScript numbers: integers outside ±(2^53−1) are not guaranteed exact. For exact large identifiers, store and transmit decimal TEXT; there is no integer-wrapper encoding in M1.
