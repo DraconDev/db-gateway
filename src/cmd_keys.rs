@@ -33,7 +33,7 @@ pub async fn create(
         "/v1/keys",
         Some(json!({"name":name,"role":role,"databases":database})),
         None,
-        |result| {
+        Box::new(|result| {
             // The key is shown ONCE and never again, so it is on the
             // screen. The scope is shown with it, because a key
             // without its scope is a key nobody can use safely.
@@ -46,7 +46,7 @@ pub async fn create(
                     ("scope".to_string(), scope),
                 ],
             )
-        },
+        }),
     )
     .await?
     .is_some()
@@ -199,7 +199,7 @@ pub async fn revoke(
         &format!("/v1/keys/{name}"),
         None,
         None,
-        |_result| dg::render::Outcome::done(format!("revoked {name}")),
+        Box::new(|_result| dg::render::Outcome::done(format!("revoked {name}"))),
     )
     .await?
     .is_some()
@@ -227,7 +227,7 @@ pub async fn rotate_owner(
         "/v1/keys/owner/rotate",
         None,
         None,
-        |result| {
+        Box::new(|result| {
             // The old owner key dies the moment this one is issued, so
             // the new key is on the screen, and the operator has to be
             // told the old one is already gone.
@@ -244,7 +244,7 @@ pub async fn rotate_owner(
                     ),
                 ],
             )
-        },
+        }),
     )
     .await?
     .is_some()

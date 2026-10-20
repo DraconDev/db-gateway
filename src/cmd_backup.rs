@@ -290,7 +290,7 @@ pub async fn verify(
             dg::render::write_sections(&mut out, &theme, &[section]).map_err(Application)?;
         }
         if !report.databases.is_empty() {
-            writeln!(out).map_err(|_| Application(Error::internal()))?;
+            writeln!(out, "").map_err(|_| Application(Error::internal()))?;
             table.write(&mut out, &theme).map_err(Application)?;
         }
     }

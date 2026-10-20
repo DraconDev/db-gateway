@@ -29,7 +29,7 @@ pub async fn clone_db(
         &format!("/v1/databases/{source}/clone"),
         Some(json!({"destination":destination})),
         None,
-        |result| {
+        Box::new(|result| {
             dg::render::Outcome::done(format!(
                 "cloned {} to {}",
                 result["source"].as_str().unwrap_or(&source),
@@ -381,7 +381,7 @@ pub async fn delete(
         &format!("/v1/databases/{name}"),
         None,
         None,
-        |result| {
+        Box::new(|result| {
             // A tombstone is not a deletion: the name is taken until
             // the retention window purges it, and the operator has to
             // know when it comes back.
@@ -393,7 +393,7 @@ pub async fn delete(
                 format!("tombstoned {name}"),
                 vec![("purges in".to_string(), purge_after)],
             )
-        },
+        }),
     )
     .await?
     .is_some()

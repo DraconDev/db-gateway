@@ -1,7 +1,7 @@
 //! Everyday data commands against the API: list/info/create,
 //! query/batch, and the interactive shell.
 
-use super::{Request, api_error, api_failed};
+use super::{Request, api_error, api_failed, human_result};
 use dg::ServerError::Application;
 use dg::error::Error;
 use dg::render::{Align, Cell, Section, Style, Table, Theme};
@@ -421,7 +421,7 @@ pub async fn create(
         "/v1/databases",
         Some(json!({"name":name})),
         None,
-        |result| {
+        Box::new(|result| {
             dg::render::Outcome::done(format!(
                 "created {}",
                 result["name"].as_str().unwrap_or("")

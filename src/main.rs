@@ -65,6 +65,9 @@ fn terminal_theme() -> dg::render::Theme {
     dg::render::Theme::for_stream(std::io::stdout().is_terminal())
 }
 
+/// How a command draws its result for a person.
+type View = Box<dyn Fn(&Value) -> dg::render::Outcome>;
+
 /// Fetch a result and show it to a person, or hand back the JSON when
 /// the output is a machine's.
 ///
@@ -80,7 +83,7 @@ async fn human_result(
     path: &str,
     body: Option<Value>,
     idempotency: Option<&str>,
-    view: fn(&Value) -> dg::render::Outcome,
+    view: View,
 ) -> Result<Option<Value>, dg::ServerError> {
     use dg::ServerError::Application;
     if json || !std::io::stdout().is_terminal() {
@@ -477,10 +480,10 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             return cmd_data::shell(&cli.server, cli.json, &key_path, name).await;
         }
         Command::Export { name, out } => {
-            return cmd_lifecycle::export(&cli.server, &key_path, name, out).await;
+            return cmd_lifecycle::export(&cli.server, cli.json, &key_path, name, out).await;
         }
         Command::Import { name, from } => {
-            return cmd_lifecycle::import(&cli.server, &key_path, name, from).await;
+            return cmd_lifecycle::import(&cli.server, cli.json, &key_path, name, from).await;
         }
         Command::Backup {
             command:
@@ -492,7 +495,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         } => return cmd_backup::digest(data_dir, backup_root, as_json).await,
         Command::Backup {
             command: BackupCommand::Verify { backup_root, set },
-        } => return cmd_backup::verify(backup_root, set).await,
+        } => return cmd_backup::verify(backup_root, set, cli.json).await,
         Command::Status => cmd_status::status(&cli.server, cli.json, &key_path).await?,
         Command::Watch => cmd_status::watch(&cli.server, cli.json, &key_path).await?,
         Command::Backup {
