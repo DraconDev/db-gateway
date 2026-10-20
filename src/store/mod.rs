@@ -145,6 +145,8 @@ impl Store {
 }
 
 #[cfg(test)]
+mod metrics_tests;
+#[cfg(test)]
 mod purge_tests;
 #[cfg(test)]
 mod tests;
