@@ -44,20 +44,15 @@ pub struct Theme {
 }
 
 impl Theme {
-    /// The theme for output that is going to a terminal: colour and
-    /// Unicode are both allowed, subject to the environment.
-    pub fn terminal() -> Self {
+    /// The theme for a stream that may or may not be a terminal.
+    ///
+    /// Colour needs a terminal to be interpreted and a reason to exist, so
+    /// it is on only for a terminal, and only when the environment allows
+    /// it. The character set follows the locale, so a non-UTF-8 terminal
+    /// gets an ASCII grid rather than mojibake.
+    pub fn for_stream(is_terminal: bool) -> Self {
         Self {
-            color: color_allowed(),
-            unicode: unicode_allowed(),
-        }
-    }
-
-    /// The theme for output that is not going to a terminal: no colour
-    /// (there is no terminal to interpret it), same character set.
-    pub fn plain() -> Self {
-        Self {
-            color: false,
+            color: is_terminal && color_allowed(),
             unicode: unicode_allowed(),
         }
     }
@@ -246,9 +241,9 @@ impl Table {
                 .map(|index| match row.get(index) {
                     Some(serde_json::Value::Null) | None => Cell::Null,
                     Some(serde_json::Value::Number(number)) => Cell::Number(number.to_string()),
-                    Some(serde_json::Value::String(text)) => Cell::Text(text.clone()),
+                    Some(serde_json::Value::String(text)) => Cell::Text(sanitize(text)),
                     Some(serde_json::Value::Bool(flag)) => Cell::Text(flag.to_string()),
-                    Some(other) => Cell::Text(other.to_string()),
+                    Some(other) => Cell::Text(sanitize(&other.to_string())),
                 })
                 .collect();
             table.row(cells);
@@ -416,10 +411,44 @@ fn paint(text: &str, style: Style, theme: &Theme) -> String {
     format!("{}{}{}", style.escape(), text, ansi::RESET)
 }
 
-/// A section of key/value lines: a heading, then indented pairs.
+/// Escape the control characters in a value that came from the wire.
+///
+/// The gateway is reached over HTTP, and the CLI accepts any `--server`
+/// origin including plain http, so a cell's contents are untrusted. A
+/// raw ESC or newline in a cell would let a value repaint the terminal
+/// or forge a row of the table; escaping the control characters keeps a
+/// value inside its own cell. The escape is visible (`\u{1b}`), so
+/// nothing is silently swallowed.
+fn sanitize(text: &str) -> String {
+    text.chars()
+        .flat_map(|c| {
+            if c.is_control() {
+                c.escape_default().collect::<Vec<_>>()
+            } else {
+                vec![c]
+            }
+        })
+        .collect()
+}
+
+/// A block of a section: a list of fields, or a table.
+pub enum Block {
+    /// Key/value pairs, rendered as an indented two-column list.
+    Fields(Vec<(String, Cell)>),
+    /// A table, rendered under the section's title.
+    Table(Table),
+}
+
+/// A titled group of related information.
+///
+/// A dashboard reads as a set of titled groups rather than one long
+/// list of `property | value` rows, because the groups are what the
+/// reader is actually asking about: what the service is, how it is
+/// admitting work, what it has been asked for, and what each database
+/// is doing.
 pub struct Section {
     title: String,
-    rows: Vec<(String, Cell)>,
+    blocks: Vec<Block>,
 }
 
 impl Section {
@@ -427,35 +456,66 @@ impl Section {
     pub fn new(title: impl Into<String>) -> Self {
         Self {
             title: title.into(),
-            rows: Vec::new(),
+            blocks: Vec::new(),
         }
     }
 
-    /// Add a key/value pair.
-    pub fn row(&mut self, key: impl Into<String>, value: Cell) -> &mut Self {
-        self.rows.push((key.into(), value));
+    /// Add a key/value field.
+    pub fn field(&mut self, key: impl Into<String>, value: Cell) -> &mut Self {
+        let fields = match self.blocks.last_mut() {
+            Some(Block::Fields(fields)) => fields,
+            _ => {
+                self.blocks.push(Block::Fields(Vec::new()));
+                match self.blocks.last_mut() {
+                    Some(Block::Fields(fields)) => fields,
+                    _ => unreachable!("the block just pushed is a field list"),
+                }
+            }
+        };
+        fields.push((key.into(), value));
         self
     }
 
-    /// Write the section: a heading, then the pairs with the keys dim
-    /// and aligned so the values form a column of their own.
+    /// Add a table under this section's title.
+    pub fn table(&mut self, table: Table) -> &mut Self {
+        self.blocks.push(Block::Table(table));
+        self
+    }
+
+    /// Write the section.
     pub fn write(&self, out: &mut dyn Write, theme: &Theme) -> Result<()> {
-        if self.rows.is_empty() {
+        if self.blocks.is_empty() {
             return Ok(());
         }
-        let width = self
-            .rows
+        writeln!(out, "{}", paint(&self.title, Style::Bold, theme)).map_err(io)?;
+        for block in &self.blocks {
+            match block {
+                Block::Fields(fields) => self.write_fields(out, theme, fields)?,
+                Block::Table(table) => table.write(out, theme)?,
+            }
+        }
+        Ok(())
+    }
+
+    /// Write a list of key/value fields, with the keys dim and the
+    /// values aligned into a column of their own.
+    fn write_fields(
+        &self,
+        out: &mut dyn Write,
+        theme: &Theme,
+        fields: &[(String, Cell)],
+    ) -> Result<()> {
+        let width = fields
             .iter()
             .map(|(key, _)| key.width())
             .max()
             .unwrap_or(0);
-        writeln!(out, "  {}", paint(&self.title, Style::Bold, theme)).map_err(io)?;
-        for (key, cell) in &self.rows {
+        for (key, cell) in fields {
             let (text, style) = cell.parts();
             let pad = width.saturating_sub(key.width());
             writeln!(
                 out,
-                "    {}{}  {}",
+                "  {}{}  {}",
                 paint(key, Style::Dim, theme),
                 " ".repeat(pad),
                 paint(text, style, theme)
@@ -464,6 +524,17 @@ impl Section {
         }
         Ok(())
     }
+}
+
+/// Write a dashboard: titled sections separated by a blank line.
+pub fn write_sections(out: &mut dyn Write, theme: &Theme, sections: &[Section]) -> Result<()> {
+    for (index, section) in sections.iter().enumerate() {
+        if index > 0 {
+            writeln!(out).map_err(io)?;
+        }
+        section.write(out, theme)?;
+    }
+    Ok(())
 }
 
 /// A byte count as a person reads it.
