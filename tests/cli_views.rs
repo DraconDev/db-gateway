@@ -122,31 +122,79 @@ fn the_per_database_wait_columns_name_what_they_hold() {
         .cli
         .q("seed", "wait_db", "CREATE TABLE t (id INTEGER)");
 
-    // A contended database, so its p95 and its max are DIFFERENT
-    // numbers. With a single wait they are the same, and a swapped
-    // pair of cells would look correct.
+    // The scenario must give the database a wait that is FAR larger
+    // than its other waits, so that its p95 and its max are DIFFERENT
+    // numbers. With one wait they are the same, and a swapped pair of
+    // cells would look correct.
+    //
+    // The construction is deterministic rather than a race. The
+    // server's per-database MAX is a lifetime maximum, while its p95
+    // is a percentile over a ROLLING ring of the last 64 waits. So:
+    //
+    //   1. a slow read holds the shared admission guard, and a write
+    //      that arrives during it must queue behind it -- that wait is
+    //      recorded, and it is large;
+    //   2. the queries that follow push that one large wait out of the
+    //      rolling ring, so the ring's p95 is small again;
+    //   3. the lifetime max still remembers the large wait.
+    //
+    // The result is a database whose p95 is small and whose max is
+    // large, every time.
     //
     // The credentials are copied into the threads: the fleet owns the
-    // server process, and it cannot be borrowed across threads. The
-    // burst is wide enough that the wait distribution has a tail --
-    // most readers wait a few microseconds and one waits far longer.
+    // server process, and it cannot be borrowed across threads.
     let server = fleet.cli.server.clone();
     let key = fleet.cli.key_file.to_str().unwrap().to_string();
-    let mut readers = Vec::new();
-    for _ in 0..48 {
+    let slow = {
         let server = server.clone();
         let key = key.clone();
-        readers.push(std::thread::spawn(move || {
+        std::thread::spawn(move || {
+            // A recursive CTE that runs for a good fraction of a
+            // second, so the write below really does find the guard
+            // held. It is a READ: it takes the shared guard, which is
+            // what a write has to wait for.
             let out = Command::new(env!("CARGO_BIN_EXE_dg"))
                 .args(["--server", &server, "--key-file", &key])
-                .args(["query", "wait_db", "SELECT count(*) FROM t"])
+                .args([
+                    "query",
+                    "wait_db",
+                    "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c \
+                     WHERE x<400000) SELECT count(*) FROM c",
+                ])
                 .output()
                 .unwrap();
-            assert!(out.status.success(), "the concurrent query failed");
-        }));
+            // The read may lose the race to the server's 2s execution
+            // deadline; either way the guard was held while the write
+            // arrived, which is the whole point.
+            let _ = out.status;
+        })
+    };
+    // Give the read time to take the guard, then write. The write
+    // queues behind the held guard and records the wait.
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    {
+        let out = Command::new(env!("CARGO_BIN_EXE_dg"))
+            .args(["--server", &server, "--key-file", &key])
+            .args(["query", "wait_db", "INSERT INTO t (id) VALUES (1)"])
+            .output()
+            .unwrap();
+        // The write may time out at the server's 500ms acquire
+        // timeout; that still records the wait, which is what this
+        // step needs.
+        let _ = out.status;
     }
-    for reader in readers {
-        reader.join().unwrap();
+    slow.join().unwrap();
+
+    // Now push that one large wait out of the rolling 64-sample ring,
+    // so the ring's p95 is small while the lifetime max still holds
+    // the large wait.
+    for _ in 0..70 {
+        let out = Command::new(env!("CARGO_BIN_EXE_dg"))
+            .args(["--server", &server, "--key-file", &key])
+            .args(["query", "wait_db", "SELECT count(*) FROM t"])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "the follow-up query failed");
     }
 
     let screen = pty(&fleet, "status");
@@ -185,7 +233,6 @@ fn the_per_database_wait_columns_name_what_they_hold() {
         p95 < max,
         "the scenario did not produce distinct values (p95 {p95}, max {max}): {entry}"
     );
-
     // Each cell, at its own column, holds its own value. The columns
     // are located by their headers, so the check survives a change to
     // the column order, and the values are compared as the renderer
