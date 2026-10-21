@@ -34,8 +34,14 @@ again at once, and `--refresh <seconds>` changes the cadence.
 | `:` | Open the actions |
 | `r` | Read the service again |
 | `tab` | Move to the next pane |
+| `↑` / `↓` | Scroll the focused pane |
+| `page up` / `page down` | Scroll the focused pane a screen at a time |
+| `home` | Back to the top of the focused pane |
 | `q` | Leave the view |
 | `ctrl-c` | Leave the view, from anywhere |
+
+A pane that holds more than it shows says so: the database list and
+the credential list carry their count in the pane's title.
 
 In the actions list: type to filter, `↑`/`↓` to choose, `enter` to
 go, `esc` to go back.
