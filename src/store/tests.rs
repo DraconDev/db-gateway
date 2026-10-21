@@ -683,35 +683,19 @@ fn a_reader_waits_for_a_writer_that_releases_inside_the_bound() {
     let store = Arc::new(Store::open(dir.path()).unwrap());
     store.create("qdb").unwrap();
     let writer_store = store.clone();
+    let (held_tx, held_rx) = std::sync::mpsc::channel();
     let writer = thread::spawn(move || {
         let guard = writer_store.acquire_queue("qdb", true).unwrap();
+        // The guard is acquired now, so the reader really has to wait for
+        // it rather than joining a free read batch. The signal is the
+        // acquisition itself, not a guessed delay: a delay can be too
+        // short on a loaded machine, and then the reader joins the free
+        // batch and the test proves nothing.
+        let _ = held_tx.send(());
         thread::sleep(Duration::from_millis(200));
         drop(guard);
     });
-    // Let the writer take the guard first, so the reader really has to
-    // wait for it rather than joining a free read batch. The wait is for
-    // the queue's OWN state, not for a delay: a guessed delay can be
-    // too short on a loaded machine, and then the reader joins the free
-    // batch and the test proves nothing.
-    let held = (0..500).any(|_| {
-        if store
-            .queue("qdb")
-            .unwrap()
-            .state
-            .lock()
-            .map(|state| state.writer_active)
-            .unwrap_or(false)
-        {
-            true
-        } else {
-            thread::sleep(Duration::from_millis(2));
-            false
-        }
-    });
-    assert!(
-        held,
-        "the writer must take the guard before the reader arrives"
-    );
+    held_rx.recv().unwrap();
     let started = Instant::now();
     let guard = store.acquire_queue("qdb", false);
     let waited = started.elapsed();
