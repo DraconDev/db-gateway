@@ -430,12 +430,23 @@ WINDOW = 40
 
 docs = subprocess.run(
     ["git", "-C", str(root), "ls-files", "*.md"],
-    capture_output=True, text=True, check=True,
-).stdout.split()
+    capture_output=True, text=True, check=False,
+)
+if docs.returncode == 0:
+    doc_paths = [root / rel for rel in docs.stdout.split()]
+else:
+    # Not a git checkout (a copied tree, an unpacked release): walk the
+    # tree instead. The check still runs; it just cannot tell tracked
+    # files from untracked ones.
+    doc_paths = [
+        path
+        for path in root.rglob("*.md")
+        if not {".git", "node_modules", ".pi-glla", ".cargo"} & set(path.parts)
+    ]
 problems = []
-for rel in sorted(docs):
-    path = root / rel
-    parts = path.relative_to(root).parts
+for path in sorted(doc_paths):
+    rel = path.relative_to(root)
+    parts = rel.parts
     # Dated records are history: their bytes are not rewritten, and a
     # superseded measurement inside one is not a live claim.
     if parts[:2] == ("docs", "evidence"):
