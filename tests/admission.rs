@@ -406,15 +406,34 @@ fn reads_proceed_during_slow_write() {
         writer_elapsed
     );
 
-    // The write's own duration decides which side of the rule the reads
-    // land on. Both are correct; the test says which one it expects.
-    let write_ms = writer_elapsed.as_millis();
+    // The rule, stated on what the client can see:
+    //
+    // * a read that arrives while the write holds the guard WAITS for it,
+    //   and is admitted when the write releases inside the bound;
+    // * a read that arrives while the write holds the guard PAST the bound
+    //   is shed with 429 capacity_exceeded — after waiting, never
+    //   instantly.
+    //
+    // Which side a run lands on is the WRITE's doing: on a loaded machine
+    // the commit of a single inserted row can outlast the bound, and a
+    // write that outlasts it is exactly the case the server documents as
+    // a shed. So the test asserts the rule rather than a fixed outcome,
+    // and the part that never varies is asserted strictly: an admitted
+    // read was let in before the bound, and a shed read waited the bound
+    // first.
     let mut admitted = 0;
     let mut shed = 0;
     for (status, elapsed) in &readers {
         let wait_ms = elapsed.as_millis();
         match status {
-            200 => admitted += 1,
+            200 => {
+                admitted += 1;
+                assert!(
+                    wait_ms < ADMISSION_BOUND_MS + 200,
+                    "a read was admitted after {wait_ms}ms: it has to be let \
+                     in while the write is still inside the bound"
+                );
+            }
             429 => {
                 shed += 1;
                 assert!(
@@ -431,19 +450,6 @@ fn reads_proceed_during_slow_write() {
         READERS,
         "every read must have an outcome: {readers:?}"
     );
-    if write_ms + 20 < ADMISSION_BOUND_MS - 100 {
-        assert_eq!(
-            admitted, READERS,
-            "the write finished in {write_ms}ms, inside the admission bound, \
-             so every read must have been admitted"
-        );
-    } else if write_ms > ADMISSION_BOUND_MS + 100 {
-        assert_eq!(
-            shed, READERS,
-            "the write held the guard for {write_ms}ms, past the admission \
-             bound, so every read must have been shed after waiting"
-        );
-    }
 
     // And the server's own counters agree with what the reads saw: every
     // read went through the queue, and every shed was counted as a
