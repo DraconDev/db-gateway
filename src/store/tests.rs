@@ -693,23 +693,25 @@ fn a_reader_waits_for_a_writer_that_releases_inside_the_bound() {
     // the queue's OWN state, not for a delay: a guessed delay can be
     // too short on a loaded machine, and then the reader joins the free
     // batch and the test proves nothing.
-    let held = (0..500)
-        .any(|_| {
-            if store
-                .queue("qdb")
-                .unwrap()
-                .state
-                .lock()
-                .map(|state| state.writer_active)
-                .unwrap_or(false)
-            {
-                true
-            } else {
-                thread::sleep(Duration::from_millis(2));
-                false
-            }
-        });
-    assert!(held, "the writer must take the guard before the reader arrives");
+    let held = (0..500).any(|_| {
+        if store
+            .queue("qdb")
+            .unwrap()
+            .state
+            .lock()
+            .map(|state| state.writer_active)
+            .unwrap_or(false)
+        {
+            true
+        } else {
+            thread::sleep(Duration::from_millis(2));
+            false
+        }
+    });
+    assert!(
+        held,
+        "the writer must take the guard before the reader arrives"
+    );
     let started = Instant::now();
     let guard = store.acquire_queue("qdb", false);
     let waited = started.elapsed();
