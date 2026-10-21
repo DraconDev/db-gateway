@@ -107,6 +107,35 @@ pub struct Outcome {
     pub error: Option<String>,
 }
 
+/// How far each pane is scrolled.
+///
+/// A pane that silently cuts its list is a visibility lie: the operator
+/// cannot tell a database that does not exist from one that is below
+/// the fold. So the panes scroll, and they say how much they hold.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Scroll {
+    /// The database list.
+    pub databases: u16,
+    /// The service dashboard.
+    pub service: u16,
+    /// The backup freshness.
+    pub backups: u16,
+    /// The credentials.
+    pub keys: u16,
+}
+
+impl Scroll {
+    /// The offset of the focused pane.
+    pub fn of(&mut self, focus: Focus) -> &mut u16 {
+        match focus {
+            Focus::Databases => &mut self.databases,
+            Focus::Service => &mut self.service,
+            Focus::Backups => &mut self.backups,
+            Focus::Keys => &mut self.keys,
+        }
+    }
+}
+
 /// The view's state.
 pub struct App {
     /// The gateway being watched.
@@ -139,6 +168,8 @@ pub struct App {
     pub outcome: Option<Outcome>,
     /// Which pane has the keyboard.
     pub focus: Focus,
+    /// How far each pane is scrolled.
+    pub scroll: Scroll,
     /// The action waiting to run.
     pending: Option<Invocation>,
     /// Whether the view should end.
@@ -164,6 +195,7 @@ impl App {
             input: String::new(),
             outcome: None,
             focus: Focus::Databases,
+            scroll: Scroll::default(),
             pending: None,
             quit: false,
         }
@@ -215,8 +247,20 @@ impl App {
                 self.highlighted = 0;
             }
             KeyCode::Tab | KeyCode::BackTab => self.focus = self.focus.next(),
+            KeyCode::Up => self.scroll_by(-1),
+            KeyCode::Down => self.scroll_by(1),
+            KeyCode::PageUp => self.scroll_by(-10),
+            KeyCode::PageDown => self.scroll_by(10),
+            KeyCode::Home => *self.scroll.of(self.focus) = 0,
             _ => {}
         }
+    }
+
+    /// Scroll the focused pane.
+    fn scroll_by(&mut self, lines: i32) {
+        let offset = self.scroll.of(self.focus);
+        let moved = (*offset as i32 + lines).max(0) as u16;
+        *offset = moved;
     }
 
     fn on_key_palette(&mut self, key: KeyEvent) {
@@ -301,6 +345,9 @@ impl App {
                 return;
             };
             if crate::confirmation::confirm_matches(Some(&self.input), &phrase).is_err() {
+                // The line is cleared, so the operator types the name
+                // again rather than editing a wrong one in place.
+                self.input.clear();
                 self.outcome = Some(Outcome {
                     headline: "not confirmed".to_string(),
                     facts: Vec::new(),

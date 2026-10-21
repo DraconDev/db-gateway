@@ -207,3 +207,64 @@ fn the_palette_lists_the_actions_and_the_one_that_is_chosen() {
         "the palette shows an action the filter excludes:\n{text}"
     );
 }
+
+/// A key press.
+fn key(code: ratatui::crossterm::event::KeyCode) -> ratatui::crossterm::event::KeyEvent {
+    ratatui::crossterm::event::KeyEvent::new(code, ratatui::crossterm::event::KeyModifiers::NONE)
+}
+
+/// Type a word, one key at a time.
+fn type_word(app: &mut App, word: &str) {
+    for character in word.chars() {
+        app.on_key(key(ratatui::crossterm::event::KeyCode::Char(character)));
+    }
+}
+
+#[test]
+fn a_deletion_asks_for_the_name_twice_and_runs_only_then() {
+    // The CLI's rule: the operator repeats the exact name before
+    // anything is destroyed. The view asks for the name to choose the
+    // action, and again to confirm it — and a name that is not the
+    // name does nothing at all.
+    let mut app = app();
+    app.on_key(key(ratatui::crossterm::event::KeyCode::Char(':')));
+    type_word(&mut app, "delete");
+    app.on_key(key(ratatui::crossterm::event::KeyCode::Enter));
+    type_word(&mut app, "demo");
+    app.on_key(key(ratatui::crossterm::event::KeyCode::Enter));
+    // The name is typed once so far: that chose what to delete, and
+    // the view asks again.
+    assert!(
+        app.take_pending().is_none(),
+        "the deletion ran on the first mention of the name"
+    );
+
+    // A name that is not the name is not consent.
+    type_word(&mut app, "dem");
+    app.on_key(key(ratatui::crossterm::event::KeyCode::Enter));
+    assert!(
+        app.take_pending().is_none(),
+        "the deletion ran on a name that is not the name"
+    );
+    assert!(
+        app.outcome
+            .as_ref()
+            .and_then(|outcome| outcome.error.as_deref())
+            .is_some(),
+        "the view did not say why the confirmation was refused"
+    );
+
+    // The exact name, and the deletion is armed.
+    type_word(&mut app, "demo");
+    app.on_key(key(ratatui::crossterm::event::KeyCode::Enter));
+    let pending = app
+        .take_pending()
+        .expect("the exact name did not arm the deletion");
+    assert_eq!(
+        pending,
+        dg::tui::actions::Invocation::DeleteDatabase {
+            name: "demo".to_string()
+        },
+        "the view armed something other than the deletion"
+    );
+}
