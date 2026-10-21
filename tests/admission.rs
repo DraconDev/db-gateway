@@ -340,6 +340,10 @@ fn reads_proceed_during_slow_write() {
     // mid-write. Its size is calibrated here so the write still lasts
     // long enough for the reads to arrive while it runs, on this machine.
     let rows = calibrated_insert_rows(&server.address, &owner, "mixed", SLOW_WRITE_MS);
+    // The counters are read as a DELTA: the calibration probes went
+    // through the same queue, and only what happens after them is this
+    // test's business.
+    let (waits_before, timeouts_before) = queue_counters(&server.address, &owner, "mixed");
     let address = server.address.clone();
     let owner_write = owner.clone();
     let writer = std::thread::spawn(move || {
@@ -429,12 +433,13 @@ fn reads_proceed_during_slow_write() {
     // timeout.
     let (waits, timeouts) = queue_counters(&server.address, &owner, "mixed");
     assert_eq!(
-        waits,
+        waits - waits_before,
         (READERS + 1) as u64,
         "the write and the four reads must all have gone through the queue"
     );
     assert_eq!(
-        timeouts, shed as u64,
+        timeouts - timeouts_before,
+        shed as u64,
         "the server's timeout counter must match the sheds the reads saw"
     );
 }
