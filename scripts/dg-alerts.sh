@@ -83,8 +83,20 @@ if [ "$SYNC_CHECK" != "skip" ]; then
 fi
 if [ "$LS_BIN" != "skip" ]; then
     if [ -x "$LS_BIN" ]; then
-        bad_rows="$("$LS_BIN" status 2>/dev/null | awk 'NR>1 && $2 != "ok" {print $1}' | paste -sd, -)"
-        [ -n "$bad_rows" ] && lag_reasons="${lag_reasons:+$lag_reasons,}status-not-ok:${bad_rows}"
+        # The command's exit status decides whether the answer is "every
+        # replica ok" or "I could not ask". A sidecar that is broken --
+        # a bad config, an unreadable env file, a crashed replica --
+        # makes `litestream status` fail, and the old check read that as
+        # an empty list of bad rows: the lag check reported ok while the
+        # replication coverage was unknown.
+        status_out="$("$LS_BIN" status 2>/dev/null)"
+        status_rc=$?
+        if [ "$status_rc" -ne 0 ]; then
+            lag_reasons="${lag_reasons:+$lag_reasons,}litestream-status-failed"
+        else
+            bad_rows="$(printf '%s\n' "$status_out" | awk 'NR>1 && $2 != "ok" {print $1}' | paste -sd, -)"
+            [ -n "$bad_rows" ] && lag_reasons="${lag_reasons:+$lag_reasons,}status-not-ok:${bad_rows}"
+        fi
     else
         lag_reasons="${lag_reasons:+$lag_reasons,}litestream-bin-missing"
     fi

@@ -70,7 +70,13 @@ raise SystemExit("listen address not observed")
 EOF
 )"
 BASE="http://$ADDRESS"
-AUTH=(-H "Authorization: Bearer $OWNER_KEY" -H 'Content-Type: application/json')
+# The credential goes into a header FILE, not into curl's argv. Any local
+# user can read another process's command line through /proc/<pid>/cmdline,
+# so a token in argv is a token on the box for the life of the request.
+# The file lives in the disposable workdir and is removed with it.
+AUTH_FILE="$WORKDIR/curl-auth.header"
+(umask 077; printf 'Authorization: Bearer %s\n' "$OWNER_KEY" >"$AUTH_FILE")
+AUTH=(-H "@$AUTH_FILE" -H 'Content-Type: application/json')
 
 api() {
     local out http_code

@@ -85,7 +85,17 @@ LITESTREAM="/usr/local/bin/litestream"
 DG_BIN="/usr/local/bin/dg"
 REMOTE_OUT="/var/tmp/lit-restore-$(date +%s)"
 DG_QUERY_CACHE="$(mktemp)"
-trap 'rm -f "$DG_QUERY_CACHE"' EXIT
+# The remote scratch dir holds restored database copies. Remove it on
+# EVERY exit path, not just the success path: a failure inside the
+# per-database loop (a source that cannot be listed, a count that does
+# not match) used to leave restored copies under /var/tmp on the host.
+cleanup() {
+    rm -f "$DG_QUERY_CACHE"
+    ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" \
+        "sudo -n rm -rf ${REMOTE_OUT}" >/dev/null 2>&1 || true
+    return 0
+}
+trap cleanup EXIT
 
 command -v ssh >/dev/null || fail "ssh not on PATH"
 command -v sqlite3 >/dev/null || fail "sqlite3 not on PATH (needed to read the restored copy on this host)"
@@ -223,8 +233,9 @@ for name in "${DBS[@]}"; do
 done
 
 # --- 3. cleanup + summary. ---------------------------------------------
+# The remote scratch dir is removed by the EXIT trap, so a failure
+# earlier in this run leaves no restored copies behind either.
 log "removing the scratch dir on ${TARGET}"
-ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" "sudo -n rm -rf ${REMOTE_OUT}" >/dev/null 2>&1 || true
 log "summary: ${ok_count} ok, ${fail_count} failed (of ${#DBS[@]} registered db(s): ${DBS[*]})"
 [ "$fail_count" = "0" ] || fail "${fail_count} database(s) failed restore + row-count comparison"
 log "all live db(s) restored; local copies kept in ${OUT_DIR} (mode 0700)"
