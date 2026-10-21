@@ -610,11 +610,21 @@ pub async fn execute(
                 ]);
             }
             table.write(&mut out, &theme).map_err(Application)?;
-            return Err(Application(Error::new(
-                400,
-                "api_error",
-                "API request failed; see response above",
-            )));
+            // When the rejection names no statement, every row says
+            // only "not run" — so the reason the request was refused
+            // belongs in the error the command returns, or the
+            // operator is left with a table that says nothing ran and
+            // no idea why.
+            let failure = if failed.is_none() && statements.len() > 1 {
+                Error::with_message(
+                    400,
+                    "api_error",
+                    format!("API request failed: {code}: {message}"),
+                )
+            } else {
+                Error::new(400, "api_error", "API request failed; see response above")
+            };
+            return Err(Application(failure));
         }
         let mut table = Table::new();
         table.column("#", Align::Right);

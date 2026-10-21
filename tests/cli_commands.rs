@@ -490,4 +490,10 @@ fn execute_does_not_claim_a_rollback_when_the_batch_never_ran() {
         !screen.contains("rolled back"),
         "the view claims a rollback that did not happen: {screen}"
     );
+    // The rows say only that nothing ran, so the reason the request
+    // was refused has to be on screen too.
+    assert!(
+        screen.contains("idempotency_key_not_supported"),
+        "the reason the request was refused is not shown: {screen}"
+    );
 }
