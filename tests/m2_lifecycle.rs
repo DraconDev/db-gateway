@@ -54,14 +54,19 @@ impl Server {
     fn call(&self, method: &str, path: &str, body: Value) -> (u16, Value) {
         self.call_keyed(method, path, body, None)
     }
-    /// The number of admissions the server has counted for one database.
+    /// The server's admission counters for one database: how many
+    /// attempts it has counted, and how many of them were shed.
     ///
     /// The status endpoint answers from the metrics and never takes the
     /// database's guard, so it answers even while a request holds it.
-    fn queue_waits(&self, name: &str) -> u64 {
+    fn queue_counters(&self, name: &str) -> (u64, u64) {
         let (status, body) = self.call("GET", "/v1/status", json!({}));
         assert_eq!(status, 200, "status: {body}");
-        body["databases"][name]["queue_waits"].as_u64().unwrap_or(0)
+        let entry = &body["databases"][name];
+        (
+            entry["queue_waits"].as_u64().unwrap_or(0),
+            entry["queue_timeouts"].as_u64().unwrap_or(0),
+        )
     }
     fn call_keyed(
         &self,
@@ -354,17 +359,26 @@ fn imported_external_sqlite_file_supports_m1_keyed_writes() {
     assert_eq!(replay_tables, 1);
 }
 
-/// Wait until the server counts one more admission for `name`.
+/// Wait until the server counts an ADMITTED request for `name`.
 ///
-/// The probe is a flood of reads on the holder's own database, and reads
-/// share the guard with each other: a probe that starts before the holder
-/// is admitted can keep the read batch busy enough that the holder's
-/// writer never gets its turn — the writer-starvation gap the design
-/// documents. So the probe waits for the server's own counter to say the
-/// holder is in, rather than betting on who wins the race.
-fn wait_for_admission(server: &Server, name: &str, baseline: u64) {
+/// The wait counter moves for every attempt, including the ones the queue
+/// sheds, so the count alone does not say the holder is in. The timeout
+/// counter is what tells them apart: an admitted attempt raises the waits
+/// and not the timeouts.
+///
+/// The probe must not start before this returns. The probe is a flood of
+/// reads on the holder's own database, and reads share the guard with
+/// each other, so a probe that starts first can keep the read batch busy
+/// enough that the holder's writer never gets its turn — the
+/// writer-starvation gap the design documents.
+fn wait_for_admission(server: &Server, name: &str, baseline: (u64, u64)) {
     let deadline = Instant::now() + Duration::from_secs(20);
-    while server.queue_waits(name) <= baseline {
+    loop {
+        let (waits, timeouts) = server.queue_counters(name);
+        println!("DIAGWAIT {name} waits={waits} timeouts={timeouts} base={baseline:?}");
+        if waits > baseline.0 && timeouts == baseline.1 {
+            return;
+        }
         assert!(
             Instant::now() < deadline,
             "the holder on {name} never took the guard"
@@ -390,6 +404,7 @@ fn assert_observes_429_with(server: &Server, name: &str, sql: &str) {
             &format!("/v1/databases/{name}/query"),
             json!({"sql": sql}),
         );
+        println!("DIAGPROBE status={status}");
         if status == 429 {
             assert_eq!(body["error"]["code"], "capacity_exceeded", "{body}");
             return;
@@ -452,7 +467,7 @@ fn contended_capacity_rejects_with_429_and_server_recovers() {
     // concurrent read on the same database must see 429 capacity_exceeded.
     std::thread::scope(|scope| {
         let server = &server;
-        let baseline = server.queue_waits("hot");
+        let baseline = server.queue_counters("hot");
         let holder = scope.spawn(move || slow_insert_until_admitted(server, "hot"));
         wait_for_admission(server, "hot", baseline);
         assert_observes_429(server, "hot");
@@ -465,9 +480,9 @@ fn contended_capacity_rejects_with_429_and_server_recovers() {
     // database, which carries no assertions.
     std::thread::scope(|scope| {
         let server = &server;
-        let baselines: Vec<u64> = ["g0", "g1", "g2", "g3"]
+        let baselines: Vec<(u64, u64)> = ["g0", "g1", "g2", "g3"]
             .iter()
-            .map(|name| server.queue_waits(name))
+            .map(|name| server.queue_counters(name))
             .collect();
         let holders: Vec<_> = ["g0", "g1", "g2", "g3"]
             .into_iter()
