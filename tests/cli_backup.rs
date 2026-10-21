@@ -32,12 +32,7 @@ fn the_digest_leaves_the_owners_in_flight_directories_alone() {
     let live = in_flight_dir(&data_dir);
 
     let out = Command::new(env!("CARGO_BIN_EXE_dg"))
-        .args([
-            "backup",
-            "digest",
-            "--data-dir",
-            data_dir.to_str().unwrap(),
-        ])
+        .args(["backup", "digest", "--data-dir", data_dir.to_str().unwrap()])
         .output()
         .unwrap();
 
@@ -62,12 +57,7 @@ fn the_digest_reports_on_a_registry_it_did_not_create() {
     std::fs::create_dir_all(&data_dir).unwrap();
 
     let out = Command::new(env!("CARGO_BIN_EXE_dg"))
-        .args([
-            "backup",
-            "digest",
-            "--data-dir",
-            data_dir.to_str().unwrap(),
-        ])
+        .args(["backup", "digest", "--data-dir", data_dir.to_str().unwrap()])
         .output()
         .unwrap();
 

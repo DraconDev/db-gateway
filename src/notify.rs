@@ -687,10 +687,7 @@ mod tests {
         let second = attempt("b", "error", "publish");
         assert!(state.is_due(&first));
         state.mark_reported(&first);
-        assert!(
-            !state.is_due(&again),
-            "the same attempt must not re-alert"
-        );
+        assert!(!state.is_due(&again), "the same attempt must not re-alert");
         assert!(state.is_due(&second), "a new failure must alert");
         state.mark_reported(&second);
         assert_eq!(state.reported(), Some("b"));
