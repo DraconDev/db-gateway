@@ -63,7 +63,8 @@ done
 for kv in "$@"; do
     name="${kv%%=*}"
     value="${kv#*=}"
-    content="${content//\{\{$name\}\}/$value}"
+    needle="{{${name}}}"
+    content="${content//"$needle"/"$value}"
 done
 
 leftover="$(printf '%s\n' "$content" | grep -o '{{[A-Z_][A-Z0-9_]*}}' | sort -u | tr '\n' ' ' || true)"
