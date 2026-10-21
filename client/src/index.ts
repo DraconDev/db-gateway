@@ -147,7 +147,14 @@ export class Gateway {
     const writeInDoubt = (detail: string) => new GatewayError('outcome_unknown', `${detail} A write may have committed. Replay with the same key/body within retention; never blindly retry an unkeyed write.`);
     let response: Response;
     try {
-      response = await fetch(this.origin + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(10_000) });
+      // A read that is given up on costs a retry and nothing else, so it
+      // gives up quickly. A write is not the same: giving up on one
+      // leaves the outcome in doubt, and the answer is what removes the
+      // doubt — so a write waits far longer. The CLI follows the same
+      // rule, and the two clients are supposed to encode the same
+      // transport rules.
+      const timeoutMs = method === 'GET' ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS;
+      response = await fetch(this.origin + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
     } catch {
       if (method === 'GET') throw new GatewayError('transport_unavailable', 'The gateway is unavailable through the configured origin.', 503);
       throw writeInDoubt('Transport failed.');
