@@ -70,9 +70,13 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(60);
 /// The timeout a request of these semantics gets.
 fn timeout_for(semantics: Semantics) -> Duration {
     match semantics {
-        // A transfer-phase request commits nothing, so as far as the doubt
-        // goes it is a read.
-        Semantics::Read | Semantics::Transfer => READ_TIMEOUT,
+        // A read commits nothing, so giving up on one costs a retry and
+        // nothing else.
+        Semantics::Read => READ_TIMEOUT,
+        // A transfer-phase request commits nothing either, but giving up
+        // on one means beginning the whole transfer again, so it is given
+        // the same room as a write.
+        Semantics::Transfer => WRITE_TIMEOUT,
         Semantics::Write => WRITE_TIMEOUT,
     }
 }
@@ -309,8 +313,10 @@ mod tests {
     #[test]
     fn a_write_waits_longer_than_a_read() {
         assert_eq!(timeout_for(Semantics::Read), READ_TIMEOUT);
-        assert_eq!(timeout_for(Semantics::Transfer), READ_TIMEOUT);
         assert_eq!(timeout_for(Semantics::Write), WRITE_TIMEOUT);
+        // A transfer commits nothing, but beginning it again is the work
+        // a read's retry costs, so it gets the same room as a write.
+        assert_eq!(timeout_for(Semantics::Transfer), WRITE_TIMEOUT);
         assert!(
             WRITE_TIMEOUT > READ_TIMEOUT,
             "a write must be given more room than a read: its outcome is the \
