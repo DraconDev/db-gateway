@@ -340,5 +340,5 @@ follows in the sandbox/notification work):
 - Oracle Cloud Always Free resources (micro2 shape/disk/access verification still open): https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm
 
 Local implementation references (not public sources): `src/execution.rs`
-(WAL, `synchronous=FULL`, atomic replay), `src/store.rs` (online backup,
+(WAL, `synchronous=FULL`, atomic replay), `src/store/transfers.rs` (online backup,
 tombstone purge), `docs/architecture.md`, `docs/api.md`, `TASKS.md`.

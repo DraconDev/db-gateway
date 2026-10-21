@@ -373,6 +373,82 @@ else
         || fail "deployment guide must document the MemoryMax policy"
 fi
 
+log "checking the live documents state the gateway's cap consistently"
+# The installed unit is the fact the documents have to agree with. A
+# document that states a different ceiling for the gateway contradicts
+# the file that is actually installed, and the operator reads the
+# document -- the 2026-10-19 pass corrected the same number in three
+# documents and left a fourth claiming 96 MiB twenty lines below the
+# correction.
+#
+# The rule is deliberately narrow, because a cap is a number many
+# documents legitimately quote: it fires only on a line that names the
+# GATEWAY unit and states a memory cap. The sidecar's own 96 MiB cap,
+# the sandbox's 1 GiB enforcement scope, the harness's measured
+# suggestion (91,264 KiB) and the dated measurement records under
+# docs/evidence/ are all left alone: none of them claims to be the
+# gateway's cap.
+if [ -n "$UNIT_MAX" ]; then
+    python3 - "$UNIT_MAX" "$ROOT" <<'PY' || fail "a live document states a memory cap the gateway unit does not set"
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+cap_raw, root = sys.argv[1], Path(sys.argv[2])
+
+
+def to_bytes(value: str) -> int:
+    value = value.strip()
+    for suffix, factor in (("K", 1024), ("M", 1024 * 1024), ("G", 1024 * 1024 * 1024)):
+        if value.endswith(suffix):
+            return int(value[:-1]) * factor
+    return int(value)
+
+
+cap_bytes = to_bytes(cap_raw)
+cap_mib = cap_bytes // (1024 * 1024)
+# The spellings a document may use for the same cap.
+allowed = {
+    cap_raw.lower(),
+    f"{cap_mib}m",
+    f"{cap_mib}mib",
+    f"{cap_mib}mb",
+    str(cap_bytes),
+}
+# MemoryMax=<value>, or a bare "<n> MiB" / "<n>M".
+token = re.compile(r"MemoryMax=([0-9]+[KMG]?)|([0-9]+)\s*(MiB|MB|M)\b")
+
+docs = subprocess.run(
+    ["git", "-C", str(root), "ls-files", "*.md"],
+    capture_output=True, text=True, check=True,
+).stdout.split()
+problems = []
+for rel in sorted(docs):
+    path = root / rel
+    parts = path.relative_to(root).parts
+    # Dated records are history: their bytes are not rewritten, and a
+    # superseded measurement inside one is not a live claim.
+    if parts[:2] == ("docs", "evidence"):
+        continue
+    try:
+        lines = path.read_text(errors="ignore").splitlines()
+    except OSError:
+        continue
+    for number, line in enumerate(lines, 1):
+        if "dg.service" not in line:
+            continue
+        for hit in token.finditer(line):
+            value = hit.group(1) or f"{hit.group(2)}{hit.group(3) or ''}"
+            if value.strip().lower().replace(" ", "") not in allowed:
+                problems.append(f"{rel}:{number}: states {value!r}, the unit sets {cap_raw}")
+
+for problem in problems:
+    print(f"[validate-deploy] {problem}", file=sys.stderr)
+sys.exit(1 if problems else 0)
+PY
+fi
+
 if command -v systemd-analyze >/dev/null 2>&1; then
     log "running systemd-analyze verify on substituted copy"
     tmp="$(mktemp -d "${TMPDIR:-/tmp}/dg-unit-XXXXXX")"

@@ -54,7 +54,7 @@ ReadWritePaths={{DG_DATA_DIR}}
 # local burst, reproducible by `scripts/resource-report-release.sh`),
 # `docs/evidence/sandbox-packet-2026-09-29-rehearsal.log` gate 9 (sidecar peaks
 # 45,632 KiB replication / 34,576 KiB restore under a kernel-enforced
-# 1 GiB scope), and `src/store.rs:36-37` / `src/execution.rs:39-50` for the
+# 1 GiB scope), and `src/store/admission.rs:12-14` / `src/execution.rs:39-50` for the
 # cache ceiling itself.
 MemoryMax=64M
 
