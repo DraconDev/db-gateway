@@ -168,6 +168,14 @@ Single-shot export/import carries the whole file in one JSON body and is capped 
 view; a pipe or `--json` gets JSON. The rule lives in one place, so a
 command gets it by asking for a view rather than by remembering it.
 
+**How long a command waits is not the same for a read and a write.** A
+read that is given up on costs a retry, so the CLI stops waiting after
+ten seconds. A write that is given up on leaves the outcome UNKNOWN —
+the operator has to reconcile that by hand, or replay it with the same
+idempotency key — so a write waits a minute, and a transfer phase (which
+commits nothing, but means beginning the whole transfer again) waits the
+same. The answer is what removes the doubt, so the CLI waits for it.
+
 The human views are: `dg list`, `dg info`, `dg inspect`, `dg query`,
 `dg execute`, `dg status`, `dg watch`, `dg backup status`, `dg key list`
 and `dg key tokens` (tables and dashboards), and `dg create`, `dg delete`,
