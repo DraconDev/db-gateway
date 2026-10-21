@@ -375,7 +375,8 @@ fn wait_for_admission(server: &Server, name: &str, baseline: (u64, u64)) {
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         let (waits, timeouts) = server.queue_counters(name);
-        println!("DIAGWAIT {name} waits={waits} timeouts={timeouts} base={baseline:?}");
+        let st = server.call("GET", "/v1/status", json!({})).1;
+        println!("DIAGWAIT {name} waits={waits} timeouts={timeouts} base={baseline:?} admission={}", st["admission"]);
         if waits > baseline.0 && timeouts == baseline.1 {
             return;
         }
@@ -437,6 +438,7 @@ fn slow_insert_until_admitted(server: &Server, name: &str) -> (u16, Value) {
             &format!("/v1/databases/{name}/query"),
             json!({"sql": SLOW_INSERT}),
         );
+        println!("DIAGHOLDER {name} status={} body={}", result.0, result.1);
         if result.0 != 429 {
             return result;
         }
