@@ -83,14 +83,14 @@ log "checking the backup unit drives the producer with the templated paths"
 # and a non-default {{DG_LISTEN}} failed every backup with connection
 # refused. The unit must pass the paths it was rendered with.
 backup_unit="$ROOT/deploy/dg-backup.service"
-for flag in --server --key-file --data-dir --backup-root; do
-    grep -E "^ExecStart=.*$flag \{\{" "$backup_unit" >/dev/null \
-        || fail "dg-backup.service must pass $flag from its placeholder"
+for expected in \
+    '--server http://{{DG_LISTEN}}' \
+    '--key-file {{DG_OWNER_KEY_FILE}}' \
+    '--data-dir {{DG_DATA_DIR}}' \
+    '--backup-root {{DG_BACKUP_ROOT}}'; do
+    grep -F -- "$expected" "$backup_unit" >/dev/null \
+        || fail "dg-backup.service must pass $expected"
 done
-grep -E '^ExecStart=.*--server http://\{\{DG_LISTEN\}\}' "$backup_unit" >/dev/null \
-    || fail "dg-backup.service must reach the gateway at {{DG_LISTEN}}"
-grep -E '^ExecStart=.*--key-file \{\{DG_OWNER_KEY_FILE\}\}' "$backup_unit" >/dev/null \
-    || fail "dg-backup.service must read the owner credential from {{DG_OWNER_KEY_FILE}}"
 
 # --------------------------------------------------------------------------
 # Portable-artifact gate.
