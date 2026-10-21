@@ -268,3 +268,38 @@ fn a_deletion_asks_for_the_name_twice_and_runs_only_then() {
         "the view armed something other than the deletion"
     );
 }
+
+#[test]
+fn a_long_database_list_scrolls_and_says_how_many_it_holds() {
+    // A list that silently cuts itself is a visibility lie: the
+    // operator cannot tell a database that does not exist from one
+    // that is below the fold. So the pane counts what it holds, and it
+    // scrolls to what it does not show.
+    let mut app = app();
+    let names: Vec<String> = (0..40).map(|index| format!("db{index:02}")).collect();
+    app.list = Some(serde_json::json!({"databases": names}));
+
+    let text = screen(&app, 120, 40);
+    assert!(
+        text.contains("databases (40)"),
+        "the pane does not say how many databases it holds:\n{text}"
+    );
+    assert!(text.contains("db00"), "the first database is not on screen");
+    assert!(
+        !text.contains("db39"),
+        "the whole list is on screen at once, so the count means nothing"
+    );
+
+    for _ in 0..60 {
+        app.on_key(key(ratatui::crossterm::event::KeyCode::Down));
+    }
+    let text = screen(&app, 120, 40);
+    assert!(
+        text.contains("db39"),
+        "the last database cannot be reached by scrolling:\n{text}"
+    );
+    assert!(
+        !text.contains("db00"),
+        "the pane did not scroll at all:\n{text}"
+    );
+}

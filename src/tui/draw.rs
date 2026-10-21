@@ -11,7 +11,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState, Wrap},
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -251,16 +251,24 @@ fn body(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 /// The database list, with each database's traffic.
+///
+/// The pane says how many databases it holds: a list that silently
+/// cuts itself is a visibility lie, and the count is what tells the
+/// operator to scroll.
 fn databases_pane(frame: &mut Frame, area: Rect, app: &App) {
-    let block = pane(Focus::Databases.title(), app.focus == Focus::Databases);
     match app.databases() {
         Some(table) => {
-            frame.render_widget(
+            let title = format!("{} ({})", Focus::Databases.title(), table.rows().len());
+            let block = pane(&title, app.focus == Focus::Databases);
+            let mut state = TableState::default().with_offset(app.scroll.databases as usize);
+            frame.render_stateful_widget(
                 table_widget(&table, area.width, usize::MAX).block(block),
                 area,
+                &mut state,
             );
         }
         None => {
+            let block = pane(Focus::Databases.title(), app.focus == Focus::Databases);
             frame.render_widget(Paragraph::new("no answer yet").block(block), area);
         }
     }
@@ -279,6 +287,9 @@ fn service_pane(frame: &mut Frame, area: Rect, app: &App) {
         }
         None => lines.push(Line::from("no answer yet")),
     }
+    // The pane scrolls, so a long dashboard does not lose its tail.
+    let offset = app.scroll.service as usize;
+    let lines: Vec<Line<'static>> = lines.into_iter().skip(offset).collect();
     frame.render_widget(
         Paragraph::new(Text::from(lines))
             .block(block)
@@ -307,25 +318,31 @@ fn backups_pane(frame: &mut Frame, area: Rect, app: &App) {
     let rows = Layout::vertical([Constraint::Length(4), Constraint::Min(1)]).split(area);
     frame.render_widget(Paragraph::new(Text::from(lines)).block(block), rows[0]);
     if let Some(table) = table {
-        frame.render_widget(
+        let mut state = TableState::default().with_offset(app.scroll.backups as usize);
+        frame.render_stateful_widget(
             table_widget(table, rows[1].width, usize::MAX).block(pane("per-database", false)),
             rows[1],
+            &mut state,
         );
     }
 }
 
 /// The credentials that exist.
 fn keys_pane(frame: &mut Frame, area: Rect, app: &App) {
-    let block = pane(Focus::Keys.title(), app.focus == Focus::Keys);
     match &app.keys {
         Some(keys) => {
             let table = views::keys(keys);
-            frame.render_widget(
+            let title = format!("{} ({})", Focus::Keys.title(), table.rows().len());
+            let block = pane(&title, app.focus == Focus::Keys);
+            let mut state = TableState::default().with_offset(app.scroll.keys as usize);
+            frame.render_stateful_widget(
                 table_widget(&table, area.width, usize::MAX).block(block),
                 area,
+                &mut state,
             );
         }
         None => {
+            let block = pane(Focus::Keys.title(), app.focus == Focus::Keys);
             frame.render_widget(Paragraph::new("no answer yet").block(block), area);
         }
     }
