@@ -54,16 +54,6 @@ impl Server {
     fn call(&self, method: &str, path: &str, body: Value) -> (u16, Value) {
         self.call_keyed(method, path, body, None)
     }
-    fn call_timed(
-        &self,
-        method: &str,
-        path: &str,
-        body: Value,
-    ) -> (u16, Value, std::time::Duration) {
-        let started = std::time::Instant::now();
-        let r = self.call_keyed(method, path, body, None);
-        (r.0, r.1, started.elapsed())
-    }
     /// The server's admission counters for one database: how many
     /// attempts it has counted, and how many of them were shed.
     ///
