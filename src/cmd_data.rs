@@ -65,23 +65,7 @@ pub async fn list(
                 .map_err(Application)?;
             return Err(Application(api_error()));
         }
-        let names: Vec<String> = result["databases"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
-            .iter()
-            .map(|name| name.as_str().unwrap_or("").to_string())
-            .collect();
-        let mut table = Table::new();
-        table.column("database", Align::Left);
-        for name in &names {
-            table.row(vec![Cell::styled(name.clone(), Style::Cyan)]);
-        }
-        table.footer(if names.len() == 1 {
-            "1 database".to_string()
-        } else {
-            format!("{} databases", names.len())
-        });
+        let table = dg::views::database_names(&result);
         let mut out = std::io::stdout();
         table
             .write(&mut out, &terminal_theme())
@@ -169,7 +153,7 @@ pub async fn inspect(
             .as_ref()
             .and_then(|status| status["databases"][&name].as_object().cloned())
             .unwrap_or_default();
-        let activity = activity_section(&Value::Object(entry));
+        let activity = dg::views::activity_section(&Value::Object(entry));
         sections.push(activity);
 
         // How its backup is doing.
@@ -182,7 +166,7 @@ pub async fn inspect(
             .get("state")
             .and_then(Value::as_str)
             .unwrap_or("unknown");
-        backup.field("state", Cell::styled(state, backup_state_style(state)));
+        backup.field("state", Cell::styled(state, dg::views::backup_state_style(state)));
         backup.field(
             "newest set",
             Cell::text(
@@ -237,67 +221,6 @@ pub async fn inspect(
         None,
         None,
     )))
-}
-
-/// The freshness of a backup, as a colour that means something.
-fn backup_state_style(state: &str) -> Style {
-    match state {
-        "fresh" => Style::Green,
-        "stale" => Style::Yellow,
-        _ => Style::Red,
-    }
-}
-
-/// How long ago a write happened, as a person reads it.
-fn last_write_ago(epoch: u64) -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(epoch);
-    format!(
-        "{} ago",
-        dg::render::human_duration(now.saturating_sub(epoch))
-    )
-}
-
-/// What one database has been doing, as the `activity` section.
-///
-/// The p95 and the max are different facts and are labelled as such:
-/// the p95 says how bad this database's queue usually is, the max says
-/// how bad it ever got. The label and the value travel together from
-/// the shared helper, so this view and the dashboard cannot disagree
-/// about which is which.
-fn activity_section(entry: &Value) -> Section {
-    let mut activity = Section::new("activity");
-    activity.field(
-        "rows read",
-        Cell::number(entry.get("rows_read").and_then(Value::as_u64).unwrap_or(0)),
-    );
-    activity.field(
-        "rows written",
-        Cell::number(
-            entry
-                .get("rows_written")
-                .and_then(Value::as_u64)
-                .unwrap_or(0),
-        ),
-    );
-    let waits = entry
-        .get("queue_waits")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    activity.field("queue waits", Cell::number(waits));
-    for (label, cell) in dg::render::wait_figure_fields(entry, "no waits recorded") {
-        activity.field(label, cell);
-    }
-    activity.field(
-        "last write",
-        match entry.get("last_write").and_then(Value::as_u64) {
-            Some(epoch) => Cell::text(last_write_ago(epoch)),
-            None => Cell::text("never"),
-        },
-    );
-    activity
 }
 
 pub async fn info(
@@ -556,102 +479,32 @@ pub async fn execute(
         // so they are drawn rather than dumped.
         let mut out = std::io::stdout();
         let theme = terminal_theme();
-        if let Some(error) = result.get("error") {
-            // A batch that fails fails as a whole. The error says which
-            // statement broke it, and the statements that did not get
-            // that far are shown as rolled back rather than as "-".
-            //
-            // A rejection that names no statement is a different thing:
-            // the batch never ran, so nothing was rolled back, and
-            // saying "rolled back" on every row would claim a rollback
-            // that did not happen.
-            //
-            // What "names no statement" means depends on how many
-            // statements the script held, and the client knows that
-            // while the server does not say it: the server attributes
-            // an error to a statement only when the batch holds more
-            // than one, because a lone statement is unambiguous on
-            // its own. So a script of one statement that fails carries
-            // no index — and that absence says nothing about whether
-            // it ran, so its row carries the reason instead. A script
-            // of several that fails without an index was rejected as a
-            // whole, before anything ran.
-            let message = error["message"].as_str().unwrap_or("failed");
-            let code = error["code"].as_str().unwrap_or("error");
-            let failed = error["statement"].as_u64();
-            let mut table = Table::new();
-            table.column("#", Align::Right);
-            table.column("statement", Align::Left);
-            table.column("result", Align::Left);
-            for (index, statement) in statements.iter().enumerate() {
-                let outcome = match failed {
-                    Some(failed) if failed as usize == index => {
-                        Cell::styled(format!("{code}: {message}"), dg::render::Style::Red)
-                    }
-                    // A script of one statement: the server names no
-                    // statement for it, so the row shows why it failed.
-                    // The statement did run — "not run" would be a lie,
-                    // and the reason would be missing from the view.
-                    _ if statements.len() == 1 => {
-                        Cell::styled(format!("{code}: {message}"), dg::render::Style::Red)
-                    }
-                    // A script of several, rejected without naming a
-                    // statement: the whole request was refused, so
-                    // nothing ran and nothing was rolled back.
-                    None => Cell::styled("not run", dg::render::Style::Dim),
-                    // A statement broke the batch: the rest were rolled
-                    // back with it.
-                    _ => Cell::styled("rolled back", dg::render::Style::Dim),
-                };
-                table.row(vec![
-                    Cell::number(index + 1),
-                    Cell::text(statement),
-                    outcome,
-                ]);
-            }
-            table.write(&mut out, &theme).map_err(Application)?;
+        // The answer is read once, in the shared view layer, so this
+        // table and the terminal UI's table are the same table: a
+        // statement the gateway refused cannot be drawn as "rolled
+        // back" on one surface and "not run" on another.
+        let outcome = dg::views::batch_outcomes(&statements, &result);
+        outcome.table.write(&mut out, &theme).map_err(Application)?;
+        if let Some(code) = &outcome.code {
             // When the rejection names no statement, every row says
             // only "not run" — so the reason the request was refused
             // belongs in the error the command returns, or the
             // operator is left with a table that says nothing ran and
             // no idea why.
-            let failure = if failed.is_none() && statements.len() > 1 {
+            let failure = if outcome.refused {
                 Error::with_message(
                     400,
                     "api_error",
-                    format!("API request failed: {code}: {message}"),
+                    format!(
+                        "API request failed: {code}: {}",
+                        outcome.message.as_deref().unwrap_or("failed")
+                    ),
                 )
             } else {
                 Error::new(400, "api_error", "API request failed; see response above")
             };
             return Err(Application(failure));
         }
-        let mut table = Table::new();
-        table.column("#", Align::Right);
-        table.column("statement", Align::Left);
-        table.column("result", Align::Right);
-        let results = result["results"].as_array().cloned().unwrap_or_default();
-        for (index, statement) in statements.iter().enumerate() {
-            let outcome = match results.get(index) {
-                Some(one) => match one["error"].as_str() {
-                    Some(message) => Cell::styled(message.to_string(), dg::render::Style::Red),
-                    None => match one["rows_affected"].as_u64() {
-                        Some(rows) => Cell::text(format!("{rows} rows")),
-                        None => {
-                            let rows = one["rows"].as_array().map(|rows| rows.len()).unwrap_or(0);
-                            Cell::text(format!("{rows} rows"))
-                        }
-                    },
-                },
-                None => Cell::text("-"),
-            };
-            table.row(vec![
-                Cell::number(index + 1),
-                Cell::text(statement),
-                outcome,
-            ]);
-        }
-        table.write(&mut out, &theme).map_err(Application)?;
         return Ok(None);
     }
     Ok(Some((
@@ -778,33 +631,16 @@ pub async fn batch(
         },
         Box::new(move |result| {
             // A batch is a list of statements, so its result is a list
-            // of results: one row per statement, in order.
-            let mut table = Table::new();
-            table.column("#", Align::Right);
-            table.column("statement", Align::Left);
-            table.column("result", Align::Right);
-            for (index, statement) in view_body.statements.iter().enumerate() {
-                let outcome = match result["results"].as_array().and_then(|r| r.get(index)) {
-                    Some(one) => match one["error"].as_str() {
-                        Some(message) => Cell::styled(message.to_string(), dg::render::Style::Red),
-                        None => match one["rows_affected"].as_u64() {
-                            Some(rows) => Cell::text(format!("{rows} rows")),
-                            None => {
-                                let rows =
-                                    one["rows"].as_array().map(|rows| rows.len()).unwrap_or(0);
-                                Cell::text(format!("{rows} rows"))
-                            }
-                        },
-                    },
-                    None => Cell::text("-"),
-                };
-                table.row(vec![
-                    Cell::number(index + 1),
-                    Cell::text(&statement.sql),
-                    outcome,
-                ]);
-            }
-            dg::render::Outcome::list("statements", table)
+            // of results: one row per statement, in order. The reading
+            // is the shared one, so this table and the terminal UI's
+            // table cannot disagree about what a statement did.
+            let statements: Vec<String> = view_body
+                .statements
+                .iter()
+                .map(|statement| statement.sql.clone())
+                .collect();
+            let outcome = dg::views::batch_outcomes(&statements, result);
+            dg::render::Outcome::list("statements", outcome.table)
         }),
     )
     .await?
@@ -871,42 +707,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_inspect_view_labels_the_p95_and_the_max_under_their_own_names() {
-        // The defect this protects against: the wait-latency field once
-        // held the database's MAXIMUM wait under a "wait p95" label.
-        // The two values here are far apart, so a swapped pair is
-        // visible; a row-wide assertion could not tell.
-        let entry = serde_json::json!({
-            "rows_read": 1,
-            "rows_written": 2,
-            "queue_waits": 21,
-            "queue_wait_p95_us": 1_000,
-            "queue_wait_max_us": 900_000,
-        });
-        let section = activity_section(&entry);
-        let mut out = Vec::new();
-        section
-            .write(&mut out, &dg::render::Theme::fixed(false, true))
-            .unwrap();
-        let text = String::from_utf8(out).unwrap();
-
-        let p95_line = text
-            .lines()
-            .find(|line| line.trim_start().starts_with("wait p95"))
-            .unwrap_or_else(|| panic!("no wait p95 field: {text}"));
-        let max_line = text
-            .lines()
-            .find(|line| line.trim_start().starts_with("wait max"))
-            .unwrap_or_else(|| panic!("no wait max field: {text}"));
-
-        assert!(
-            p95_line.contains("1.0 ms"),
-            "the wait p95 field does not hold the p95: {p95_line}"
-        );
-        assert!(
-            max_line.contains("900 ms"),
-            "the wait max field does not hold the max: {max_line}"
-        );
-    }
 }

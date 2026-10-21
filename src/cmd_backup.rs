@@ -18,11 +18,7 @@ fn terminal_theme() -> Theme {
 /// always spelled out, so the colour is a second rendering of the same
 /// information rather than the only rendering of it.
 fn state_style(state: &str) -> Style {
-    match state {
-        "fresh" => Style::Green,
-        "stale" => Style::Yellow,
-        _ => Style::Red,
-    }
+    dg::views::backup_state_style(state)
 }
 
 /// The style for a notification's severity.
@@ -39,100 +35,7 @@ pub async fn status(
     key_path: &Option<PathBuf>,
 ) -> Result<Option<Request>, dg::ServerError> {
     if let Some(backups) = table_json(server, json, key_path, Method::GET, "/v1/backups").await? {
-        let mut root = Section::new("backup");
-        root.field(
-            "root",
-            Cell::styled(
-                backups["backup_root"]
-                    .as_str()
-                    .unwrap_or("(none configured)"),
-                Style::Cyan,
-            ),
-        );
-        root.field(
-            "stale after",
-            Cell::text(
-                backups["stale_after_secs"]
-                    .as_u64()
-                    .map(dg::render::human_duration)
-                    .unwrap_or_else(|| "unknown".to_string()),
-            ),
-        );
-        let sets = backups["sets"].as_array().cloned().unwrap_or_default();
-        root.field("sets", Cell::number(sets.len()));
-
-        let mut sections = vec![root];
-
-        if !sets.is_empty() {
-            let mut published = Section::new("published sets");
-            let mut table = Table::new();
-            table.column("set", Align::Left);
-            table.column("coverage from", Align::Left);
-            table.column("databases", Align::Right);
-            table.column("registry", Align::Left);
-            for set in &sets {
-                table.row(vec![
-                    // The set keeps its raw stamp: that is the exact
-                    // argument `dg backup verify --set` takes, so
-                    // rewriting it would make the two disagree.
-                    Cell::text(set["timestamp"].as_str().unwrap_or("?")),
-                    Cell::text(
-                        set["coverage_start"]
-                            .as_i64()
-                            .map(dg::render::human_epoch)
-                            .unwrap_or_else(|| "unknown".to_string()),
-                    ),
-                    Cell::number(
-                        set["databases"]
-                            .as_array()
-                            .map(|dbs| dbs.len())
-                            .unwrap_or(0),
-                    ),
-                    Cell::text(if set["has_registry"].as_bool() == Some(true) {
-                        "yes"
-                    } else {
-                        "no"
-                    }),
-                ]);
-            }
-            published.table(table);
-            sections.push(published);
-        }
-
-        if let Some(per_database) = backups["per_database"].as_object() {
-            let mut names: Vec<&String> = per_database.keys().collect();
-            names.sort();
-            if !names.is_empty() {
-                let mut freshness = Section::new("per-database");
-                let mut table = Table::new();
-                table.column("database", Align::Left);
-                table.column("state", Align::Left);
-                table.column("newest set", Align::Left);
-                table.column("age", Align::Right);
-                for name in names {
-                    let fresh = &per_database[name.as_str()];
-                    let state = fresh["state"].as_str().unwrap_or("unknown");
-                    table.row(vec![
-                        Cell::styled(name.clone(), Style::Cyan),
-                        Cell::styled(state, state_style(state)),
-                        Cell::text(
-                            fresh["newest_set"]
-                                .as_str()
-                                .map(dg::render::human_set_stamp)
-                                .unwrap_or_else(|| "—".to_string()),
-                        ),
-                        Cell::text(
-                            fresh["age_secs"]
-                                .as_u64()
-                                .map(dg::render::human_duration)
-                                .unwrap_or_else(|| "unknown".to_string()),
-                        ),
-                    ]);
-                }
-                freshness.table(table);
-                sections.push(freshness);
-            }
-        }
+        let sections = dg::views::backups(&backups);
         let mut out = std::io::stdout();
         dg::render::write_sections(&mut out, &terminal_theme(), &sections).map_err(Application)?;
         return Ok(None);

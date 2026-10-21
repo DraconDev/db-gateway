@@ -13,6 +13,7 @@ pub mod shell;
 pub mod sqlsplit;
 pub mod store;
 pub mod values;
+pub mod views;
 
 use std::{fmt, net::SocketAddr, sync::Arc, time::Duration};
 

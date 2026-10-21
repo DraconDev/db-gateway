@@ -77,40 +77,7 @@ pub async fn list(
     key_path: &Option<PathBuf>,
 ) -> Result<Option<Request>, dg::ServerError> {
     if let Some(keys) = table_json(server, json, key_path, Method::GET, "/v1/keys").await? {
-        let mut table = Table::new();
-        table.column("name", Align::Left);
-        table.column("role", Align::Left);
-        table.column("databases", Align::Left);
-        for key in keys["keys"].as_array().cloned().unwrap_or_default().iter() {
-            let databases = key["databases"]
-                .as_array()
-                .map(|dbs| {
-                    dbs.iter()
-                        .filter_map(Value::as_str)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                })
-                .unwrap_or_default();
-            let role = key["role"].as_str().unwrap_or("");
-            table.row(vec![
-                Cell::styled(key["name"].as_str().unwrap_or(""), Style::Cyan),
-                // The owner key is the one that can do everything, so it
-                // is worth seeing at a glance in a list of credentials.
-                Cell::styled(
-                    role,
-                    if role == "owner" {
-                        Style::Yellow
-                    } else {
-                        Style::Plain
-                    },
-                ),
-                Cell::text(if databases.is_empty() && role == "owner" {
-                    "all".to_string()
-                } else {
-                    databases
-                }),
-            ]);
-        }
+        let table = dg::views::keys(&keys);
         let mut out = std::io::stdout();
         table
             .write(&mut out, &terminal_theme())

@@ -1,0 +1,740 @@
+//! One view layer: what a server answer means, drawn once for every
+//! surface.
+//!
+//! The CLI, the interactive shell and the terminal UI all read their
+//! facts from here. A view is a pure function of the JSON the gateway
+//! returned: it never fetches, never draws, and never decides what
+//! happens next.
+//!
+//! That is what keeps two surfaces from telling different stories about
+//! the same gateway. The defect this module exists to prevent is
+//! concrete: a batch the gateway refused was drawn as "not run" on one
+//! surface and "rolled back" on another, because each surface read the
+//! response on its own. Here the reading happens once, and every
+//! surface draws the same reading.
+
+use crate::render::{
+    self, Align, Cell, Section, Style, Table, human_count, human_duration, human_epoch_ago,
+    human_micros, human_percent, human_rate, human_set_stamp, wait_figures,
+};
+use serde_json::Value;
+
+/// The service dashboard, grouped by what the reader is asking about.
+///
+/// The questions an operator has are "is it up", "is it busy", "is it
+/// healthy" and "which of my databases is doing the work". The
+/// dashboard answers those in that order, rather than listing the
+/// server's properties.
+pub fn service_dashboard(status: &serde_json::Value) -> Vec<Section> {
+    let mut sections = Vec::new();
+
+    // What the service is, and whether it is up.
+    let mut service = Section::new("service");
+    service.field(
+        "version",
+        Cell::text(status["version"].as_str().unwrap_or("?")),
+    );
+    service.field(
+        "uptime",
+        Cell::text(
+            status["uptime_secs"]
+                .as_u64()
+                .map(human_duration)
+                .unwrap_or_else(|| "unknown".to_string()),
+        ),
+    );
+    let live = status["database_counts"]["live"].as_u64().unwrap_or(0);
+    let tombstoned = status["database_counts"]["tombstoned"]
+        .as_u64()
+        .unwrap_or(0);
+    service.field(
+        "databases",
+        Cell::text(format!("{live} live, {tombstoned} tombstoned")),
+    );
+    sections.push(service);
+
+    // How much work it is doing, and how fast.
+    let requests = &status["requests"];
+    let total = requests["total"].as_u64().unwrap_or(0);
+    let errors = requests["capacity_exceeded"].as_u64().unwrap_or(0)
+        + requests["query_deadline_exceeded"].as_u64().unwrap_or(0)
+        + requests["internal_error"].as_u64().unwrap_or(0);
+    let mut activity = Section::new("activity");
+    activity.field("requests", Cell::text(human_count(total, "")));
+    let span = requests["recent_span_secs"].as_u64().unwrap_or(1);
+    let recent: u64 = requests["recent_per_second"]
+        .as_array()
+        .map(|values| values.iter().filter_map(Value::as_u64).sum())
+        .unwrap_or(0);
+    activity.field("rate", Cell::text(human_rate(recent, span)));
+    activity.field("errors", Cell::text(human_count(errors, "")));
+    activity.field("error rate", Cell::text(human_percent(errors, total)));
+    sections.push(activity);
+
+    // The recent shape of the traffic, as a chart in one line. Its own
+    // section, so the chart starts at the left margin instead of being
+    // pushed across by the key column.
+    if let Some(values) = requests["recent_per_second"].as_array() {
+        let counts: Vec<u64> = values.iter().filter_map(Value::as_u64).collect();
+        if !counts.is_empty() {
+            let mut recent = Section::new("recent activity");
+            recent.field("req/s", Cell::Sparkline(counts));
+            sections.push(recent);
+        }
+    }
+
+    // Whether the admission queue is hurting anyone.
+    let mut admission = Section::new("admission");
+    admission.field(
+        "acquire timeout",
+        Cell::text(
+            status["admission"]["acquire_timeout_ms"]
+                .as_u64()
+                .map(|ms| format!("{ms} ms"))
+                .unwrap_or_else(|| "unknown".to_string()),
+        ),
+    );
+    admission.field(
+        "read permits",
+        Cell::number(status["admission"]["read_permits"].as_u64().unwrap_or(0)),
+    );
+    admission.field(
+        "write permits",
+        Cell::number(status["admission"]["write_permits"].as_u64().unwrap_or(0)),
+    );
+    match (
+        requests["wait_p50_us"].as_u64(),
+        requests["wait_p95_us"].as_u64(),
+    ) {
+        (Some(p50), Some(p95)) => {
+            admission.field("wait p50", Cell::text(human_micros(p50)));
+            admission.field("wait p95", Cell::text(human_micros(p95)));
+        }
+        // No wait has been recorded: the queue has never contended, and
+        // saying "0 ms" would claim a measurement that was never made.
+        _ => {
+            admission.field("wait p50", Cell::text("no waits recorded"));
+            admission.field("wait p95", Cell::text("no waits recorded"));
+        }
+    }
+    sections.push(admission);
+
+    // Which database is doing the work.
+    if let Some(usage) = status["databases"].as_object()
+        && !usage.is_empty()
+    {
+        let mut per_database = Section::new("per-database");
+        let mut table = Table::new();
+        table.column("database", Align::Left);
+        table.column("rows read", Align::Right);
+        table.column("rows written", Align::Right);
+        table.column("waits", Align::Right);
+        table.column("wait p95", Align::Right);
+        table.column("wait max", Align::Right);
+        table.column("last write", Align::Left);
+        for (name, entry) in usage {
+            let waits = entry["queue_waits"].as_u64().unwrap_or(0);
+            // The p95 is this database's own, and the max is its worst
+            // single wait. They are different facts, and the pairing is
+            // built in one place so the two columns cannot be swapped.
+            let figures = wait_figures(entry, "-");
+            let last_write = match entry["last_write"].as_u64() {
+                Some(epoch) => Cell::text(human_epoch_ago(epoch)),
+                None => Cell::text("never"),
+            };
+            table.row(vec![
+                Cell::styled(name.clone(), Style::Cyan),
+                Cell::number(entry["rows_read"].as_u64().unwrap_or(0)),
+                Cell::number(entry["rows_written"].as_u64().unwrap_or(0)),
+                Cell::number(waits),
+                figures.p95,
+                figures.max,
+                last_write,
+            ]);
+        }
+        table.footer(
+            "wait p95 is this database's own recent waits; wait max is its worst single wait",
+        );
+        per_database.table(table);
+        sections.push(per_database);
+    }
+
+    sections
+}
+
+/// The backup freshness view: the root the gateway watches, the
+/// published sets, and the per-database state.
+pub fn backups(backups: &Value) -> Vec<Section> {
+    let mut root = Section::new("backup");
+    root.field(
+        "root",
+        Cell::styled(
+            backups["backup_root"].as_str().unwrap_or("(none configured)"),
+            Style::Cyan,
+        ),
+    );
+    root.field(
+        "stale after",
+        Cell::text(
+            backups["stale_after_secs"]
+                .as_u64()
+                .map(human_duration)
+                .unwrap_or_else(|| "unknown".to_string()),
+        ),
+    );
+    let sets = backups["sets"].as_array().cloned().unwrap_or_default();
+    root.field("sets", Cell::number(sets.len()));
+
+    let mut sections = vec![root];
+
+    if !sets.is_empty() {
+        let mut published = Section::new("published sets");
+        let mut table = Table::new();
+        table.column("set", Align::Left);
+        table.column("coverage from", Align::Left);
+        table.column("databases", Align::Right);
+        table.column("registry", Align::Left);
+        for set in &sets {
+            table.row(vec![
+                // The set keeps its raw stamp: that is the exact
+                // argument `dg backup verify --set` takes, so
+                // rewriting it would make the two disagree.
+                Cell::text(set["timestamp"].as_str().unwrap_or("?")),
+                Cell::text(
+                    set["coverage_start"]
+                        .as_i64()
+                        .map(render::human_epoch)
+                        .unwrap_or_else(|| "unknown".to_string()),
+                ),
+                Cell::number(
+                    set["databases"]
+                        .as_array()
+                        .map(|dbs| dbs.len())
+                        .unwrap_or(0),
+                ),
+                Cell::text(if set["has_registry"].as_bool() == Some(true) {
+                    "yes"
+                } else {
+                    "no"
+                }),
+            ]);
+        }
+        published.table(table);
+        sections.push(published);
+    }
+
+    if let Some(per_database) = backups["per_database"].as_object() {
+        let mut names: Vec<&String> = per_database.keys().collect();
+        names.sort();
+        if !names.is_empty() {
+            let mut freshness = Section::new("per-database");
+            let mut table = Table::new();
+            table.column("database", Align::Left);
+            table.column("state", Align::Left);
+            table.column("newest set", Align::Left);
+            table.column("age", Align::Right);
+            for name in names {
+                let fresh = &per_database[name.as_str()];
+                let state = fresh["state"].as_str().unwrap_or("unknown");
+                table.row(vec![
+                    Cell::styled(name.clone(), Style::Cyan),
+                    Cell::styled(state, backup_state_style(state)),
+                    Cell::text(
+                        fresh["newest_set"]
+                            .as_str()
+                            .map(human_set_stamp)
+                            .unwrap_or_else(|| "—".to_string()),
+                    ),
+                    Cell::text(
+                        fresh["age_secs"]
+                            .as_u64()
+                            .map(human_duration)
+                            .unwrap_or_else(|| "unknown".to_string()),
+                    ),
+                ]);
+            }
+            freshness.table(table);
+            sections.push(freshness);
+        }
+    }
+    sections
+}
+
+/// The style for a backup freshness state.
+///
+/// The state word itself is always spelled out, so the colour is a
+/// second rendering of the same information rather than the only
+/// rendering of it.
+pub fn backup_state_style(state: &str) -> Style {
+    match state {
+        "fresh" => Style::Green,
+        "stale" => Style::Yellow,
+        _ => Style::Red,
+    }
+}
+
+/// The credential list: every outstanding key with its role and the
+/// databases it may reach.
+///
+/// The owner key is the one that can do everything, so it is worth
+/// seeing at a glance in a list of credentials.
+pub fn keys(keys: &Value) -> Table {
+    let mut table = Table::new();
+    table.column("name", Align::Left);
+    table.column("role", Align::Left);
+    table.column("databases", Align::Left);
+    for key in keys["keys"].as_array().cloned().unwrap_or_default().iter() {
+        let databases = key["databases"]
+            .as_array()
+            .map(|dbs| {
+                dbs.iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .unwrap_or_default();
+        let role = key["role"].as_str().unwrap_or("");
+        table.row(vec![
+            Cell::styled(key["name"].as_str().unwrap_or(""), Style::Cyan),
+            Cell::styled(
+                role,
+                if role == "owner" {
+                    Style::Yellow
+                } else {
+                    Style::Plain
+                },
+            ),
+            Cell::text(if databases.is_empty() && role == "owner" {
+                "all".to_string()
+            } else {
+                databases
+            }),
+        ]);
+    }
+    table
+}
+
+/// The database name list.
+pub fn database_names(databases: &Value) -> Table {
+    let names: Vec<String> = databases["databases"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|name| name.as_str().unwrap_or("").to_string())
+        .collect();
+    let mut table = Table::new();
+    table.column("database", Align::Left);
+    for name in &names {
+        table.row(vec![Cell::styled(name.clone(), Style::Cyan)]);
+    }
+    table.footer(if names.len() == 1 {
+        "1 database".to_string()
+    } else {
+        format!("{} databases", names.len())
+    });
+    table
+}
+
+/// What one database has been doing, as the `activity` section.
+///
+/// The p95 and the max are different facts and are labelled as such:
+/// the p95 says how bad this database's queue usually is, the max says
+/// how bad it ever got. The label and the value travel together from
+/// the shared helper, so this view and the dashboard cannot disagree
+/// about which is which.
+pub fn activity_section(entry: &Value) -> Section {
+    let mut activity = Section::new("activity");
+    activity.field(
+        "rows read",
+        Cell::number(entry.get("rows_read").and_then(Value::as_u64).unwrap_or(0)),
+    );
+    activity.field(
+        "rows written",
+        Cell::number(
+            entry
+                .get("rows_written")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+        ),
+    );
+    let waits = entry
+        .get("queue_waits")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    activity.field("queue waits", Cell::number(waits));
+    for (label, cell) in render::wait_figure_fields(entry, "no waits recorded") {
+        activity.field(label, cell);
+    }
+    activity.field(
+        "last write",
+        match entry.get("last_write").and_then(Value::as_u64) {
+            Some(epoch) => Cell::text(last_write_ago(epoch)),
+            None => Cell::text("never"),
+        },
+    );
+    activity
+}
+
+/// How long ago a write happened, as a person reads it.
+pub fn last_write_ago(epoch: u64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(epoch);
+    format!("{} ago", human_duration(now.saturating_sub(epoch)))
+}
+
+/// What a batch of statements did, read once so every surface agrees.
+///
+/// The gateway answers a batch in one of two ways: a list of results,
+/// one per statement, or an error. The error may name the statement
+/// that broke it, or may not — and what an unnamed error MEANS depends
+/// on how many statements the script held, which only the client
+/// knows: the gateway attributes an error to a statement only when the
+/// batch holds more than one, because a lone statement is unambiguous
+/// on its own.
+///
+/// So a script of one statement that fails carries no index, and that
+/// absence says nothing about whether it ran: its row carries the
+/// reason. A script of several that fails without an index was refused
+/// as a whole, before anything ran, so no row claims a rollback that
+/// did not happen.
+#[derive(Clone, Debug)]
+pub struct BatchOutcome {
+    /// One row per statement, in the order they were sent.
+    pub table: Table,
+    /// The gateway's error code, when the request failed.
+    pub code: Option<String>,
+    /// The gateway's error message, when the request failed.
+    pub message: Option<String>,
+    /// The statement the gateway blamed, when it named one.
+    pub blamed: Option<usize>,
+    /// True when the request was refused as a whole: nothing ran, and
+    /// nothing was rolled back either.
+    pub refused: bool,
+}
+
+impl BatchOutcome {
+    /// True when the batch ran and every statement has a result.
+    pub fn ran(&self) -> bool {
+        self.code.is_none()
+    }
+
+    /// The failure as one line, for a status bar or an error message.
+    pub fn reason(&self) -> Option<String> {
+        match (&self.code, &self.message) {
+            (Some(code), Some(message)) => Some(format!("{code}: {message}")),
+            (Some(code), None) => Some(code.clone()),
+            _ => None,
+        }
+    }
+}
+
+/// Read a batch response once, for every surface that draws it.
+pub fn batch_outcomes(statements: &[String], result: &Value) -> BatchOutcome {
+    if let Some(error) = result.get("error") {
+        let message = error["message"].as_str().unwrap_or("failed").to_string();
+        let code = error["code"].as_str().unwrap_or("error").to_string();
+        let blamed = error["statement"].as_u64().map(|index| index as usize);
+        let mut table = Table::new();
+        table.column("#", Align::Right);
+        table.column("statement", Align::Left);
+        table.column("result", Align::Left);
+        for (index, statement) in statements.iter().enumerate() {
+            let outcome = match blamed {
+                Some(blamed) if blamed == index => {
+                    Cell::styled(format!("{code}: {message}"), Style::Red)
+                }
+                // A script of one statement: the gateway names no
+                // statement for it, so the row shows why it failed. The
+                // statement did run — "not run" would be a lie, and the
+                // reason would be missing from the view.
+                _ if statements.len() == 1 => {
+                    Cell::styled(format!("{code}: {message}"), Style::Red)
+                }
+                // A script of several, refused without naming a
+                // statement: the whole request was rejected, so nothing
+                // ran and nothing was rolled back.
+                None => Cell::styled("not run", Style::Dim),
+                // A statement broke the batch: the rest were rolled
+                // back with it.
+                _ => Cell::styled("rolled back", Style::Dim),
+            };
+            table.row(vec![
+                Cell::number(index + 1),
+                Cell::text(statement),
+                outcome,
+            ]);
+        }
+        return BatchOutcome {
+            table,
+            code: Some(code),
+            message: Some(message),
+            blamed,
+            // A request that names no statement, in a script of several,
+            // was refused as a whole, before anything ran.
+            refused: blamed.is_none() && statements.len() > 1,
+        };
+    }
+    let mut table = Table::new();
+    table.column("#", Align::Right);
+    table.column("statement", Align::Left);
+    table.column("result", Align::Right);
+    let results = result["results"].as_array().cloned().unwrap_or_default();
+    for (index, statement) in statements.iter().enumerate() {
+        let outcome = match results.get(index) {
+            Some(one) => match one["error"].as_str() {
+                Some(message) => Cell::styled(message.to_string(), Style::Red),
+                None => match one["rows_affected"].as_u64() {
+                    Some(rows) => Cell::text(format!("{rows} rows")),
+                    None => {
+                        let rows = one["rows"].as_array().map(|rows| rows.len()).unwrap_or(0);
+                        Cell::text(format!("{rows} rows"))
+                    }
+                },
+            },
+            None => Cell::text("-"),
+        };
+        table.row(vec![
+            Cell::number(index + 1),
+            Cell::text(statement),
+            outcome,
+        ]);
+    }
+    BatchOutcome {
+        table,
+        code: None,
+        message: None,
+        blamed: None,
+        refused: false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A table as plain text, so a test can read what an operator reads.
+    fn render_table(table: &Table) -> String {
+        let mut out = Vec::new();
+        table
+            .write(&mut out, &render::Theme::fixed(false, true))
+            .expect("a table renders");
+        String::from_utf8(out).expect("a table is text")
+    }
+
+    #[test]
+    fn the_inspect_view_labels_the_p95_and_the_max_under_their_own_names() {
+        // The defect this protects against: the wait-latency field once
+        // held the database's MAXIMUM wait under a "wait p95" label.
+        // The two values here are far apart, so a swapped pair is
+        // visible; a row-wide assertion could not tell.
+        let entry = serde_json::json!({
+            "rows_read": 1,
+            "rows_written": 2,
+            "queue_waits": 21,
+            "queue_wait_p95_us": 1_000,
+            "queue_wait_max_us": 900_000,
+        });
+        let section = activity_section(&entry);
+        let mut out = Vec::new();
+        section
+            .write(&mut out, &render::Theme::fixed(false, true))
+            .unwrap();
+        let text = String::from_utf8(out).unwrap();
+
+        let p95_line = text
+            .lines()
+            .find(|line| line.trim_start().starts_with("wait p95"))
+            .unwrap_or_else(|| panic!("no wait p95 field: {text}"));
+        let max_line = text
+            .lines()
+            .find(|line| line.trim_start().starts_with("wait max"))
+            .unwrap_or_else(|| panic!("no wait max field: {text}"));
+
+        assert!(
+            p95_line.contains("1.0 ms"),
+            "the wait p95 field does not hold the p95: {p95_line}"
+        );
+        assert!(
+            max_line.contains("900 ms"),
+            "the wait max field does not hold the max: {max_line}"
+        );
+    }
+
+    /// The cells of a rendered table row, split on the box drawing.
+    fn row_cells(text: &str, row_needle: &str) -> Vec<String> {
+        text.lines()
+            .find(|line| line.contains(row_needle))
+            .expect("the row is not in the output")
+            .split('│')
+            .map(|cell| cell.trim().to_string())
+            .filter(|cell| !cell.is_empty())
+            .collect()
+    }
+
+    /// The header cells of the table the row belongs to.
+    fn header_cells(text: &str) -> Vec<String> {
+        text.lines()
+            .find(|line| line.contains("wait p95") && line.contains("wait max"))
+            .expect("the table header is not in the output")
+            .split('│')
+            .map(|cell| cell.trim().to_string())
+            .filter(|cell| !cell.is_empty())
+            .collect()
+    }
+
+    #[test]
+    fn the_per_database_table_puts_the_p95_and_the_max_under_their_own_headers() {
+        // The defect this protects against: the wait-latency column
+        // once held each database's MAXIMUM wait under a "wait p95"
+        // header, so on a contended database it overstated the
+        // percentile and disagreed with the genuine p95 in the
+        // admission block of the same screen.
+        //
+        // The two values here are deliberately far apart, so the test
+        // can tell which cell holds which. A row-wide assertion cannot:
+        // when a database has one wait, its p95 and its max are the
+        // same number, and a swapped pair looks correct.
+        let status = serde_json::json!({
+            "version": "0.2.0",
+            "uptime_secs": 60,
+            "database_counts": {"live": 1, "tombstoned": 0},
+            "requests": {
+                "total": 10,
+                "capacity_exceeded": 0,
+                "query_deadline_exceeded": 0,
+                "internal_error": 0,
+                "recent_per_second": [1, 2, 3],
+                "recent_span_secs": 3,
+            },
+            "databases": {
+                "demo": {
+                    "rows_read": 1,
+                    "rows_written": 2,
+                    "queue_waits": 21,
+                    // The p95 is small; the max is far larger.
+                    "queue_wait_p95_us": 1_000,
+                    "queue_wait_max_us": 900_000,
+                    "last_write": null,
+                }
+            },
+        });
+        let sections = service_dashboard(&status);
+        let mut out = Vec::new();
+        render::write_sections(&mut out, &render::Theme::fixed(false, true), &sections).unwrap();
+        let text = String::from_utf8(out).unwrap();
+
+        let header = header_cells(&text);
+        let p95_column = header
+            .iter()
+            .position(|cell| cell == "wait p95")
+            .expect("no wait p95 column");
+        let max_column = header
+            .iter()
+            .position(|cell| cell == "wait max")
+            .expect("no wait max column");
+        assert_ne!(p95_column, max_column, "the two columns are the same");
+
+        let row = row_cells(&text, "demo");
+        // Each cell holds the value its own header names, and not the
+        // other's: 1 ms is the p95, 900 ms is the max.
+        assert_eq!(
+            row[p95_column], "1.0 ms",
+            "the wait p95 column does not hold the p95: {text}"
+        );
+        assert_eq!(
+            row[max_column], "900 ms",
+            "the wait max column does not hold the max: {text}"
+        );
+        // And the two are not the same cell, so neither can be the
+        // other by accident.
+        assert_ne!(row[p95_column], row[max_column], "{text}");
+    }
+
+    #[test]
+    fn a_lone_statement_that_fails_carries_the_reason_not_a_claim_about_running() {
+        // The gateway names no statement for a batch of one, so the
+        // absence of an index says nothing about whether it ran. A row
+        // that said "not run" would be a claim the gateway never made.
+        let outcome = batch_outcomes(
+            &["select 1".to_string()],
+            &serde_json::json!({"error": {"code": "sql_error", "message": "no such table: t"}}),
+        );
+        let text = render_table(&outcome.table);
+        assert!(
+            text.contains("sql_error: no such table: t"),
+            "the row does not carry the reason: {text}"
+        );
+        assert!(
+            !text.contains("not run"),
+            "the row claims the statement did not run: {text}"
+        );
+        assert!(!outcome.ran(), "a failed batch was read as one that ran");
+        assert!(
+            !outcome.refused,
+            "a lone statement's failure was read as a whole-request refusal"
+        );
+    }
+
+    #[test]
+    fn a_refused_batch_of_several_says_not_run_and_claims_no_rollback() {
+        // A request refused before anything ran rolled nothing back, so
+        // a row that said "rolled back" would claim a rollback that did
+        // not happen.
+        let outcome = batch_outcomes(
+            &["select 1".to_string(), "select 2".to_string()],
+            &serde_json::json!({"error": {"code": "too_many_statements", "message": "too long"}}),
+        );
+        let text = render_table(&outcome.table);
+        assert_eq!(
+            text.matches("not run").count(),
+            2,
+            "every row of a refused batch says not run: {text}"
+        );
+        assert!(
+            !text.contains("rolled back"),
+            "a refused batch claims a rollback: {text}"
+        );
+        assert!(outcome.refused, "a refused batch was not read as refused");
+        assert_eq!(
+            outcome.reason().as_deref(),
+            Some("too_many_statements: too long"),
+            "the refusal does not carry the gateway's reason"
+        );
+    }
+
+    #[test]
+    fn a_statement_that_broke_the_batch_rolls_the_rest_back() {
+        let outcome = batch_outcomes(
+            &["select 1".to_string(), "select 2".to_string()],
+            &serde_json::json!({"error": {"code": "sql_error", "message": "boom", "statement": 1}}),
+        );
+        let text = render_table(&outcome.table);
+        assert!(
+            text.contains("rolled back"),
+            "the statements after the broken one are not marked rolled back: {text}"
+        );
+        assert!(
+            text.contains("sql_error: boom"),
+            "the broken statement does not carry the reason: {text}"
+        );
+        assert!(
+            !outcome.refused,
+            "a batch that broke on a statement was read as a whole-request refusal"
+        );
+    }
+
+    #[test]
+    fn a_batch_that_ran_lists_one_row_per_statement() {
+        let outcome = batch_outcomes(
+            &["select 1".to_string(), "select 2".to_string()],
+            &serde_json::json!({"results": [{"rows_affected": 3}, {"rows": [1, 2]}]}),
+        );
+        let text = render_table(&outcome.table);
+        assert!(outcome.ran(), "a batch with results was not read as one that ran");
+        assert!(text.contains("3 rows"), "the first result is missing: {text}");
+        assert!(text.contains("2 rows"), "the second result is missing: {text}");
+    }
+}

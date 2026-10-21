@@ -414,7 +414,7 @@ impl Session<'_> {
             )
             .map_err(io);
         }
-        let sections = crate::render::service_dashboard(response);
+        let sections = crate::views::service_dashboard(response);
         crate::render::write_sections(out, self.theme, &sections).map_err(render_error)
     }
 

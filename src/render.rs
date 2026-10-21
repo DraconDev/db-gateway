@@ -22,7 +22,6 @@ use std::io::Write;
 use unicode_width::UnicodeWidthStr;
 
 use crate::error::{Error, Result};
-use serde_json::Value;
 
 /// ANSI escapes. Kept as constants so the palette is auditable in one
 /// place rather than scattered as literals.
@@ -1378,95 +1377,6 @@ mod tests {
         assert!(!color_allowed_with(None, term("dumb")));
     }
 
-    /// The cells of a rendered table row, split on the box drawing.
-    fn row_cells(text: &str, row_needle: &str) -> Vec<String> {
-        text.lines()
-            .find(|line| line.contains(row_needle))
-            .expect("the row is not in the output")
-            .split('│')
-            .map(|cell| cell.trim().to_string())
-            .filter(|cell| !cell.is_empty())
-            .collect()
-    }
-
-    /// The header cells of the table the row belongs to.
-    fn header_cells(text: &str) -> Vec<String> {
-        text.lines()
-            .find(|line| line.contains("wait p95") && line.contains("wait max"))
-            .expect("the table header is not in the output")
-            .split('│')
-            .map(|cell| cell.trim().to_string())
-            .filter(|cell| !cell.is_empty())
-            .collect()
-    }
-
-    #[test]
-    fn the_per_database_table_puts_the_p95_and_the_max_under_their_own_headers() {
-        // The defect this protects against: the wait-latency column
-        // once held each database's MAXIMUM wait under a "wait p95"
-        // header, so on a contended database it overstated the
-        // percentile and disagreed with the genuine p95 in the
-        // admission block of the same screen.
-        //
-        // The two values here are deliberately far apart, so the test
-        // can tell which cell holds which. A row-wide assertion cannot:
-        // when a database has one wait, its p95 and its max are the
-        // same number, and a swapped pair looks correct.
-        let status = serde_json::json!({
-            "version": "0.2.0",
-            "uptime_secs": 60,
-            "database_counts": {"live": 1, "tombstoned": 0},
-            "requests": {
-                "total": 10,
-                "capacity_exceeded": 0,
-                "query_deadline_exceeded": 0,
-                "internal_error": 0,
-                "recent_per_second": [1, 2, 3],
-                "recent_span_secs": 3,
-            },
-            "databases": {
-                "demo": {
-                    "rows_read": 1,
-                    "rows_written": 2,
-                    "queue_waits": 21,
-                    // The p95 is small; the max is far larger.
-                    "queue_wait_p95_us": 1_000,
-                    "queue_wait_max_us": 900_000,
-                    "last_write": null,
-                }
-            },
-        });
-        let sections = service_dashboard(&status);
-        let mut out = Vec::new();
-        write_sections(&mut out, &Theme::fixed(false, true), &sections).unwrap();
-        let text = String::from_utf8(out).unwrap();
-
-        let header = header_cells(&text);
-        let p95_column = header
-            .iter()
-            .position(|cell| cell == "wait p95")
-            .expect("no wait p95 column");
-        let max_column = header
-            .iter()
-            .position(|cell| cell == "wait max")
-            .expect("no wait max column");
-        assert_ne!(p95_column, max_column, "the two columns are the same");
-
-        let row = row_cells(&text, "demo");
-        // Each cell holds the value its own header names, and not the
-        // other's: 1 ms is the p95, 900 ms is the max.
-        assert_eq!(
-            row[p95_column], "1.0 ms",
-            "the wait p95 column does not hold the p95: {text}"
-        );
-        assert_eq!(
-            row[max_column], "900 ms",
-            "the wait max column does not hold the max: {text}"
-        );
-        // And the two are not the same cell, so neither can be the
-        // other by accident.
-        assert_ne!(row[p95_column], row[max_column], "{text}");
-    }
 
     #[test]
     fn the_wait_figures_pair_the_p95_with_the_p95() {

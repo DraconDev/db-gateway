@@ -22,7 +22,7 @@ pub async fn status(
         dg::render::write_sections(
             &mut out,
             &terminal_theme(),
-            &dg::render::service_dashboard(&status),
+            &dg::views::service_dashboard(&status),
         )
         .map_err(Application)?;
         return Ok(None);
