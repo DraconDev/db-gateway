@@ -3,6 +3,11 @@ use super::*;
 /// Bounded admission wait (scale proposal Phase 1). Bursty arrivals queue up
 /// to this long for a permit instead of failing instantly; overload still
 /// surfaces as the same `429 capacity_exceeded`, only after waiting.
+///
+/// This is the WAITER's floor: how long a request waits for the guard when
+/// no holder has published a longer budget. It is deliberately not the whole
+/// story — see [`AdmissionQueue::acquire`] for the holder's budget, which is
+/// what keeps a read's fate from depending on the machine's speed.
 pub const ACQUIRE_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// Admission lane sizes (scale proposal Phase 2): reads share a wide lane
@@ -47,9 +52,20 @@ pub(super) struct QueueState {
     /// Tickets held by writers not yet admitted. A reader is held back by
     /// the earliest of these.
     pub(super) waiting_writers: BTreeSet<u64>,
-    /// Tickets whose owner hit ACQUIRE_TIMEOUT and left. Stepped over so one
+    /// Tickets whose owner hit its deadline and left. Stepped over so one
     /// give-up cannot wedge every ticket behind it.
     abandoned: BTreeSet<u64>,
+    /// The latest expiry among the holders of the guard, if any.
+    ///
+    /// A holder publishes how long it may legitimately keep the guard (its
+    /// budget), and a waiter behind it is patient for that long. Without
+    /// this, a read that arrived while a write was running was shed on a
+    /// timer that had nothing to do with the work being waited for: a write
+    /// that took 600 ms instead of 100 ms — because the disk was busy, or
+    /// the machine was loaded — turned the same read into a `429`. The
+    /// budget makes the wait depend on the HOLDER's work, not on the
+    /// clock.
+    holder_deadline: Option<Instant>,
 }
 
 impl QueueState {
@@ -145,19 +161,35 @@ impl Drop for AdmissionGuard {
         } else {
             state.readers_active = state.readers_active.saturating_sub(1);
         }
+        if !state.writer_active && state.readers_active == 0 {
+            // The last holder left, so there is no work in front of the
+            // next waiter to be patient for.
+            state.holder_deadline = None;
+        }
         self.queue.available.notify_all();
     }
 }
 
 impl AdmissionQueue {
-    /// Admit one reader or writer, or give up at ACQUIRE_TIMEOUT.
-    fn acquire(queue: &Arc<Self>, write: bool) -> Result<AdmissionGuard> {
+    /// Admit one reader or writer, or give up at the deadline.
+    ///
+    /// `budget` is how long the ADMITTED holder may legitimately keep the
+    /// guard. A waiter behind it waits out that budget — or until the
+    /// holder releases, whichever comes first — so a read waits for a write
+    /// that is still working instead of being shed on a timer unrelated to
+    /// the work in front of it. A holder that overruns its budget is what
+    /// a waiter gives up on, which is the protection the old fixed bound
+    /// gave: an overload still surfaces as `429 capacity_exceeded`, only
+    /// after waiting.
+    fn acquire(queue: &Arc<Self>, write: bool, budget: Duration) -> Result<AdmissionGuard> {
         // Ticket and deadline are taken under ONE lock acquisition. Taking
         // the deadline first and the ticket second would let the two orders
         // invert, and a writer that abandoned a ticket above `serving` would
         // stall every ticket behind it.
         let mut state = queue.state.lock().map_err(|_| Error::internal())?;
-        let deadline = Instant::now() + ACQUIRE_TIMEOUT;
+        // The waiter's own floor: how long it waits when there is no
+        // longer-budgeted holder in front of it. This is the overload bound.
+        let floor = Instant::now() + ACQUIRE_TIMEOUT;
         let ticket = state.next_ticket;
         state.next_ticket += 1;
         if write {
@@ -184,42 +216,42 @@ impl AdmissionQueue {
                 false
             };
             if admitted {
+                // Publish this holder's budget, so the waiters behind it
+                // are patient for as long as this work may legitimately
+                // take rather than for a fixed slice of wall clock.
+                let deadline = Instant::now() + budget;
+                state.holder_deadline = Some(
+                    state
+                        .holder_deadline
+                        .map_or(deadline, |held| held.max(deadline)),
+                );
                 queue.available.notify_all();
                 return Ok(AdmissionGuard {
                     queue: queue.clone(),
                     write,
                 });
             }
-            let (guard, keep_going) = AdmissionQueue::wait(queue, state, deadline)?;
-            state = guard;
-            if !keep_going {
+            // The deadline this ticket waits to: the holder's budget while
+            // a holder is active (so the wait covers the work in front of
+            // it), the waiter's own floor otherwise (overload).
+            let deadline = match state.holder_deadline {
+                Some(holder) => holder.max(floor),
+                None => floor,
+            };
+            let now = Instant::now();
+            if now >= deadline {
                 state.abandoned.insert(ticket);
                 state.waiting_writers.remove(&ticket);
                 state.skip_abandoned();
                 queue.available.notify_all();
                 return Err(Error::busy());
             }
+            let (guard, _) = queue
+                .available
+                .wait_timeout(state, deadline - now)
+                .map_err(|_| Error::internal())?;
+            state = guard;
         }
-    }
-
-    /// Wait for a state change. Returns the guard and whether the caller
-    /// should keep trying; false means ACQUIRE_TIMEOUT has passed. A
-    /// poisoned lock is reported rather than recovered, matching how the
-    /// rest of the store treats a panic that escaped a critical section.
-    fn wait<'a>(
-        queue: &'a AdmissionQueue,
-        state: std::sync::MutexGuard<'a, QueueState>,
-        deadline: Instant,
-    ) -> Result<(std::sync::MutexGuard<'a, QueueState>, bool)> {
-        let now = Instant::now();
-        if now >= deadline {
-            return Ok((state, false));
-        }
-        let (guard, _) = queue
-            .available
-            .wait_timeout(state, deadline - now)
-            .map_err(|_| Error::internal())?;
-        Ok((guard, Instant::now() < deadline))
     }
 }
 
