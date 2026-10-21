@@ -51,6 +51,15 @@ fixes; 1.0.0 waits for production acceptance.
 
 ### Fixed
 
+- **`dg execute` now refuses an over-long script before it sends it.**
+  The batch API accepts 32 statements and the whole file is one atomic
+  batch, so a longer file was sent anyway and came back as the
+  server's bare rejection, which the CLI drew as "rolled back" on
+  every row — a rollback that never happened, for statements that
+  never ran. The CLI now counts the statements, refuses locally with
+  the count, the cap and the fact that nothing was sent, and a batch
+  the server rejects as a whole is drawn as "not run" rather than as a
+  rollback. The cap is one number, read by the client and the server.
 - **The documents no longer contradict the unit about the gateway's
   memory cap.** One pass corrected the number in three documents and
   left a fourth claiming 96 MiB twenty lines below the correction, so

@@ -271,6 +271,14 @@ whole file runs as one atomic batch):
 dg --key-file owner.key execute game_a migrations.sql
 ```
 
+The batch API accepts 32 statements at a time, and the whole file is one
+atomic batch, so a file of more than 32 statements is refused before
+it is sent: the command reports how many statements the file holds,
+what the API accepts, and that nothing was sent. A longer file cannot
+be run by splitting it into several batches, because that gives up the
+atomicity a migration needs. `dg batch` enforces the same cap on a
+JSON batch file.
+
 Lifecycle commands (M2):
 
 ```sh
