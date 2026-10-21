@@ -33,6 +33,8 @@ dg --key-file owner.key query game_a "INSERT INTO players VALUES (?, ?)" --args 
 dg --key-file owner.key query game_a "SELECT * FROM players"
 dg --key-file owner.key inspect game_a      # one database: what it holds and what it has been doing
 dg --key-file owner.key watch                # the service dashboard, read once
+dg --key-file owner.key key tokens game_a    # only the credentials that can reach game_a
+dg --key-file owner.key execute game_a script.sql   # run a SQL file, statement by statement
 dg --key-file owner.key web --port 8787   # browser view at http://127.0.0.1:8787 (loopback only)
 ```
 
@@ -86,17 +88,22 @@ admission
   wait p95         14 us
 
 per-database
-┌──────────┬───────────┬──────────────┬───────┬──────────┬────────────┐
-│ database │ rows read │ rows written │ waits │ wait p95 │ last write │
-├──────────┼───────────┼──────────────┼───────┼──────────┼────────────┤
-│ game_a   │     12004 │         8120 │    31 │    14 us │ 2m ago     │
-└──────────┴───────────┴──────────────┴───────┴──────────┴────────────┘
+┌──────────┬───────────┬──────────────┬───────┬──────────┬──────────┬────────────┐
+│ database │ rows read │ rows written │ waits │ wait p95 │ wait max │ last write │
+├──────────┼───────────┼──────────────┼───────┼──────────┼──────────┼────────────┤
+│ game_a   │     12004 │         8120 │    31 │    14 us │  1.2 ms  │ 2m ago     │
+└──────────┴───────────┴──────────────┴───────┴──────────┴──────────┴────────────┘
 ```
 
+`wait p95` is that database's own recent waits; `wait max` is its worst
+single wait.
+
 `dg watch` is the same dashboard read once, and `dg inspect game_a` is
-one database — what it holds and what it has been doing. Every command
-follows the same rule: a terminal gets a human view, a pipe or `--json`
-gets JSON.
+one database — what it holds and what it has been doing. `dg key tokens
+game_a` lists only the credentials that can reach `game_a`, and `dg
+execute game_a script.sql` runs a SQL file statement by statement.
+Every command follows the same rule: a terminal gets a human view, a
+pipe or `--json` gets JSON.
 
 The rules the drawing follows are in
 [docs/api.md](docs/api.md#how-the-terminal-output-is-drawn): numbers are

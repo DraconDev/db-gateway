@@ -880,7 +880,7 @@ pub fn wait_figures(entry: &serde_json::Value, absent: &str) -> WaitFigures {
         None => Cell::text(absent),
     };
     WaitFigures {
-        p95: cell("queue_wait_max_us"),
+        p95: cell("queue_wait_p95_us"),
         max: cell("queue_wait_max_us"),
     }
 }
