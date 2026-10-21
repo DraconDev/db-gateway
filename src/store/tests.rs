@@ -1211,7 +1211,7 @@ fn clone_import_delete_roundtrip_at_store_level() {
 #[test]
 fn a_shared_open_leaves_the_owners_in_flight_directories_alone() {
     let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path()).unwrap();
+    Store::open(dir.path()).unwrap();
     // A retained chunked-export directory, named exactly as the live
     // gateway names it while a transfer is in flight.
     let live = dir.path().join(".transfer-inflight");

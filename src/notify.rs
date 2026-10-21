@@ -695,7 +695,7 @@ mod tests {
 
     #[test]
     fn a_success_never_reports_and_never_silences_the_next_failure() {
-        let mut state = DeliveryState::default();
+        let state = DeliveryState::default();
         assert!(!state.is_due(&attempt("a", "ok", "publish")));
         assert!(state.is_due(&attempt("b", "error", "export")));
     }
