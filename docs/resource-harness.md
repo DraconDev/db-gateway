@@ -83,6 +83,7 @@ fields). A production budget claim would require the deployment host,
 realistic load, and the litestream sidecar running under the
 `MemoryMax=1G` envelope documented in
 `docs/evidence/sandbox-packet-2026-09-29-rehearsal.log` gate 9. The release
-script's `suggested_memory_max_kib` is the starting ceiling used in
-`deploy/dg.service` (96 MiB), with the supervised micro2 run as the
+script's `suggested_memory_max_kib` (91,264 KiB, ~89 MiB) is the measured
+starting ceiling this discussion starts from; the unit's own cap is
+`MemoryMax=64M` (67108864 bytes), and the supervised micro2 run is the
 on-target confirmation.

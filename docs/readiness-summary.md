@@ -38,7 +38,7 @@ Profile C fault/status/fallback/restore rehearsal),
 `tests/crash_restart.rs` (kill/restart ack + keyed replay),
 `client/test/lost_ack.test.mjs` (no silent resends), deadline/contention/
 boundary/publish-failure regressions in `tests/m1_e2e.rs`,
-`tests/m2_lifecycle.rs`, `src/execution.rs`, `src/store.rs`,
+`tests/m2_lifecycle.rs`, `src/execution.rs`, `src/store/`,
 `tests/logging_canary.rs` (no credential/SQL leakage),
 `tests/migration_fixture.rs` (synthetic import + rejection).
 
