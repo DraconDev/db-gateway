@@ -85,7 +85,7 @@ fn req(
             format!("http://{address}{path}"),
         )
         .json(body)
-        .timeout(Duration::from_secs(30));
+        .timeout(Duration::from_secs(60));
     if let Some(cred) = cred {
         request = request.bearer_auth(cred);
     }

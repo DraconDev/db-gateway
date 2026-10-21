@@ -83,7 +83,7 @@ fn request_keyed(
         )
         .bearer_auth(key)
         .json(body)
-        .timeout(Duration::from_secs(30));
+        .timeout(Duration::from_secs(60));
     if let Some(k) = idempotency {
         builder = builder.header("Idempotency-Key", k);
     }

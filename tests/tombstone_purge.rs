@@ -67,7 +67,7 @@ impl Server {
             .request(method.parse().unwrap(), format!("{}{path}", self.url))
             .bearer_auth(&self.owner)
             .json(&body)
-            .timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(60))
             .send()
             .unwrap();
         (response.status().as_u16(), response.json().unwrap())

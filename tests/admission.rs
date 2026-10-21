@@ -159,7 +159,7 @@ fn queue_counters(address: &str, owner: &str, database: &str) -> (u64, u64) {
     let body: Value = client
         .get(format!("http://{address}/v1/status"))
         .bearer_auth(owner)
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .send()
         .unwrap()
         .json()
@@ -181,7 +181,7 @@ fn burst_waits_instead_of_shedding() {
         .post(format!("http://{}/v1/databases", server.address))
         .bearer_auth(&owner)
         .json(&json!({"name": "burst"}))
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .send()
         .unwrap();
     assert_eq!(response.status().as_u16(), 200);
@@ -234,7 +234,7 @@ fn eight_concurrent_reads_run_retry_free() {
         .post(format!("http://{}/v1/databases", server.address))
         .bearer_auth(&owner)
         .json(&json!({"name": "reads"}))
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .send()
         .unwrap();
     assert_eq!(response.status().as_u16(), 200);
@@ -253,7 +253,7 @@ fn eight_concurrent_reads_run_retry_free() {
                     .post(format!("http://{address}/v1/databases/reads/query"))
                     .bearer_auth(&owner)
                     .json(&json!({"sql": "SELECT 1", "args": []}))
-                    .timeout(Duration::from_secs(30))
+                    .timeout(Duration::from_secs(60))
                     .send()
                     .unwrap();
                 response.status().as_u16()

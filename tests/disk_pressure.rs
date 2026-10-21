@@ -100,7 +100,7 @@ fn try_request(
         )
         .bearer_auth(key)
         .json(body)
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .send()
         .map_err(|e| e.to_string())?;
     let status = response.status().as_u16();

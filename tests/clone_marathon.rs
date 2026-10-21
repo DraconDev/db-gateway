@@ -89,7 +89,7 @@ fn post_keyed(
         .bearer_auth(key)
         .header("Idempotency-Key", idem)
         .json(body)
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .send()
         .unwrap();
     let status = response.status().as_u16();

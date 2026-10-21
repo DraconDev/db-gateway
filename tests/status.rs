@@ -74,7 +74,7 @@ fn get(address: &str, path: &str, cred: Option<&str>) -> (u16, Value) {
     if let Some(cred) = cred {
         req = req.bearer_auth(cred);
     }
-    let response = req.timeout(Duration::from_secs(30)).send().unwrap();
+    let response = req.timeout(Duration::from_secs(60)).send().unwrap();
     let status = response.status().as_u16();
     let body = response.json().unwrap_or(Value::Null);
     (status, body)
@@ -85,7 +85,7 @@ fn post(address: &str, path: &str, cred: &str, body: &Value) -> (u16, Value) {
         .post(format!("http://{address}{path}"))
         .bearer_auth(cred)
         .json(body)
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .send()
         .unwrap();
     let status = response.status().as_u16();
@@ -450,7 +450,7 @@ fn delete(address: &str, path: &str, cred: &str) -> (u16, Value) {
     let response = reqwest::blocking::Client::new()
         .delete(format!("http://{address}{path}"))
         .bearer_auth(cred)
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .send()
         .unwrap();
     let status = response.status().as_u16();

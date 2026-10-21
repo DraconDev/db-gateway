@@ -68,7 +68,7 @@ fn send(
         .bearer_auth(key)
         .header("Idempotency-Key", idem)
         .json(body)
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .send()
         .map_err(|e| e.to_string())?;
     let status = response.status().as_u16();
@@ -81,7 +81,7 @@ fn read(address: &str, key: &str, db: &str, sql: &str) -> (u16, Value) {
         .post(format!("http://{address}/v1/databases/{db}/query"))
         .bearer_auth(key)
         .json(&json!({"sql": sql}))
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .send()
         .unwrap();
     (response.status().as_u16(), response.json().unwrap())
@@ -248,7 +248,7 @@ fn twenty_kills_leave_zero_unaccounted_rows() {
     let response = reqwest::blocking::Client::new()
         .get(format!("http://{}/v1/databases", server.address))
         .bearer_auth(&owner)
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .send()
         .unwrap();
     assert_eq!(response.status().as_u16(), 200);

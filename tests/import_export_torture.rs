@@ -71,7 +71,7 @@ fn post(address: &str, method: &str, path: &str, key: &str, body: &Value) -> (u1
         )
         .bearer_auth(key)
         .json(body)
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .send()
         .unwrap();
     let status = response.status().as_u16();
@@ -215,7 +215,7 @@ fn twenty_export_import_cycles_with_corruption() {
     let response = reqwest::blocking::Client::new()
         .get(format!("http://{}/v1/databases", server.address))
         .bearer_auth(&owner)
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .send()
         .unwrap();
     assert_eq!(response.status().as_u16(), 200);

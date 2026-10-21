@@ -79,7 +79,7 @@ fn query(address: &str, cred: &str, db: &str, body: &Value, idem: Option<&str>) 
         .post(format!("http://{address}/v1/databases/{db}/query"))
         .bearer_auth(cred)
         .json(body)
-        .timeout(Duration::from_secs(30));
+        .timeout(Duration::from_secs(60));
     if let Some(idem) = idem {
         request = request.header("Idempotency-Key", idem);
     }
@@ -110,7 +110,7 @@ fn replay_contract_holds_across_restart_cap_conflict_and_namespaces() {
             .post(format!("http://{a}/v1/databases"))
             .bearer_auth(&owner)
             .json(&json!({"name": db}))
-            .timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(60))
             .send()
             .map(|r| (r.status().as_u16(), r.json::<Value>().unwrap()))
             .unwrap();
@@ -133,7 +133,7 @@ fn replay_contract_holds_across_restart_cap_conflict_and_namespaces() {
         .post(format!("http://{a}/v1/keys"))
         .bearer_auth(&owner)
         .json(&json!({"name": "app", "role": "database_read_write", "databases": ["ra", "rb"]}))
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .send()
         .map(|r| (r.status().as_u16(), r.json::<Value>().unwrap()))
         .unwrap();

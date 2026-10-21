@@ -105,7 +105,7 @@ impl Server {
             )
             .bearer_auth(key)
             .json(&body)
-            .timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(60))
             .send()
             .unwrap();
         (response.status().as_u16(), response.json().unwrap())

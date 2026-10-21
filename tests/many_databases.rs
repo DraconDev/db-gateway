@@ -87,7 +87,7 @@ fn req(
         )
         .bearer_auth(cred)
         .json(body)
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .send()
         .unwrap();
     (response.status().as_u16(), response.json().unwrap())

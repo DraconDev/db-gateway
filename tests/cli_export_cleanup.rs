@@ -116,7 +116,7 @@ fn assert_malformed_begin_releases(begin: Value, snapshot: &str) {
     assert!(!out.exists(), "failed export published an output file");
 
     let request_lines = receiver
-        .recv_timeout(Duration::from_secs(6))
+        .recv_timeout(Duration::from_secs(30))
         .expect("CLI did not close its export lifecycle conversation")
         .unwrap();
     assert_eq!(

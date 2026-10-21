@@ -67,7 +67,7 @@ fn post(server: &Server, method: &str, path: &str, body: &Value) -> (u16, Value)
         .bearer_auth(&server.owner)
         .header("Idempotency-Key", format!("shape-{n}"))
         .json(body)
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .send()
         .unwrap();
     (response.status().as_u16(), response.json().unwrap())

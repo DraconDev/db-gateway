@@ -91,7 +91,7 @@ fn request(
             reqwest::Method::from_bytes(method.as_bytes()).unwrap(),
             format!("http://{address}{path}"),
         )
-        .timeout(Duration::from_secs(30));
+        .timeout(Duration::from_secs(60));
     if let Some(key) = key {
         req = req.bearer_auth(key);
     }

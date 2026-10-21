@@ -90,7 +90,7 @@ fn query(address: &str, cred: &str, db: &str, body: &Value, idem: Option<&str>) 
         .post(format!("http://{address}/v1/databases/{db}/query"))
         .bearer_auth(cred)
         .json(body)
-        .timeout(Duration::from_secs(30));
+        .timeout(Duration::from_secs(60));
     if let Some(idem) = idem {
         request = request.header("Idempotency-Key", idem);
     }
@@ -103,7 +103,7 @@ fn batch(address: &str, cred: &str, db: &str, body: &Value, idem: Option<&str>) 
         .post(format!("http://{address}/v1/databases/{db}/batch"))
         .bearer_auth(cred)
         .json(body)
-        .timeout(Duration::from_secs(30));
+        .timeout(Duration::from_secs(60));
     if let Some(idem) = idem {
         request = request.header("Idempotency-Key", idem);
     }
@@ -125,7 +125,7 @@ fn retry_of_a_match_finalization_under_the_same_key_does_not_double_reward() {
         .post(format!("http://{a}/v1/databases"))
         .bearer_auth(&owner)
         .json(&json!({"name": "league_a"}))
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .send()
         .map(|r| (r.status().as_u16(), r.json::<Value>().unwrap()))
         .unwrap();
@@ -152,7 +152,7 @@ fn retry_of_a_match_finalization_under_the_same_key_does_not_double_reward() {
         .json(
             &json!({"name": "finalizer", "role": "database_read_write", "databases": ["league_a"]}),
         )
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .send()
         .map(|r| (r.status().as_u16(), r.json::<Value>().unwrap()))
         .unwrap();

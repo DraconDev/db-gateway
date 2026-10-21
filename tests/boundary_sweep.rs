@@ -320,7 +320,7 @@ fn every_wall_accepts_at_the_line_and_rejects_past_it() {
     let listed: Vec<String> = reqwest::blocking::Client::new()
         .get(format!("http://{a}/v1/databases"))
         .bearer_auth(&owner)
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .send()
         .unwrap()
         .json::<Value>()

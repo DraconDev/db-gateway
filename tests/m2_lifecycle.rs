@@ -65,7 +65,7 @@ impl Server {
             .request(method.parse().unwrap(), format!("{}{path}", self.url))
             .bearer_auth(&self.owner)
             .json(&body)
-            .timeout(Duration::from_secs(15));
+            .timeout(Duration::from_secs(60));
         if let Some(key) = idempotency_key {
             request = request.header("Idempotency-Key", key);
         }

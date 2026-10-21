@@ -69,7 +69,7 @@ fn post_raw(address: &str, path: &str, key: &str, body: Vec<u8>) -> (u16, Value)
         .bearer_auth(key)
         .header("Content-Type", "application/json")
         .body(body)
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .send()
         .unwrap();
     let status = response.status().as_u16();

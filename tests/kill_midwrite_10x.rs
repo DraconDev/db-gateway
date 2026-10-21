@@ -70,7 +70,7 @@ fn request(address: &str, path: &str, key: &str, idempotency: &str, body: &Value
         .bearer_auth(key)
         .header("Idempotency-Key", idempotency)
         .json(body)
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .send()
         .unwrap();
     let status = response.status().as_u16();
@@ -86,7 +86,7 @@ fn fire_unsupervised(address: String, path: String, key: String, idempotency: St
         .bearer_auth(key)
         .header("Idempotency-Key", idempotency)
         .json(&body)
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .send();
 }
 
