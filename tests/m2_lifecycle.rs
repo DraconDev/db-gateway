@@ -452,8 +452,17 @@ fn observes_429_within(server: &Server, name: &str, sql: &str, window: Duration)
 /// depends on the machine.
 const LANE_CONTENTION_ATTEMPTS: usize = 5;
 
-const SLOW_INSERT: &str =
-    "INSERT INTO t WITH RECURSIVE c(v) AS (SELECT 1 UNION ALL SELECT v+1 FROM c) SELECT v FROM c";
+/// The statement the contention holders run.
+///
+/// It has to be slow, and it has to be slow for the RIGHT reason. An
+/// endless recursive CTE is slow because it burns CPU, and four of them
+/// starve each other: on a loaded box the last holder is admitted after
+/// the first one has already finished, so the lane is never full and the
+/// contention the test is looking for never happens. A write of 50 MB is
+/// slow because the DISK is slow, which leaves the CPU free for the other
+/// holders to be admitted — and it still runs into the statement deadline,
+/// so the holder holds the guard long enough to be observed.
+const SLOW_INSERT: &str = "INSERT INTO t SELECT zeroblob(1000000) FROM (WITH RECURSIVE c(v) AS (SELECT 1 UNION ALL SELECT v+1 FROM c WHERE v<50) SELECT v FROM c)";
 
 /// Send the slow insert until the server admits it (any non-429), bounded.
 /// A thread-start barrier cannot synchronize server-side permit acquisition:
