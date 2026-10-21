@@ -39,6 +39,13 @@ fn plain(screen: &str) -> String {
 /// return what it drew. The exit code comes back too: a command that
 /// fails still draws its view, and that view is the point.
 fn pty(fleet: &Fleet, args: &str) -> (bool, String) {
+    pty_with_key(fleet, fleet.cli.key_file.to_str().unwrap(), args)
+}
+
+/// The same, under a different credential: the key file is a parameter
+/// because a view that only the owner can reach is not the only view
+/// worth testing.
+fn pty_with_key(fleet: &Fleet, key_file: &str, args: &str) -> (bool, String) {
     let out = Command::new("script")
         .args([
             "-qec",
@@ -46,7 +53,7 @@ fn pty(fleet: &Fleet, args: &str) -> (bool, String) {
                 "{} --server {} --key-file {} {args}",
                 env!("CARGO_BIN_EXE_dg"),
                 fleet.cli.server,
-                fleet.cli.key_file.to_str().unwrap(),
+                key_file,
             ),
             "/dev/null",
         ])
@@ -436,25 +443,15 @@ fn execute_does_not_claim_a_rollback_when_the_batch_never_ran() {
     let script = dir.path().join("reads.sql");
     std::fs::write(&script, "SELECT 1;\nSELECT 2;\n").unwrap();
 
-    let out = Command::new(env!("CARGO_BIN_EXE_dg"))
-        .args([
-            "--server",
-            fleet.cli.server.as_str(),
-            "--key-file",
-            key_file.to_str().unwrap(),
-            "execute",
-            "never_ran_db",
-            script.to_str().unwrap(),
-            "--idempotency-key",
-            "read-with-a-key",
-        ])
-        .output()
-        .unwrap();
-    let screen = plain(&String::from_utf8_lossy(&out.stdout));
-    assert!(
-        !out.status.success(),
-        "the rejected batch exited zero: {screen}"
+    let (ok, screen) = pty_with_key(
+        &fleet,
+        key_file.to_str().unwrap(),
+        &format!(
+            "execute never_ran_db {} --idempotency-key read-with-a-key",
+            script.to_str().unwrap()
+        ),
     );
+    assert!(!ok, "the rejected batch exited zero: {screen}");
     assert!(
         screen.contains("not run"),
         "the batch is not marked as not run: {screen}"
