@@ -26,6 +26,14 @@ use std::time::Duration;
 /// Default bounded response size: the gateway's 256 KiB result cap plus
 /// JSON overhead, matching the CLI transport.
 const DEFAULT_MAX_RESPONSE: usize = 256 * 1024 + 4096;
+
+/// How long a read waits before the client gives up. A read that is given
+/// up on costs a retry and nothing else.
+const READ_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How long a write waits before the client gives up. A write that is
+/// given up on leaves the outcome in doubt, so it waits far longer.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(60);
 /// Gateway database/credential name rule: `^[a-z0-9][a-z0-9_]{0,63}$`.
 fn valid_name(name: &str) -> bool {
     !name.is_empty()
