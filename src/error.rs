@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use axum::{
     Json,
     http::StatusCode,
@@ -8,7 +10,14 @@ use serde::Serialize;
 #[derive(Debug, Serialize)]
 pub struct Error {
     pub code: &'static str,
-    pub message: &'static str,
+    /// The operator-facing text.
+    ///
+    /// Most errors carry a fixed sentence, but some carry a number the
+    /// operator has to read — how many statements a file holds, for
+    /// instance. The text is therefore borrowed when it is fixed and
+    /// owned when it is computed, so a computed message does not have
+    /// to be smuggled through a `&'static str`.
+    pub message: Cow<'static, str>,
     #[serde(skip)]
     pub status: u16,
     /// The statement of a batch that failed, when the failure belongs
@@ -25,7 +34,21 @@ impl Error {
         Self {
             status,
             code,
-            message,
+            message: Cow::Borrowed(message),
+            statement: None,
+        }
+    }
+    /// An error whose message is computed.
+    ///
+    /// The number in the message is the point of the error: an operator
+    /// who is told "the file holds 40 statements, the batch API accepts
+    /// 32" knows exactly what to do, and a message that hid the count
+    /// behind a fixed sentence would not.
+    pub fn with_message(status: u16, code: &'static str, message: String) -> Self {
+        Self {
+            status,
+            code,
+            message: Cow::Owned(message),
             statement: None,
         }
     }

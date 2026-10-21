@@ -20,6 +20,18 @@ use std::{
 
 pub const MAX_RESULT: usize = 256 * 1024;
 pub const MAX_ROWS: usize = 1000;
+/// How many statements one batch may hold.
+///
+/// The batch API takes an atomic list of statements, and the list is
+/// bounded so that one request cannot hold an unbounded amount of
+/// work — the cap is the API's contract, not a tuning knob.
+///
+/// The CLI reads this same number, so a script the API cannot take is
+/// refused before it is sent: the operator is told how many statements
+/// the file holds and what the API accepts, instead of being handed the
+/// server's bare rejection. One number, two places: the check and the
+/// cap cannot drift apart.
+pub const MAX_BATCH_STATEMENTS: usize = 32;
 const RETENTION: i64 = 86400;
 const MAX_REPLAYS: i64 = 256;
 
@@ -410,7 +422,7 @@ pub fn execute_detailed(
     principal: &str,
     key: Option<&str>,
 ) -> Result<ExecuteOutcome> {
-    if statements.is_empty() || statements.len() > 32 {
+    if statements.is_empty() || statements.len() > MAX_BATCH_STATEMENTS {
         return Err(Error::invalid());
     }
     if let Some(key) = key {
