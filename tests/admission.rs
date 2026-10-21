@@ -165,15 +165,6 @@ fn calibrated_insert_rows(address: &str, owner: &str, database: &str, target_ms:
 /// The server's own view of its admission counters for one database.
 fn queue_counters(address: &str, owner: &str, database: &str) -> (u64, u64) {
     let client = reqwest::blocking::Client::new();
-    let status = client
-        .get(format!("http://{address}/v1/status"))
-        .bearer_auth(owner)
-        .timeout(Duration::from_secs(30))
-        .send()
-        .unwrap()
-        .status()
-        .as_u16();
-    assert_eq!(status, 200);
     let body: Value = client
         .get(format!("http://{address}/v1/status"))
         .bearer_auth(owner)
@@ -187,6 +178,28 @@ fn queue_counters(address: &str, owner: &str, database: &str) -> (u64, u64) {
         entry["queue_waits"].as_u64().unwrap_or(0),
         entry["queue_timeouts"].as_u64().unwrap_or(0),
     )
+}
+
+/// Wait until the server counts one more admission for `database`, which
+/// means the request that was in flight has taken the guard.
+///
+/// The reads below must arrive while the write HOLDS the guard, and the
+/// client cannot see that directly: a request can sit in the server's
+/// accept queue before it is admitted, so the writer's own round trip says
+/// nothing about when it took the guard. The server's counter does, and
+/// reading it is cheap: the status endpoint answers from the metrics and
+/// never takes the database's guard, so it answers even while the write
+/// holds it.
+fn wait_for_admission(address: &str, owner: &str, database: &str, before: u64) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while Instant::now() < deadline {
+        let (waits, _) = queue_counters(address, owner, database);
+        if waits > before {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    panic!("the write never took the guard");
 }
 
 #[test]
@@ -356,7 +369,11 @@ fn reads_proceed_during_slow_write() {
             ),
         )
     });
-    std::thread::sleep(Duration::from_millis(20));
+    // The write must hold the guard when the reads arrive, and only the
+    // server knows when it took it: a request can sit in the accept queue
+    // before it is admitted, so the writer's own round trip says nothing
+    // about that.
+    wait_for_admission(&server.address, &owner, "mixed", waits_before);
     const READERS: usize = 4;
     let barrier = Arc::new(Barrier::new(READERS));
     let readers: Vec<_> = (0..READERS)
