@@ -93,6 +93,22 @@ impl Store {
         Self::open_with_ttl(root, TRANSFER_TTL)
     }
 
+    /// Open the store WITHOUT the owner-only startup work.
+    ///
+    /// A second process opens the same data directory the live gateway
+    /// owns: the shipped `dg backup digest` unit runs on the host where
+    /// `dg.service` runs continuously. The owner-only work must not run
+    /// there. The orphan sweep deleted the `.transfer-*` and `.lifecycle-*`
+    /// directories the live gateway was still using for an in-flight
+    /// chunked export or import, so an export that overlapped the daily
+    /// digest failed with an unexplained 500, and the registry migration
+    /// took the metadata write lock from under the running gateway. A
+    /// reader repairs nothing: it reports, and it leaves the owner's
+    /// in-flight work alone.
+    pub fn open_shared(root: &Path) -> Result<Self> {
+        Self::open_impl(root, TRANSFER_TTL, false)
+    }
+
     /// Override the backup-set root (serve `--backup-root`). `None` disables
     /// backup visibility: `/v1/backups` reports unknown, never healthy.
     pub fn with_backup_root(mut self, root: Option<PathBuf>) -> Self {
@@ -101,6 +117,15 @@ impl Store {
     }
 
     pub fn open_with_ttl(root: &Path, transfer_ttl: Duration) -> Result<Self> {
+        Self::open_impl(root, transfer_ttl, true)
+    }
+
+    /// `owner` decides whether the caller is the process that owns the
+    /// data directory. The owner performs the startup work a fresh
+    /// directory needs (and a crashed predecessor left behind): sweeping
+    /// orphaned staging directories and migrating the registry. A reader
+    /// performs neither — see [`Store::open_shared`].
+    fn open_impl(root: &Path, transfer_ttl: Duration, owner: bool) -> Result<Self> {
         std::fs::create_dir_all(root).map_err(|_| Error::internal())?;
         #[cfg(unix)]
         {
@@ -108,7 +133,9 @@ impl Store {
             std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o700))
                 .map_err(|_| Error::internal())?;
         }
-        sweep_orphan_transfer_dirs(root);
+        if owner {
+            sweep_orphan_transfer_dirs(root);
+        }
         let backup_root = default_backup_root(root);
         let mut metadata = Connection::open(root.join("metadata.sqlite"))?;
         metadata.busy_timeout(Duration::from_millis(250))?;
@@ -117,7 +144,9 @@ impl Store {
              PRAGMA synchronous=FULL;
              PRAGMA cache_size=-1024;",
         )?;
-        migrate_metadata(&mut metadata, root)?;
+        if owner {
+            migrate_metadata(&mut metadata, root)?;
+        }
         let writes = load_write_markers_from_connection(&metadata).unwrap_or_default();
         let store = Self {
             root: root.to_path_buf(),

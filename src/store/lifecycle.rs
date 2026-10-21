@@ -168,6 +168,13 @@ impl Store {
     /// would quietly widen what an app key can read.
     pub fn list_all(&self) -> Result<Vec<String>> {
         let conn = self.meta()?;
+        // A registry that has never been initialised has no table yet.
+        // The owner creates it; a reader must not, so it reports "no
+        // databases" instead of failing on a schema it is not allowed to
+        // write.
+        if !table_exists(&conn, "databases")? {
+            return Ok(Vec::new());
+        }
         let mut stmt =
             conn.prepare("SELECT name FROM databases WHERE deleted_at IS NULL ORDER BY name")?;
         let names = stmt
