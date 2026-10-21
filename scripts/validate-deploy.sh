@@ -416,8 +416,17 @@ allowed = {
     f"{cap_mib}mb",
     str(cap_bytes),
 }
-# MemoryMax=<value>, or a bare "<n> MiB" / "<n>M".
-token = re.compile(r"MemoryMax=([0-9]+[KMG]?)|([0-9]+)\s*(MiB|MB|M)\b")
+# `MemoryMax=<value>` is an explicit cap claim. A bare "<n> MiB" is
+# only a cap claim when it sits next to the unit's name -- a document
+# that mentions the unit and then quotes the page-cache term or the
+# per-connection cache ceiling is stating a different quantity.
+memmax = re.compile(r"MemoryMax=([0-9]+[KMG]?)")
+bare = re.compile(r"([0-9]+)\s*(MiB|MB)\b")
+unit_mention = re.compile(r"dg\.service")
+# How close a bare figure has to sit to the unit's name to be read as
+# its cap: the blocker this check exists for read
+# "`deploy/dg.service` (96 MiB), with the supervised micro2 run ...".
+WINDOW = 40
 
 docs = subprocess.run(
     ["git", "-C", str(root), "ls-files", "*.md"],
@@ -436,12 +445,20 @@ for rel in sorted(docs):
     except OSError:
         continue
     for number, line in enumerate(lines, 1):
-        if "dg.service" not in line:
+        mentions = list(unit_mention.finditer(line))
+        if not mentions:
             continue
-        for hit in token.finditer(line):
-            value = hit.group(1) or f"{hit.group(2)}{hit.group(3) or ''}"
+        claims = [(hit.group(1), hit.group(0)) for hit in memmax.finditer(line)]
+        for mention in mentions:
+            start = max(0, mention.start() - WINDOW)
+            end = min(len(line), mention.end() + WINDOW)
+            claims += [
+                (f"{hit.group(1)}{hit.group(2)}", hit.group(0))
+                for hit in bare.finditer(line, start, end)
+            ]
+        for value, shown in claims:
             if value.strip().lower().replace(" ", "") not in allowed:
-                problems.append(f"{rel}:{number}: states {value!r}, the unit sets {cap_raw}")
+                problems.append(f"{rel}:{number}: states {shown!r}, the unit sets {cap_raw}")
 
 for problem in problems:
     print(f"[validate-deploy] {problem}", file=sys.stderr)
