@@ -174,8 +174,12 @@ export async function openConsole(stack, browser) {
   const page = await context.newPage();
   const browserErrors = [];
   const requests = [];
-  // Chromium requests /favicon.ico by default; the console intentionally has no favicon route.
-  const isExpectedResourceError = (message) => message.includes('favicon') || message.includes('404 (Not Found)');
+  // Chromium requests /favicon.ico by default. The console answers it
+  // with 204 (web/src/server.ts), so it is not an error at all -- and
+  // nothing else may be: the old whitelist also dropped every
+  // "404 (Not Found)" message, which is exactly what a broken console
+  // route produces, so this assertion could no longer catch one.
+  const isExpectedResourceError = (message) => message.includes('favicon');
   page.on('pageerror', (error) => browserErrors.push(error.message));
   page.on('console', (message) => { if (message.type() === 'error' && !isExpectedResourceError(message.text())) browserErrors.push(message.text()); });
   page.on('request', (request) => requests.push({ url: request.url(), method: request.method(), headers: request.headers(), body: request.postData() }));

@@ -2,19 +2,24 @@ name: Script lint
 on:
   push:
     paths:
-      - 'scripts/**'
+      - '**/*.sh'
+      - '**/*.py'
+      - '**/*.mjs'
       - '.github/workflows/lint-scripts.yml'
   pull_request:
     paths:
-      - 'scripts/**'
+      - '**/*.sh'
+      - '**/*.py'
+      - '**/*.mjs'
       - '.github/workflows/lint-scripts.yml'
 permissions:
   contents: read
 jobs:
   lint-scripts:
     # Every tracked script is linted, not a hardcoded subset: the linter
-    # enumerates `git ls-files scripts/`, so a new script is covered the
-    # day it lands. (This supersedes lint-packet.yml, whose seven-file
+    # enumerates `git ls-files '*.sh' '*.py' '*.mjs'`, so a new script is
+    # covered the day it lands -- in any directory, not only scripts/.
+    # (This supersedes lint-packet.yml, whose seven-file
     # paths filter is exactly how the other twenty-odd ops scripts spent
     # months unlinted -- see A12 in docs/audit-2026-10-19.md.) The paths
     # filter still keeps unrelated PRs from paying for the check; a PR

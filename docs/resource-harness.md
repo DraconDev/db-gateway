@@ -59,7 +59,9 @@ The full report is committed as
 `suggested_memory_max_kib` is the largest measured steady-state term
 (gateway burst peak vs SQLite cache ceiling vs sidecar peak) doubled
 for headroom, with a 64 MiB floor. The unit file `deploy/dg.service`
-sets `MemoryMax=96M` based on this measurement; the supervised micro2
+sets `MemoryMax=64M` — the on-host value the owner decision was
+revised to on 2026-10-16, matching what the supervised micro2 host
+enforces (67108864); the supervised micro2
 run is the place to record the on-target fact under the same cap.
 
 ## What is NOT measured

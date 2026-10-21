@@ -155,7 +155,7 @@ retention for the JSON stderr stream, and the backup sidecar unit
 
 `MemoryMax=` is **set** as of 2026-10-10, revised to the on-host value 2026-10-16 (`deploy/dg.service`: `MemoryMax=64M`, matching the micro2 enforcement of 67108864 recorded in `docs/evidence/m4-micro2-sampling-2026-10-16.log`).
 The value is ~2.7x the SQLite per-connection cache ceiling (12 connections x
-2 MiB, measured from `src/store.rs:36-37` and `src/execution.rs:42`) with
+2 MiB, measured from `src/store/admission.rs:12-14` and `src/execution.rs:42`) with
 the gateway peak under burst (11 MiB under a 1 GiB-enforced local harness,
 item M6 in `docs/resource-budget.md`) and the on-target steady sample
 (6696 KiB) as the bounds. Target-host burst at the 429 edge and disk growth,

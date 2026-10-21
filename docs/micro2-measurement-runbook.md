@@ -11,7 +11,7 @@ Record host context once per session and attach it to every report:
 
 ```sh
 uname -a; nproc; free -m; df -h / /var/lib/dg; cat /proc/meminfo | head -3
-systemctl show dg.service -p MemoryMax,ActiveState,SubState  # expect MemoryMax=96M (shipped 2026-10-10)
+systemctl show dg.service -p MemoryMax,ActiveState,SubState  # expect MemoryMax=64M (67108864, shipped 2026-10-16)
 ```
 
 ## D1. Release-profile RSS under realistic workload

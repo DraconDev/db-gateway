@@ -98,6 +98,11 @@ megaplan register, which names its path; it does not move.
   `soak-30min-evidence.log`, `soak-starvation-2026-10-11.log`,
   `soak-starvation-evidence-2026-10-11.json`, `soak-starvation-evidence.log`,
   `upgrade-rehearsal-2026-09-21-evidence.log`, `upgrade-rehearsal-evidence.log`.
+- **Host rehearsals & scanner reviews** — `clean-host-rehearsal-2026-10-19.log`,
+  `clean-host-rehearsal-2026-10-19T232000Z.log`,
+  `sync-fixture-review-2026-10-20.md`.
+- **CLI wait-column evidence** — `cli-wait-columns-2026-10-21.md`
+  (with the rendered capture `dg-status-wait-columns-2026-10-21.png`).
 - **CLI pet-trio campaigns** — `pet-livefire-2026-10-17.log`,
   `pet-trio-2026-10-16.log`, `pet-trio-extensive-2026-10-16.log`,
   `pet-trio-suites-2026-10-16.log`.

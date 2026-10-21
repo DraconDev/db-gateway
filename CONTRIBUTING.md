@@ -61,7 +61,7 @@ Run these on the tree you are about to call done (CI runs the same set):
 ```sh
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked            # 218 tests; ~260s execution
+cargo test --workspace --locked            # the full workspace suite; ~260s execution
 cargo deny check                           # licenses / advisories / bans / sources
 npm audit --prefix client --audit-level=high
 npm audit --prefix web --audit-level=high

@@ -112,6 +112,7 @@ Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1
 | `database_not_found` | 404 | No such database (never silently created) |
 | `key_not_found` | 404 | Revoking a credential name that does not exist; nothing was revoked |
 | `metadata_corrupt` | 500 | Startup migration found an unreadable credential row; the server log names it |
+| `internal_error` | 500 | The server could not complete the request for an internal reason (an unreadable snapshot file, a failed write); the server log names it |
 | `snapshot_not_found` | 404 | Snapshot unknown, expired, or created by another principal |
 | `upload_not_found` | 404 | Upload unknown or expired |
 | `invalid_request` | 400 | Malformed JSON, unknown fields, bad name, unsupported arg, empty batch, more than 32 batch statements, SQL text over 64 KiB, more than 256 args, or malformed idempotency key |
@@ -184,7 +185,8 @@ therefore the default, and `--json` asks for the structured form.
 `/v1/status` in its table (degraded to `unavailable` when status is
 unreachable). Global flags: `--server <url>` (default
 `http://127.0.0.1:7432`; HTTPS or literal loopback only), `--key-file
-<path>` (required; `0600`), `--json`.
+<path>` (`0600`; optional — see the connection-resolution order below),
+`--json`.
 
 ### How the terminal output is drawn
 

@@ -18,7 +18,9 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:net';
 import { chromium } from 'playwright';
+import { resolveChromium } from './resolve-chromium.mjs';
 
 const root = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const targetDir = process.env.CARGO_TARGET_DIR ?? join(root, '.cargo', 'target');
@@ -96,6 +98,22 @@ async function waitForCompanion(child, timeoutMs = 10_000) {
   });
 }
 
+// Ask the kernel for a free port, the way every sibling gate does. The
+// old gate picked a random port from a 1000-port range, so anything
+// already listening in that range killed the gate with EADDRINUSE
+// instead of it moving on to another port.
+function freePort() {
+  return new Promise((resolvePort, rejectPort) => {
+    const probe = createServer();
+    probe.once('error', rejectPort);
+    probe.listen(0, '127.0.0.1', () => {
+      const address = probe.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      probe.close((error) => error ? rejectPort(error) : resolvePort(port));
+    });
+  });
+}
+
 await run('cargo', ['build', '--release', '--locked', '--quiet']);
 await access(binary, constants.X_OK);
 
@@ -139,7 +157,10 @@ try {
   assert.equal((await call('/v1/status')).uptime_secs >= 0, true);
   assert.ok(Array.isArray((await call('/v1/backups')).sets));
 
-  const consolePort = 18_787 + Math.floor(Math.random() * 1_000);
+  // A free port from the kernel, the way every sibling gate does. A
+  // random pick from a 1000-port range died with EADDRINUSE whenever
+  // anything else held one of them.
+  const consolePort = await freePort();
   const companionBase = `http://127.0.0.1:${consolePort}`;
   consoleProcess = spawn(node, [join(root, 'web/dist/server.js')], {
     env: { ...process.env, DG_SERVER: base, DG_KEY_FILE: keyFile, DG_CONSOLE_PORT: String(consolePort) },
@@ -254,13 +275,11 @@ try {
   assert.match(appSource, /pushConsoleHistory/);
   assert.match(appSource, /QUERY_HISTORY_LIMIT/);
 
-  let browserExecutable;
-  if (process.env.PLAYWRIGHT_BROWSER_EXECUTABLE) browserExecutable = process.env.PLAYWRIGHT_BROWSER_EXECUTABLE;
-  else {
-    for (const candidate of ['/run/current-system/sw/bin/chromium']) {
-      try { await access(candidate, constants.X_OK); browserExecutable = candidate; break; } catch { /* try the next candidate */ }
-    }
-  }
+  // The browser comes from the shared resolver, so this gate recovers on
+  // the same platforms as the other two: an explicit override wins, then
+  // the NixOS store path, then playwright's bundled browser, then a
+  // system chromium on PATH.
+  const browserExecutable = resolveChromium();
   const browser = await chromium.launch({ headless: true, executablePath: browserExecutable, args: ['--no-sandbox'] });
   try {
     const context = await browser.newContext();

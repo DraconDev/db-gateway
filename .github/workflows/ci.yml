@@ -26,7 +26,10 @@ jobs:
       - name: Compile Rust tests
         run: cargo test --workspace --locked --no-run
       # Suite-time budget (A15 in docs/audit-2026-10-19.md): measured
-      # 261s for 218 tests on the maintainer's dev box on 2026-10-19.
+      # 261s on the maintainer's dev box on 2026-10-19. The budget is a
+      # DURATION, not a test count: the suite grows every time a
+      # behaviour gets its own test, and pinning the count here would
+      # make the budget a statement about the past.
       # Budget is 600s, ~2.3x that measurement, so the warning fires on
       # real growth rather than runner noise. Over-budget warns instead
       # of failing: a slow suite is a triage signal, and the job's
