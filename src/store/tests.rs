@@ -640,6 +640,72 @@ fn acquire_queue_records_waits_and_timeouts() {
     assert!(snapshot["qdb"].wait_ms >= ACQUIRE_TIMEOUT.as_millis() as u64);
 }
 
+/// A waiter is turned away only AFTER waiting. The admission bound is a
+/// promise that a burst queues up instead of failing instantly, and a
+/// waiter shed at once has broken it — that promise is what a read
+/// arriving during a write relies on.
+///
+/// The window is absolute rather than relative to ACQUIRE_TIMEOUT: a
+/// change to the constant would make a relative assertion vacuous, and
+/// the bound is part of the published contract (500 ms, `docs/api.md`).
+#[test]
+fn a_waiter_is_shed_only_after_waiting() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path()).unwrap();
+    store.create("qdb").unwrap();
+    // The queue is held exclusively, so the reader has to wait for it.
+    let _held = store.acquire_queue("qdb", true).unwrap();
+    let started = Instant::now();
+    let error = match store.acquire_queue("qdb", false) {
+        Ok(_) => panic!("an exclusively held queue must shed the reader"),
+        Err(error) => error,
+    };
+    let waited = started.elapsed();
+    assert_eq!(error.code, "capacity_exceeded");
+    assert!(
+        waited >= Duration::from_millis(400),
+        "a waiter was shed after {waited:?}: it has to wait the bound first, \
+         not be turned away instantly"
+    );
+    assert!(
+        waited < Duration::from_secs(5),
+        "a waiter waited {waited:?}: the bound is 500 ms"
+    );
+}
+
+/// A reader that arrives while a writer holds the guard waits for it and
+/// is admitted when the writer releases inside the bound. This is the
+/// other side of the same promise: waiting is not failing, and a writer
+/// that finishes in time hands the guard on.
+#[test]
+fn a_reader_waits_for_a_writer_that_releases_inside_the_bound() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(dir.path()).unwrap());
+    store.create("qdb").unwrap();
+    let writer_store = store.clone();
+    let writer = thread::spawn(move || {
+        let guard = writer_store.acquire_queue("qdb", true).unwrap();
+        thread::sleep(Duration::from_millis(200));
+        drop(guard);
+    });
+    // Let the writer take the guard first, so the reader really has to
+    // wait for it rather than joining a free read batch.
+    thread::sleep(Duration::from_millis(50));
+    let started = Instant::now();
+    let guard = store.acquire_queue("qdb", false);
+    let waited = started.elapsed();
+    assert!(
+        guard.is_ok(),
+        "a reader must be admitted when the writer releases inside the bound"
+    );
+    assert!(
+        waited >= Duration::from_millis(100),
+        "the reader took only {waited:?}: it should have waited for the \
+         writer to release the guard"
+    );
+    writer.join().unwrap();
+}
+
 /// A read flood must not delay a writer. This is the Phase 2 soak
 /// measurement turned into a test: a writer queues behind a held reader
 /// batch, and a reader arriving after that writer must NOT jump in front
