@@ -275,27 +275,9 @@ impl Store {
     /// take the shared guard ahead of it) and a writer stream cannot starve
     /// readers (a reader waits only on finitely many earlier tickets).
     pub fn acquire_queue(&self, name: &str, write: bool) -> Result<QueueGuard> {
-        self.acquire_queue_with_budget(name, write, ACQUIRE_TIMEOUT)
-    }
-
-    /// Per-database admission whose holder publishes how long it may keep
-    /// the guard.
-    ///
-    /// `budget` is the holder's own bound: a waiter behind it waits out
-    /// that budget rather than a fixed slice of wall clock, so a read that
-    /// arrives during a long write is admitted when the write finishes
-    /// instead of being shed because the machine was slow. A holder that
-    /// overruns its budget is what a waiter gives up on, so an overload
-    /// still surfaces as `429 capacity_exceeded`.
-    pub fn acquire_queue_with_budget(
-        &self,
-        name: &str,
-        write: bool,
-        budget: Duration,
-    ) -> Result<QueueGuard> {
         let queue = self.queue(name)?;
         let start = Instant::now();
-        let result = AdmissionQueue::acquire(&queue, write, budget).map(|guard| {
+        let result = AdmissionQueue::acquire(&queue, write).map(|guard| {
             if write {
                 QueueGuard::Write(guard)
             } else {
