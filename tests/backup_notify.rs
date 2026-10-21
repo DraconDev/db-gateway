@@ -480,10 +480,16 @@ fn a_sink_that_rejects_does_not_stop_the_next_delivery() {
     let before = collector.count("backup_digest");
     // A 500-ing sink is reported, never retried into a storm, and never
     // allowed to wedge the loop: the next digest still goes out.
-    collector.wait_for("backup_digest", Duration::from_secs(30), |note| {
-        note["kind"] == "backup_digest"
-    });
-    std::thread::sleep(Duration::from_millis(2_000));
+    //
+    // The wait is for the COUNT to grow, not for a digest note to exist:
+    // the collector already holds the digests from before the sink
+    // started rejecting, so waiting for a note returns at once and the
+    // assertion that follows would race the next delivery instead of
+    // waiting for it.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while collector.count("backup_digest") <= before && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(25));
+    }
     assert!(
         collector.count("backup_digest") > before,
         "delivery did not resume after the sink recovered"
