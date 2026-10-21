@@ -6,9 +6,9 @@ All notable changes to db-gateway are recorded here. The format follows
 
 **Release practice.** One version identifies the whole project: the
 workspace `Cargo.toml`, `crates/dg-client/Cargo.toml`, and the root /
-`client/` / `web/` `package.json` files move together in a single bump
-commit (lockfiles refreshed in the same commit: `cargo update -w`, and
-the npm lockfiles' root entries). The release commit is tagged
+`client/` `package.json` files move together in a single bump commit
+(lockfiles refreshed in the same commit: `cargo update -w`, and the npm
+lockfiles' root entries). The release commit is tagged
 `vX.Y.Z` (annotated) — the tag, `dg --version`, and the version
 `scripts/release-bundle.sh` stamps into every release bundle are the
 same number, so a deployed bundle can always be traced to exactly one
@@ -20,6 +20,27 @@ fixes; 1.0.0 waits for production acceptance.
 ## [Unreleased]
 
 ### Added
+
+- **`dg tui` — the terminal operator view.** One screen that holds the
+  service, its databases, their backup freshness and its credentials at
+  once, read again every two seconds, with the actions that change
+  them a keystroke away: create, delete, clone, export and import a
+  database, issue, revoke and rotate a key, and run a query, a SQL
+  file or a batch. It asks for the same API routes the CLI and the
+  TypeScript client already use, and changes none of them.
+- **One view layer, two surfaces.** The CLI's tables and the view's
+  panes are now produced by the same functions (`src/views.rs`), so the
+  two cannot tell an operator different stories about the same
+  gateway — the defect that put "not run" on a row the gateway never
+  reported. The view's requests are one catalogue
+  (`src/tui/actions.rs`), the destructive ones are confirmed by the
+  same rule the CLI's `--confirm` flag uses (`src/confirmation.rs`),
+  and the 32-statement batch cap is enforced by the same function on
+  both sides (`src/execution.rs`).
+- **The view gives the terminal back.** The alternate screen and raw
+  mode are restored however the view ends, including when it panics
+  (`src/tui/screen.rs`), and its layout is tested without a terminal
+  through ratatui's `TestBackend`.
 
 - **`dg watch`** — the service dashboard, read once. It exits rather
   than refreshing in place, so it stays pipeable and diffable.
@@ -48,6 +69,13 @@ fixes; 1.0.0 waits for production acceptance.
   percentile of its own recent admission waits. The service-wide
   percentile mixes every database, so one contended database can hide
   inside it; this is the figure that names the slow one.
+
+### Removed
+
+- **The web console is retired.** `dg web`, its Node companion tree
+  (`web/`), its launch tests and its CI gates are gone: the terminal
+  view is the operator's surface. The published TypeScript client
+  (`client/`) and the HTTP API are untouched.
 
 ### Fixed
 

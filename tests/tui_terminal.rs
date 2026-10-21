@@ -6,6 +6,7 @@
 //! the operator's shell survives the view.
 
 #[path = "common/mod.rs"]
+mod common;
 use common::Fleet;
 
 use std::{
@@ -17,7 +18,10 @@ use std::{
 /// Run the view in a pty, leave it, and return what the terminal saw.
 fn run_view(fleet: &Fleet) -> (bool, String) {
     let command = format!(
-        "{} tui --server {} --key-file {}",
+        // The pty starts with the size of whatever started it, and a
+        // test harness has no terminal: so the size is set inside the
+        // pty, before the view takes it over.
+        "stty rows 40 cols 120 && {} tui --server {} --key-file {}",
         env!("CARGO_BIN_EXE_dg"),
         fleet.cli.server,
         fleet.cli.key_file.display()
