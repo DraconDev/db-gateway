@@ -260,7 +260,7 @@ impl Gateway {
         let client = reqwest::Client::builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
-            .timeout(Duration::from_secs(10))
+            .timeout(READ_TIMEOUT)
             .build()
             .map_err(|_| {
                 ClientError::new("transport_unavailable", "cannot build HTTP client", None)
@@ -400,7 +400,17 @@ impl Gateway {
         let mut req = self
             .client
             .request(method, format!("{}{path}", self.origin))
-            .bearer_auth(&self.credential);
+            .bearer_auth(&self.credential)
+            // A read that is given up on costs a retry and nothing else,
+            // so it gives up quickly; a write that is given up on leaves
+            // the outcome in doubt, so it waits far longer — the answer
+            // is what removes the doubt. The CLI and the TypeScript
+            // client follow the same rule.
+            .timeout(if may_write {
+                WRITE_TIMEOUT
+            } else {
+                READ_TIMEOUT
+            });
         if let Some(body) = body {
             req = req.json(&body);
         }
