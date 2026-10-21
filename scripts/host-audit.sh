@@ -61,9 +61,15 @@ HEAD_BACKUP_SHA256="$(printf '%s\n' "$HEAD_BACKUP_SCRIPT" | sha256sum | awk '{pr
 PROBE_BACKUP_ROOT="$(printf '%s\n' "$HEAD_BACKUP_SCRIPT" | sed -n 's/^BACKUP_ROOT=//p' | head -1 | tr -d '"'"'")"
 PROBE_KEY_FILE="$(printf '%s\n' "$HEAD_BACKUP_SCRIPT" | sed -n 's/^KEY_FILE=//p' | head -1 | tr -d '"'"'")"
 PROBE_DATA_DIR="$(printf '%s\n' "$HEAD_BACKUP_SCRIPT" | sed -n 's/^DATA_DIR=//p' | head -1 | tr -d '"'"'")"
+PROBE_SERVER="$(printf '%s\n' "$HEAD_BACKUP_SCRIPT" | sed -n 's/^SERVER=//p' | head -1 | tr -d '"'"'")"
 [ -n "$PROBE_BACKUP_ROOT" ] || fail "could not scrape BACKUP_ROOT from scripts/micro2-backup.sh"
 [ -n "$PROBE_KEY_FILE" ]    || fail "could not scrape KEY_FILE from scripts/micro2-backup.sh"
 [ -n "$PROBE_DATA_DIR" ]    || fail "could not scrape DATA_DIR from scripts/micro2-backup.sh"
+[ -n "$PROBE_SERVER" ]      || fail "could not scrape SERVER from scripts/micro2-backup.sh"
+# The unit templates spell the endpoint as http://{{DG_LISTEN}}, so the
+# placeholder carries the host:port without the scheme.
+PROBE_LISTEN="${PROBE_SERVER#*://}"
+[ -n "$PROBE_LISTEN" ] || fail "SERVER in scripts/micro2-backup.sh has no host:port"
 
 # --- expected installed-unit hashes (repo templates vs host units) ---
 # The backup/digest units on the host were installed by hand-substituting
@@ -76,13 +82,35 @@ PROBE_DATA_DIR="$(printf '%s\n' "$HEAD_BACKUP_SCRIPT" | sed -n 's/^DATA_DIR=//p'
 # behaviour). The probe reports the same normalization of the installed
 # files; the comparison below fails on any mismatch or missing unit.
 normalize_unit() { sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d'; }
+# The reference-host values the templates are rendered with before they
+# are compared against the host's installed units: the producer's
+# compiled-in defaults (the reference layout
+# docs/evidence/first-deploy-micro2.md records) plus the fixed install
+# paths. The expected hash is then the unit a correctly rendered
+# reference host actually has.
+#
+# The table is complete by construction. scripts/unit-render.sh refuses
+# to emit a unit that still carries a placeholder, so a template that
+# gains one fails this script loudly, naming the placeholder, until the
+# host's value for it is stated here. Before that, such a template was
+# hashed with the literal "{{...}}" text: the expected hash then
+# matched no correctly rendered host, the drift check reported a
+# permanent false drift on every healthy host, and a permanently red
+# gate cannot find the real drift it exists to detect.
+reference_unit_values() {
+    printf '%s\n' \
+        "DG_USER=dg" \
+        "DG_BINARY=/usr/local/bin/dg" \
+        "DG_LISTEN=$PROBE_LISTEN" \
+        "DG_OWNER_KEY_FILE=$PROBE_KEY_FILE" \
+        "DG_DATA_DIR=$PROBE_DATA_DIR" \
+        "DG_BACKUP_ROOT=$PROBE_BACKUP_ROOT" \
+        "DG_BACKUP_SCRIPT=/usr/local/bin/micro2-backup.sh"
+}
+mapfile -t UNIT_VALUES < <(reference_unit_values)
 expected_unit_sha() {
     git -C "$ROOT" show "HEAD:deploy/$1" \
-      | sed -e 's|{{DG_USER}}|dg|g' \
-            -e 's|{{DG_BINARY}}|/usr/local/bin/dg|g' \
-            -e "s|{{DG_DATA_DIR}}|$PROBE_DATA_DIR|g" \
-            -e "s|{{DG_BACKUP_ROOT}}|$PROBE_BACKUP_ROOT|g" \
-            -e 's|{{DG_BACKUP_SCRIPT}}|/usr/local/bin/micro2-backup.sh|g' \
+      | "$ROOT/scripts/unit-render.sh" - "${UNIT_VALUES[@]}" \
       | normalize_unit | sha256sum | awk '{print $1}'
 }
 EXPECTED_UNIT_DG_BACKUP_SERVICE="$(expected_unit_sha dg-backup.service)"
