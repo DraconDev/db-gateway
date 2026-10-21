@@ -129,7 +129,11 @@ web/games/wip/football-forever/docs/audit/
 
 # --- db-gateway repo ignores (kept below the managed block) ---
 # Cargo artifacts live outside the guard-recognized target/ directory.
+# Every build directory under .cargo/ is ignored, not just target/: an
+# audit run may build into .cargo/target-audit/, and a build directory
+# that is tracked is a repository that carries its own build output.
 /.cargo/target/
+/.cargo/target*/
 # Session exhaust, never project source.
 pi-session-*.html
 # Credential material: key files and env files must never be committed.
