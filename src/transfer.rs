@@ -281,7 +281,9 @@ pub async fn import(
     };
     #[cfg(not(unix))]
     let file = std::fs::File::open(from).map_err(|_| Failure::local(Error::invalid()))?;
-    let metadata = file.metadata().map_err(|_| Failure::local(Error::invalid()))?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| Failure::local(Error::invalid()))?;
     // A directory, FIFO, or device is a bad path, not a size problem.
     if !metadata.is_file() {
         return Err(Failure::local(Error::invalid()));

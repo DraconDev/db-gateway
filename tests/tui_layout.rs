@@ -84,10 +84,7 @@ fn list() -> Value {
 
 /// A view holding the answers above.
 fn app() -> App {
-    let mut app = App::new(
-        "http://127.0.0.1:7432".to_string(),
-        "0".repeat(64),
-    );
+    let mut app = App::new("http://127.0.0.1:7432".to_string(), "0".repeat(64));
     app.status = Some(status());
     app.backups = Some(backups());
     app.keys = Some(keys());
@@ -120,14 +117,14 @@ fn the_view_shows_the_service_its_databases_its_backups_and_its_keys_at_once() {
     // are on one screen, not in four commands.
     let text = screen(&app(), 120, 40);
     for expected in [
-        "demo",       // the database
-        "other",      // the database with no traffic
-        "1.0 ms",     // this database's own wait p95
-        "fresh",      // the backup state
-        "robot",      // a scoped credential
-        "connected",  // the gateway answered
-        "requests",   // the service dashboard
-        "databases",  // the pane names
+        "demo",      // the database
+        "other",     // the database with no traffic
+        "1.0 ms",    // this database's own wait p95
+        "fresh",     // the backup state
+        "robot",     // a scoped credential
+        "connected", // the gateway answered
+        "requests",  // the service dashboard
+        "databases", // the pane names
         "service",
         "backups",
         "keys",

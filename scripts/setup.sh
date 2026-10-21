@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# One-shot local setup: build dg, install it, build the web companion,
-# verify the install, and optionally smoke-test `dg web` end to end.
+# One-shot local setup: build dg, install it, verify the install, and
+# optionally smoke-test the gateway end to end.
 #
 # Usage: scripts/setup.sh [--prefix DIR] [--smoke] [--no-install] [--help]
 #
 #   --prefix DIR   install dg to DIR/dg (default: $HOME/.local/bin)
-#   --smoke        run the disposable `dg web` smoke after installing
+#   --smoke        run a disposable end-to-end gateway check after installing
 #   --no-install   build and verify only; do not copy the binary
 #
 # Never touches credentials, data directories, systemd, or any host: it only
-# compiles, copies one binary, builds web/dist, and (with --smoke) exercises
-# disposable temp dirs. Re-run any time; every step is idempotent.
+# compiles, copies one binary, and (with --smoke) exercises disposable temp
+# dirs. Re-run any time; every step is idempotent.
 
 set -euo pipefail
 
@@ -25,8 +25,8 @@ fail() { echo "[setup] FAIL: $*" >&2; exit 1; }
 usage() {
     cat >&2 <<'EOF'
 Usage: scripts/setup.sh [--prefix DIR] [--smoke] [--no-install] [--help]
-Build dg (release), install it, build the web companion, verify, and
-optionally smoke-test `dg web` against a disposable gateway.
+Build dg (release), install it, verify the install, and optionally smoke-test
+a disposable gateway end to end.
 EOF
 }
 usage_error() {
@@ -58,8 +58,7 @@ need() {
     command -v "$1" >/dev/null 2>&1 || fail "required command not found on PATH: $1"
 }
 need cargo
-need node
-need npm
+need python3
 
 log "building dg (release, locked)"
 cargo build --release --locked --manifest-path "$ROOT/Cargo.toml" >&2
@@ -79,27 +78,73 @@ if [ "$INSTALL" -eq 1 ]; then
     esac
 fi
 
-log "building web companion"
-npm ci --prefix "$ROOT/web" >&2
-npm run build --prefix "$ROOT/web" >&2
-[ -f "$ROOT/web/dist/server.js" ] || fail "companion build produced no web/dist/server.js"
-
 log "verifying install"
 "$INSTALLED" --version >&2 || fail "$INSTALLED --version failed"
-"$INSTALLED" web --help 2>&1 | grep -q "loopback" || fail "$INSTALLED web --help looks wrong"
-node --version >&2 || fail "node --version failed"
+"$INSTALLED" tui --help 2>&1 | grep -q "terminal" || fail "$INSTALLED tui --help looks wrong"
+
+# A disposable gateway, driven only through the installed binary: init
+# an owner, serve on an ephemeral port, create a database, write to it,
+# read it back, and read the dashboard. It proves the binary that was
+# just installed works, and it touches nothing outside a temp dir.
+smoke() {
+    local dir pid server key
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/dg-smoke-XXXXXX")"
+    "$INSTALLED" init --data-dir "$dir/data" > "$dir/init.json" \
+        || { rm -rf "$dir"; fail "init failed"; }
+    key="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["owner_key"])' "$dir/init.json")" \
+        || { rm -rf "$dir"; fail "cannot read the owner key"; }
+    printf '%s' "$key" > "$dir/owner.key"
+    chmod 600 "$dir/owner.key"
+    "$INSTALLED" serve --listen 127.0.0.1:0 --data-dir "$dir/data" > "$dir/serve.log" 2>&1 &
+    pid=$!
+    server=""
+    for _ in $(seq 1 50); do
+        server="$(python3 - "$dir/serve.log" <<'PY' 2>/dev/null || true
+import json, sys
+for line in open(sys.argv[1], errors="replace"):
+    try:
+        log = json.loads(line)
+    except ValueError:
+        continue
+    address = log.get("fields", {}).get("address")
+    if address:
+        print("http://" + address)
+        break
+PY
+)"
+        [ -n "$server" ] && break
+        sleep 0.1
+    done
+    if [ -z "$server" ]; then
+        kill "$pid" 2>/dev/null || true
+        rm -rf "$dir"
+        fail "the gateway never logged its address"
+    fi
+    if ! "$INSTALLED" --server "$server" --key-file "$dir/owner.key" create smoke_db >/dev/null \
+        || ! "$INSTALLED" --server "$server" --key-file "$dir/owner.key" query smoke_db "CREATE TABLE t (id INTEGER)" >/dev/null \
+        || ! "$INSTALLED" --server "$server" --key-file "$dir/owner.key" query smoke_db "INSERT INTO t VALUES (1)" >/dev/null \
+        || ! "$INSTALLED" --server "$server" --key-file "$dir/owner.key" query smoke_db "SELECT id FROM t" >/dev/null \
+        || ! "$INSTALLED" --server "$server" --key-file "$dir/owner.key" status --json >/dev/null; then
+        kill "$pid" 2>/dev/null || true
+        rm -rf "$dir"
+        fail "the smoke check failed against $server"
+    fi
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    rm -rf "$dir"
+    log "smoke OK: $server"
+}
 
 if [ "$SMOKE" -eq 1 ]; then
-    log "smoking dg web end to end"
-    node "$ROOT/scripts/dg-web-smoke.mjs" --dg "$INSTALLED"
+    log "smoking the gateway end to end"
+    smoke
 fi
 
-log "OK: dg=$INSTALLED companion=$ROOT/web/dist/server.js"
+log "OK: dg=$INSTALLED"
 cat >&2 <<EOF
 Next:
   # once: init prints {"owner_key": …}; extract the raw key to a 0600 file (shown once)
   dg init --data-dir state/dg | python3 -c "import json,sys; print(json.load(sys.stdin)['owner_key'])" > owner.key && chmod 600 owner.key
-  # web starts its own gateway when none is running; then open the printed URL
-  dg --key-file owner.key web --port 8787
-  # run 'dg serve' separately only for a standalone gateway without the console
+  # the terminal view: the service, its databases, their backups and its keys on one screen
+  dg --key-file owner.key tui
 EOF

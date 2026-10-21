@@ -1,13 +1,11 @@
 use clap::{Parser, Subcommand};
 use serde_json::Value;
 use std::{
-    io::{IsTerminal, Write},
+    io::IsTerminal,
     net::SocketAddr,
     path::PathBuf,
     process::ExitCode,
-    time::Duration,
 };
-
 
 fn api_failed(response: &Value) -> bool {
     response.get("error").is_some()
@@ -372,27 +370,6 @@ enum Command {
         #[arg(long, default_value_t = 2)]
         refresh: u64,
     },
-    /// Start the workstation web console on loopback and print its URL.
-    /// Forwards the resolved --server/--key-file values to the companion
-    /// and supervises it; the owner credential itself never passes
-    /// through this process. When the loopback gateway at --server is
-    /// unreachable, a `dg serve` child is started on it automatically
-    /// (same data dir default as `serve`) and supervised alongside.
-    Web {
-        /// Loopback port for the browser console.
-        /// Precedence: flag, DG_CONSOLE_PORT, 8787.
-        #[arg(long, env = "DG_CONSOLE_PORT", default_value = "8787")]
-        port: u16,
-        /// Companion entrypoint override. Default: web/dist/server.js
-        /// resolved from the dg executable or working directory.
-        #[arg(long, env = "DG_CONSOLE_ENTRY")]
-        entry: Option<PathBuf>,
-        /// Data directory for the auto-started gateway. Used only when
-        /// --server is unreachable; an already-running gateway is used
-        /// as-is and this is ignored.
-        #[arg(long, default_value = "state/dg")]
-        data_dir: PathBuf,
-    },
 }
 #[derive(Subcommand)]
 enum KeyCommand {
@@ -459,22 +436,18 @@ enum BackupCommand {
         set: String,
     },
 }
-/// Resolve the console companion entrypoint: explicit override first,
-/// then web/dist/server.js beside the checkout (from the executable or
-/// the working directory).
 mod cmd_backup;
 mod cmd_data;
 mod cmd_keys;
 mod cmd_lifecycle;
 mod cmd_serve;
 mod cmd_status;
-mod console;
 
 /// A request the shared tail in `run` issues on behalf of a command
 /// handler: (method, path, body, idempotency key). A handler returns
 /// `None` when it fully handled the command itself (the serve/init/
-/// console/shell/export/import and offline backup commands, plus any
-/// command whose table rendering already answered the operator).
+/// shell/export/import and offline backup commands, plus any command
+/// whose table rendering already answered the operator).
 type Request = (reqwest::Method, String, Option<Value>, Option<String>);
 
 async fn run(cli: Cli) -> Result<(), dg::ServerError> {
@@ -502,15 +475,6 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             .await;
         }
         Command::Init { data_dir } => return cmd_serve::init(data_dir, cli.json).await,
-        Command::Web {
-            port,
-            entry,
-            data_dir,
-        } => {
-            return console::run_console(&cli.server, key_path, port, entry, data_dir)
-                .await
-                .map_err(Application);
-        }
         Command::Shell { name } => {
             return cmd_data::shell(&cli.server, cli.json, &key_path, name).await;
         }

@@ -147,7 +147,10 @@ pub async fn inspect(
             .get("state")
             .and_then(Value::as_str)
             .unwrap_or("unknown");
-        backup.field("state", Cell::styled(state, dg::views::backup_state_style(state)));
+        backup.field(
+            "state",
+            Cell::styled(state, dg::views::backup_state_style(state)),
+        );
         backup.field(
             "newest set",
             Cell::text(
@@ -657,5 +660,4 @@ mod tests {
             "a batch the server would reject was not refused locally"
         );
     }
-
 }

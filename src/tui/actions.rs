@@ -312,7 +312,8 @@ impl ActionKind {
                         "a key's role is database_read_only or database_read_write",
                     ));
                 }
-                let databases: Vec<String> = parts[2..].iter().map(|name| name.to_string()).collect();
+                let databases: Vec<String> =
+                    parts[2..].iter().map(|name| name.to_string()).collect();
                 for database in &databases {
                     crate::store::validate_name(database)?;
                 }
@@ -534,7 +535,9 @@ mod tests {
         ];
         for (kind, arguments, method, path) in cases {
             let invocation = kind.parse(arguments).expect("the arguments parse");
-            let request = invocation.request().expect("the invocation makes a request");
+            let request = invocation
+                .request()
+                .expect("the invocation makes a request");
             assert_eq!(request.method, method, "{kind:?} uses the wrong method");
             assert_eq!(request.path, path, "{kind:?} uses the wrong path");
         }
@@ -584,7 +587,9 @@ mod tests {
             }
         );
         assert!(
-            ActionKind::IssueKey.parse("robot database_read_only").is_err(),
+            ActionKind::IssueKey
+                .parse("robot database_read_only")
+                .is_err(),
             "a key with no database was accepted"
         );
         assert!(
@@ -638,7 +643,10 @@ mod tests {
             .expect("the arguments parse");
         let request = invocation.request().expect("a script of 32 statements");
         assert_eq!(
-            request.body.unwrap()["statements"].as_array().unwrap().len(),
+            request.body.unwrap()["statements"]
+                .as_array()
+                .unwrap()
+                .len(),
             32
         );
     }

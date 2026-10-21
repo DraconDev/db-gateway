@@ -86,10 +86,18 @@ impl<S: Screen> Guard<S> {
 
     /// Give the screen back now.
     pub fn release(&mut self) -> io::Result<()> {
-        match self.screen.as_mut() {
-            Some(screen) => screen.restore(),
-            None => Ok(()),
+        let Some(screen) = self.screen.as_mut() else {
+            return Ok(());
+        };
+        let result = screen.restore();
+        if result.is_ok() {
+            // The screen is back, so the guard has nothing left to do.
+            // A failed restore keeps it, because the drop below tries
+            // again: a terminal left in the alternate screen is worse
+            // than a second attempt.
+            self.screen = None;
         }
+        result
     }
 
     /// Draw one frame.

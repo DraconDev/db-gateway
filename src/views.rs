@@ -124,42 +124,106 @@ pub fn service_dashboard(status: &serde_json::Value) -> Vec<Section> {
         && !usage.is_empty()
     {
         let mut per_database = Section::new("per-database");
-        let mut table = Table::new();
-        table.column("database", Align::Left);
-        table.column("rows read", Align::Right);
-        table.column("rows written", Align::Right);
-        table.column("waits", Align::Right);
-        table.column("wait p95", Align::Right);
-        table.column("wait max", Align::Right);
-        table.column("last write", Align::Left);
-        for (name, entry) in usage {
-            let waits = entry["queue_waits"].as_u64().unwrap_or(0);
-            // The p95 is this database's own, and the max is its worst
-            // single wait. They are different facts, and the pairing is
-            // built in one place so the two columns cannot be swapped.
-            let figures = wait_figures(entry, "-");
-            let last_write = match entry["last_write"].as_u64() {
-                Some(epoch) => Cell::text(human_epoch_ago(epoch)),
-                None => Cell::text("never"),
-            };
-            table.row(vec![
-                Cell::styled(name.clone(), Style::Cyan),
-                Cell::number(entry["rows_read"].as_u64().unwrap_or(0)),
-                Cell::number(entry["rows_written"].as_u64().unwrap_or(0)),
-                Cell::number(waits),
-                figures.p95,
-                figures.max,
-                last_write,
-            ]);
-        }
-        table.footer(
-            "wait p95 is this database's own recent waits; wait max is its worst single wait",
-        );
-        per_database.table(table);
+        per_database.table(per_database_table(status));
         sections.push(per_database);
     }
 
     sections
+}
+
+/// Which figures a traffic table shows.
+///
+/// The dashboard has room for every figure; the terminal view's
+/// database pane is a pane, and shows the ones an operator reads at a
+/// glance. The figures are the same either way — they are read from
+/// the same counters — so a number in one surface is the same number
+/// in the other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Figures {
+    /// Every figure: the dashboard's per-database table.
+    Full,
+    /// The figures that fit a narrow pane: the view's database list.
+    Brief,
+}
+
+/// The per-database traffic table, over the databases that have done
+/// something.
+///
+/// The names come from the service's own counters, so this is the
+/// dashboard's answer to "which of my databases is doing the work".
+pub fn per_database_table(status: &Value) -> Table {
+    let names: Vec<String> = status["databases"]
+        .as_object()
+        .map(|usage| usage.keys().cloned().collect())
+        .unwrap_or_default();
+    traffic_table(&names, status, Figures::Full)
+}
+
+/// The database list with each database's traffic.
+///
+/// The names come from the gateway's list and the traffic from the
+/// service's own counters, so a database that has never been used is
+/// on screen with zeroes rather than missing: "no traffic" and "not a
+/// database" must not look the same.
+///
+/// The columns are the dashboard's own, so the terminal view's
+/// database pane and the CLI's dashboard are the same table.
+pub fn databases(list: &Value, status: &Value) -> Table {
+    let mut names: Vec<String> = list["databases"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|name| name.as_str().unwrap_or("").to_string())
+        .collect();
+    names.sort();
+    traffic_table(&names, status, Figures::Brief)
+}
+
+/// One traffic table over a list of database names.
+fn traffic_table(names: &[String], status: &Value, figures: Figures) -> Table {
+    let mut table = Table::new();
+    table.column("database", Align::Left);
+    table.column("rows read", Align::Right);
+    table.column("rows written", Align::Right);
+    if figures == Figures::Full {
+        table.column("waits", Align::Right);
+    }
+    table.column("wait p95", Align::Right);
+    if figures == Figures::Full {
+        table.column("wait max", Align::Right);
+    }
+    table.column("last write", Align::Left);
+    for name in names {
+        let entry = &status["databases"][name.as_str()];
+        let waits = entry["queue_waits"].as_u64().unwrap_or(0);
+        // The p95 is this database's own, and the max is its worst
+        // single wait. They are different facts, and the pairing is
+        // built in one place so the two columns cannot be swapped.
+        let figures_cells = wait_figures(entry, "-");
+        let last_write = match entry["last_write"].as_u64() {
+            Some(epoch) => Cell::text(human_epoch_ago(epoch)),
+            None => Cell::text("never"),
+        };
+        let mut row = vec![
+            Cell::styled(name.clone(), Style::Cyan),
+            Cell::number(entry["rows_read"].as_u64().unwrap_or(0)),
+            Cell::number(entry["rows_written"].as_u64().unwrap_or(0)),
+        ];
+        if figures == Figures::Full {
+            row.push(Cell::number(waits));
+        }
+        row.push(figures_cells.p95);
+        if figures == Figures::Full {
+            row.push(figures_cells.max);
+        }
+        row.push(last_write);
+        table.row(row);
+    }
+    table.footer(
+        "wait p95 is this database's own recent waits; wait max is its worst single wait",
+    );
+    table
 }
 
 /// The backup freshness view: the root the gateway watches, the
@@ -169,7 +233,9 @@ pub fn backups(backups: &Value) -> Vec<Section> {
     root.field(
         "root",
         Cell::styled(
-            backups["backup_root"].as_str().unwrap_or("(none configured)"),
+            backups["backup_root"]
+                .as_str()
+                .unwrap_or("(none configured)"),
             Style::Cyan,
         ),
     );
@@ -333,44 +399,6 @@ pub fn database_names(databases: &Value) -> Table {
     } else {
         format!("{} databases", names.len())
     });
-    table
-}
-
-/// The database list with each database's traffic.
-///
-/// The names come from the gateway's list and the traffic from the
-/// service's own counters, so a database that has never been used is
-/// on screen with zeroes rather than missing: "no traffic" and "not a
-/// database" must not look the same.
-pub fn databases(list: &Value, status: &Value) -> Table {
-    let names: Vec<String> = list["databases"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default()
-        .iter()
-        .map(|name| name.as_str().unwrap_or("").to_string())
-        .collect();
-    let mut table = Table::new();
-    table.column("database", Align::Left);
-    table.column("rows read", Align::Right);
-    table.column("rows written", Align::Right);
-    table.column("wait p95", Align::Right);
-    table.column("last write", Align::Left);
-    for name in &names {
-        let entry = &status["databases"][name.as_str()];
-        let figures = wait_figures(entry, "-");
-        let last_write = match entry["last_write"].as_u64() {
-            Some(epoch) => Cell::text(human_epoch_ago(epoch)),
-            None => Cell::text("never"),
-        };
-        table.row(vec![
-            Cell::styled(name.clone(), Style::Cyan),
-            Cell::number(entry["rows_read"].as_u64().unwrap_or(0)),
-            Cell::number(entry["rows_written"].as_u64().unwrap_or(0)),
-            figures.p95,
-            last_write,
-        ]);
-    }
     table
 }
 
@@ -771,8 +799,17 @@ mod tests {
             &serde_json::json!({"results": [{"rows_affected": 3}, {"rows": [1, 2]}]}),
         );
         let text = render_table(&outcome.table);
-        assert!(outcome.ran(), "a batch with results was not read as one that ran");
-        assert!(text.contains("3 rows"), "the first result is missing: {text}");
-        assert!(text.contains("2 rows"), "the second result is missing: {text}");
+        assert!(
+            outcome.ran(),
+            "a batch with results was not read as one that ran"
+        );
+        assert!(
+            text.contains("3 rows"),
+            "the first result is missing: {text}"
+        );
+        assert!(
+            text.contains("2 rows"),
+            "the second result is missing: {text}"
+        );
     }
 }

@@ -51,23 +51,24 @@ No Turso equivalent; kept as the single-node operational surface:
 - `dg backup status` — versioned sets + per-db fresh/stale/unknown.
 - `dg backup verify --backup-root <dir> [set]` — offline re-verification, JSON report.
 - `dg clone/export/import` — SQLite backup-API clone, `.sqlite` snapshot export/import.
-- `dg web` — loopback console on `:8787`; prints URL, no auto-open.
-  Starts its own gateway automatically when `--server` is unreachable
-  (`--data-dir`, default `state/dg`); an already-running gateway is
-  used as-is and never touched on shutdown.
+- `dg tui` — the terminal operator view: the service, its databases,
+  their backup freshness and its credentials on one live screen, with
+  the lifecycle, credential and SQL actions a keystroke away.
+  Talks to the same gateway over the same API as every other command.
 
-## Console trust model
+## Terminal view trust model
 
-`dg web` binds loopback only (remote access via SSH tunnel, never a
-public listener) and holds the owner credential server-side in the
-companion process — the browser never receives it. The session cookie
-is CSRF defense (SameSite=Strict + loopback origin check), not
-authentication: any local process can mint a session by design, so the
-console trusts the local machine exactly as the `0600` key file does.
-`Secure` is deliberately absent from the cookie (plain HTTP on
-loopback; the localhost exception does not cover `127.0.0.1`). No
-billing, no metered rows: the usage counters in `dg status` and the
-console are visibility only.
+`dg tui` runs on the operator's machine and reaches the gateway
+through the same client as every other command, so the transport rules
+are the ones above: a literal loopback origin or HTTPS, never a public
+listener. The credential is read from the `0600` key file into memory
+and is never drawn — the one key the view shows is a newly issued one,
+which the gateway shows once and never again.
+
+The view takes the terminal over (raw mode and the alternate screen)
+and always gives it back, including when it panics, so the operator's
+shell survives it. No billing, no metered rows: the counters in the
+view are visibility only, exactly as they are in `dg status`.
 
 ## Deliberately out of scope
 

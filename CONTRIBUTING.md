@@ -64,8 +64,7 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked            # the full workspace suite; ~260s execution
 cargo deny check                           # licenses / advisories / bans / sources
 npm audit --prefix client --audit-level=high
-npm audit --prefix web --audit-level=high
-npm test                                   # root script: client suite (real dg serve) + web console suite/E2E
+npm test                                   # root script: the client suite (real dg serve)
 ./scripts/lint-scripts.sh                  # every tracked script, shellcheck-warning clean
 python3 scripts/check_plan_consistency.py docs/personal-turso-megaplan.md
 ./scripts/validate-deploy.sh               # when deploy/ templates change

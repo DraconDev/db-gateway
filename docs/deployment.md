@@ -61,10 +61,9 @@ placeholders for future/repeated deployments.
    testing the pinned contract.
 2. Create the dedicated unprivileged user (see placeholder table).
 3. Place the `dg` binary at its final path, owned by root, executable.
-   The bundle carries the gateway only — no web companion. The console
-   runs on the operator machine (`scripts/setup.sh` builds `web/dist`),
-   reaching the gateway over an SSH tunnel; `dg web` from a bare bundle
-   reports `invalid_console_entry` until a companion is staged beside it.
+   The bundle carries the gateway only. The operator's terminal view
+   (`dg tui`) runs on the operator machine and reaches the gateway over
+   an SSH tunnel, so nothing but the binary is needed on the host.
 4. Create the data directory, owned by the service user, mode `0700`.
 5. Run `dg init --data-dir <dir>` once as the service user. It prints
    JSON (`{"owner_key":"…"}`): extract the raw 64-hex value into the
@@ -147,12 +146,12 @@ failure (`docs/observability-contract.md` §3a-0).
   server itself rejects non-loopback `--listen` before authentication exists
   (`dg serve --help` documents the option; `validate_listen` enforces it).
 - **HTTPS / private transport**: `dg serve` performs no TLS itself because it
-  only listens on loopback. The web console client only accepts a loopback
-  HTTP origin (web/src/api.ts `GatewayApi` constructor), and the Rust client
-  requires HTTPS for any non-loopback endpoint (src/client.rs endpoint
-  validation). Remote exposure must therefore terminate TLS at a reverse
-  proxy on a private network; plaintext over a non-loopback network is
-  refused by the clients, not a supported configuration.
+  only listens on loopback. The Rust client requires HTTPS for any
+  non-loopback endpoint (src/client.rs endpoint validation), and the
+  terminal view uses that same client. Remote exposure must therefore
+  terminate TLS at a reverse proxy on a private network; plaintext over a
+  non-loopback network is refused by the clients, not a supported
+  configuration.
 - **Dedicated unprivileged execution**: `User=`/`Group=` plus
   `NoNewPrivileges=true`, `ProtectSystem=strict`, `ProtectHome=true`.
 - **Persistent data ownership**: the data dir is the working directory and

@@ -69,7 +69,7 @@ This foundation chooses neither a SQL engine binding nor a client wire protocol.
 - Clone/export/restore use consistent SQLite-aware operations and coordinated lifecycle handling.
 - Recovery claims require verified restores and visible backup failures, not merely a configured bucket.
 - The first production bucket profile is per-database consistent verified snapshots, not a cross-database atomic snapshot; registry/file membership is reconciled during restore.
-- A workstation-only web console may complement the CLI through a loopback companion and SSH-forwarded connection. It is not a hosted/public web service; the browser never receives the owner credential.
+- The operator's surface is the terminal: the one-shot CLI, the interactive shell, and the full-screen view (`dg tui`), which read their facts from one shared view layer so they cannot disagree about the same gateway. The view holds the credential in memory and never draws it, except for a newly issued key, which the gateway shows once.
 
 See `TASKS.md` for executable milestones and acceptance conditions. No task completion authorizes deployment, production data changes, or subscription changes.
 

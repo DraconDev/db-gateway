@@ -20,11 +20,13 @@ pub mod draw;
 pub mod screen;
 
 use crate::{
-    client, error::{Error, Result}, render, transfer, views,
+    client,
+    error::{Error, Result},
+    render, transfer, views,
 };
 use actions::{Action, ActionKind, Invocation};
-use screen::Screen;
 use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
+use screen::Screen;
 use serde_json::Value;
 use std::time::{Duration, Instant};
 
@@ -51,7 +53,10 @@ pub enum Mode {
     /// The arguments of the chosen action.
     Prompt { kind: ActionKind },
     /// The phrase that confirms a destructive act.
-    Confirm { invocation: Invocation, phrase: String },
+    Confirm {
+        invocation: Invocation,
+        phrase: String,
+    },
 }
 
 /// Which pane has the keyboard.
@@ -184,7 +189,9 @@ impl App {
 
     /// Handle one key.
     pub fn on_key(&mut self, key: KeyEvent) {
-        if key.modifiers.contains(ratatui::crossterm::event::KeyModifiers::CONTROL)
+        if key
+            .modifiers
+            .contains(ratatui::crossterm::event::KeyModifiers::CONTROL)
             && key.code == KeyCode::Char('c')
         {
             // The way out of a program that has taken the terminal.
@@ -557,18 +564,21 @@ fn outcome_of(invocation: &Invocation, response: &Value) -> Outcome {
         } => vec![
             // The key is shown once and never again, so it is on the
             // screen, with the scope it is safe with.
-            ("key".to_string(), response["key"].as_str().unwrap_or("").to_string()),
+            (
+                "key".to_string(),
+                response["key"].as_str().unwrap_or("").to_string(),
+            ),
             ("name".to_string(), name.clone()),
             ("role".to_string(), role.clone()),
             ("scope".to_string(), databases.join(", ")),
         ],
         Invocation::RevokeKey { name } => vec![("name".to_string(), name.clone())],
         Invocation::RotateOwner => vec![
-            ("key".to_string(), response["key"].as_str().unwrap_or("").to_string()),
             (
-                "old key".to_string(),
-                "dead immediately".to_string(),
+                "key".to_string(),
+                response["key"].as_str().unwrap_or("").to_string(),
             ),
+            ("old key".to_string(), "dead immediately".to_string()),
         ],
         _ => Vec::new(),
     };

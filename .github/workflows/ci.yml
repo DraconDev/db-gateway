@@ -125,28 +125,6 @@ jobs:
       # day it is published. Currently clean (0 vulnerabilities).
       - run: npm audit --prefix client --audit-level=high
       - run: npm test --prefix client
-      - run: npm ci --prefix web
-      # Same gate for the web console tree (playwright, typescript).
-      - run: npm audit --prefix web --audit-level=high
-      # Pin the browser suite to Playwright's own chromium instead of the
-      # runner-imaged system Chrome, whose major version drifts
-      # independently of the playwright dependency and breaks launch
-      # pairing. The shared `web/scripts/resolve-chromium.mjs` helper
-      # honors PLAYWRIGHT_BROWSER_EXECUTABLE first, so this env var
-      # overrides the helper's own bundled-browser lookup and the
-      # NixOS-only fallback the maintainer's dev box uses.
-      - run: npx playwright install chromium --with-deps
-        working-directory: web
-      - run: echo "PLAYWRIGHT_BROWSER_EXECUTABLE=$(node -e "const {chromium}=require('playwright'); console.log(chromium.executablePath())")" >> $GITHUB_ENV
-        working-directory: web
-      - run: npm test --prefix web
-      # The two browser gates live under web/ so their bare `playwright`
-      # import resolves against web/node_modules, the package that declares
-      # it. Running them from the repo-root scripts/ dir walks the lookup
-      # past the repo and only succeeds against a machine-global module dir.
-      - run: node web/scripts/web-console-security-check.mjs
-      - run: node web/scripts/web-console-smoke.mjs
-      - run: node scripts/dg-web-smoke.mjs
       # `systemd-analyze verify` is half the deploy-template gate; the other
       # half (placeholder substitution, MemoryMax, etc.) is in the script
       # itself. ubuntu-latest does not ship systemd-analyze by default, so

@@ -609,7 +609,6 @@ impl Outcome {
     }
 }
 
-
 /// How long ago a timestamp was, as a person reads it.
 ///
 /// The absolute time is kept alongside, because "3m ago" alone does not
@@ -1376,7 +1375,6 @@ mod tests {
         // A dumb terminal cannot interpret colour.
         assert!(!color_allowed_with(None, term("dumb")));
     }
-
 
     #[test]
     fn the_wait_figures_pair_the_p95_with_the_p95() {

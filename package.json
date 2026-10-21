@@ -4,7 +4,7 @@
   "private": true,
   "description": "DB Gateway (dg) — personal SQLite service. Rust server in src/, TypeScript client in client/.",
   "scripts": {
-    "typecheck": "npm run typecheck --prefix client && npm run typecheck --prefix web",
-    "test": "npm test --prefix client && npm test --prefix web"
+    "typecheck": "npm run typecheck --prefix client",
+    "test": "npm test --prefix client"
   }
 }

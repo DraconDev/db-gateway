@@ -44,10 +44,9 @@ done
 
 # The tracked set, straight from git: coverage cannot drift from reality.
 # Every tracked script in the repository, not only the ones under
-# scripts/: the web console's own gates (web/scripts, web/test), the
-# client tests and the examples are scripts too, and a claim that "every
-# tracked script is lint-gated" is only true if the gate enumerates the
-# whole repository.
+# scripts/: the client tests and the examples are scripts too, and a
+# claim that "every tracked script is lint-gated" is only true if the
+# gate enumerates the whole repository.
 mapfile -t FILES < <(git ls-files '*.sh' '*.py' '*.mjs' | sort)
 if [ "${#FILES[@]}" -eq 0 ]; then
     echo "lint-scripts: git ls-files found no scripts -- run from the repo checkout" >&2

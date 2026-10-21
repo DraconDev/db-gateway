@@ -28,7 +28,9 @@ fn paint_style(style: ViewStyle) -> Style {
         ViewStyle::Plain => Style::default(),
         ViewStyle::Dim => Style::default().fg(Color::DarkGray),
         ViewStyle::Bold => Style::default().add_modifier(Modifier::BOLD),
-        ViewStyle::Header => Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        ViewStyle::Header => Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
         ViewStyle::Red => Style::default().fg(Color::Red),
         ViewStyle::Green => Style::default().fg(Color::Green),
         ViewStyle::Yellow => Style::default().fg(Color::Yellow),
@@ -62,10 +64,7 @@ fn widths(table: &ViewTable, area: u16) -> Vec<Constraint> {
         }
     }
     // Two cells of padding on each side of a column's text.
-    let padded: Vec<u16> = widths
-        .iter()
-        .map(|width| width.saturating_add(2))
-        .collect();
+    let padded: Vec<u16> = widths.iter().map(|width| width.saturating_add(2)).collect();
     let total: u32 = padded.iter().map(|width| *width as u32).sum();
     if total <= area as u32 {
         padded.into_iter().map(Constraint::Length).collect()
@@ -80,24 +79,13 @@ fn table_widget(table: &ViewTable, area: u16) -> Table<'static> {
         table
             .columns()
             .iter()
-            .map(|(name, _)| {
-                Cell::from(Span::styled(
-                    name.clone(),
-                    paint_style(ViewStyle::Header),
-                ))
-            })
+            .map(|(name, _)| Cell::from(Span::styled(name.clone(), paint_style(ViewStyle::Header))))
             .collect::<Vec<Cell<'static>>>(),
     );
     let rows = table
         .rows()
         .iter()
-        .map(|row| {
-            Row::new(
-                row.iter()
-                    .map(cell_widget)
-                    .collect::<Vec<Cell<'static>>>(),
-            )
-        })
+        .map(|row| Row::new(row.iter().map(cell_widget).collect::<Vec<Cell<'static>>>()))
         .collect::<Vec<Row<'static>>>();
     Table::new(rows, widths(table, area)).header(header)
 }
@@ -132,7 +120,9 @@ fn section_table(section: &Section) -> Option<&ViewTable> {
 fn heading(title: &str) -> Line<'static> {
     Line::from(Span::styled(
         title.to_string(),
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
     ))
 }
 
@@ -149,7 +139,9 @@ fn pane(title: &str, focused: bool) -> Block<'static> {
         .title(Span::styled(
             format!(" {title} "),
             if focused {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::DarkGray)
             },
@@ -182,7 +174,12 @@ pub fn draw(frame: &mut Frame, app: &App) {
         Mode::Palette => palette(frame, area, app),
         Mode::Prompt { kind } => {
             let action = crate::tui::actions::action(*kind);
-            prompt(frame, area, &format!("{} — {}", action.title, action.hint), &app.input)
+            prompt(
+                frame,
+                area,
+                &format!("{} — {}", action.title, action.hint),
+                &app.input,
+            )
         }
         Mode::Confirm { phrase, .. } => prompt(
             frame,
@@ -200,7 +197,9 @@ fn top_bar(frame: &mut Frame, area: Rect, app: &App) {
     let mut spans = vec![
         Span::styled(
             " dg ",
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::raw(app.server.clone()),
     ];
@@ -210,7 +209,11 @@ fn top_bar(frame: &mut Frame, area: Rect, app: &App) {
     }
     spans.push(Span::raw(" · "));
     spans.push(Span::styled(
-        if app.connected { "connected" } else { "unreachable" },
+        if app.connected {
+            "connected"
+        } else {
+            "unreachable"
+        },
         Style::default().fg(if app.connected {
             Color::Green
         } else {
@@ -227,16 +230,10 @@ fn body(frame: &mut Frame, area: Rect, app: &App) {
         .as_ref()
         .map(|outcome| outcome_lines(outcome) + 2)
         .unwrap_or(0);
-    let rows = Layout::vertical([
-        Constraint::Min(4),
-        Constraint::Length(outcome_height),
-    ])
-    .split(area);
-    let columns = Layout::horizontal([
-        Constraint::Percentage(38),
-        Constraint::Percentage(62),
-    ])
-    .split(rows[0]);
+    let rows =
+        Layout::vertical([Constraint::Min(4), Constraint::Length(outcome_height)]).split(area);
+    let columns =
+        Layout::horizontal([Constraint::Percentage(38), Constraint::Percentage(62)]).split(rows[0]);
     databases_pane(frame, columns[0], app);
     let right = Layout::vertical([
         Constraint::Percentage(50),
@@ -260,10 +257,7 @@ fn databases_pane(frame: &mut Frame, area: Rect, app: &App) {
             frame.render_widget(table_widget(&table, area.width).block(block), area);
         }
         None => {
-            frame.render_widget(
-                Paragraph::new("no answer yet").block(block),
-                area,
-            );
+            frame.render_widget(Paragraph::new("no answer yet").block(block), area);
         }
     }
 }
@@ -387,7 +381,9 @@ fn outcome_pane(frame: &mut Frame, area: Rect, outcome: &Outcome) {
 fn status_line(frame: &mut Frame, area: Rect, app: &App) {
     let mut spans = vec![Span::styled(
         " : ",
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
     )];
     spans.push(Span::raw("actions"));
     spans.push(Span::raw("  r "));
@@ -413,7 +409,9 @@ fn palette(frame: &mut Frame, area: Rect, app: &App) {
     for (index, action) in actions.iter().enumerate() {
         let selected = index == app.highlighted;
         let style = if selected {
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };
@@ -438,7 +436,9 @@ fn palette(frame: &mut Frame, area: Rect, app: &App) {
                 .border_style(Style::default().fg(Color::Cyan))
                 .title(Span::styled(
                     title,
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
                 )),
         ),
         popup,
