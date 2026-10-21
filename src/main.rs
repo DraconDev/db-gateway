@@ -361,6 +361,14 @@ enum Command {
     /// semicolon inside a string or a trigger body does not end a
     /// statement. The statements run as one atomic batch: either every
     /// statement lands or none does.
+    ///
+    /// The batch API accepts 32 statements at a time, and the whole
+    /// file is one atomic batch, so a file of more than 32 statements
+    /// is refused before it is sent: the command reports how many
+    /// statements the file holds, what the API accepts, and that
+    /// nothing was sent. A longer file cannot be run by splitting it
+    /// into several batches, because that gives up the atomicity a
+    /// migration needs.
     Execute {
         /// Database to run the script against.
         name: String,
@@ -372,6 +380,9 @@ enum Command {
         idempotency_key: Option<String>,
     },
     /// Execute an atomic JSON batch from a file. The file is read whole and is capped at 64 KiB.
+    ///
+    /// The batch API accepts 32 statements at a time, so a batch file
+    /// of more than 32 statements is refused before it is sent.
     Batch {
         /// Database to run the batch against.
         name: String,

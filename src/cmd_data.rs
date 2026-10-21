@@ -18,6 +18,31 @@ fn terminal_theme() -> Theme {
     Theme::for_stream(std::io::stdout().is_terminal())
 }
 
+/// Refuse a batch the API cannot take, before it is sent.
+///
+/// The batch API holds at most [`dg::execution::MAX_BATCH_STATEMENTS`]
+/// statements. A longer file cannot be split into several batches
+/// without giving up the whole-file atomicity a migration needs, so the
+/// CLI says exactly what the file holds and what the API accepts, and
+/// sends nothing at all.
+///
+/// The message names the count, the cap and the fact that nothing was
+/// sent: a refusal the operator cannot act on is a refusal the
+/// operator has to guess about.
+fn check_statement_count(count: usize, subject: &str) -> Result<(), Error> {
+    if count <= dg::execution::MAX_BATCH_STATEMENTS {
+        return Ok(());
+    }
+    Err(Error::with_message(
+        400,
+        "too_many_statements",
+        format!(
+            "{subject} holds {count} statements, the batch API accepts {}; nothing was sent",
+            dg::execution::MAX_BATCH_STATEMENTS
+        ),
+    ))
+}
+
 pub async fn list(
     server: &str,
     json: bool,
@@ -502,6 +527,10 @@ pub async fn execute(
             "the SQL file holds no statements",
         )));
     }
+    // The count is checked before the request is built, so an over-long
+    // script is refused here — with the count in the message — instead
+    // of being sent and coming back as the API's bare rejection.
+    check_statement_count(statements.len(), "the file").map_err(Application)?;
     if !json && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
         let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
             400,
@@ -531,6 +560,11 @@ pub async fn execute(
             // A batch that fails fails as a whole. The error says which
             // statement broke it, and the statements that did not get
             // that far are shown as rolled back rather than as "-".
+            //
+            // A rejection that names no statement is a different thing:
+            // the batch never ran, so nothing was rolled back, and
+            // saying "rolled back" on every row would claim a rollback
+            // that did not happen.
             let message = error["message"].as_str().unwrap_or("failed");
             let code = error["code"].as_str().unwrap_or("error");
             let failed = error["statement"].as_u64();
@@ -543,6 +577,7 @@ pub async fn execute(
                     Some(failed) if failed as usize == index => {
                         Cell::styled(format!("{code}: {message}"), dg::render::Style::Red)
                     }
+                    None => Cell::styled("not run", dg::render::Style::Dim),
                     _ => Cell::styled("rolled back", dg::render::Style::Dim),
                 };
                 table.row(vec![
@@ -691,6 +726,11 @@ pub async fn batch(
     }
     let body: dg::execution::Batch =
         serde_json::from_slice(&batch_bytes).map_err(|_| Application(Error::invalid()))?;
+    // The same cap the SQL-file path enforces, checked before the
+    // request is built: the batch API takes at most
+    // `MAX_BATCH_STATEMENTS` statements, and a longer batch file is
+    // refused here rather than at the server.
+    check_statement_count(body.statements.len(), "the batch file").map_err(Application)?;
     let view_body = body.clone();
     let body_value = serde_json::to_value(&body).map_err(|_| Application(Error::invalid()))?;
     if human_result(
