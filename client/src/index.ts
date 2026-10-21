@@ -53,6 +53,15 @@ const NAME_RE = /^[a-z0-9][a-z0-9_]{0,63}$/;
 const HEX64_RE = /^[a-f0-9]{64}$/;
 const MAX_TRANSFER_BYTES = 128 * 1024 * 1024;
 const DEFAULT_MAX_RESPONSE = 266240;
+
+/// How long a read waits before the client gives up. A read that is given
+/// up on costs a retry and nothing else, so it gives up quickly.
+const READ_TIMEOUT_MS = 10_000;
+
+/// How long a write waits before the client gives up. A write that is
+/// given up on leaves the outcome in doubt, so it waits far longer: the
+/// answer is what removes the doubt.
+const WRITE_TIMEOUT_MS = 60_000;
 const CHUNK_BYTES = 1024 * 1024;
 const object = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 function isValue(v: unknown): v is SqlValue {
