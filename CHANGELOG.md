@@ -109,6 +109,22 @@ fixes; 1.0.0 waits for production acceptance.
   returned at once and the assertion that followed raced the next
   delivery instead of waiting for it. It now waits for the count to
   grow.
+- **The contention tests no longer depend on who wins a race.** The
+  probe that looks for the `429` polled back to back, and a read shares
+  the guard with the other reads: the probe kept the read batch busy
+  enough that the holder's writer never got its turn — the
+  writer-starvation gap the design documents, turned into a test that
+  could not see the contention it was looking for. The probe now leaves
+  a gap between polls, so the read batch drains and the holder gets in.
+- **The global lane's bound is pinned by a test that cannot race.** It
+  was checked over HTTP, where filling the lane needs as many slow
+  writes as the lane has permits, and whether they overlap is something
+  the machine decides (four CPU-bound holders starve each other's
+  admission, so on a busy box the last one is admitted after the first
+  has finished). The bound is now checked where the contention is
+  exact — the permits are held directly (`src/api.rs`) — and the HTTP
+  test keeps what it can decide: every holder is rolled back at the
+  deadline and the service works normally again afterwards.
 - **`dg execute` now refuses an over-long script before it sends it.**
   The batch API accepts 32 statements and the whole file is one atomic
   batch, so a longer file was sent anyway and came back as the

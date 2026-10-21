@@ -54,6 +54,24 @@ impl Server {
     fn call(&self, method: &str, path: &str, body: Value) -> (u16, Value) {
         self.call_keyed(method, path, body, None)
     }
+    fn call_keyed(
+        &self,
+        method: &str,
+        path: &str,
+        body: Value,
+        idempotency_key: Option<&str>,
+    ) -> (u16, Value) {
+        let mut request = reqwest::blocking::Client::new()
+            .request(method.parse().unwrap(), format!("{}{path}", self.url))
+            .bearer_auth(&self.owner)
+            .json(&body)
+            .timeout(Duration::from_secs(60));
+        if let Some(key) = idempotency_key {
+            request = request.header("Idempotency-Key", key);
+        }
+        let response = request.send().unwrap();
+        (response.status().as_u16(), response.json().unwrap())
+    }
     fn ok(&self, method: &str, path: &str, body: Value) -> Value {
         let (status, response) = self.call(method, path, body);
         assert_eq!(status, 200, "{path}: {response}");
