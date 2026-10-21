@@ -55,16 +55,22 @@ for kv in "$@"; do
         [A-Z_][A-Z0-9_]*=*) ;;
         *) fail "expected NAME=VALUE, got: $kv" ;;
     esac
+    case "${kv#*=}" in
+        *$'\n'*) fail "a value must be one line, got: $kv" ;;
+    esac
 done
 
-# Substitute each named placeholder. Bash parameter expansion, not sed:
-# the value may hold any character, and a sed replacement would have to
-# escape it.
+# Substitute each named placeholder. sed with an escaped replacement
+# rather than a literal expansion: a value may hold a slash, an
+# ampersand or a backslash (a path, a shell fragment), and those are
+# special to a replacement, so they are escaped once here.
 for kv in "$@"; do
     name="${kv%%=*}"
     value="${kv#*=}"
     needle="{{${name}}}"
-    content="${content//"$needle"/"$value}"
+    escaped="$(printf '%s' "$value" | sed -e 's/[\\&|]/\\&/g')"
+    rendered="$(printf '%s' "$content" | sed -e "s|$needle|$escaped|g"; printf 'x')"
+    content="${rendered%x}"
 done
 
 leftover="$(printf '%s\n' "$content" | grep -o '{{[A-Z_][A-Z0-9_]*}}' | sort -u | tr '\n' ' ' || true)"

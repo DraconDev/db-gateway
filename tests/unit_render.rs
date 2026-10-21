@@ -101,6 +101,29 @@ fn the_values_it_is_given_replace_the_placeholders() {
 }
 
 #[test]
+fn a_value_with_special_characters_is_substituted_literally() {
+    // A value is a path or an address; it may hold a slash, an
+    // ampersand or a backslash, and those are special to a
+    // replacement. The render must put the value in as it was given.
+    let dir = tempfile::tempdir().unwrap();
+    let template = dir.path().join("unit.service");
+    std::fs::write(
+        &template,
+        "[Service]\nExecStart=/usr/local/bin/dg --root {{DG_ROOT}}\n",
+    )
+    .unwrap();
+    let value = r#"/var/lib/dg & co\back"#;
+
+    let (ok, stdout, stderr) = render(&template, &[format!("DG_ROOT={value}")]);
+
+    assert!(ok, "the render failed: {stderr}");
+    assert!(
+        stdout.contains(&format!("--root {value}")),
+        "the value was not substituted literally: {stdout}"
+    );
+}
+
+#[test]
 fn the_drift_gate_renders_every_unit_it_compares() {
     // The gate compares the host's installed units against the repo
     // templates rendered with the reference-host values. A compared
