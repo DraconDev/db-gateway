@@ -51,6 +51,14 @@ fixes; 1.0.0 waits for production acceptance.
 
 ### Fixed
 
+- **The documents no longer contradict the unit about the gateway's
+  memory cap.** One pass corrected the number in three documents and
+  left a fourth claiming 96 MiB twenty lines below the correction, so
+  the file contradicted itself. The deploy gate now checks the live
+  documents against the unit: a document that names the gateway unit
+  must state the cap the unit sets, and the sidecar's own cap, the
+  sandbox's 1 GiB scope and the dated measurement records are left
+  alone.
 - **The host drift check no longer reports a false drift on a healthy
   host.** It compares the unit installed on a host against the repo
   template rendered with the reference-host values, and the render

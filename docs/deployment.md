@@ -40,6 +40,16 @@ placeholders for future/repeated deployments.
    closed when neither engine is available, rather than falling back to a
    native build.
 
+   The same gate checks the documents against the unit: the gateway's
+   memory cap is stated in `deploy/dg.service`, and every live document
+   that names the unit must state the same cap
+   (`scripts/check-doc-caps.py`, run by the gate). The sidecar's own cap,
+   the sandbox's 1 GiB scope, the harness's measured suggestion and the
+   dated records under `docs/evidence/` are not the gateway's cap and are
+   left alone. The check exists because a document that states a
+   different ceiling contradicts the file that is actually installed,
+   and the operator reads the document.
+
    **Builder update policy:** treat the image digest and expected glibc family
    as release inputs. Update them only for an intentional micro2 OS/glibc
    change: first record the target's architecture and `ldd --version` output,
