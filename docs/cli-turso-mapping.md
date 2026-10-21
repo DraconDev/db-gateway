@@ -21,7 +21,7 @@ maps each Turso CLI verb to its `dg` equivalent.
 |---|---|---|
 | `turso db shell <name>` | `dg shell [name]` | Optional preselect; `use <db>` switches inside. Piped stdin works. The operator's dot-commands (`.status`, `.keys`, `.backups`, `.tables`, `.schema`) draw the same views as the one-shot commands. |
 | `turso db execute <name> "<sql>"` | `dg query <name> "<sql>"` | Interactive terminals get a table (numbers right-aligned, `NULL` distinct, wide characters measured), else JSON. `--args`, `--idempotency-key`. |
-| — | `dg execute <name> <file.sql>` | Runs a SQL FILE, reporting each statement. The file is split by SQLite's own `sqlite3_complete`, so a semicolon inside a string, a comment, or a trigger body is not a statement boundary. The statements run as one atomic batch. |
+| — | `dg execute <name> <file.sql>` | Runs a SQL FILE, reporting each statement. The file is split by SQLite's own `sqlite3_complete`, so a semicolon inside a string, a comment, or a trigger body is not a statement boundary. The statements run as one atomic batch. A file of more than 32 statements is refused before it is sent, with the count, the cap and the fact that nothing was sent — a longer file is not split, because that would give up the atomicity. |
 | — | `dg batch <name> <file>` | Atomic JSON batch from file. No Turso equivalent; kept. |
 
 ## Tokens / credentials
