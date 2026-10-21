@@ -89,7 +89,10 @@ fn a_document_quoting_a_different_quantity_is_not_refused() {
          term is ~24 MiB, not ~10 MiB — two independent admission lanes.\n",
     );
     let (ok, stderr) = check(dir.path());
-    assert!(ok, "the check rejected a document quoting another quantity: {stderr}");
+    assert!(
+        ok,
+        "the check rejected a document quoting another quantity: {stderr}"
+    );
 }
 
 #[test]
