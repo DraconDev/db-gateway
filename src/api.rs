@@ -1,6 +1,6 @@
 use crate::{
     error::{Error, Result},
-    execution::{Batch, Statement},
+    execution::{Batch, REQUEST_BUDGET, Statement},
     store::{ACQUIRE_TIMEOUT, KeyRequest, Principal, Store, unauthorized, validate_name},
 };
 use axum::{
@@ -658,7 +658,11 @@ async fn execute(
     work_in(store, headers, read, move |s, p| {
         s.authorize(&p, &name)?;
         let path = s.path(&name)?;
-        let _guard = s.acquire_queue(&name, !read)?;
+        // The request publishes how long it may hold this database's
+        // guard, so a read that arrives while a write is running waits
+        // for the write instead of being shed on a timer that had
+        // nothing to do with the write's own duration.
+        let _guard = s.acquire_queue_with_budget(&name, !read, REQUEST_BUDGET)?;
         let previous_write = if read { None } else { s.last_write(&name) };
         if !read {
             s.begin_write(&name)?;

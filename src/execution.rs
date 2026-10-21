@@ -33,6 +33,20 @@ pub const MAX_ROWS: usize = 1000;
 /// cap cannot drift apart.
 pub const MAX_BATCH_STATEMENTS: usize = 32;
 
+/// How long one statement may run before it is rolled back.
+///
+/// The progress handler checks this between VDBE steps, so it bounds the
+/// EXECUTION of a statement, not the commit that follows it.
+pub const STATEMENT_DEADLINE: Duration = Duration::from_secs(2);
+
+/// How long a request may hold its database's admission guard.
+///
+/// A statement's execution is bounded by [`STATEMENT_DEADLINE`]; the commit
+/// that follows it is an fsync, which the server does not bound. Two
+/// statement deadlines is a generous cover for both: a request that
+/// overruns it is one no reader should sit behind.
+pub const REQUEST_BUDGET: Duration = Duration::from_secs(4);
+
 /// How many bytes a batch file may hold.
 pub const MAX_BATCH_FILE_BYTES: usize = 64 * 1024;
 
@@ -515,7 +529,7 @@ pub fn execute_detailed(
         }
     }
     let mut conn = open(path)?;
-    let deadline = Instant::now() + Duration::from_secs(2);
+    let deadline = Instant::now() + STATEMENT_DEADLINE;
     conn.progress_handler(1000, Some(move || Instant::now() >= deadline))?;
     // Deferred for statement-classified reads regardless of principal role:
     // an Immediate transaction takes a RESERVED lock even for a pure
