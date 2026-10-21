@@ -557,7 +557,7 @@ impl App {
 /// failed batch that the CLI says.
 fn outcome_of(invocation: &Invocation, statements: &[String], response: &Value) -> Outcome {
     if !statements.is_empty() {
-        let outcome = views::batch_outcomes(&statements, response);
+        let outcome = views::batch_outcomes(statements, response);
         let reason = outcome.reason();
         return Outcome {
             headline: if outcome.ran() {
@@ -669,14 +669,11 @@ pub async fn run(server: &str, key: &str, options: Options) -> Result<()> {
     // crossterm's reader blocks, so it lives on its own thread and the
     // loop waits for its events beside the refresh.
     std::thread::spawn(move || {
-        loop {
-            match ratatui::crossterm::event::read() {
-                Ok(event) => {
-                    if events.send(event).is_err() {
-                        break;
-                    }
-                }
-                Err(_) => break,
+        while let Ok(event) = ratatui::crossterm::event::read() {
+            // The channel is closed when the view has left; the send
+            // failing is the thread's signal to stop.
+            if events.send(event).is_err() {
+                break;
             }
         }
     });
