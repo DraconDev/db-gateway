@@ -68,7 +68,12 @@ BINARY="$TARGET_DIR/release/dg"
 INSTALLED="$BINARY"
 if [ "$INSTALL" -eq 1 ]; then
     mkdir -p "$PREFIX"
-    cp "$BINARY" "$PREFIX/dg"
+    # A running `dg` holds the installed binary open, and the copy
+    # fails with a bare "Text file busy" that says nothing about what
+    # to do. Say it instead.
+    if ! cp "$BINARY" "$PREFIX/dg"; then
+        fail "could not install $PREFIX/dg — a dg may be running (a gateway, or a view); stop it and install again"
+    fi
     chmod 755 "$PREFIX/dg"
     INSTALLED="$PREFIX/dg"
     log "installed $INSTALLED"
