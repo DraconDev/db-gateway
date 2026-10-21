@@ -378,11 +378,15 @@ if command -v systemd-analyze >/dev/null 2>&1; then
     tmp="$(mktemp -d "${TMPDIR:-/tmp}/dg-unit-XXXXXX")"
     trap 'rm -rf "$tmp"' EXIT
     mkdir -p "$tmp/data"
-    sed -e "s|{{DG_USER}}|$(id -un)|g" \
-        -e "s|{{DG_BINARY}}|$TARGET_DIR/debug/dg|g" \
-        -e "s|{{DG_DATA_DIR}}|$tmp/data|g" \
-        -e 's|{{DG_LISTEN}}|127.0.0.1:7432|g' \
-        "$UNIT" >"$tmp/dg.service"
+    # Every unit is rendered through scripts/unit-render.sh, which
+    # refuses to emit a unit that still carries a placeholder. A
+    # template that gains one therefore fails this gate loudly instead
+    # of being verified with the literal "{{...}}" text still in it.
+    "$ROOT/scripts/unit-render.sh" "$UNIT" \
+        "DG_USER=$(id -un)" \
+        "DG_BINARY=$TARGET_DIR/debug/dg" \
+        "DG_DATA_DIR=$tmp/data" \
+        "DG_LISTEN=127.0.0.1:7432" >"$tmp/dg.service"
     # The litestream-sync units name the host path /usr/local/bin/
     # litestream-sync.sh; point the verification copy at the repo script
     # so verify checks the unit, not this machine's /usr/local/bin.
@@ -392,45 +396,47 @@ if command -v systemd-analyze >/dev/null 2>&1; then
     # The backup units are placeholder templates like dg.service;
     # substitute the same dummy values so verify checks unit structure.
     for u in dg-backup.service dg-backup-digest.service; do
-        sed -e "s|{{DG_USER}}|$(id -un)|g" \
-            -e "s|{{DG_BINARY}}|$TARGET_DIR/debug/dg|g" \
-            -e "s|{{DG_DATA_DIR}}|$tmp/data|g" \
-            -e "s|{{DG_BACKUP_ROOT}}|$tmp/data|g" \
-            -e "s|{{DG_BACKUP_SCRIPT}}|$ROOT/scripts/micro2-backup.sh|g" \
-            -e 's|{{DG_LISTEN}}|127.0.0.1:7432|g' \
-            -e "s|{{DG_OWNER_KEY_FILE}}|$tmp/owner.key|g" \
-            "$ROOT/deploy/$u" >"$tmp/$u"
+        "$ROOT/scripts/unit-render.sh" "$ROOT/deploy/$u" \
+            "DG_USER=$(id -un)" \
+            "DG_BINARY=$TARGET_DIR/debug/dg" \
+            "DG_DATA_DIR=$tmp/data" \
+            "DG_BACKUP_ROOT=$tmp/data" \
+            "DG_BACKUP_SCRIPT=$ROOT/scripts/micro2-backup.sh" \
+            "DG_LISTEN=127.0.0.1:7432" \
+            "DG_OWNER_KEY_FILE=$tmp/owner.key" >"$tmp/$u"
     done
     cp "$ROOT/deploy/dg-backup.timer" "$ROOT/deploy/dg-backup-digest.timer" "$tmp/"
-    sed -e "s|{{DG_USER}}|$(id -un)|g" \
-        -e "s|{{DG_BINARY}}|$TARGET_DIR/debug/dg|g" \
-        -e "s|{{DG_DATA_DIR}}|$tmp/data|g" \
-        -e "s|{{DG_RESTORE_DRILL_SCRIPT}}|$ROOT/scripts/bucket-restore-drill.sh|g" \
-        -e "s|{{DG_OWNER_KEY_FILE}}|$tmp/owner.key|g" \
-        "$ROOT/deploy/dg-restore-drill.service" >"$tmp/dg-restore-drill.service"
+    "$ROOT/scripts/unit-render.sh" "$ROOT/deploy/dg-restore-drill.service" \
+        "DG_USER=$(id -un)" \
+        "DG_BINARY=$TARGET_DIR/debug/dg" \
+        "DG_DATA_DIR=$tmp/data" \
+        "DG_RESTORE_DRILL_SCRIPT=$ROOT/scripts/bucket-restore-drill.sh" \
+        "DG_OWNER_KEY_FILE=$tmp/owner.key" >"$tmp/dg-restore-drill.service"
     cp "$ROOT/deploy/dg-restore-drill.timer" "$tmp/"
-    sed -e "s|{{DG_USER}}|$(id -un)|g" \
-        -e "s|{{DG_DATA_DIR}}|$tmp/data|g" \
-        -e "s|{{DG_BACKUP_ROOT}}|$tmp/data|g" \
-        -e "s|{{DG_RESOURCE_SAMPLE_SCRIPT}}|$ROOT/scripts/resource-sample.sh|g" \
-        "$ROOT/deploy/dg-resource-sample.service" >"$tmp/dg-resource-sample.service"
+    "$ROOT/scripts/unit-render.sh" "$ROOT/deploy/dg-resource-sample.service" \
+        "DG_USER=$(id -un)" \
+        "DG_DATA_DIR=$tmp/data" \
+        "DG_BACKUP_ROOT=$tmp/data" \
+        "DG_RESOURCE_SAMPLE_SCRIPT=$ROOT/scripts/resource-sample.sh" >"$tmp/dg-resource-sample.service"
     cp "$ROOT/deploy/dg-resource-sample.timer" "$tmp/"
-    sed -e "s|{{DG_USER}}|$(id -un)|g" \
-        -e "s|{{DG_DATA_DIR}}|$tmp/data|g" \
-        -e "s|{{DG_ALERTS_SCRIPT}}|$ROOT/scripts/dg-alerts.sh|g" \
-        "$ROOT/deploy/dg-alerts.service" >"$tmp/dg-alerts.service"
+    "$ROOT/scripts/unit-render.sh" "$ROOT/deploy/dg-alerts.service" \
+        "DG_USER=$(id -un)" \
+        "DG_DATA_DIR=$tmp/data" \
+        "DG_ALERTS_SCRIPT=$ROOT/scripts/dg-alerts.sh" >"$tmp/dg-alerts.service"
     cp "$ROOT/deploy/dg-alerts.timer" "$tmp/"
-    sed -e "s|{{DG_MESH_LISTEN}}|127.0.0.2:17432|g" \
-        "$ROOT/deploy/dg-mesh-proxy.socket" >"$tmp/dg-mesh-proxy.socket"
+    "$ROOT/scripts/unit-render.sh" "$ROOT/deploy/dg-mesh-proxy.socket" \
+        "DG_MESH_LISTEN=127.0.0.2:17432" >"$tmp/dg-mesh-proxy.socket"
     # systemd-socket-proxyd is an Ubuntu-systemd path; substitute a
     # stand-in so verify checks unit structure on this host too.
-    sed -e "s|{{DG_LISTEN}}|127.0.0.1:7432|g" \
-        -e "s|/usr/lib/systemd/systemd-socket-proxyd|$(type -P true || echo /bin/true)|g" \
-        "$ROOT/deploy/dg-mesh-proxy.service" >"$tmp/dg-mesh-proxy.service"
+    "$ROOT/scripts/unit-render.sh" "$ROOT/deploy/dg-mesh-proxy.service" \
+        "DG_LISTEN=127.0.0.1:7432" \
+        | sed -e "s|/usr/lib/systemd/systemd-socket-proxyd|$(type -P true || echo /bin/true)|g" \
+        >"$tmp/dg-mesh-proxy.service"
     cp "$ROOT/deploy/dg-app-proxy.socket" "$tmp/"
-    sed -e "s|{{DG_MESH_LISTEN}}|127.0.0.2:17432|g" \
-        -e "s|/usr/lib/systemd/systemd-socket-proxyd|$(type -P true || echo /bin/true)|g" \
-        "$ROOT/deploy/dg-app-proxy.service" >"$tmp/dg-app-proxy.service"
+    "$ROOT/scripts/unit-render.sh" "$ROOT/deploy/dg-app-proxy.service" \
+        "DG_MESH_LISTEN=127.0.0.2:17432" \
+        | sed -e "s|/usr/lib/systemd/systemd-socket-proxyd|$(type -P true || echo /bin/true)|g" \
+        >"$tmp/dg-app-proxy.service"
     if systemd-analyze verify "$tmp/dg.service" "$tmp/dg-litestream-sync.service" "$tmp/dg-litestream-sync.timer" "$tmp/dg-backup.service" "$tmp/dg-backup.timer" "$tmp/dg-backup-digest.service" "$tmp/dg-backup-digest.timer" "$tmp/dg-restore-drill.service" "$tmp/dg-restore-drill.timer" "$tmp/dg-resource-sample.service" "$tmp/dg-resource-sample.timer" "$tmp/dg-alerts.service" "$tmp/dg-alerts.timer" "$tmp/dg-mesh-proxy.socket" "$tmp/dg-mesh-proxy.service" "$tmp/dg-app-proxy.socket" "$tmp/dg-app-proxy.service" 2>"$tmp/verify.log"; then
         log "systemd-analyze verify: clean"
     else

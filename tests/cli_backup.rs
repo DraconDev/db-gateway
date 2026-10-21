@@ -66,8 +66,11 @@ fn the_digest_reports_on_a_registry_it_did_not_create() {
         out.status.success(),
         "the digest failed on an empty data directory: {out:?}"
     );
+    // The report, not the wording of a section header: a reader must be
+    // told how many databases it found, and on a registry it did not
+    // create that number is zero.
     assert!(
-        stdout.contains("backup"),
-        "the digest printed no backup section: {stdout}"
+        stdout.contains("0 database"),
+        "the digest did not report an empty registry: {stdout}"
     );
 }

@@ -90,7 +90,11 @@ DG_QUERY_CACHE="$(mktemp)"
 # per-database loop (a source that cannot be listed, a count that does
 # not match) used to leave restored copies under /var/tmp on the host.
 cleanup() {
-    rm -f "$DG_QUERY_CACHE"
+    # `|| true`: the trap runs under `set -e`, so a failing rm would
+    # abort this function before the remote scratch dir was removed --
+    # the one cleanup that matters would be skipped by the one that
+    # does not.
+    rm -f "$DG_QUERY_CACHE" || true
     ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" \
         "sudo -n rm -rf ${REMOTE_OUT}" >/dev/null 2>&1 || true
     return 0

@@ -51,6 +51,18 @@ fixes; 1.0.0 waits for production acceptance.
 
 ### Fixed
 
+- **The host drift check no longer reports a false drift on a healthy
+  host.** It compares the unit installed on a host against the repo
+  template rendered with the reference-host values, and the render
+  left the placeholders it did not know in place. A template that
+  gained a placeholder — the hourly backup unit, which now passes the
+  paths it was rendered with — was therefore hashed as text no
+  correctly rendered host can have, so every healthy host reported a
+  permanent mismatch and the check could no longer find real drift.
+  The render is strict now: a placeholder with no value fails the
+  check, naming it, until the host's value for it is stated, and both
+  the drift check and the deploy gate render through the same
+  renderer.
 - **The per-database table no longer shows a maximum under a "p95"
   header.** The wait-latency column held each database's longest
   single wait while claiming to be a percentile, so on a contended

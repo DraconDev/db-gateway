@@ -97,7 +97,15 @@ daily digest reads the configured root.
 `scripts/host-audit.sh` compares the installed units against these
 templates (rendered with the reference-host values, comments/blank
 lines ignored) and fails on drift, so a hand edit on the host cannot
-silently diverge from the repo.
+silently diverge from the repo. The render is strict: a template that
+gains a placeholder fails the check, naming it, until the host's value
+for that placeholder is stated. A template rendered with the literal
+`{{...}}` text still in it would hash to a value no correctly
+rendered host has, so the check would report a permanent false drift on
+every healthy host — and a permanently red check cannot find the real
+drift it exists to detect. `scripts/unit-render.sh` is that render,
+and `scripts/validate-deploy.sh` uses it too, so the deploy gate
+verifies units that carry no template text.
 
 **Non-loopback access (audit A9):** application hosts reach the
 gateway over a WireGuard mesh via `deploy/dg-mesh-proxy.{socket,service}`
