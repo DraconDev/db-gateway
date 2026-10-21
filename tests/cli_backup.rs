@@ -12,7 +12,7 @@
 //! its snapshot and failed with an unexplained 500, and a chunked import
 //! lost its staging file and failed with an unexplained 400.
 //!
-//! Run: `timeout 120 cargo test --locked --test backup_digest_reader`
+//! Run: `timeout 120 cargo test --locked --test cli_backup`
 
 use std::process::Command;
 

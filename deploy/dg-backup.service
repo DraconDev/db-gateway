@@ -13,6 +13,15 @@
 # item A5). DG_BIN is pinned in the environment because the producer
 # shells out to the gateway CLI and must never resolve a different `dg`
 # from PATH.
+#
+# The producer's paths are passed explicitly rather than left to its
+# compiled-in defaults. The defaults (127.0.0.1:7432, /etc/dg/owner.key,
+# /var/lib/dg, /var/lib/dg-backups) are the reference layout, and a host
+# that renders this template with any other layout would otherwise
+# publish into /var/lib/dg-backups while dg-backup-digest.service reads
+# the configured root -- every digest then reports the databases as
+# unknown, and a non-default {{DG_LISTEN}} would fail every backup with
+# connection refused.
 
 [Unit]
 Description=DB Gateway hourly snapshot backup
@@ -23,6 +32,6 @@ Type=oneshot
 User={{DG_USER}}
 Group={{DG_USER}}
 Environment=DG_BIN={{DG_BINARY}}
-ExecStart={{DG_BACKUP_SCRIPT}} --keep 24
+ExecStart={{DG_BACKUP_SCRIPT}} --keep 24 --server http://{{DG_LISTEN}} --key-file {{DG_OWNER_KEY_FILE}} --data-dir {{DG_DATA_DIR}} --backup-root {{DG_BACKUP_ROOT}}
 WorkingDirectory={{DG_BACKUP_ROOT}}
 NoNewPrivileges=true
