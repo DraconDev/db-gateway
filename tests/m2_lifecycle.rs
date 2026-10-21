@@ -54,38 +54,6 @@ impl Server {
     fn call(&self, method: &str, path: &str, body: Value) -> (u16, Value) {
         self.call_keyed(method, path, body, None)
     }
-    /// The server's admission counters for one database: how many
-    /// attempts it has counted, and how many of them were shed.
-    ///
-    /// The status endpoint answers from the metrics and never takes the
-    /// database's guard, so it answers even while a request holds it.
-    fn queue_counters(&self, name: &str) -> (u64, u64) {
-        let (status, body) = self.call("GET", "/v1/status", json!({}));
-        assert_eq!(status, 200, "status: {body}");
-        let entry = &body["databases"][name];
-        (
-            entry["queue_waits"].as_u64().unwrap_or(0),
-            entry["queue_timeouts"].as_u64().unwrap_or(0),
-        )
-    }
-    fn call_keyed(
-        &self,
-        method: &str,
-        path: &str,
-        body: Value,
-        idempotency_key: Option<&str>,
-    ) -> (u16, Value) {
-        let mut request = reqwest::blocking::Client::new()
-            .request(method.parse().unwrap(), format!("{}{path}", self.url))
-            .bearer_auth(&self.owner)
-            .json(&body)
-            .timeout(Duration::from_secs(60));
-        if let Some(key) = idempotency_key {
-            request = request.header("Idempotency-Key", key);
-        }
-        let response = request.send().unwrap();
-        (response.status().as_u16(), response.json().unwrap())
-    }
     fn ok(&self, method: &str, path: &str, body: Value) -> Value {
         let (status, response) = self.call(method, path, body);
         assert_eq!(status, 200, "{path}: {response}");
@@ -359,38 +327,6 @@ fn imported_external_sqlite_file_supports_m1_keyed_writes() {
     assert_eq!(replay_tables, 1);
 }
 
-/// Wait until the server counts an ADMITTED request for `name`.
-///
-/// The wait counter moves for every attempt, including the ones the queue
-/// sheds, so the count alone does not say the holder is in. The timeout
-/// counter is what tells them apart: an admitted attempt raises the waits
-/// and not the timeouts.
-///
-/// The probe must not start before this returns. The probe is a flood of
-/// reads on the holder's own database, and reads share the guard with
-/// each other, so a probe that starts first can keep the read batch busy
-/// enough that the holder's writer never gets its turn — the
-/// writer-starvation gap the design documents.
-fn wait_for_admission(server: &Server, name: &str, baseline: (u64, u64)) {
-    let deadline = Instant::now() + Duration::from_secs(20);
-    loop {
-        let (waits, timeouts) = server.queue_counters(name);
-        let st = server.call("GET", "/v1/status", json!({})).1;
-        println!(
-            "DIAGWAIT {name} waits={waits} timeouts={timeouts} base={baseline:?} admission={}",
-            st["admission"]
-        );
-        if waits > baseline.0 && timeouts == baseline.1 {
-            return;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "the holder on {name} never took the guard"
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    }
-}
-
 /// Poll a quick read until the server really rejects it: the observed 429 is
 /// the contention signal, so no sleep-based overlap is assumed. Returns after
 /// the first rejection or panics past a bounded wait.
@@ -432,6 +368,12 @@ fn observes_429_within(server: &Server, name: &str, sql: &str, window: Duration)
         if Instant::now() >= deadline {
             return false;
         }
+        // The gap is what lets the holder in. A read shares the guard
+        // with the other reads, so a probe that polls back to back keeps
+        // the read batch busy and the holder's writer never gets its turn
+        // — the writer-starvation gap the design documents, turned into
+        // a test that can never see the contention it is looking for.
+        std::thread::sleep(Duration::from_millis(25));
     }
 }
 
@@ -484,9 +426,7 @@ fn contended_capacity_rejects_with_429_and_server_recovers() {
     // concurrent read on the same database must see 429 capacity_exceeded.
     std::thread::scope(|scope| {
         let server = &server;
-        let baseline = server.queue_counters("hot");
         let holder = scope.spawn(move || slow_insert_until_admitted(server, "hot"));
-        wait_for_admission(server, "hot", baseline);
         assert_observes_429(server, "hot");
         assert_holder_hit_deadline(holder.join().unwrap());
     });
