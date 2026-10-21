@@ -565,6 +565,17 @@ pub async fn execute(
             // the batch never ran, so nothing was rolled back, and
             // saying "rolled back" on every row would claim a rollback
             // that did not happen.
+            //
+            // What "names no statement" means depends on how many
+            // statements the script held, and the client knows that
+            // while the server does not say it: the server attributes
+            // an error to a statement only when the batch holds more
+            // than one, because a lone statement is unambiguous on
+            // its own. So a script of one statement that fails carries
+            // no index — and that absence says nothing about whether
+            // it ran, so its row carries the reason instead. A script
+            // of several that fails without an index was rejected as a
+            // whole, before anything ran.
             let message = error["message"].as_str().unwrap_or("failed");
             let code = error["code"].as_str().unwrap_or("error");
             let failed = error["statement"].as_u64();
@@ -577,7 +588,19 @@ pub async fn execute(
                     Some(failed) if failed as usize == index => {
                         Cell::styled(format!("{code}: {message}"), dg::render::Style::Red)
                     }
+                    // A script of one statement: the server names no
+                    // statement for it, so the row shows why it failed.
+                    // The statement did run — "not run" would be a lie,
+                    // and the reason would be missing from the view.
+                    _ if statements.len() == 1 => {
+                        Cell::styled(format!("{code}: {message}"), dg::render::Style::Red)
+                    }
+                    // A script of several, rejected without naming a
+                    // statement: the whole request was refused, so
+                    // nothing ran and nothing was rolled back.
                     None => Cell::styled("not run", dg::render::Style::Dim),
+                    // A statement broke the batch: the rest were rolled
+                    // back with it.
                     _ => Cell::styled("rolled back", dg::render::Style::Dim),
                 };
                 table.row(vec![

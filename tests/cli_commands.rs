@@ -314,6 +314,34 @@ fn a_failing_script_names_the_statement_that_broke_it_on_a_terminal() {
 }
 
 #[test]
+fn a_one_statement_script_that_fails_shows_why_and_is_not_called_not_run() {
+    // The server attributes an error to a statement only when the batch
+    // holds more than one, because a lone statement is unambiguous on
+    // its own. So a script of one statement that fails carries no
+    // index, and that absence says nothing about whether it ran: the
+    // statement did run, and it failed. The row must carry the reason,
+    // not claim the statement never ran.
+    let fleet = Fleet::boot();
+    fleet.cli.ok("create", &["create", "lone_db"]);
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("lone.sql");
+    std::fs::write(&script, "SELECT * FROM no_such_table;\n").unwrap();
+    let (ok, screen) = pty(
+        &fleet,
+        &format!("execute lone_db {}", script.to_str().unwrap()),
+    );
+    assert!(!ok, "the failing script exited zero: {screen}");
+    assert!(
+        !screen.contains("not run"),
+        "a statement that ran and failed is drawn as not run: {screen}"
+    );
+    assert!(
+        screen.contains("invalid_sql"),
+        "the reason the statement failed is not shown: {screen}"
+    );
+}
+
+#[test]
 fn execute_stays_machine_readable_when_piped() {
     let fleet = Fleet::boot();
     fleet.cli.ok("create", &["create", "piped_script_db"]);
