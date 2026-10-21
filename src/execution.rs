@@ -743,10 +743,16 @@ mod tests {
         let path = dir.path().join("test.sqlite");
         initialize(&path).unwrap();
         let s = |sql: String| Statement { sql, args: vec![] };
-        // Batch statement count: 32 admitted, 33 and empty rejected.
-        let ok: Vec<Statement> = (0..32).map(|_| s("SELECT 1".into())).collect();
+        // Batch statement count: exactly the cap admitted, one over it
+        // and an empty batch rejected. The cap is the constant the CLI
+        // checks against, so the two cannot drift apart.
+        let ok: Vec<Statement> = (0..MAX_BATCH_STATEMENTS)
+            .map(|_| s("SELECT 1".into()))
+            .collect();
         assert!(execute(&path, &ok, true, false, "owner", None).is_ok());
-        let too_many: Vec<Statement> = (0..33).map(|_| s("SELECT 1".into())).collect();
+        let too_many: Vec<Statement> = (0..=MAX_BATCH_STATEMENTS)
+            .map(|_| s("SELECT 1".into()))
+            .collect();
         assert_eq!(
             execute(&path, &too_many, true, false, "owner", None)
                 .unwrap_err()

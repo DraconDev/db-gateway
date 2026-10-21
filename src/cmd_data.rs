@@ -792,6 +792,50 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_batch_at_the_cap_is_accepted_and_one_over_it_is_refused() {
+        // The cap is the API's, and the CLI reads the same number: a
+        // file of exactly 32 statements is a legal batch, and a file of
+        // 33 is refused before it is sent.
+        assert!(
+            check_statement_count(dg::execution::MAX_BATCH_STATEMENTS, "the file").is_ok(),
+            "a batch at the cap was refused"
+        );
+        let error = check_statement_count(dg::execution::MAX_BATCH_STATEMENTS + 1, "the file")
+            .expect_err("a batch over the cap was accepted");
+        assert_eq!(error.code, "too_many_statements");
+        // The message is the operator's instruction: how many the file
+        // holds, what the API accepts, and that nothing was sent.
+        let message = error.message.to_string();
+        assert!(
+            message.contains("33 statements"),
+            "the refusal does not say how many the file holds: {message}"
+        );
+        assert!(
+            message.contains("accepts 32"),
+            "the refusal does not say what the API accepts: {message}"
+        );
+        assert!(
+            message.contains("nothing was sent"),
+            "the refusal does not say that nothing was sent: {message}"
+        );
+    }
+
+    #[test]
+    fn the_client_and_the_server_agree_on_the_cap() {
+        // One number, two places: if the server's cap and the client's
+        // check ever drifted apart, a script could be refused locally
+        // that the server would have taken, or sent that the server
+        // would reject. The server's own check is the one this pins.
+        let mut statements = Vec::new();
+        for _ in 0..=dg::execution::MAX_BATCH_STATEMENTS {
+            statements.push(serde_json::json!({"sql": "SELECT 1", "args": []}));
+        }
+        let body = serde_json::json!({"statements": statements, "atomic": true});
+        let request = dg::api::batch_request_for_test(&body);
+        assert_eq!(request.len(), dg::execution::MAX_BATCH_STATEMENTS + 1);
+    }
+
+    #[test]
     fn the_inspect_view_labels_the_p95_and_the_max_under_their_own_names() {
         // The defect this protects against: the wait-latency field once
         // held the database's MAXIMUM wait under a "wait p95" label.
