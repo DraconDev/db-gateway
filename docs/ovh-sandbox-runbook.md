@@ -111,8 +111,8 @@ upgrade re-runs this whole runbook.
 
 ## 2. WAL contention
 
-Goal: prove Litestream checkpoints don't surface as gateway `busy`/deadline
-failures, and quantify latency impact.
+Goal: prove Litestream checkpoints don't surface as gateway capacity,
+deadline or internal failures, and quantify latency impact.
 
 ```sh
 # Baseline first (no sidecar): 5-minute write loop, all-200s expected.

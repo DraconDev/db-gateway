@@ -345,8 +345,14 @@ ROWS_BEFORE="$(row_count rehearsal ledger)"
 # --------------------------------------------------------------------------
 # Gate 2 rehearsal: replication running against live gateway writes. The
 # assertion that matters is the one §2 asks for: replication must not add
-# `busy` or deadline failures. Recorded, not claimed -- the §6 gate proper
-# needs the bucket and a 1 GB-shaped sandbox.
+# capacity, deadline or internal failures to the gateway's own request
+# counters. Recorded, not claimed -- the §6 gate proper needs the bucket
+# and a 1 GB-shaped sandbox.
+#
+# The counters summed below are the ones the response actually carries
+# and the ones the rehearsal measures. The wording below names exactly
+# these, so the recorded evidence cannot claim a measurement the code
+# does not take.
 # --------------------------------------------------------------------------
 # ONE REPLICA ROOT PER DATABASE, deliberately. A file replica directory is not
 # namespaced per database: with two databases sharing one path their LTX
@@ -399,13 +405,13 @@ for _ in $(seq 1 40); do
 done
 
 if [ "$READ_Err" -eq 0 ] && [ "$REPLICA_FRESH" -eq 1 ]; then
-    record 2 PASS "rehearsal: replication advanced under 60 live writes with 0 busy/deadline failures" \
+    record 2 PASS "rehearsal: replication advanced under 60 live writes with 0 capacity/deadline/internal failures" \
         "rows before live writes: $ROWS_BEFORE" \
-        "busy+capacity_exceeded+deadline after 60 live writes: $READ_Err" \
+        "capacity_exceeded+query_deadline_exceeded+internal_error after 60 live writes: $READ_Err" \
         "replica advanced (new .ltx segment): yes" \
         "NOT §6 GATE 2: file replica, not OVH; no 1 GB-shaped sandbox; no p50/p99 comparison yet."
 else
-    record 2 FAIL "rehearsal: replication did not advance cleanly (busy/deadline=$READ_Err replica_advanced=$REPLICA_FRESH)" \
+    record 2 FAIL "rehearsal: replication did not advance cleanly (capacity/deadline/internal=$READ_Err replica_advanced=$REPLICA_FRESH)" \
         "replica dir: $replica_dir" \
         "litestream log tail:" \
         "$(tail -5 "$rehearsal_root/litestream.log" 2>/dev/null | sed 's/^/  /')"
