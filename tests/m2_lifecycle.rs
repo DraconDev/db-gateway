@@ -54,6 +54,16 @@ impl Server {
     fn call(&self, method: &str, path: &str, body: Value) -> (u16, Value) {
         self.call_keyed(method, path, body, None)
     }
+    fn call_timed(
+        &self,
+        method: &str,
+        path: &str,
+        body: Value,
+    ) -> (u16, Value, std::time::Duration) {
+        let started = std::time::Instant::now();
+        let r = self.call_keyed(method, path, body, None);
+        (r.0, r.1, started.elapsed())
+    }
     /// The server's admission counters for one database: how many
     /// attempts it has counted, and how many of them were shed.
     ///
@@ -376,7 +386,10 @@ fn wait_for_admission(server: &Server, name: &str, baseline: (u64, u64)) {
     loop {
         let (waits, timeouts) = server.queue_counters(name);
         let st = server.call("GET", "/v1/status", json!({})).1;
-        println!("DIAGWAIT {name} waits={waits} timeouts={timeouts} base={baseline:?} admission={}", st["admission"]);
+        println!(
+            "DIAGWAIT {name} waits={waits} timeouts={timeouts} base={baseline:?} admission={}",
+            st["admission"]
+        );
         if waits > baseline.0 && timeouts == baseline.1 {
             return;
         }
@@ -400,12 +413,13 @@ fn assert_observes_429(server: &Server, name: &str) {
 fn assert_observes_429_with(server: &Server, name: &str, sql: &str) {
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
-        let (status, body) = server.call(
+        let (status, body, took) = server.call_timed(
             "POST",
             &format!("/v1/databases/{name}/query"),
             json!({"sql": sql}),
         );
-        println!("DIAGPROBE status={status}");
+        let _ = took;
+        println!("DIAGPROBE status={status} at {:?}", started.elapsed());
         if status == 429 {
             assert_eq!(body["error"]["code"], "capacity_exceeded", "{body}");
             return;
@@ -433,11 +447,13 @@ const SLOW_INSERT: &str =
 fn slow_insert_until_admitted(server: &Server, name: &str) -> (u16, Value) {
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
-        let result = server.call(
+        let (r0, r1, took) = server.call_timed(
             "POST",
             &format!("/v1/databases/{name}/query"),
             json!({"sql": SLOW_INSERT}),
         );
+        let result = (r0, r1);
+        println!("DIAGHOLDER {name} status={} took={took:?}", result.0);
         println!("DIAGHOLDER {name} status={} body={}", result.0, result.1);
         if result.0 != 429 {
             return result;
