@@ -405,7 +405,9 @@ fn execute_runs_a_script_of_exactly_the_cap() {
         &["execute", "cap_script_db", script.to_str().unwrap()],
     );
     assert!(ok, "a script of exactly the cap was refused: {stderr}");
-    let rows = fleet.cli.q("count", "cap_script_db", "SELECT count(*) FROM capped");
+    let rows = fleet
+        .cli
+        .q("count", "cap_script_db", "SELECT count(*) FROM capped");
     assert_eq!(rows[0][0], 31, "not every statement ran: {rows:?}");
 }
 
