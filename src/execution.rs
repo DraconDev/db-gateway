@@ -33,6 +33,53 @@ pub const MAX_ROWS: usize = 1000;
 /// cap cannot drift apart.
 pub const MAX_BATCH_STATEMENTS: usize = 32;
 
+/// How many bytes a batch file may hold.
+pub const MAX_BATCH_FILE_BYTES: usize = 64 * 1024;
+
+/// Read a batch file: a regular file, at most 64 KiB, holding the
+/// API's own batch shape.
+///
+/// The rules belong to the file, not to the caller: a FIFO, a device
+/// or a directory is refused rather than read, and the ceiling is
+/// enforced on the bytes that arrive rather than on what the path
+/// claims. One reader, so the CLI and the terminal view accept the
+/// same files.
+pub fn read_batch_file(path: &Path) -> Result<Batch> {
+    use std::fs::OpenOptions;
+    use std::io::Read;
+    // Open once with O_NONBLOCK so a writer-less FIFO cannot make the
+    // caller hang before the descriptor is checked. The metadata check
+    // is on that same descriptor, so a path replacement cannot turn
+    // this into a read of a different file.
+    #[cfg(unix)]
+    let file = {
+        use std::os::unix::fs::OpenOptionsExt;
+        OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(path)
+    };
+    #[cfg(not(unix))]
+    let file = OpenOptions::new().read(true).open(path);
+    let mut file = file.map_err(|_| Error::invalid())?;
+    if !file.metadata().map_err(|_| Error::invalid())?.is_file() {
+        return Err(Error::invalid());
+    }
+    let mut bytes = Vec::new();
+    Read::by_ref(&mut file)
+        .take(MAX_BATCH_FILE_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| Error::invalid())?;
+    if bytes.len() > MAX_BATCH_FILE_BYTES {
+        return Err(Error::new(
+            413,
+            "input_limit_exceeded",
+            "batch input exceeds 64 KiB",
+        ));
+    }
+    serde_json::from_slice(&bytes).map_err(|_| Error::invalid())
+}
+
 /// Refuse a batch the API cannot take, before it is sent.
 ///
 /// The batch API holds at most [`MAX_BATCH_STATEMENTS`] statements. A

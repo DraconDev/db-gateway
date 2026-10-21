@@ -563,39 +563,9 @@ pub async fn batch(
     idempotency_key: Option<String>,
 ) -> Result<Option<Request>, dg::ServerError> {
     dg::store::validate_name(&name).map_err(Application)?;
-    // Open once with O_NONBLOCK so a writer-less FIFO cannot make
-    // the CLI hang before the descriptor is checked. The metadata
-    // check is on that same descriptor, so a path replacement
-    // cannot turn this into a read of a different file.
-    #[cfg(unix)]
-    let batch_file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NONBLOCK)
-        .open(&file);
-    #[cfg(not(unix))]
-    let batch_file = OpenOptions::new().read(true).open(&file);
-    let mut batch_file = batch_file.map_err(|_| Application(Error::invalid()))?;
-    if !batch_file
-        .metadata()
-        .map_err(|_| Application(Error::invalid()))?
-        .is_file()
-    {
-        return Err(Application(Error::invalid()));
-    }
-    let mut batch_bytes = Vec::new();
-    Read::by_ref(&mut batch_file)
-        .take(65537)
-        .read_to_end(&mut batch_bytes)
-        .map_err(|_| Application(Error::invalid()))?;
-    if batch_bytes.len() > 65536 {
-        return Err(Application(Error::new(
-            413,
-            "input_limit_exceeded",
-            "batch input exceeds 64 KiB",
-        )));
-    }
-    let body: dg::execution::Batch =
-        serde_json::from_slice(&batch_bytes).map_err(|_| Application(Error::invalid()))?;
+    // The file's rules are the library's: a regular file, at most
+    // 64 KiB, holding the API's own batch shape.
+    let body = dg::execution::read_batch_file(&file).map_err(Application)?;
     // The same cap the SQL-file path enforces, checked before the
     // request is built: the batch API takes at most
     // `MAX_BATCH_STATEMENTS` statements, and a longer batch file is
