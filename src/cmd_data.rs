@@ -821,18 +821,21 @@ mod tests {
     }
 
     #[test]
-    fn the_client_and_the_server_agree_on_the_cap() {
-        // One number, two places: if the server's cap and the client's
-        // check ever drifted apart, a script could be refused locally
-        // that the server would have taken, or sent that the server
-        // would reject. The server's own check is the one this pins.
-        let mut statements = Vec::new();
-        for _ in 0..=dg::execution::MAX_BATCH_STATEMENTS {
-            statements.push(serde_json::json!({"sql": "SELECT 1", "args": []}));
-        }
-        let body = serde_json::json!({"statements": statements, "atomic": true});
-        let request = dg::api::batch_request_for_test(&body);
-        assert_eq!(request.len(), dg::execution::MAX_BATCH_STATEMENTS + 1);
+    fn the_client_checks_the_servers_own_cap() {
+        // One number, two places: the server admits
+        // `MAX_BATCH_STATEMENTS` statements and the CLI refuses a file
+        // of more than that, both reading the same constant. A script
+        // the server would take is never refused locally, and a script
+        // the server would reject never leaves the machine.
+        assert_eq!(dg::execution::MAX_BATCH_STATEMENTS, 32);
+        assert!(
+            check_statement_count(dg::execution::MAX_BATCH_STATEMENTS, "the file").is_ok(),
+            "a batch the server would take was refused locally"
+        );
+        assert!(
+            check_statement_count(dg::execution::MAX_BATCH_STATEMENTS + 1, "the file").is_err(),
+            "a batch the server would reject was not refused locally"
+        );
     }
 
     #[test]
