@@ -323,3 +323,144 @@ fn execute_stays_machine_readable_when_piped() {
         "not JSON: {stdout}"
     );
 }
+
+#[test]
+fn execute_refuses_an_over_long_script_before_sending_it() {
+    // The batch API takes 32 statements; the whole file is one atomic
+    // batch, so a longer file cannot be split without giving that up.
+    // The CLI knows the cap, so it refuses here — with the count, the
+    // cap and the fact that nothing was sent — instead of sending a
+    // request the server is certain to reject with a bare error.
+    let fleet = Fleet::boot();
+    fleet.cli.ok("create", &["create", "long_script_db"]);
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("long.sql");
+    let mut body = String::from("CREATE TABLE landed (id INTEGER);\n");
+    for index in 0..32 {
+        body.push_str(&format!("INSERT INTO landed VALUES ({index});\n"));
+    }
+    std::fs::write(&script, &body).unwrap();
+
+    let (ok, _stdout, stderr) = run(
+        &fleet,
+        &["execute", "long_script_db", script.to_str().unwrap()],
+    );
+    assert!(!ok, "an over-long script was accepted");
+    assert!(
+        stderr.contains("too_many_statements"),
+        "the refusal does not name the reason: {stderr}"
+    );
+    // The message is the operator's instruction: how many the file
+    // holds, what the API accepts, and that nothing was sent.
+    assert!(
+        stderr.contains("33 statements"),
+        "the refusal does not say how many the file holds: {stderr}"
+    );
+    assert!(
+        stderr.contains("accepts 32"),
+        "the refusal does not say what the API accepts: {stderr}"
+    );
+    assert!(
+        stderr.contains("nothing was sent"),
+        "the refusal does not say that nothing was sent: {stderr}"
+    );
+
+    // Nothing ran: the table the script would have created is not
+    // there. A refusal that left a half-applied script behind would be
+    // worse than the server's rejection.
+    let rows = fleet.cli.q(
+        "check",
+        "long_script_db",
+        "SELECT name FROM sqlite_master WHERE name = 'landed'",
+    );
+    assert!(
+        rows.as_array().is_some_and(|rows| rows.is_empty()),
+        "the refused script left something behind: {rows:?}"
+    );
+}
+
+#[test]
+fn execute_runs_a_script_of_exactly_the_cap() {
+    // The cap is a boundary, not a discount: 32 statements is a legal
+    // batch, and the check must not refuse one.
+    let fleet = Fleet::boot();
+    fleet.cli.ok("create", &["create", "cap_script_db"]);
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("cap.sql");
+    let mut body = String::from("CREATE TABLE capped (id INTEGER);\n");
+    for index in 0..31 {
+        body.push_str(&format!("INSERT INTO capped VALUES ({index});\n"));
+    }
+    std::fs::write(&script, &body).unwrap();
+
+    let (ok, _stdout, stderr) = run(
+        &fleet,
+        &["execute", "cap_script_db", script.to_str().unwrap()],
+    );
+    assert!(ok, "a script of exactly the cap was refused: {stderr}");
+    let rows = fleet.cli.q("count", "cap_script_db", "SELECT count(*) FROM capped");
+    assert_eq!(rows[0][0], 31, "not every statement ran: {rows:?}");
+}
+
+#[test]
+fn execute_does_not_claim_a_rollback_when_the_batch_never_ran() {
+    // A rejection that names no statement is a rejection of the whole
+    // request: the statements never ran, so nothing was rolled back.
+    // The view must not claim a rollback that did not happen.
+    //
+    // A read-only credential with an idempotency key is such a
+    // rejection: the server refuses the key on a read before it runs
+    // anything.
+    let fleet = Fleet::boot();
+    fleet.cli.ok("create", &["create", "never_ran_db"]);
+    let reader = fleet.cli.ok(
+        "issue",
+        &[
+            "key",
+            "create",
+            "reader",
+            "--role",
+            "database_read_only",
+            "--database",
+            "never_ran_db",
+        ],
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let key_file = dir.path().join("reader.key");
+    std::fs::write(&key_file, reader["key"].as_str().unwrap()).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&key_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let script = dir.path().join("reads.sql");
+    std::fs::write(&script, "SELECT 1;\nSELECT 2;\n").unwrap();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_dg"))
+        .args([
+            "--server",
+            fleet.cli.server.as_str(),
+            "--key-file",
+            key_file.to_str().unwrap(),
+            "execute",
+            "never_ran_db",
+            script.to_str().unwrap(),
+            "--idempotency-key",
+            "read-with-a-key",
+        ])
+        .output()
+        .unwrap();
+    let screen = plain(&String::from_utf8_lossy(&out.stdout));
+    assert!(
+        !out.status.success(),
+        "the rejected batch exited zero: {screen}"
+    );
+    assert!(
+        screen.contains("not run"),
+        "the batch is not marked as not run: {screen}"
+    );
+    assert!(
+        !screen.contains("rolled back"),
+        "the view claims a rollback that did not happen: {screen}"
+    );
+}
