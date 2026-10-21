@@ -32,6 +32,34 @@ pub const MAX_ROWS: usize = 1000;
 /// server's bare rejection. One number, two places: the check and the
 /// cap cannot drift apart.
 pub const MAX_BATCH_STATEMENTS: usize = 32;
+
+/// Refuse a batch the API cannot take, before it is sent.
+///
+/// The batch API holds at most [`MAX_BATCH_STATEMENTS`] statements. A
+/// longer file cannot be split into several batches without giving up
+/// the whole-file atomicity a migration needs, so the caller says
+/// exactly what the file holds and what the API accepts, and sends
+/// nothing at all.
+///
+/// The message names the count, the cap and the fact that nothing was
+/// sent: a refusal the operator cannot act on is a refusal the
+/// operator has to guess about.
+///
+/// One rule, two callers: the CLI and the terminal view refuse an
+/// over-long script the same way, from the same number.
+pub fn check_statement_count(count: usize, subject: &str) -> Result<()> {
+    if count <= MAX_BATCH_STATEMENTS {
+        return Ok(());
+    }
+    Err(Error::with_message(
+        400,
+        "too_many_statements",
+        format!(
+            "{subject} holds {count} statements, the batch API accepts {MAX_BATCH_STATEMENTS}; nothing was sent"
+        ),
+    ))
+}
+
 const RETENTION: i64 = 86400;
 const MAX_REPLAYS: i64 = 256;
 

@@ -3,54 +3,11 @@ use serde_json::Value;
 use std::{
     io::{IsTerminal, Write},
     net::SocketAddr,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::ExitCode,
     time::Duration,
 };
 
-/// Stage an export download next to its destination so publication below is
-/// a same-directory atomic no-clobber link. Chunks stream in one at a time;
-/// only a single chunk is ever buffered in memory.
-fn export_stage_file(out: &Path) -> dg::error::Result<tempfile::NamedTempFile> {
-    let parent = out
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    tempfile::NamedTempFile::new_in(parent).map_err(|_| dg::error::Error::internal())
-}
-
-fn publish_export_file(temp: tempfile::NamedTempFile, path: &Path) -> dg::error::Result<()> {
-    temp.as_file()
-        .sync_all()
-        .map_err(|_| dg::error::Error::internal())?;
-    // A same-directory hard link is an atomic no-clobber publication on the
-    // supported Unix deployment. The temporary link is cleaned on return.
-    // The parent directory fsync makes the new name itself durable: without
-    // it a crash can lose the published file even though its bytes are safe.
-    std::fs::hard_link(temp.path(), path).map_err(|error| {
-        if error.kind() == std::io::ErrorKind::AlreadyExists {
-            dg::error::Error::new(409, "file_exists", "destination file already exists")
-        } else {
-            dg::error::Error::internal()
-        }
-    })?;
-    let parent = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    if std::fs::File::open(parent)
-        .and_then(|dir| dir.sync_all())
-        .is_err()
-    {
-        // The artifact is already visible at `path`. Reporting failure while
-        // leaving it there tells the operator the export did not happen when
-        // it did, and the stale file then blocks the next export. Undo the
-        // link so the reported state and the on-disk state agree.
-        let _ = std::fs::remove_file(path);
-        return Err(dg::error::Error::internal());
-    }
-    Ok(())
-}
 
 fn api_failed(response: &Value) -> bool {
     response.get("error").is_some()
