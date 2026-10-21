@@ -71,6 +71,15 @@ pub(super) fn migrate_metadata(conn: &mut Connection, root: &Path) -> Result<()>
     Ok(())
 }
 
+/// Whether a table exists in this connection's schema.
+///
+/// A reader that must not write cannot create the schema it needs, so it
+/// asks instead of failing on a missing table.
+fn table_exists(conn: &Connection, name: &str) -> Result<bool> {
+    let mut stmt = conn.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?")?;
+    Ok(stmt.exists([name])?)
+}
+
 fn now_secs() -> Result<i64> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

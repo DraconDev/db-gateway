@@ -1207,3 +1207,36 @@ fn clone_import_delete_roundtrip_at_store_level() {
     .unwrap();
     assert_eq!(count["rows"][0][0], 2);
 }
+
+#[test]
+fn a_shared_open_leaves_the_owners_in_flight_directories_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path()).unwrap();
+    // A retained chunked-export directory, named exactly as the live
+    // gateway names it while a transfer is in flight.
+    let live = dir.path().join(".transfer-inflight");
+    std::fs::create_dir(&live).unwrap();
+    std::fs::write(live.join("snapshot.sqlite"), b"in flight").unwrap();
+
+    // The reader path -- what `dg backup digest` uses -- must not delete
+    // it: the gateway that owns it is still using it.
+    let _reader = Store::open_shared(dir.path()).unwrap();
+    assert!(
+        live.exists(),
+        "a shared open deleted the owner's in-flight directory"
+    );
+    assert_eq!(
+        std::fs::read(live.join("snapshot.sqlite")).unwrap(),
+        b"in flight",
+        "a shared open disturbed the owner's directory contents"
+    );
+
+    // The owner path still reclaims residue from a crashed predecessor.
+    let orphan = dir.path().join(".transfer-orphan");
+    std::fs::create_dir(&orphan).unwrap();
+    let _owner = Store::open(dir.path()).unwrap();
+    assert!(
+        !orphan.exists(),
+        "the owner open must still sweep orphaned staging directories"
+    );
+}

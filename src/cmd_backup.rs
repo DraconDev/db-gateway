@@ -150,7 +150,13 @@ pub async fn digest(
     // one they need most, and asking a wedged process for its own
     // health report is a bad way to deliver it. Same rule, same
     // `snapshot`, so this and the sink cannot disagree.
-    let store = dg::store::Store::open(&data_dir).map_err(Application)?;
+    //
+    // A shared (non-owner) open, because this runs as a SECOND process
+    // on the host where `dg.service` owns the data directory. The owner
+    // open sweeps orphaned staging directories and migrates the
+    // registry; doing either from here deleted the running gateway's
+    // in-flight transfer directories and took its registry write lock.
+    let store = dg::store::Store::open_shared(&data_dir).map_err(Application)?;
     let store = match backup_root {
         Some(root) => store.with_backup_root(Some(root)),
         None => store,
