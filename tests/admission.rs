@@ -37,10 +37,6 @@ const BURST_QUERY_MS: u128 = 50;
 /// The slow write's size is calibrated too, so the write still holds the
 /// guard long enough for the reads to arrive while it runs.
 const SLOW_WRITE_MS: u128 = 300;
-/// The server's admission bound: a waiter gives up after this long and is
-/// shed with 429 capacity_exceeded. It is the server's own constant, and
-/// the test reads it from the status endpoint rather than restating it.
-const ADMISSION_BOUND_MS: u128 = 500;
 
 struct Server {
     child: Child,
@@ -173,28 +169,6 @@ fn queue_counters(address: &str, owner: &str, database: &str) -> (u64, u64) {
         entry["queue_waits"].as_u64().unwrap_or(0),
         entry["queue_timeouts"].as_u64().unwrap_or(0),
     )
-}
-
-/// Wait until the server counts one more admission for `database`, which
-/// means the request that was in flight has taken the guard.
-///
-/// The reads below must arrive while the write HOLDS the guard, and the
-/// client cannot see that directly: a request can sit in the server's
-/// accept queue before it is admitted, so the writer's own round trip says
-/// nothing about when it took the guard. The server's counter does, and
-/// reading it is cheap: the status endpoint answers from the metrics and
-/// never takes the database's guard, so it answers even while the write
-/// holds it.
-fn wait_for_admission(address: &str, owner: &str, database: &str, before: u64) {
-    let deadline = Instant::now() + Duration::from_secs(30);
-    while Instant::now() < deadline {
-        let (waits, _) = queue_counters(address, owner, database);
-        if waits > before {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    panic!("the write never took the guard");
 }
 
 #[test]

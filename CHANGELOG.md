@@ -79,6 +79,36 @@ fixes; 1.0.0 waits for production acceptance.
 
 ### Fixed
 
+- **The admission tests no longer depend on the speed of the machine they
+  run on.** The suite's premise was a hand-picked row count — a 30 000-row
+  insert, a 300 000-row recursive CTE — that had been calibrated on one
+  machine: on a slower or busier one the same count outgrew the server's
+  own statement deadline, and the test failed with a 408 (or a 429 from
+  the admission bound) for a reason that had nothing to do with admission.
+  The work is now measured on the machine that runs the test, so the
+  premise holds everywhere: the work still overlaps the requests that
+  have to wait for it, and it still finishes inside the deadline.
+- **A waiter is turned away only after waiting.** The admission bound is
+  a promise that a burst queues up instead of failing instantly, and a
+  read arriving during a write relies on it. Nothing asserted that
+  promise directly, and the one assertion that came close was relative
+  to `ACQUIRE_TIMEOUT` — a change to the constant would have made it
+  vacuous. The bound is now pinned by an absolute window (a waiter is
+  shed after at least 400 ms and well under 5 s), and a reader that
+  waits for a writer which releases inside the bound is pinned as
+  admitted (`src/store/tests.rs`).
+- **The CLI gives a write more room than a read before it gives up.**
+  Ten seconds was the whole client's timeout, so a gateway that was busy
+  answering turned a write into "outcome unknown" — the one state an
+  operator has to reconcile by hand. A read still gives up in ten
+  seconds (a retry costs nothing else); a write waits a minute, because
+  the answer is what removes the doubt.
+- **The notification test no longer races the delivery it waits for.**
+  It waited for a digest note to arrive — and the collector already
+  held the digests from before the sink started rejecting, so the wait
+  returned at once and the assertion that followed raced the next
+  delivery instead of waiting for it. It now waits for the count to
+  grow.
 - **`dg execute` now refuses an over-long script before it sends it.**
   The batch API accepts 32 statements and the whole file is one atomic
   batch, so a longer file was sent anyway and came back as the
