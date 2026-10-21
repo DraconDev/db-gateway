@@ -220,9 +220,7 @@ fn traffic_table(names: &[String], status: &Value, figures: Figures) -> Table {
         row.push(last_write);
         table.row(row);
     }
-    table.footer(
-        "wait p95 is this database's own recent waits; wait max is its worst single wait",
-    );
+    table.footer("wait p95 is this database's own recent waits; wait max is its worst single wait");
     table
 }
 

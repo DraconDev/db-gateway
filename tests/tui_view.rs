@@ -66,7 +66,12 @@ fn tui_text(status: &Value) -> String {
     let mut lines = Vec::new();
     for y in 0..40 {
         let line: String = (0..120)
-            .map(|x| buffer.cell((x, y)).map(|cell| cell.symbol().to_string()).unwrap_or_default())
+            .map(|x| {
+                buffer
+                    .cell((x, y))
+                    .map(|cell| cell.symbol().to_string())
+                    .unwrap_or_default()
+            })
             .collect();
         lines.push(line);
     }

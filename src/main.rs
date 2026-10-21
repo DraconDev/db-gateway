@@ -1,11 +1,6 @@
 use clap::{Parser, Subcommand};
 use serde_json::Value;
-use std::{
-    io::IsTerminal,
-    net::SocketAddr,
-    path::PathBuf,
-    process::ExitCode,
-};
+use std::{io::IsTerminal, net::SocketAddr, path::PathBuf, process::ExitCode};
 
 fn api_failed(response: &Value) -> bool {
     response.get("error").is_some()
@@ -365,6 +360,10 @@ enum Command {
     /// shows: create, delete, clone, export and import a database,
     /// issue, revoke and rotate a key, and run a query, a SQL file or
     /// a batch.
+    ///
+    /// The facts come from the same view layer the one-shot commands
+    /// draw from, and the requests are the API's own, so the two
+    /// surfaces cannot disagree about the same gateway.
     Tui {
         /// How often the service is read again, in seconds.
         #[arg(long, default_value_t = 2)]

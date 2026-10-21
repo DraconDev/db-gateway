@@ -104,7 +104,12 @@ fn screen(app: &App, width: u16, height: u16) -> String {
     let mut lines = Vec::new();
     for y in 0..height {
         let line: String = (0..width)
-            .map(|x| buffer.cell((x, y)).map(|cell| cell.symbol().to_string()).unwrap_or_default())
+            .map(|x| {
+                buffer
+                    .cell((x, y))
+                    .map(|cell| cell.symbol().to_string())
+                    .unwrap_or_default()
+            })
             .collect();
         lines.push(line);
     }

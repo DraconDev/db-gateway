@@ -74,7 +74,7 @@ fn widths(table: &ViewTable, area: u16) -> Vec<Constraint> {
 }
 
 /// A view table, as a widget.
-fn table_widget(table: &ViewTable, area: u16) -> Table<'static> {
+fn table_widget(table: &ViewTable, area: u16, max_rows: usize) -> Table<'static> {
     let header = Row::new(
         table
             .columns()
@@ -85,6 +85,7 @@ fn table_widget(table: &ViewTable, area: u16) -> Table<'static> {
     let rows = table
         .rows()
         .iter()
+        .take(max_rows)
         .map(|row| Row::new(row.iter().map(cell_widget).collect::<Vec<Cell<'static>>>()))
         .collect::<Vec<Row<'static>>>();
     Table::new(rows, widths(table, area)).header(header)
@@ -254,7 +255,10 @@ fn databases_pane(frame: &mut Frame, area: Rect, app: &App) {
     let block = pane(Focus::Databases.title(), app.focus == Focus::Databases);
     match app.databases() {
         Some(table) => {
-            frame.render_widget(table_widget(&table, area.width).block(block), area);
+            frame.render_widget(
+                table_widget(&table, area.width, usize::MAX).block(block),
+                area,
+            );
         }
         None => {
             frame.render_widget(Paragraph::new("no answer yet").block(block), area);
@@ -304,7 +308,7 @@ fn backups_pane(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(Paragraph::new(Text::from(lines)).block(block), rows[0]);
     if let Some(table) = table {
         frame.render_widget(
-            table_widget(table, rows[1].width).block(pane("per-database", false)),
+            table_widget(table, rows[1].width, usize::MAX).block(pane("per-database", false)),
             rows[1],
         );
     }
@@ -316,7 +320,10 @@ fn keys_pane(frame: &mut Frame, area: Rect, app: &App) {
     match &app.keys {
         Some(keys) => {
             let table = views::keys(keys);
-            frame.render_widget(table_widget(&table, area.width).block(block), area);
+            frame.render_widget(
+                table_widget(&table, area.width, usize::MAX).block(block),
+                area,
+            );
         }
         None => {
             frame.render_widget(Paragraph::new("no answer yet").block(block), area);
@@ -330,10 +337,16 @@ fn outcome_lines(outcome: &Outcome) -> u16 {
     let table = outcome
         .table
         .as_ref()
-        .map(|table| table.rows().len() as u16 + 1)
+        .map(|table| (table.rows().len().min(OUTCOME_ROWS) as u16) + 1)
         .unwrap_or(0);
-    1 + facts + table + u16::from(outcome.error.is_some())
+    1 + facts + table + u16::from(outcome.error.is_some()) + 4
 }
+
+/// How many rows of a result the outcome pane draws.
+///
+/// A pane is not a report: a result with a thousand rows belongs in
+/// the one-shot command that can print them all.
+const OUTCOME_ROWS: usize = 10;
 
 /// What the last action did.
 fn outcome_pane(frame: &mut Frame, area: Rect, outcome: &Outcome) {
@@ -363,14 +376,26 @@ fn outcome_pane(frame: &mut Frame, area: Rect, outcome: &Outcome) {
             paint_style(ViewStyle::Red),
         )));
     }
-    let rows = Layout::vertical([Constraint::Min(1), Constraint::Min(1)]).split(area);
+    // The two boxes are sized exactly: the headline, its facts and its
+    // error take what they need, and the table of rows takes the rest.
+    let facts = 1 + outcome.facts.len() as u16 + u16::from(outcome.error.is_some());
+    let table_lines = outcome
+        .table
+        .as_ref()
+        .map(|table| (table.rows().len().min(OUTCOME_ROWS) as u16) + 3)
+        .unwrap_or(0);
+    let rows = Layout::vertical([
+        Constraint::Length(facts + 2),
+        Constraint::Length(table_lines),
+    ])
+    .split(area);
     frame.render_widget(
         Paragraph::new(Text::from(lines)).block(pane("last action", false)),
         rows[0],
     );
     if let Some(table) = &outcome.table {
         frame.render_widget(
-            table_widget(table, rows[1].width).block(pane("rows", false)),
+            table_widget(table, rows[1].width, OUTCOME_ROWS).block(pane("rows", false)),
             rows[1],
         );
     }

@@ -104,3 +104,6 @@ output is unchanged by any of this.
 - [docs/cli-turso-mapping.md](cli-turso-mapping.md) — the command
   surface next to Turso's
 - [docs/architecture.md](architecture.md) — where the view sits
+- `docs/evidence/tui-view-2026-10-21.txt` — a real session against a
+  real gateway, rebuilt from the raw pty capture beside it
+  (`scripts/capture-tui-evidence.sh` makes another)

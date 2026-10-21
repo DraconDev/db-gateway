@@ -294,11 +294,13 @@ impl App {
     /// The operator answered a prompt.
     fn submit(&mut self) {
         let Mode::Prompt { kind } = self.mode.clone() else {
-            // A confirmation: the phrase has to be exact.
+            // A confirmation: the phrase has to be exact. The rule is
+            // the shared one, the same rule the CLI's `--confirm` flag
+            // enforces.
             let Mode::Confirm { invocation, phrase } = self.mode.clone() else {
                 return;
             };
-            if self.input != phrase {
+            if crate::confirmation::confirm_matches(Some(&self.input), &phrase).is_err() {
                 self.outcome = Some(Outcome {
                     headline: "not confirmed".to_string(),
                     facts: Vec::new(),
@@ -452,6 +454,19 @@ impl App {
                         return;
                     }
                 };
+                // The statements the request carried, read from the
+                // request itself: the view describes what was sent, not
+                // what the file says now.
+                let statements: Vec<String> = request
+                    .body
+                    .as_ref()
+                    .and_then(|body| body["statements"].as_array().cloned())
+                    .map(|list| {
+                        list.iter()
+                            .filter_map(|statement| statement["sql"].as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 let response = match client::request(
                     &self.server,
                     &self.key,
@@ -473,7 +488,7 @@ impl App {
                         return;
                     }
                 };
-                outcome_of(&invocation, &response)
+                outcome_of(&invocation, &statements, &response)
             }
         };
         self.outcome = Some(outcome);
@@ -493,8 +508,7 @@ impl App {
 /// The reading is the shared one: a batch's outcome comes from
 /// [`views::batch_outcomes`], so the view says the same thing about a
 /// failed batch that the CLI says.
-fn outcome_of(invocation: &Invocation, response: &Value) -> Outcome {
-    let statements = invocation.statements();
+fn outcome_of(invocation: &Invocation, statements: &[String], response: &Value) -> Outcome {
     if !statements.is_empty() {
         let outcome = views::batch_outcomes(&statements, response);
         let reason = outcome.reason();
@@ -624,8 +638,11 @@ pub async fn run(server: &str, key: &str, options: Options) -> Result<()> {
     // The guard gives the terminal back however this ends: a normal
     // exit, an error, or a panic in a draw function.
     let mut guard = screen::Guard::new(screen);
-    let mut ticker =
-        tokio::time::interval(Duration::from_secs(options.refresh_secs.clamp(1, 3600)));
+    // The first tick is a full period away: the view reads the service
+    // once when it opens, and the ticker takes it from there. A ticker
+    // that fired at once would read everything twice.
+    let period = Duration::from_secs(options.refresh_secs.clamp(1, 3600));
+    let mut ticker = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     // The first read happens now, so the view opens with facts rather
     // than with an empty screen.
