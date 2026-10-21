@@ -411,29 +411,46 @@ fn assert_observes_429(server: &Server, name: &str) {
 /// the write lane; a read probe contends for the read lane and the
 /// per-database guard.
 fn assert_observes_429_with(server: &Server, name: &str, sql: &str) {
-    let deadline = Instant::now() + Duration::from_secs(20);
+    assert!(
+        observes_429_within(server, name, sql, Duration::from_secs(20)),
+        "no 429 observed while awaiting contention"
+    );
+}
+
+/// Whether a request on `name` is shed with 429 within `window`.
+///
+/// The probe is a request, not a sleep: it contends for whatever the
+/// holder is holding, and the server's own bound decides how long it
+/// waits. A false answer means the contention window was not open, which
+/// is the caller's business to retry.
+fn observes_429_within(server: &Server, name: &str, sql: &str, window: Duration) -> bool {
+    let deadline = Instant::now() + window;
     loop {
-        let (status, body, took) = server.call_timed(
+        let (status, body) = server.call(
             "POST",
             &format!("/v1/databases/{name}/query"),
             json!({"sql": sql}),
         );
-        let _ = took;
-        println!("DIAGPROBE status={status} at {:?}", started.elapsed());
         if status == 429 {
             assert_eq!(body["error"]["code"], "capacity_exceeded", "{body}");
-            return;
+            return true;
         }
         assert_eq!(
             status, 200,
             "unexpected status while awaiting contention: {body}"
         );
-        assert!(
-            Instant::now() < deadline,
-            "holders never overlapped; no 429 observed"
-        );
+        if Instant::now() >= deadline {
+            return false;
+        }
     }
 }
+
+/// How many contention cycles phase 2 runs before giving up.
+///
+/// Each cycle is a fresh set of holders and a fresh window in which all
+/// four of them can hold the write lane at once; how wide that window is
+/// depends on the machine.
+const LANE_CONTENTION_ATTEMPTS: usize = 5;
 
 const SLOW_INSERT: &str =
     "INSERT INTO t WITH RECURSIVE c(v) AS (SELECT 1 UNION ALL SELECT v+1 FROM c) SELECT v FROM c";
@@ -447,14 +464,11 @@ const SLOW_INSERT: &str =
 fn slow_insert_until_admitted(server: &Server, name: &str) -> (u16, Value) {
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
-        let (r0, r1, took) = server.call_timed(
+        let result = server.call(
             "POST",
             &format!("/v1/databases/{name}/query"),
             json!({"sql": SLOW_INSERT}),
         );
-        let result = (r0, r1);
-        println!("DIAGHOLDER {name} status={} took={took:?}", result.0);
-        println!("DIAGHOLDER {name} status={} body={}", result.0, result.1);
         if result.0 != 429 {
             return result;
         }
@@ -496,24 +510,59 @@ fn contended_capacity_rejects_with_429_and_server_recovers() {
     // Reads intentionally do NOT shed here — they share the wide read lane
     // (scale proposal Phase 2) — so the probe is an INSERT into the scratch
     // database, which carries no assertions.
-    std::thread::scope(|scope| {
-        let server = &server;
-        let baselines: Vec<(u64, u64)> = ["g0", "g1", "g2", "g3"]
-            .iter()
-            .map(|name| server.queue_counters(name))
-            .collect();
-        let holders: Vec<_> = ["g0", "g1", "g2", "g3"]
-            .into_iter()
-            .map(|name| scope.spawn(move || slow_insert_until_admitted(server, name)))
-            .collect();
-        for (name, baseline) in ["g0", "g1", "g2", "g3"].iter().zip(baselines) {
-            wait_for_admission(server, name, baseline);
+    //
+    // The four holders have to hold the lane at the SAME time, and the
+    // machine decides how wide that window is: the server bounds a
+    // statement by a 2 s deadline AND a 100k-operation cap, and under load
+    // the holders are admitted over a second or more while the first of
+    // them is already finishing. So the cycle runs until the lane is
+    // observed full — each cycle is a fresh set of holders and a fresh
+    // window — instead of betting the assertion on one window.
+    let mut lane_was_full = false;
+    for attempt in 1..=LANE_CONTENTION_ATTEMPTS {
+        lane_was_full = std::thread::scope(|scope| {
+            let server = &server;
+            let baselines: Vec<(u64, u64)> = ["g0", "g1", "g2", "g3"]
+                .iter()
+                .map(|name| server.queue_counters(name))
+                .collect();
+            let holders: Vec<_> = ["g0", "g1", "g2", "g3"]
+                .into_iter()
+                .map(|name| scope.spawn(move || slow_insert_until_admitted(server, name)))
+                .collect();
+            // The waits run together: the window in which all four hold
+            // the lane is short, and four sequential status calls would
+            // spend a good part of it.
+            let admitted: Vec<_> = ["g0", "g1", "g2", "g3"]
+                .iter()
+                .zip(baselines)
+                .map(|(name, baseline)| {
+                    scope.spawn(move || wait_for_admission(server, name, baseline))
+                })
+                .collect();
+            for waiter in admitted {
+                waiter.join().unwrap();
+            }
+            let observed = observes_429_within(
+                server,
+                "probe",
+                "INSERT INTO t VALUES (1)",
+                Duration::from_secs(3),
+            );
+            for holder in holders {
+                assert_holder_hit_deadline(holder.join().unwrap());
+            }
+            observed
+        });
+        if lane_was_full {
+            break;
         }
-        assert_observes_429_with(server, "probe", "INSERT INTO t VALUES (1)");
-        for holder in holders {
-            assert_holder_hit_deadline(holder.join().unwrap());
-        }
-    });
+        assert!(
+            attempt < LANE_CONTENTION_ATTEMPTS,
+            "the write lane was never observed full"
+        );
+    }
+    assert!(lane_was_full, "the write lane was never observed full");
     // Post-contention recovery: normal writes and exact reads work again, and
     // the interrupted inserts left no partial rows anywhere.
     server.query("hot", "INSERT INTO t VALUES (1)");

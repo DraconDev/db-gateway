@@ -737,3 +737,44 @@ async fn batch(
     }
     execute(store, headers, name, body.statements, true).await
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::WRITE_PERMITS;
+
+    /// A request is shed with 429 when the global lane is full.
+    ///
+    /// This is the lane's own bound, and it is checked here rather than
+    /// over HTTP: filling the lane needs as many simultaneous slow
+    /// requests as the lane has permits, and whether they overlap is
+    /// something the machine decides — a test that spawns them and hopes
+    /// is a test that fails on a busy box for a reason that has nothing
+    /// to do with admission. Holding the permits directly makes the
+    /// contention exact.
+    #[tokio::test]
+    async fn a_request_is_shed_when_the_lane_is_full() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(dir.path()).unwrap());
+        let owner = store.bootstrap().unwrap();
+        // Every write permit is taken, so the next write cannot be
+        // admitted and waits out the bound.
+        let mut held = Vec::new();
+        for _ in 0..WRITE_PERMITS {
+            held.push(store.write_lane.clone().acquire_owned().await.unwrap());
+        }
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {owner}").parse().unwrap(),
+        );
+        let error = work_in(store.clone(), headers, false, |_s, _p| -> Result<Value> {
+            Ok(Value::Null)
+        })
+        .await
+        .expect_err("a write must be shed when the lane is full");
+        assert_eq!(error.status, 429);
+        assert_eq!(error.code, "capacity_exceeded");
+        drop(held);
+    }
+}
