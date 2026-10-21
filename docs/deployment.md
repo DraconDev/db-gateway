@@ -76,7 +76,7 @@ placeholders for future/repeated deployments.
 | `{{DG_BACKUP_ROOT}}` | Versioned backup-set root the hourly producer publishes into (also `dg-backup.service`/`dg-backup-digest.service` `WorkingDirectory=`) | **Unresolved** — target layout decision (e.g. `/var/lib/dg-backups`) |
 | `{{DG_BACKUP_SCRIPT}}` | Absolute path of the installed hourly backup producer (`scripts/micro2-backup.sh` on the reference host) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/micro2-backup.sh`) |
 | `{{DG_RESTORE_DRILL_SCRIPT}}` | Absolute path of the installed weekly bucket restore drill (`scripts/bucket-restore-drill.sh`) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/bucket-restore-drill.sh`) |
-| `{{DG_OWNER_KEY_FILE}}` | Absolute path of the mode-0600 owner credential file the drill reads (never its contents) | **Unresolved** — target layout decision (e.g. `/etc/dg/owner.key`) |
+| `{{DG_OWNER_KEY_FILE}}` | Absolute path of the mode-0600 owner credential file the hourly producer and the restore drill read (never its contents) | **Unresolved** — target layout decision (e.g. `/etc/dg/owner.key`) |
 | `{{DG_RESOURCE_SAMPLE_SCRIPT}}` | Absolute path of the installed composed resource sampler (`scripts/resource-sample.sh`) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/resource-sample.sh`) |
 | `{{DG_ALERTS_SCRIPT}}` | Absolute path of the installed disk/lag alert checker (`scripts/dg-alerts.sh`) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/dg-alerts.sh`) |
 | `{{DG_MESH_LISTEN}}` | WireGuard interface `address:port` the mesh-edge socket binds (`deploy/dg-mesh-proxy.socket`) | **Owner decision at edge install** — must be the host's mesh address (e.g. `10.66.0.1:7432`); never a wildcard/LAN/WAN address (`docs/access-edge.md`) |
@@ -85,6 +85,15 @@ The backup units (`deploy/dg-backup.{service,timer}` hourly producer,
 `deploy/dg-backup-digest.{service,timer}` daily digest) are templates in
 the same style: substitute the placeholders above, install under
 `/etc/systemd/system/`, `daemon-reload`, then enable the timers.
+
+`dg-backup.service` passes the rendered paths to the producer it drives
+(`--server http://{{DG_LISTEN}} --key-file {{DG_OWNER_KEY_FILE}}
+--data-dir {{DG_DATA_DIR}} --backup-root {{DG_BACKUP_ROOT}}`), and
+`dg-backup-digest.service` reads the same root. The producer's own
+defaults are the reference layout; a host that renders these templates
+with a different layout must have the unit pass the substituted values,
+or the hourly producer publishes into `/var/lib/dg-backups` while the
+daily digest reads the configured root.
 `scripts/host-audit.sh` compares the installed units against these
 templates (rendered with the reference-host values, comments/blank
 lines ignored) and fails on drift, so a hand edit on the host cannot

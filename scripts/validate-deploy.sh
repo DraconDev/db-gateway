@@ -75,6 +75,23 @@ log "checking credential hygiene"
 grep -qE '^(Environment|EnvironmentFile)=' "$UNIT" && fail "unit must not carry secrets via Environment"
 grep -q 'Password\|Secret\|Token' "$UNIT" && fail "unit must not name secrets"
 
+log "checking the backup unit drives the producer with the templated paths"
+# The producer's compiled-in defaults are the reference layout. A host
+# that renders this template with any other layout would otherwise
+# publish into /var/lib/dg-backups while dg-backup-digest.service reads
+# the configured root, so every digest reported the databases as unknown,
+# and a non-default {{DG_LISTEN}} failed every backup with connection
+# refused. The unit must pass the paths it was rendered with.
+backup_unit="$ROOT/deploy/dg-backup.service"
+for flag in --server --key-file --data-dir --backup-root; do
+    grep -E "^ExecStart=.*$flag \{\{" "$backup_unit" >/dev/null \
+        || fail "dg-backup.service must pass $flag from its placeholder"
+done
+grep -E '^ExecStart=.*--server http://\{\{DG_LISTEN\}\}' "$backup_unit" >/dev/null \
+    || fail "dg-backup.service must reach the gateway at {{DG_LISTEN}}"
+grep -E '^ExecStart=.*--key-file \{\{DG_OWNER_KEY_FILE\}\}' "$backup_unit" >/dev/null \
+    || fail "dg-backup.service must read the owner credential from {{DG_OWNER_KEY_FILE}}"
+
 # --------------------------------------------------------------------------
 # Portable-artifact gate.
 #
@@ -380,6 +397,8 @@ if command -v systemd-analyze >/dev/null 2>&1; then
             -e "s|{{DG_DATA_DIR}}|$tmp/data|g" \
             -e "s|{{DG_BACKUP_ROOT}}|$tmp/data|g" \
             -e "s|{{DG_BACKUP_SCRIPT}}|$ROOT/scripts/micro2-backup.sh|g" \
+            -e 's|{{DG_LISTEN}}|127.0.0.1:7432|g' \
+            -e "s|{{DG_OWNER_KEY_FILE}}|$tmp/owner.key|g" \
             "$ROOT/deploy/$u" >"$tmp/$u"
     done
     cp "$ROOT/deploy/dg-backup.timer" "$ROOT/deploy/dg-backup-digest.timer" "$tmp/"
