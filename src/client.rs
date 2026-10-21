@@ -46,10 +46,36 @@ const MAX_LIFECYCLE_RESPONSE: usize = 12 * 1024 * 1024;
 const MAX_CHUNK_RESPONSE: usize = 2 * 1024 * 1024;
 
 // One client per CLI invocation: every request shares the same builder
-// settings (no proxy, no redirects, 10s timeout), so rebuilding it per
-// request only burned a connection pool per chunked-transfer piece.
+// settings (no proxy, no redirects), so rebuilding it per request only
+// burned a connection pool per chunked-transfer piece.
 static SHARED_CLIENT: std::sync::OnceLock<std::result::Result<reqwest::Client, ()>> =
     std::sync::OnceLock::new();
+
+/// How long the CLI waits for a read before giving up.
+///
+/// A read that is given up on costs a retry and nothing else, so it gives
+/// up quickly: a gateway that cannot answer in ten seconds is a gateway
+/// the operator should hear about.
+const READ_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How long the CLI waits for a write before giving up.
+///
+/// A write is not the same: giving up on one leaves the outcome UNKNOWN,
+/// and the operator has to reconcile that by hand (or replay it with the
+/// same idempotency key). The wait is therefore much longer than a read's
+/// — long enough that a busy gateway still gets to answer, because the
+/// answer is what removes the doubt.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// The timeout a request of these semantics gets.
+fn timeout_for(semantics: Semantics) -> Duration {
+    match semantics {
+        // A transfer-phase request commits nothing, so as far as the doubt
+        // goes it is a read.
+        Semantics::Read | Semantics::Transfer => READ_TIMEOUT,
+        Semantics::Write => WRITE_TIMEOUT,
+    }
+}
 
 fn shared_client() -> Result<reqwest::Client> {
     SHARED_CLIENT
@@ -57,7 +83,7 @@ fn shared_client() -> Result<reqwest::Client> {
             reqwest::Client::builder()
                 .no_proxy()
                 .redirect(reqwest::redirect::Policy::none())
-                .timeout(Duration::from_secs(10))
+                .timeout(READ_TIMEOUT)
                 .build()
                 .map_err(|_| ())
         })
@@ -171,7 +197,10 @@ pub async fn request_with_semantics(
     let may_write = matches!(semantics, Semantics::Write);
     let mut req = client
         .request(method, url.join(path).map_err(|_| Error::invalid())?)
-        .bearer_auth(key);
+        .bearer_auth(key)
+        // A per-request timeout overrides the client's, so a write waits
+        // out a busy gateway instead of leaving its outcome unknown.
+        .timeout(timeout_for(semantics));
     if let Some(body) = body {
         req = req.json(&body);
     }
@@ -269,5 +298,23 @@ mod tests {
         let write = transport_failure(Semantics::Write);
         assert_eq!(write.status, 502);
         assert_eq!(write.code, "outcome_unknown");
+    }
+
+    /// A write waits longer than a read before the CLI gives up.
+    ///
+    /// Giving up on a read costs a retry; giving up on a write leaves the
+    /// outcome unknown, and the operator has to reconcile that by hand. The
+    /// wait is what keeps a busy gateway from being reported as an
+    /// uncertain write.
+    #[test]
+    fn a_write_waits_longer_than_a_read() {
+        assert_eq!(timeout_for(Semantics::Read), READ_TIMEOUT);
+        assert_eq!(timeout_for(Semantics::Transfer), READ_TIMEOUT);
+        assert_eq!(timeout_for(Semantics::Write), WRITE_TIMEOUT);
+        assert!(
+            WRITE_TIMEOUT > READ_TIMEOUT,
+            "a write must be given more room than a read: its outcome is the \
+             one that becomes unknown"
+        );
     }
 }
