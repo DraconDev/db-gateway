@@ -360,6 +360,18 @@ enum Command {
         #[command(subcommand)]
         command: BackupCommand,
     },
+    /// Open the terminal operator view.
+    ///
+    /// One screen that holds the service, its databases, their backup
+    /// freshness and its credentials at once, and acts on what it
+    /// shows: create, delete, clone, export and import a database,
+    /// issue, revoke and rotate a key, and run a query, a SQL file or
+    /// a batch.
+    Tui {
+        /// How often the service is read again, in seconds.
+        #[arg(long, default_value_t = 2)]
+        refresh: u64,
+    },
     /// Start the workstation web console on loopback and print its URL.
     /// Forwards the resolved --server/--key-file values to the companion
     /// and supervises it; the owner credential itself never passes
@@ -501,6 +513,31 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         }
         Command::Shell { name } => {
             return cmd_data::shell(&cli.server, cli.json, &key_path, name).await;
+        }
+        Command::Tui { refresh } => {
+            // The view takes the terminal over, so it needs one.
+            if !std::io::stdout().is_terminal() {
+                return Err(Application(Error::new(
+                    400,
+                    "not_a_terminal",
+                    "the terminal view needs a terminal; use the one-shot commands for machine output",
+                )));
+            }
+            let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
+                400,
+                "missing_credential",
+                "--key-file required",
+            )))?)
+            .map_err(Application)?;
+            return dg::tui::run(
+                &cli.server,
+                &key,
+                dg::tui::Options {
+                    refresh_secs: refresh,
+                },
+            )
+            .await
+            .map_err(Application);
         }
         Command::Export { name, out } => {
             return cmd_lifecycle::export(&cli.server, cli.json, &key_path, name, out).await;

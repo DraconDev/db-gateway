@@ -5,6 +5,7 @@ pub mod api;
 pub mod backup;
 pub mod backup_health;
 pub mod client;
+pub mod confirmation;
 pub mod error;
 pub mod execution;
 pub mod notify;
@@ -12,6 +13,8 @@ pub mod render;
 pub mod shell;
 pub mod sqlsplit;
 pub mod store;
+pub mod transfer;
+pub mod tui;
 pub mod values;
 pub mod views;
 

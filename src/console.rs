@@ -2,6 +2,7 @@
 //! lifecycle, and the loopback console server.
 
 use super::*;
+use std::path::Path;
 
 fn console_entry(explicit: Option<PathBuf>) -> Result<PathBuf, dg::error::Error> {
     use dg::error::Error;

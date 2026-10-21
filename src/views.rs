@@ -336,6 +336,44 @@ pub fn database_names(databases: &Value) -> Table {
     table
 }
 
+/// The database list with each database's traffic.
+///
+/// The names come from the gateway's list and the traffic from the
+/// service's own counters, so a database that has never been used is
+/// on screen with zeroes rather than missing: "no traffic" and "not a
+/// database" must not look the same.
+pub fn databases(list: &Value, status: &Value) -> Table {
+    let names: Vec<String> = list["databases"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|name| name.as_str().unwrap_or("").to_string())
+        .collect();
+    let mut table = Table::new();
+    table.column("database", Align::Left);
+    table.column("rows read", Align::Right);
+    table.column("rows written", Align::Right);
+    table.column("wait p95", Align::Right);
+    table.column("last write", Align::Left);
+    for name in &names {
+        let entry = &status["databases"][name.as_str()];
+        let figures = wait_figures(entry, "-");
+        let last_write = match entry["last_write"].as_u64() {
+            Some(epoch) => Cell::text(human_epoch_ago(epoch)),
+            None => Cell::text("never"),
+        };
+        table.row(vec![
+            Cell::styled(name.clone(), Style::Cyan),
+            Cell::number(entry["rows_read"].as_u64().unwrap_or(0)),
+            Cell::number(entry["rows_written"].as_u64().unwrap_or(0)),
+            figures.p95,
+            last_write,
+        ]);
+    }
+    table
+}
+
 /// What one database has been doing, as the `activity` section.
 ///
 /// The p95 and the max are different facts and are labelled as such:

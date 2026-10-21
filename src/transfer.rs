@@ -271,11 +271,14 @@ pub async fn import(
     // that same descriptor, so a path replacement cannot turn this into
     // a read of a different file.
     #[cfg(unix)]
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NONBLOCK)
-        .open(from)
-        .map_err(|_| Failure::local(Error::invalid()))?;
+    let file = {
+        use std::os::unix::fs::OpenOptionsExt;
+        OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(from)
+            .map_err(|_| Failure::local(Error::invalid()))?
+    };
     #[cfg(not(unix))]
     let file = std::fs::File::open(from).map_err(|_| Failure::local(Error::invalid()))?;
     let metadata = file.metadata().map_err(|_| Failure::local(Error::invalid()))?;

@@ -42,17 +42,6 @@ pub enum ActionKind {
     Quit,
 }
 
-/// What an action needs before it runs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Needs {
-    /// Nothing: it runs on its own.
-    None,
-    /// A line of arguments.
-    Arguments,
-    /// A confirmation, after the arguments are read.
-    Confirmation,
-}
-
 /// One entry of the palette.
 #[derive(Clone, Copy, Debug)]
 pub struct Action {
@@ -62,8 +51,10 @@ pub struct Action {
     pub title: &'static str,
     /// What the operator types.
     pub hint: &'static str,
-    /// What the action needs before it runs.
-    pub needs: Needs,
+    /// Whether the action takes a line of arguments.
+    pub arguments: bool,
+    /// Whether the action has to be confirmed before it runs.
+    pub confirmation: bool,
     /// Whether the action destroys something.
     pub destructive: bool,
 }
@@ -74,91 +65,104 @@ pub const CATALOG: &[Action] = &[
         kind: ActionKind::Refresh,
         title: "refresh",
         hint: "read the service again now",
-        needs: Needs::None,
+        arguments: false,
+        confirmation: false,
         destructive: false,
     },
     Action {
         kind: ActionKind::Query,
         title: "query",
         hint: "query <database> <sql>",
-        needs: Needs::Arguments,
+        arguments: true,
+        confirmation: false,
         destructive: false,
     },
     Action {
         kind: ActionKind::ExecuteFile,
         title: "run sql file",
         hint: "run <database> <script.sql>",
-        needs: Needs::Arguments,
+        arguments: true,
+        confirmation: false,
         destructive: false,
     },
     Action {
         kind: ActionKind::BatchFile,
         title: "run batch file",
         hint: "batch <database> <batch.json>",
-        needs: Needs::Arguments,
+        arguments: true,
+        confirmation: false,
         destructive: false,
     },
     Action {
         kind: ActionKind::CreateDatabase,
         title: "create database",
         hint: "create <name>",
-        needs: Needs::Arguments,
+        arguments: true,
+        confirmation: false,
         destructive: false,
     },
     Action {
         kind: ActionKind::DeleteDatabase,
         title: "delete database",
         hint: "delete <name>",
-        needs: Needs::Confirmation,
+        arguments: true,
+        confirmation: true,
         destructive: true,
     },
     Action {
         kind: ActionKind::CloneDatabase,
         title: "clone database",
         hint: "clone <source> <destination>",
-        needs: Needs::Arguments,
+        arguments: true,
+        confirmation: false,
         destructive: false,
     },
     Action {
         kind: ActionKind::ExportDatabase,
         title: "export database",
         hint: "export <name> <file.sqlite>",
-        needs: Needs::Arguments,
+        arguments: true,
+        confirmation: false,
         destructive: false,
     },
     Action {
         kind: ActionKind::ImportDatabase,
         title: "import database",
         hint: "import <name> <file.sqlite>",
-        needs: Needs::Arguments,
+        arguments: true,
+        confirmation: false,
         destructive: false,
     },
     Action {
         kind: ActionKind::IssueKey,
         title: "issue key",
         hint: "issue <name> <role> <database>...",
-        needs: Needs::Arguments,
+        arguments: true,
+        confirmation: false,
         destructive: false,
     },
     Action {
         kind: ActionKind::RevokeKey,
         title: "revoke key",
         hint: "revoke <name>",
-        needs: Needs::Confirmation,
+        arguments: true,
+        confirmation: true,
         destructive: true,
     },
     Action {
         kind: ActionKind::RotateOwner,
         title: "rotate owner key",
         hint: "the old owner key dies the moment the new one is issued",
-        needs: Needs::Confirmation,
+        arguments: false,
+        confirmation: true,
         destructive: true,
     },
     Action {
         kind: ActionKind::Quit,
         title: "quit",
         hint: "leave the view",
-        needs: Needs::None,
+        arguments: false,
+        confirmation: false,
         destructive: false,
     },
 ];

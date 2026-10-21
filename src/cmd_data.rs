@@ -7,10 +7,7 @@ use dg::error::Error;
 use dg::render::{Align, Cell, Section, Style, Table, Theme};
 use reqwest::Method;
 use serde_json::{Value, json};
-use std::fs::OpenOptions;
-use std::io::{IsTerminal, Read};
-#[cfg(unix)]
-use std::os::unix::fs::OpenOptionsExt;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 
 /// The theme for a command that is drawing to the terminal.

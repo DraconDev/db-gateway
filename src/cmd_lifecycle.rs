@@ -1,6 +1,6 @@
 //! Database lifecycle commands: clone, export, import, delete.
 
-use super::{Request, api_error, api_failed, human_result, show_error};
+use super::{Request, human_result, show_error};
 use dg::ServerError::Application;
 use dg::error::Error;
 use reqwest::Method;
