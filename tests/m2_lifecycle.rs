@@ -54,6 +54,15 @@ impl Server {
     fn call(&self, method: &str, path: &str, body: Value) -> (u16, Value) {
         self.call_keyed(method, path, body, None)
     }
+    /// The number of admissions the server has counted for one database.
+    ///
+    /// The status endpoint answers from the metrics and never takes the
+    /// database's guard, so it answers even while a request holds it.
+    fn queue_waits(&self, name: &str) -> u64 {
+        let (status, body) = self.call("GET", "/v1/status", json!({}));
+        assert_eq!(status, 200, "status: {body}");
+        body["databases"][name]["queue_waits"].as_u64().unwrap_or(0)
+    }
     fn call_keyed(
         &self,
         method: &str,
@@ -345,6 +354,25 @@ fn imported_external_sqlite_file_supports_m1_keyed_writes() {
     assert_eq!(replay_tables, 1);
 }
 
+/// Wait until the server counts one more admission for `name`.
+///
+/// The probe is a flood of reads on the holder's own database, and reads
+/// share the guard with each other: a probe that starts before the holder
+/// is admitted can keep the read batch busy enough that the holder's
+/// writer never gets its turn — the writer-starvation gap the design
+/// documents. So the probe waits for the server's own counter to say the
+/// holder is in, rather than betting on who wins the race.
+fn wait_for_admission(server: &Server, name: &str, baseline: u64) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while server.queue_waits(name) <= baseline {
+        assert!(
+            Instant::now() < deadline,
+            "the holder on {name} never took the guard"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 /// Poll a quick read until the server really rejects it: the observed 429 is
 /// the contention signal, so no sleep-based overlap is assumed. Returns after
 /// the first rejection or panics past a bounded wait.
@@ -424,7 +452,9 @@ fn contended_capacity_rejects_with_429_and_server_recovers() {
     // concurrent read on the same database must see 429 capacity_exceeded.
     std::thread::scope(|scope| {
         let server = &server;
+        let baseline = server.queue_waits("hot");
         let holder = scope.spawn(move || slow_insert_until_admitted(server, "hot"));
+        wait_for_admission(server, "hot", baseline);
         assert_observes_429(server, "hot");
         assert_holder_hit_deadline(holder.join().unwrap());
     });
@@ -435,10 +465,17 @@ fn contended_capacity_rejects_with_429_and_server_recovers() {
     // database, which carries no assertions.
     std::thread::scope(|scope| {
         let server = &server;
+        let baselines: Vec<u64> = ["g0", "g1", "g2", "g3"]
+            .iter()
+            .map(|name| server.queue_waits(name))
+            .collect();
         let holders: Vec<_> = ["g0", "g1", "g2", "g3"]
             .into_iter()
             .map(|name| scope.spawn(move || slow_insert_until_admitted(server, name)))
             .collect();
+        for (name, baseline) in ["g0", "g1", "g2", "g3"].iter().zip(baselines) {
+            wait_for_admission(server, name, baseline);
+        }
         assert_observes_429_with(server, "probe", "INSERT INTO t VALUES (1)");
         for holder in holders {
             assert_holder_hit_deadline(holder.join().unwrap());
