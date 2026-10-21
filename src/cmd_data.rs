@@ -20,27 +20,11 @@ fn terminal_theme() -> Theme {
 
 /// Refuse a batch the API cannot take, before it is sent.
 ///
-/// The batch API holds at most [`dg::execution::MAX_BATCH_STATEMENTS`]
-/// statements. A longer file cannot be split into several batches
-/// without giving up the whole-file atomicity a migration needs, so the
-/// CLI says exactly what the file holds and what the API accepts, and
-/// sends nothing at all.
-///
-/// The message names the count, the cap and the fact that nothing was
-/// sent: a refusal the operator cannot act on is a refusal the
-/// operator has to guess about.
+/// The rule lives in the library, next to the cap it enforces, so the
+/// CLI and the terminal view refuse an over-long script the same way
+/// and from the same number.
 fn check_statement_count(count: usize, subject: &str) -> Result<(), Error> {
-    if count <= dg::execution::MAX_BATCH_STATEMENTS {
-        return Ok(());
-    }
-    Err(Error::with_message(
-        400,
-        "too_many_statements",
-        format!(
-            "{subject} holds {count} statements, the batch API accepts {}; nothing was sent",
-            dg::execution::MAX_BATCH_STATEMENTS
-        ),
-    ))
+    dg::execution::check_statement_count(count, subject)
 }
 
 pub async fn list(
