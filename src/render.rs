@@ -295,6 +295,25 @@ impl Table {
         table
     }
 
+    /// The column headers and their alignment.
+    ///
+    /// Read access for a second painter: the terminal UI draws the same
+    /// table this module writes, so it needs the model's shape without
+    /// re-deriving it from the JSON.
+    pub fn columns(&self) -> &[(String, Align)] {
+        &self.columns
+    }
+
+    /// The rows, each a list of cells.
+    pub fn rows(&self) -> &[Vec<Cell>] {
+        &self.rows
+    }
+
+    /// The line printed under the table, if there is one.
+    pub fn footer_text(&self) -> Option<&str> {
+        self.footer.as_deref()
+    }
+
     /// Write the table.
     pub fn write(&self, out: &mut dyn Write, theme: &Theme) -> Result<()> {
         let count = self.columns.len();
@@ -591,154 +610,12 @@ impl Outcome {
     }
 }
 
-/// The service dashboard, grouped by what the reader is asking about.
-///
-/// The questions an operator has are "is it up", "is it busy", "is it
-/// healthy" and "which of my databases is doing the work". The
-/// dashboard answers those in that order, rather than listing the
-/// server's properties.
-pub fn service_dashboard(status: &serde_json::Value) -> Vec<Section> {
-    let mut sections = Vec::new();
-
-    // What the service is, and whether it is up.
-    let mut service = Section::new("service");
-    service.field(
-        "version",
-        Cell::text(status["version"].as_str().unwrap_or("?")),
-    );
-    service.field(
-        "uptime",
-        Cell::text(
-            status["uptime_secs"]
-                .as_u64()
-                .map(human_duration)
-                .unwrap_or_else(|| "unknown".to_string()),
-        ),
-    );
-    let live = status["database_counts"]["live"].as_u64().unwrap_or(0);
-    let tombstoned = status["database_counts"]["tombstoned"]
-        .as_u64()
-        .unwrap_or(0);
-    service.field(
-        "databases",
-        Cell::text(format!("{live} live, {tombstoned} tombstoned")),
-    );
-    sections.push(service);
-
-    // How much work it is doing, and how fast.
-    let requests = &status["requests"];
-    let total = requests["total"].as_u64().unwrap_or(0);
-    let errors = requests["capacity_exceeded"].as_u64().unwrap_or(0)
-        + requests["query_deadline_exceeded"].as_u64().unwrap_or(0)
-        + requests["internal_error"].as_u64().unwrap_or(0);
-    let mut activity = Section::new("activity");
-    activity.field("requests", Cell::text(human_count(total, "")));
-    let span = requests["recent_span_secs"].as_u64().unwrap_or(1);
-    let recent: u64 = requests["recent_per_second"]
-        .as_array()
-        .map(|values| values.iter().filter_map(Value::as_u64).sum())
-        .unwrap_or(0);
-    activity.field("rate", Cell::text(human_rate(recent, span)));
-    activity.field("errors", Cell::text(human_count(errors, "")));
-    activity.field("error rate", Cell::text(human_percent(errors, total)));
-    sections.push(activity);
-
-    // The recent shape of the traffic, as a chart in one line. Its own
-    // section, so the chart starts at the left margin instead of being
-    // pushed across by the key column.
-    if let Some(values) = requests["recent_per_second"].as_array() {
-        let counts: Vec<u64> = values.iter().filter_map(Value::as_u64).collect();
-        if !counts.is_empty() {
-            let mut recent = Section::new("recent activity");
-            recent.field("req/s", Cell::Sparkline(counts));
-            sections.push(recent);
-        }
-    }
-
-    // Whether the admission queue is hurting anyone.
-    let mut admission = Section::new("admission");
-    admission.field(
-        "acquire timeout",
-        Cell::text(
-            status["admission"]["acquire_timeout_ms"]
-                .as_u64()
-                .map(|ms| format!("{ms} ms"))
-                .unwrap_or_else(|| "unknown".to_string()),
-        ),
-    );
-    admission.field(
-        "read permits",
-        Cell::number(status["admission"]["read_permits"].as_u64().unwrap_or(0)),
-    );
-    admission.field(
-        "write permits",
-        Cell::number(status["admission"]["write_permits"].as_u64().unwrap_or(0)),
-    );
-    match (
-        requests["wait_p50_us"].as_u64(),
-        requests["wait_p95_us"].as_u64(),
-    ) {
-        (Some(p50), Some(p95)) => {
-            admission.field("wait p50", Cell::text(human_micros(p50)));
-            admission.field("wait p95", Cell::text(human_micros(p95)));
-        }
-        // No wait has been recorded: the queue has never contended, and
-        // saying "0 ms" would claim a measurement that was never made.
-        _ => {
-            admission.field("wait p50", Cell::text("no waits recorded"));
-            admission.field("wait p95", Cell::text("no waits recorded"));
-        }
-    }
-    sections.push(admission);
-
-    // Which database is doing the work.
-    if let Some(usage) = status["databases"].as_object()
-        && !usage.is_empty()
-    {
-        let mut per_database = Section::new("per-database");
-        let mut table = Table::new();
-        table.column("database", Align::Left);
-        table.column("rows read", Align::Right);
-        table.column("rows written", Align::Right);
-        table.column("waits", Align::Right);
-        table.column("wait p95", Align::Right);
-        table.column("wait max", Align::Right);
-        table.column("last write", Align::Left);
-        for (name, entry) in usage {
-            let waits = entry["queue_waits"].as_u64().unwrap_or(0);
-            // The p95 is this database's own, and the max is its worst
-            // single wait. They are different facts, and the pairing is
-            // built in one place so the two columns cannot be swapped.
-            let figures = wait_figures(entry, "-");
-            let last_write = match entry["last_write"].as_u64() {
-                Some(epoch) => Cell::text(human_epoch_ago(epoch)),
-                None => Cell::text("never"),
-            };
-            table.row(vec![
-                Cell::styled(name.clone(), Style::Cyan),
-                Cell::number(entry["rows_read"].as_u64().unwrap_or(0)),
-                Cell::number(entry["rows_written"].as_u64().unwrap_or(0)),
-                Cell::number(waits),
-                figures.p95,
-                figures.max,
-                last_write,
-            ]);
-        }
-        table.footer(
-            "wait p95 is this database's own recent waits; wait max is its worst single wait",
-        );
-        per_database.table(table);
-        sections.push(per_database);
-    }
-
-    sections
-}
 
 /// How long ago a timestamp was, as a person reads it.
 ///
 /// The absolute time is kept alongside, because "3m ago" alone does not
 /// say when a write happened, only how recently.
-fn human_epoch_ago(epoch: u64) -> String {
+pub fn human_epoch_ago(epoch: u64) -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -800,6 +677,19 @@ impl Section {
     pub fn table(&mut self, table: Table) -> &mut Self {
         self.blocks.push(Block::Table(table));
         self
+    }
+
+    /// The section's title.
+    ///
+    /// Read access for a second painter, like `Table::columns`.
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    /// The section's blocks: field lists and tables, in the order they
+    /// were added.
+    pub fn blocks(&self) -> &[Block] {
+        &self.blocks
     }
 
     /// Write the section.
