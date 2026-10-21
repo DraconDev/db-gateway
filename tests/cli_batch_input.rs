@@ -105,3 +105,49 @@ fn batch_enforces_the_64_kib_boundary() {
         "oversized input was rejected for the wrong reason: {stderr}"
     );
 }
+
+#[test]
+fn batch_refuses_more_statements_than_the_api_accepts() {
+    // The batch API takes 32 statements. A batch file with more is
+    // refused here, with the count in the message, before the
+    // credential is read and before anything is sent: the refusal is
+    // local, and it says what the operator has to change.
+    let dir = tempfile::tempdir().expect("temp dir");
+    let statements: Vec<String> = (0..33)
+        .map(|index| format!(r#"{{"sql":"SELECT {index}","args":[]}}"#))
+        .collect();
+    let over = dir.path().join("over-count.json");
+    fs::write(
+        &over,
+        format!(
+            r#"{{"atomic":true,"statements":[{}]}}"#,
+            statements.join(",")
+        ),
+    )
+    .expect("write over-count input");
+    let (success, stdout, stderr) = run_batch(&over);
+    assert!(!success, "an over-long batch unexpectedly succeeded");
+    assert!(
+        stderr.contains("too_many_statements"),
+        "the refusal does not name the reason: {stderr}"
+    );
+    assert!(
+        stderr.contains("33 statements"),
+        "the refusal does not say how many the file holds: {stderr}"
+    );
+    assert!(
+        stderr.contains("accepts 32"),
+        "the refusal does not say what the API accepts: {stderr}"
+    );
+    assert!(
+        stderr.contains("nothing was sent"),
+        "the refusal does not say that nothing was sent: {stderr}"
+    );
+    // The refusal came before the credential was even looked for: the
+    // file is refused on its own content.
+    assert!(
+        !stderr.contains("missing_credential"),
+        "the batch was read before it was counted: {stderr}"
+    );
+    assert!(stdout.is_empty(), "the refusal wrote stdout: {stdout}");
+}
