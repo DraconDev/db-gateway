@@ -227,16 +227,21 @@ async fn backup_notifier(store: std::sync::Arc<store::Store>, config: BackupNoti
                 }
             };
             // The failure identity is consumed only by a notice that is
-            // actually built and delivered: the health snapshot runs first,
-            // and `should_report` runs after it succeeds. Marking the
-            // identity before the awaited snapshot meant one transient
-            // snapshot error muted every later poll for that attempt, so the
-            // immediate failure notice never fired at all.
+            // actually DELIVERED: the health snapshot runs first, and the
+            // identity is marked after every sink has taken the note.
+            // Marking it before the awaited snapshot meant one transient
+            // snapshot error muted every later poll for that attempt, so
+            // the immediate failure notice never fired at all; marking it
+            // when the note was BUILT had the same shape for the other
+            // half — a webhook outage silenced that failure for good,
+            // and the operator never heard about it.
             if let Some(attempt) = attempt {
                 match health_off_thread(&store).await {
-                    Ok(health) if delivered.should_report(&attempt) => {
+                    Ok(health) if delivered.is_due(&attempt) => {
                         let note = notify::failure_note(&health, &attempt);
-                        if !notify::deliver_all(&config.sinks, &note).await.is_empty() {
+                        if notify::deliver_all(&config.sinks, &note).await.is_empty() {
+                            delivered.mark_reported(&attempt);
+                        } else {
                             tracing::error!(
                                 code = "backup_failure_delivery_failed",
                                 attempt = %attempt.ts,

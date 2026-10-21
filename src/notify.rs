@@ -461,20 +461,29 @@ pub struct DeliveryState {
 }
 
 impl DeliveryState {
-    /// Decide whether a failure notice is due, and remember it if so.
+    /// Whether a failure notice is DUE. This changes nothing.
     ///
-    /// Only a FAILING attempt is ever remembered, so a later success does
+    /// The identity is consumed only by [`DeliveryState::mark_reported`],
+    /// which the caller runs once the notice has actually been DELIVERED.
+    /// A notice that was built but could not be delivered — a webhook
+    /// outage — has to be retried on the next poll; consuming the
+    /// identity at build time silenced that failure for good, so the
+    /// operator never learned about it.
+    ///
+    /// Only a FAILING attempt is ever reported, so a later success does
     /// not silence the next distinct failure.
-    pub fn should_report(&mut self, attempt: &AttemptRecord) -> bool {
+    pub fn is_due(&self, attempt: &AttemptRecord) -> bool {
         if !attempt.failed() {
             return false;
         }
-        let identity = attempt.identity().to_string();
-        if self.reported_failure.as_deref() == Some(identity.as_str()) {
-            return false;
+        self.reported_failure.as_deref() != Some(attempt.identity())
+    }
+
+    /// Remember that this attempt's failure notice has been delivered.
+    pub fn mark_reported(&mut self, attempt: &AttemptRecord) {
+        if attempt.failed() {
+            self.reported_failure = Some(attempt.identity().to_string());
         }
-        self.reported_failure = Some(identity);
-        true
     }
 
     /// The failure identity already reported, for tests and for a restart
@@ -676,28 +685,52 @@ mod tests {
         let first = attempt("a", "error", "export");
         let again = attempt("a", "error", "export");
         let second = attempt("b", "error", "publish");
-        assert!(state.should_report(&first));
+        assert!(state.is_due(&first));
+        state.mark_reported(&first);
         assert!(
-            !state.should_report(&again),
+            !state.is_due(&again),
             "the same attempt must not re-alert"
         );
-        assert!(state.should_report(&second), "a new failure must alert");
+        assert!(state.is_due(&second), "a new failure must alert");
+        state.mark_reported(&second);
         assert_eq!(state.reported(), Some("b"));
     }
 
     #[test]
     fn a_success_never_reports_and_never_silences_the_next_failure() {
         let mut state = DeliveryState::default();
-        assert!(!state.should_report(&attempt("a", "ok", "publish")));
-        assert!(state.should_report(&attempt("b", "error", "export")));
+        assert!(!state.is_due(&attempt("a", "ok", "publish")));
+        assert!(state.is_due(&attempt("b", "error", "export")));
     }
 
     #[test]
     fn an_attempt_without_a_timestamp_still_deduplicates() {
         let mut state = DeliveryState::default();
         let anonymous = attempt("", "error", "init");
-        assert!(state.should_report(&anonymous));
-        assert!(!state.should_report(&attempt("", "error", "init")));
+        assert!(state.is_due(&anonymous));
+        state.mark_reported(&anonymous);
+        assert!(!state.is_due(&attempt("", "error", "init")));
+    }
+
+    #[test]
+    fn a_notice_that_could_not_be_delivered_is_retried() {
+        // The identity is consumed by the DELIVERY, not by the building.
+        // A webhook outage must not silence the failure notice for good:
+        // the next poll has to try again, and the operator has to see it.
+        let mut state = DeliveryState::default();
+        let attempt = attempt("a", "error", "export");
+        assert!(state.is_due(&attempt));
+        // The notice was built but every sink refused it: nothing is
+        // marked, so the notice is still due.
+        assert!(
+            state.is_due(&attempt),
+            "an undelivered notice must stay due"
+        );
+        assert_eq!(state.reported(), None);
+        // Once a delivery succeeds, the identity is consumed.
+        state.mark_reported(&attempt);
+        assert!(!state.is_due(&attempt));
+        assert_eq!(state.reported(), Some("a"));
     }
 
     #[tokio::test]
