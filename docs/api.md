@@ -23,7 +23,11 @@ Store key files with `0600` permissions; the CLI refuses group/world-readable ke
 Applications do not hand-roll HTTP against the routes below. Two typed
 clients encode the transport rules (HTTPS-or-loopback origins, no
 proxies/redirects, bounded responses, `outcome_unknown` write
-semantics, explicit keyed replay — never hidden retries):
+semantics, explicit keyed replay — never hidden retries). A read that
+is given up on costs a retry and nothing else, so it gives up in ten
+seconds; a write waits a minute, because giving up on one leaves the
+outcome in doubt and the answer is what removes the doubt. The CLI
+follows the same rule, and so does the Rust client:
 
 - **TypeScript** — `client/` (`Gateway` / `Database`).
 - **Rust** — `crates/dg-client` (`dg_client::Gateway` /

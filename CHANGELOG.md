@@ -102,10 +102,9 @@ fixes; 1.0.0 waits for production acceptance.
   turned a write into "outcome unknown" — the one state an operator has
   to reconcile by hand. A read still gives up in ten seconds (a retry
   costs nothing else); a write waits a minute, because the answer is
-  what removes the doubt. The CLI, the Rust client
-  (`crates/dg-client`) and the TypeScript client (`client/`) now follow
-  the same rule, which is what the two clients are supposed to share
-  with it.
+  what removes the doubt. The CLI and the Rust client
+  (`crates/dg-client`) now follow that rule; the TypeScript client
+  (`client/`) is untouched.
 - **The notification test no longer races the delivery it waits for.**
   It waited for a digest note to arrive — and the collector already
   held the digests from before the sink started rejecting, so the wait
