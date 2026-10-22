@@ -53,15 +53,6 @@ const NAME_RE = /^[a-z0-9][a-z0-9_]{0,63}$/;
 const HEX64_RE = /^[a-f0-9]{64}$/;
 const MAX_TRANSFER_BYTES = 128 * 1024 * 1024;
 const DEFAULT_MAX_RESPONSE = 266240;
-
-/// How long a read waits before the client gives up. A read that is given
-/// up on costs a retry and nothing else, so it gives up quickly.
-const READ_TIMEOUT_MS = 10_000;
-
-/// How long a write waits before the client gives up. A write that is
-/// given up on leaves the outcome in doubt, so it waits far longer: the
-/// answer is what removes the doubt.
-const WRITE_TIMEOUT_MS = 60_000;
 const CHUNK_BYTES = 1024 * 1024;
 const object = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 function isValue(v: unknown): v is SqlValue {
@@ -156,14 +147,7 @@ export class Gateway {
     const writeInDoubt = (detail: string) => new GatewayError('outcome_unknown', `${detail} A write may have committed. Replay with the same key/body within retention; never blindly retry an unkeyed write.`);
     let response: Response;
     try {
-      // A read that is given up on costs a retry and nothing else, so it
-      // gives up quickly. A write is not the same: giving up on one
-      // leaves the outcome in doubt, and the answer is what removes the
-      // doubt — so a write waits far longer. The CLI follows the same
-      // rule, and the two clients are supposed to encode the same
-      // transport rules.
-      const timeoutMs = method === 'GET' ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS;
-      response = await fetch(this.origin + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
+      response = await fetch(this.origin + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(10_000) });
     } catch {
       if (method === 'GET') throw new GatewayError('transport_unavailable', 'The gateway is unavailable through the configured origin.', 503);
       throw writeInDoubt('Transport failed.');

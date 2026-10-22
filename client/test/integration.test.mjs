@@ -134,12 +134,7 @@ test('documented CLI walkthrough runs verbatim after bootstrap and serve', async
     const commands = block.split('\n').filter(line => !/^dg (init|serve) /.test(line)).join('\n');
     const script = 'set -eu\ndg() { "$DG_BIN" --server "$DG_SERVER" "$@"; }\n' + commands;
     const result = spawnSync('bash', ['-c', script], {
-      // The walkthrough runs a dozen CLI invocations, and each one is a
-      // process that talks to a live gateway: on a loaded machine the
-      // whole walkthrough needs longer than a few seconds, and a budget
-      // that tight fails the run for a reason that has nothing to do with
-      // what it checks.
-      cwd: dataDir, encoding: 'utf8', timeout: 120_000,
+      cwd: dataDir, encoding: 'utf8', timeout: 15_000,
       env: { ...process.env, DG_BIN: binary, DG_SERVER: `http://${address}` },
     });
     assert.equal(result.status, 0, result.stderr);

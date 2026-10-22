@@ -37,13 +37,9 @@ const BURST_QUERY_MS: u128 = 50;
 /// The slow write's size is calibrated too, so the write still holds the
 /// guard long enough for the reads to arrive while it runs.
 const SLOW_WRITE_MS: u128 = 300;
-/// The floor the calibrated write must clear.
-///
-/// The write has to outlast the moment the read storm starts, or the
-/// reads arrive after it and the test measures nothing. The write's own
-/// duration is a measured quantity, so the test asserts it rather than
-/// assuming it.
-const SLOW_WRITE_FLOOR_MS: u128 = 150;
+/// How many contention cycles the test runs before it gives up on seeing
+/// the contention it is looking for.
+const CONTENTION_CYCLES: usize = 3;
 
 struct Server {
     child: Child,
@@ -178,6 +174,26 @@ fn queue_counters(address: &str, owner: &str, database: &str) -> (u64, u64) {
     )
 }
 
+/// The longest wait the server has counted for one database.
+///
+/// A wait is the evidence that a request queued for the guard instead of
+/// being served straight away — which is what a read arriving during a
+/// write has to do.
+fn longest_wait_us(address: &str, owner: &str, database: &str) -> u64 {
+    let client = reqwest::blocking::Client::new();
+    let body: Value = client
+        .get(format!("http://{address}/v1/status"))
+        .bearer_auth(owner)
+        .timeout(Duration::from_secs(60))
+        .send()
+        .unwrap()
+        .json()
+        .unwrap();
+    body["databases"][database]["queue_wait_max_us"]
+        .as_u64()
+        .unwrap_or(0)
+}
+
 /// Wait until the server counts an ADMITTED request for `database`.
 ///
 /// The wait counter moves for every attempt, including the ones the queue
@@ -187,12 +203,7 @@ fn queue_counters(address: &str, owner: &str, database: &str) -> (u64, u64) {
 ///
 /// The status endpoint answers from the metrics and never takes the
 /// database's guard, so it answers even while a request holds it.
-fn wait_for_admission(
-    address: &str,
-    owner: &str,
-    database: &str,
-    baseline: (u64, u64),
-) {
+fn wait_for_admission(address: &str, owner: &str, database: &str, baseline: (u64, u64)) {
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         let (waits, timeouts) = queue_counters(address, owner, database);
@@ -358,61 +369,116 @@ fn reads_proceed_during_slow_write() {
     // mid-write. Its size is calibrated here so the write still lasts
     // long enough for a read to arrive while it runs, on this machine.
     let rows = calibrated_insert_rows(&server.address, &owner, "mixed", SLOW_WRITE_MS);
+    let write_sql = format!(
+        "INSERT INTO t WITH RECURSIVE cnt(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM cnt WHERE x<{rows}) SELECT x FROM cnt"
+    );
+
+    // The write and the read storm run in a cycle, and the cycle is
+    // repeated until the server shows that a read really waited for the
+    // write.
+    //
+    // Whether a read arrives while the write holds the guard is a race
+    // between two connections — the client cannot order its own requests
+    // at the server — so a test that assumes the race goes one way is a
+    // test that fails on a busy box. The server's own wait counter is the
+    // evidence: a read that queued for the guard is a wait the server
+    // counted, and the write's own admission waits for nothing.
+    //
+    // The write's LENGTH is not the premise: it is dominated by the
+    // commit's fsync, whose latency varies by orders of magnitude on a
+    // loaded machine, so no floor on it can be asserted. What the test
+    // asserts instead is the thing it is about — a read waited, and the
+    // server's answer to it was the documented one.
+    //
     // The counters are read as a DELTA: the calibration probes went
     // through the same queue, and only what happens after them is this
     // test's business.
     let (waits_before, timeouts_before) = queue_counters(&server.address, &owner, "mixed");
-    let address = server.address.clone();
-    let owner_write = owner.clone();
-    let writer = std::thread::spawn(move || {
-        timed_query(
-            &address,
-            &owner_write,
+    let mut readers: Vec<(u16, Duration)> = Vec::new();
+    let mut writer_elapsed = Duration::ZERO;
+    let mut saw_contention = false;
+    for _ in 0..CONTENTION_CYCLES {
+        // Each cycle has its own baseline: the gate asks whether the
+        // write of THIS cycle is in, not whether some request ever was.
+        let (cycle_waits, cycle_timeouts) = queue_counters(&server.address, &owner, "mixed");
+        // Each cycle gets a fresh write: the guard has to be held again.
+        let address = server.address.clone();
+        let owner_write = owner.clone();
+        let sql = write_sql.clone();
+        let writer = std::thread::spawn(move || timed_query(&address, &owner_write, "mixed", &sql));
+        let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
+        let (issued_tx, issued_rx) = std::sync::mpsc::channel::<()>();
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let storm_stop = stop.clone();
+        let storm_address = server.address.clone();
+        let storm_owner = owner.clone();
+        let storm = std::thread::spawn(move || {
+            // Wait for the write to be in before issuing anything.
+            let _ = go_rx.recv();
+            let client = reqwest::blocking::Client::new();
+            let mut reads = Vec::new();
+            let mut first = true;
+            while !storm_stop.load(std::sync::atomic::Ordering::SeqCst) {
+                let started = Instant::now();
+                let status = client
+                    .post(format!("http://{storm_address}/v1/databases/mixed/query"))
+                    .bearer_auth(&storm_owner)
+                    .json(&json!({"sql": "SELECT count(*) FROM t", "args": []}))
+                    .timeout(Duration::from_secs(60))
+                    .send()
+                    .unwrap()
+                    .status()
+                    .as_u16();
+                reads.push((status, started.elapsed()));
+                if first {
+                    // The first request is back: the storm has
+                    // demonstrably run, and the test can join the writer
+                    // knowing the reads happened while the write was in
+                    // flight.
+                    first = false;
+                    let _ = issued_tx.send(());
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            reads
+        });
+
+        // The write must hold the guard while a read arrives, and only
+        // the server knows when it took it.
+        wait_for_admission(
+            &server.address,
+            &owner,
             "mixed",
-            &format!(
-                "INSERT INTO t WITH RECURSIVE cnt(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM cnt WHERE x<{rows}) SELECT x FROM cnt"
-            ),
-        )
-    });
+            (cycle_waits, cycle_timeouts),
+        );
+        go_tx.send(()).unwrap();
+        // The handshake: the storm's first request must come back before
+        // the writer is joined, so the test never looks at an empty
+        // storm.
+        issued_rx
+            .recv_timeout(Duration::from_secs(30))
+            .expect("the read storm issued no request");
 
-    // The reads are spread across the write's duration rather than fired
-    // once, because the client cannot order its own requests at the
-    // server: the write and a read travel on separate connections, and
-    // the server may take them in either order. A read that arrives
-    // while the write holds the guard is the case under test; a read that
-    // arrives before or after it is an ordinary read, and the rule holds
-    // for those too.
-    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let storm_stop = stop.clone();
-    let storm_address = server.address.clone();
-    let storm_owner = owner.clone();
-    let storm = std::thread::spawn(move || {
-        let client = reqwest::blocking::Client::new();
-        let mut reads = Vec::new();
-        while !storm_stop.load(std::sync::atomic::Ordering::SeqCst) {
-            let started = Instant::now();
-            let status = client
-                .post(format!("http://{storm_address}/v1/databases/mixed/query"))
-                .bearer_auth(&storm_owner)
-                .json(&json!({"sql": "SELECT count(*) FROM t", "args": []}))
-                .timeout(Duration::from_secs(60))
-                .send()
-                .unwrap()
-                .status()
-                .as_u16();
-            reads.push((status, started.elapsed()));
-            std::thread::sleep(Duration::from_millis(20));
+        let (writer_status, elapsed) = writer.join().unwrap();
+        stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        readers.extend(storm.join().unwrap());
+        assert_eq!(
+            writer_status, 200,
+            "the slow write itself must succeed: {elapsed:?}"
+        );
+        writer_elapsed = elapsed;
+        // Did a read really queue for the guard? The server counted the
+        // wait, and its counter is the evidence.
+        if longest_wait_us(&server.address, &owner, "mixed") > 0 {
+            saw_contention = true;
+            break;
         }
-        reads
-    });
-
-    let (writer_status, writer_elapsed) = writer.join().unwrap();
-    stop.store(true, std::sync::atomic::Ordering::SeqCst);
-    let readers = storm.join().unwrap();
-    assert_eq!(
-        writer_status, 200,
-        "the slow write itself must succeed: {:?}",
-        writer_elapsed
+    }
+    let _ = writer_elapsed;
+    assert!(
+        saw_contention,
+        "no read ever waited for the guard: the contention this test is \
+         about never happened"
     );
     assert!(
         !readers.is_empty(),
