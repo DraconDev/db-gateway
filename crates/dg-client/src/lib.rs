@@ -104,7 +104,8 @@ fn has_write_keyword(sql: &str) -> bool {
             while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
                 i += 1;
             }
-            if WORDS.contains(&sql[start..i]) {
+            let word = &sql[start..i];
+            if WORDS.contains(&word) {
                 return true;
             }
         } else {
@@ -382,7 +383,13 @@ impl Gateway {
 
     pub async fn list_databases(&self) -> Result<Vec<String>> {
         let v = self
-            .request(reqwest::Method::GET, "/v1/databases", None, None, false)
+            .request(
+                reqwest::Method::GET,
+                "/v1/databases",
+                None,
+                None,
+                Semantics::Read,
+            )
             .await?;
         let names = v
             .get("databases")
@@ -796,6 +803,51 @@ mod tests {
         assert_eq!(Value::from_json(&json!({"a": 1})), None);
         // A byte array with an out-of-range member is not a blob.
         assert_eq!(Value::from_json(&json!([256])), None);
+    }
+
+    #[test]
+    fn the_statements_decide_whether_a_request_is_a_read() {
+        // The rule the server uses, so the two agree: a statement that
+        // opens with SELECT/VALUES/EXPLAIN, or with WITH and holds no
+        // data-modifying keyword, is a read.
+        for sql in [
+            "SELECT 1",
+            "select * from notes where id = ?1",
+            "VALUES (1), (2)",
+            "EXPLAIN QUERY PLAN SELECT 1",
+            "WITH recent AS (SELECT id FROM notes) SELECT * FROM recent",
+            "  SELECT 1",
+        ] {
+            assert_eq!(semantics_of(sql), Semantics::Read, "{sql:?} is a read");
+        }
+        for sql in [
+            "INSERT INTO notes VALUES (1)",
+            "UPDATE notes SET body = 'x'",
+            "DELETE FROM notes",
+            "CREATE TABLE notes (id INTEGER)",
+            "DROP TABLE notes",
+            "ALTER TABLE notes ADD COLUMN body TEXT",
+            "REPLACE INTO notes VALUES (1)",
+            "VACUUM",
+            "REINDEX notes",
+            "WITH moved AS (SELECT id FROM notes) INSERT INTO notes SELECT id FROM moved",
+            "PRAGMA journal_mode",
+            "BEGIN",
+        ] {
+            assert_eq!(semantics_of(sql), Semantics::Write, "{sql:?} is a write");
+        }
+    }
+
+    #[test]
+    fn a_batch_is_a_read_only_when_every_statement_is_one() {
+        let reads = vec![Statement::new("SELECT 1"), Statement::new("SELECT 2")];
+        assert_eq!(semantics_of_statements(&reads), Semantics::Read);
+        let mixed = vec![
+            Statement::new("SELECT 1"),
+            Statement::new("DELETE FROM notes"),
+        ];
+        assert_eq!(semantics_of_statements(&mixed), Semantics::Write);
+        assert_eq!(semantics_of_statements(&[]), Semantics::Read);
     }
 
     #[test]

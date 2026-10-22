@@ -29,12 +29,12 @@ seconds; a write waits a minute, because giving up on one leaves the
 outcome in doubt and the answer is what removes the doubt.
 
 What makes a request a read is the request's own shape, not its HTTP
-method — a query is a POST either way. The CLI and the Rust client
-classify the statements with the same rule the server uses, so a
-read-only query is answered as a read: it gives up in ten seconds and is
-reported as an unavailable gateway, never as a write that may have
-committed. The TypeScript client is untouched and still classifies by
-method.
+method — a query is a POST either way. The CLI, the terminal view and
+the Rust client classify the statements with the same rule the server
+uses, so a read-only query is answered as a read: it gives up in ten
+seconds and is reported as an unavailable gateway, never as a write that
+may have committed. The TypeScript client is untouched and still
+classifies by method.
 
 - **TypeScript** — `client/` (`Gateway` / `Database`).
 - **Rust** — `crates/dg-client` (`dg_client::Gateway` /
@@ -43,9 +43,15 @@ method.
   `execute_with_key`, atomic `batch` / `batch_with_key`, `list_databases`,
   `status`, `database_info`, owner-only `create_database` /
   `delete_database`, and `Gateway::from_key_file` for 0600 scoped-key
-  files. Key issue/revoke stays with the owner CLI. Integration proof:
-  `tests/rust_client.rs` drives a live `dg serve` end to end (scoped
-  reads, keyed-replay non-duplication, out-of-scope 403).
+  files. Key issue/revoke stays with the owner CLI. It classifies a
+  query and a batch by the statements it sends
+  (`dg_client::semantics_of` / `dg_client::semantics_of_statements`),
+  with the same rule the server uses, so a read-only query gives up in
+  ten seconds with `transport_unavailable` and never with
+  `outcome_unknown`. Integration proof: `tests/rust_client.rs` drives a
+  live `dg serve` end to end (scoped reads, keyed-replay
+  non-duplication, out-of-scope 403) and pins the read/write
+  classification against the server's own rule.
 
 A Rust writer shaped like `api_core::db::SharedDb` keeps its
 connection-supervisor role but swaps the libSQL remote connection for

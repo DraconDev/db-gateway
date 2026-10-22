@@ -43,6 +43,13 @@ struct Call<'a> {
     path: String,
     body: Option<Value>,
     idempotency: Option<String>,
+    /// What the request can commit.
+    ///
+    /// The method cannot say it: a batch is a POST whether it reads or
+    /// writes. The statements decide, with the same rule the server
+    /// uses, so the human view and the JSON view of one command say
+    /// the same thing about a failure.
+    semantics: dg::client::Semantics,
 }
 
 /// Fetch a result and show it to a person, or hand back the JSON when
@@ -71,13 +78,14 @@ async fn human_result(call: Call<'_>, view: View) -> Result<Option<Value>, dg::S
         ))
     })?)
     .map_err(Application)?;
-    let result = dg::client::request(
+    let result = dg::client::request_with_semantics(
         call.server,
         &key,
         call.method,
         &call.path,
         call.body,
         call.idempotency.as_deref(),
+        call.semantics,
     )
     .await
     .map_err(Application)?;

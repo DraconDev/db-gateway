@@ -106,11 +106,14 @@ fixes; 1.0.0 waits for production acceptance.
   rule; the TypeScript client (`client/`) is untouched.
 - **A read-only query is answered as a read.** The HTTP method cannot
   tell a read from a write — a query is a POST either way — so the
-  statements decide, with the same classification the server uses. A
-  read-only query now gives up in ten seconds and is reported as an
-  unavailable gateway, instead of waiting a minute and being reported
-  as a write that may have committed when nothing could have
-  committed.
+  statements decide, with the same classification the server uses. The
+  CLI, the terminal view and the Rust client (`crates/dg-client`) all
+  do it. A read-only query now gives up in ten seconds and is reported
+  as an unavailable gateway, instead of waiting a minute and being
+  reported as a write that may have committed when nothing could have
+  committed. The terminal view says the same thing the CLI says: a
+  query it cannot send is an unavailable gateway, and only a statement
+  that writes is reported as a write whose outcome is in doubt.
 - **The notification test no longer races the delivery it waits for.**
   It waited for a digest note to arrive — and the collector already
   held the digests from before the sink started rejecting, so the wait

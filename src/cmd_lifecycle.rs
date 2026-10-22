@@ -28,6 +28,7 @@ pub async fn clone_db(
             path: format!("/v1/databases/{source}/clone"),
             body: Some(json!({"destination":destination})),
             idempotency: None,
+            semantics: dg::client::Semantics::Write,
         },
         Box::new(move |result| {
             dg::render::Outcome::done(format!(
@@ -165,6 +166,7 @@ pub async fn delete(
             path: format!("/v1/databases/{name}"),
             body: None,
             idempotency: None,
+            semantics: dg::client::Semantics::Write,
         },
         Box::new(move |result| {
             // A tombstone is not a deletion: the name is taken until

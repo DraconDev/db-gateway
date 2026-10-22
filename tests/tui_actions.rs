@@ -6,6 +6,9 @@
 use dg::tui::actions::{ActionKind, Invocation};
 use reqwest::Method;
 
+/// A gateway that is not there: nothing can arrive.
+const NOWHERE: &str = "http://127.0.0.1:1";
+
 #[test]
 fn every_action_is_in_the_catalogue_once() {
     // A palette entry that is missing makes an operation unreachable;
@@ -273,4 +276,167 @@ fn the_palette_offers_the_operations_an_operator_needs() {
             );
         }
     }
+}
+
+#[test]
+fn every_request_carries_what_it_can_commit() {
+    // The HTTP method cannot say: a query is a POST whether it reads or
+    // writes. So the request states what it can commit, with the same
+    // rule the server uses and the same rule the CLI uses. A request
+    // that claims to be a read when it writes would tell an operator
+    // that nothing could have committed after something did.
+    let read = ActionKind::Query
+        .parse("demo select 1")
+        .expect("the arguments parse")
+        .request()
+        .expect("the query makes a request");
+    assert_eq!(
+        read.semantics,
+        dg::client::Semantics::Read,
+        "a SELECT is a read"
+    );
+
+    let write = ActionKind::Query
+        .parse("demo insert into t values (1)")
+        .expect("the arguments parse")
+        .request()
+        .expect("the query makes a request");
+    assert_eq!(
+        write.semantics,
+        dg::client::Semantics::Write,
+        "an INSERT is a write"
+    );
+
+    // A batch is a read only when every statement in it is one.
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("reads.sql");
+    std::fs::write(&script, "select 1;\nselect 2;\n").unwrap();
+    let reads = ActionKind::ExecuteFile
+        .parse(&format!("demo {}", script.display()))
+        .expect("the arguments parse")
+        .request()
+        .expect("the script makes a request");
+    assert_eq!(
+        reads.semantics,
+        dg::client::Semantics::Read,
+        "a script of reads is a read"
+    );
+
+    let script = dir.path().join("writes.sql");
+    std::fs::write(&script, "select 1;\ninsert into t values (1);\n").unwrap();
+    let mixed = ActionKind::ExecuteFile
+        .parse(&format!("demo {}", script.display()))
+        .expect("the arguments parse")
+        .request()
+        .expect("the script makes a request");
+    assert_eq!(
+        mixed.semantics,
+        dg::client::Semantics::Write,
+        "a script that writes is a write"
+    );
+
+    // The lifecycle writes, whatever their method says.
+    for (kind, arguments) in [
+        (ActionKind::CreateDatabase, "demo"),
+        (ActionKind::DeleteDatabase, "demo"),
+        (ActionKind::CloneDatabase, "demo copy"),
+        (ActionKind::IssueKey, "robot database_read_only demo"),
+        (ActionKind::RevokeKey, "robot"),
+        (ActionKind::RotateOwner, ""),
+    ] {
+        let request = kind
+            .parse(arguments)
+            .expect("the arguments parse")
+            .request()
+            .expect("the action makes a request");
+        assert_eq!(
+            request.semantics,
+            dg::client::Semantics::Write,
+            "{kind:?} is a write"
+        );
+    }
+
+    // And the rule holds for every action that makes a request: the
+    // classification is the one its own body implies, so an action
+    // added later cannot claim a different one.
+    for (kind, arguments) in [
+        (ActionKind::Query, "demo select 1"),
+        (ActionKind::Query, "demo insert into t values (1)"),
+        (ActionKind::CreateDatabase, "demo"),
+        (ActionKind::DeleteDatabase, "demo"),
+        (ActionKind::CloneDatabase, "demo copy"),
+        (ActionKind::IssueKey, "robot database_read_only demo"),
+        (ActionKind::RevokeKey, "robot"),
+        (ActionKind::RotateOwner, ""),
+    ] {
+        let request = kind
+            .parse(arguments)
+            .expect("the arguments parse")
+            .request()
+            .expect("the action makes a request");
+        let body = request.body.clone().unwrap_or_default();
+        let statements: Vec<String> = body["statements"]
+            .as_array()
+            .map(|list| {
+                list.iter()
+                    .filter_map(|statement| statement["sql"].as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let expected = if !statements.is_empty() {
+            dg::client::semantics_of(&statements)
+        } else if let Some(sql) = body["sql"].as_str() {
+            dg::client::semantics_of(&[sql])
+        } else {
+            dg::client::Semantics::Write
+        };
+        assert_eq!(
+            request.semantics, expected,
+            "{kind:?} ({arguments}) is classified as something other than what it carries"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_read_only_query_that_cannot_reach_the_gateway_says_so() {
+    // The gateway is not there, so nothing was sent and nothing could
+    // have committed. The view must say the gateway is unavailable. A
+    // "writes may have committed" on a SELECT is advice about a write
+    // that never happened.
+    let mut app = dg::tui::App::new(NOWHERE.to_string(), "owner".to_string());
+    app.run_invocation(Invocation::Query {
+        name: "demo".to_string(),
+        sql: "select 1".to_string(),
+    })
+    .await;
+    let outcome = app.outcome.expect("the view reports what happened");
+    let error = outcome.error.expect("the outcome says why it failed");
+    assert!(
+        error.contains("the gateway is unavailable"),
+        "a read that cannot reach the gateway is an unavailable gateway: {error}"
+    );
+    assert!(
+        !error.contains("may have committed"),
+        "a read is reported as a write: {error}"
+    );
+}
+
+#[tokio::test]
+async fn a_query_that_writes_is_answered_as_a_write() {
+    // The same view, the same unreachable gateway, and a statement that
+    // writes: here the outcome really is in doubt, and the view has to
+    // say so. The rule is the statements, not the method — a query is a
+    // POST either way.
+    let mut app = dg::tui::App::new(NOWHERE.to_string(), "owner".to_string());
+    app.run_invocation(Invocation::Query {
+        name: "demo".to_string(),
+        sql: "insert into t values (1)".to_string(),
+    })
+    .await;
+    let outcome = app.outcome.expect("the view reports what happened");
+    let error = outcome.error.expect("the outcome says why it failed");
+    assert!(
+        error.contains("may have committed"),
+        "a write that cannot reach the gateway leaves the outcome in doubt: {error}"
+    );
 }

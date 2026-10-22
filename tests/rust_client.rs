@@ -155,3 +155,98 @@ async fn rust_client_drives_a_live_gateway_end_to_end() {
         .expect_err("out-of-scope key must be refused");
     assert_eq!(refused.status, Some(403));
 }
+
+#[tokio::test]
+async fn a_request_is_given_up_on_as_what_it_is() {
+    // Nothing is listening on port 1, so the request cannot arrive. A
+    // read that is given up on costs a retry; a write that is given up
+    // on leaves the outcome in doubt. The statements decide which one
+    // this is — a query is a POST either way — so the same client says
+    // the right thing about a SELECT and about an INSERT.
+    let gateway = Gateway::new("http://127.0.0.1:1", "owner").expect("the origin is valid");
+    let database = gateway.database("demo").expect("the name is valid");
+
+    let read = database
+        .execute("SELECT 1", vec![])
+        .await
+        .expect_err("the gateway is not there");
+    assert_eq!(
+        read.code, "transport_unavailable",
+        "a read that cannot reach the gateway is an unavailable gateway: {read}"
+    );
+    assert!(
+        !read.message.contains("may have committed"),
+        "a read is reported as a write: {read}"
+    );
+
+    let write = database
+        .execute("INSERT INTO t VALUES (1)", vec![])
+        .await
+        .expect_err("the gateway is not there");
+    assert_eq!(
+        write.code, "outcome_unknown",
+        "a write that cannot reach the gateway leaves the outcome in doubt: {write}"
+    );
+
+    // A batch is a read only when every statement in it is one.
+    let reads = database
+        .batch(vec![Statement::new("SELECT 1"), Statement::new("SELECT 2")])
+        .await
+        .expect_err("the gateway is not there");
+    assert_eq!(
+        reads.code, "transport_unavailable",
+        "a batch of reads is a read: {reads}"
+    );
+
+    let mixed = database
+        .batch(vec![
+            Statement::new("SELECT 1"),
+            Statement::new("INSERT INTO t VALUES (1)"),
+        ])
+        .await
+        .expect_err("the gateway is not there");
+    assert_eq!(
+        mixed.code, "outcome_unknown",
+        "a batch that writes is a write: {mixed}"
+    );
+}
+
+#[test]
+fn the_client_and_the_server_agree_on_what_a_read_is() {
+    // The client classifies by the statements it sends and the server
+    // classifies by the statements it runs, with the same rule — so a
+    // read does not sit in the write lane on one side and the read lane
+    // on the other, and a read-only query is never reported as a write
+    // that may have committed.
+    let cases = [
+        "SELECT 1",
+        "select * from notes where id = ?1",
+        "VALUES (1), (2)",
+        "EXPLAIN QUERY PLAN SELECT 1",
+        "WITH recent AS (SELECT id FROM notes) SELECT * FROM recent",
+        "INSERT INTO notes VALUES (1)",
+        "UPDATE notes SET body = 'x'",
+        "DELETE FROM notes",
+        "CREATE TABLE notes (id INTEGER)",
+        "DROP TABLE notes",
+        "WITH moved AS (SELECT id FROM notes) INSERT INTO notes SELECT id FROM moved",
+        "ALTER TABLE notes ADD COLUMN body TEXT",
+        "REPLACE INTO notes VALUES (1)",
+        "VACUUM",
+        "REINDEX notes",
+        "  SELECT 1",
+        "BEGIN",
+        "PRAGMA journal_mode",
+    ];
+    for sql in cases {
+        let server = dg::execution::is_read_only(&[dg::execution::Statement {
+            sql: sql.to_string(),
+            args: Vec::new(),
+        }]);
+        let client = dg_client::is_read_only(sql);
+        assert_eq!(
+            server, client,
+            "the client and the server disagree about {sql:?}: the server says {server}, the client says {client}"
+        );
+    }
+}

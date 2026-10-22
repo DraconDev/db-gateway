@@ -6,6 +6,7 @@
 //! invent a call the CLI would not make, and it means the mapping can
 //! be checked without a terminal.
 
+use crate::client::Semantics;
 use crate::error::{Error, Result};
 use reqwest::Method;
 use serde_json::{Value, json};
@@ -219,6 +220,14 @@ pub struct Request {
     pub path: String,
     /// The body, when the call has one.
     pub body: Option<Value>,
+    /// What the request can commit.
+    ///
+    /// The method cannot say: a query is a POST whether it reads or
+    /// writes. So the statements decide, with the same rule the server
+    /// uses and the same rule the CLI uses. A read-only query that
+    /// cannot reach the gateway is an unavailable gateway, never a write
+    /// that may have committed.
+    pub semantics: Semantics,
 }
 
 /// A refusal the operator can act on.
@@ -382,16 +391,19 @@ impl Invocation {
                 method: Method::POST,
                 path: format!("/v1/databases/{name}/query"),
                 body: Some(json!({"sql": sql, "args": []})),
+                semantics: crate::client::semantics_of(std::slice::from_ref(sql)),
             },
             Invocation::CreateDatabase { name } => Request {
                 method: Method::POST,
                 path: "/v1/databases".to_string(),
                 body: Some(json!({"name": name})),
+                semantics: Semantics::Write,
             },
             Invocation::DeleteDatabase { name } => Request {
                 method: Method::DELETE,
                 path: format!("/v1/databases/{name}"),
                 body: None,
+                semantics: Semantics::Write,
             },
             Invocation::CloneDatabase {
                 source,
@@ -400,6 +412,7 @@ impl Invocation {
                 method: Method::POST,
                 path: format!("/v1/databases/{source}/clone"),
                 body: Some(json!({"destination": destination})),
+                semantics: Semantics::Write,
             },
             Invocation::IssueKey {
                 name,
@@ -409,16 +422,19 @@ impl Invocation {
                 method: Method::POST,
                 path: "/v1/keys".to_string(),
                 body: Some(json!({"name": name, "role": role, "databases": databases})),
+                semantics: Semantics::Write,
             },
             Invocation::RevokeKey { name } => Request {
                 method: Method::DELETE,
                 path: format!("/v1/keys/{name}"),
                 body: None,
+                semantics: Semantics::Write,
             },
             Invocation::RotateOwner => Request {
                 method: Method::POST,
                 path: "/v1/keys/owner/rotate".to_string(),
                 body: None,
+                semantics: Semantics::Write,
             },
             Invocation::ExecuteFile { name, file } => {
                 let script = std::fs::read_to_string(file)
@@ -442,6 +458,7 @@ impl Invocation {
                         "statements": statements.iter().map(|sql| json!({"sql": sql, "args": []})).collect::<Vec<_>>(),
                         "atomic": true,
                     })),
+                    semantics: crate::client::semantics_of(&statements),
                 }
             }
             Invocation::BatchFile { name, file } => {
@@ -453,6 +470,7 @@ impl Invocation {
                     method: Method::POST,
                     path: format!("/v1/databases/{name}/batch"),
                     body: Some(serde_json::to_value(&batch).map_err(|_| Error::invalid())?),
+                    semantics: crate::client::semantics_of_statements(&batch.statements),
                 }
             }
             // The two transfers are not single requests: they are

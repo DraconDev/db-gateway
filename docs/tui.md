@@ -94,6 +94,12 @@ gives (`src/execution.rs`).
 - It does not invent a request. Every action maps to a documented
   method and path in one place (`src/tui/actions.rs`), and the
   destructive ones are confirmed by the shared rule.
+- It does not call a read a write. A query is a POST whether it reads
+  or writes, so the statements decide what a request can commit, with
+  the same rule the server uses and the same rule the CLI uses. A
+  read-only query that cannot reach the gateway is reported as an
+  unavailable gateway; only a statement that writes is reported as a
+  write whose outcome is in doubt.
 - It does not leave your terminal broken. The alternate screen and
   raw mode are always given back, including when the view panics
   (`src/tui/screen.rs`).
@@ -110,6 +116,6 @@ output is unchanged by any of this.
 - [docs/cli-turso-mapping.md](cli-turso-mapping.md) — the command
   surface next to Turso's
 - [docs/architecture.md](architecture.md) — where the view sits
-- `docs/evidence/tui-view-2026-10-21.txt` — a real session against a
+- `docs/evidence/tui-view-2026-10-22.txt` — a real session against a
   real gateway, rebuilt from the raw pty capture beside it
   (`scripts/capture-tui-evidence.sh` makes another)

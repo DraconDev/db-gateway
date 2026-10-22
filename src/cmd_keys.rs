@@ -39,6 +39,7 @@ pub async fn create(
             path: "/v1/keys".to_string(),
             body: Some(json!({"name":name,"role":role,"databases":database})),
             idempotency: None,
+            semantics: dg::client::Semantics::Write,
         },
         Box::new(move |result| {
             // The key is shown ONCE and never again, so it is on the
@@ -204,6 +205,7 @@ pub async fn revoke(
             path: format!("/v1/keys/{name}"),
             body: None,
             idempotency: None,
+            semantics: dg::client::Semantics::Write,
         },
         Box::new(move |_result| dg::render::Outcome::done(format!("revoked {view_name}"))),
     )
@@ -235,6 +237,7 @@ pub async fn rotate_owner(
             path: "/v1/keys/owner/rotate".to_string(),
             body: None,
             idempotency: None,
+            semantics: dg::client::Semantics::Write,
         },
         Box::new(|result: &Value| {
             // The old owner key dies the moment this one is issued, so

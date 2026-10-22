@@ -366,6 +366,7 @@ pub async fn create(
             path: "/v1/databases".to_string(),
             body: Some(json!({"name":name})),
             idempotency: None,
+            semantics: dg::client::Semantics::Write,
         },
         Box::new(|result| {
             dg::render::Outcome::done(format!("created {}", result["name"].as_str().unwrap_or("")))
@@ -601,6 +602,7 @@ pub async fn batch(
             path: format!("/v1/databases/{name}/batch"),
             body: Some(body_value.clone()),
             idempotency: idempotency_key.clone(),
+            semantics: dg::client::semantics_of_statements(&body.statements),
         },
         Box::new(move |result| {
             // A batch is a list of statements, so its result is a list

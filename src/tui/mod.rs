@@ -514,13 +514,19 @@ impl App {
                             .collect()
                     })
                     .unwrap_or_default();
-                let response = match client::request(
+                // The request says what it can commit, and the view
+                // says what the failure means: a read-only query that
+                // cannot reach the gateway is an unavailable gateway,
+                // never a write that may have committed.
+                let semantics = request.semantics;
+                let response = match client::request_with_semantics(
                     &self.server,
                     &self.key,
                     request.method,
                     &request.path,
                     request.body,
                     None,
+                    semantics,
                 )
                 .await
                 {
