@@ -406,7 +406,9 @@ fn reads_proceed_during_slow_write() {
     let mut readers: Vec<(u16, Duration)> = Vec::new();
     let mut writer_elapsed = Duration::ZERO;
     let mut saw_contention = false;
+    let mut cycles_run = 0u64;
     for _ in 0..CONTENTION_CYCLES {
+        cycles_run += 1;
         // Each cycle has its own baseline: the gate asks whether the
         // write of THIS cycle is in, not whether some request ever was.
         let (cycle_waits, cycle_timeouts) = queue_counters(&server.address, &owner, "mixed");
@@ -511,8 +513,8 @@ fn reads_proceed_during_slow_write() {
     let admission_sheds = (timeouts - timeouts_before) as usize;
     assert_eq!(
         waits - waits_before,
-        (readers.len() + 1) as u64,
-        "the write and every read must all have gone through the queue"
+        readers.len() as u64 + cycles_run,
+        "every read and every write must all have gone through the queue"
     );
     assert!(
         admission_sheds <= shed,
