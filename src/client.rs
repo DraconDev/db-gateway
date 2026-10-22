@@ -144,6 +144,30 @@ fn transport_failure(semantics: Semantics) -> Error {
     }
 }
 
+/// The transport semantics of some SQL.
+///
+/// The HTTP method cannot tell a read from a write — a query is a POST —
+/// so the statements decide, with the SAME classification the server
+/// uses, so the two agree. A read that is given up on costs a retry; a
+/// write that is given up on leaves the outcome in doubt, and the client
+/// must not call a read a write: telling an operator that a write may
+/// have committed when nothing could have committed is its own kind of
+/// wrong answer.
+pub fn semantics_of(sql: &[String]) -> Semantics {
+    let statements: Vec<crate::execution::Statement> = sql
+        .iter()
+        .map(|sql| crate::execution::Statement {
+            sql: sql.clone(),
+            args: Vec::new(),
+        })
+        .collect();
+    if crate::execution::is_read_only(&statements) {
+        Semantics::Read
+    } else {
+        Semantics::Write
+    }
+}
+
 pub async fn request(
     server: &str,
     key: &str,

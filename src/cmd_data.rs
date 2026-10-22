@@ -449,13 +449,15 @@ pub async fn execute(
             "statements": statements.iter().map(|sql| json!({"sql": sql, "args": []})).collect::<Vec<_>>(),
             "atomic": true,
         });
-        let result = dg::client::request(
+        let semantics = dg::client::semantics_of(&statements);
+        let result = dg::client::request_with_semantics(
             server,
             &key,
             Method::POST,
             &format!("/v1/databases/{name}/batch"),
             Some(body),
             idempotency_key.as_deref(),
+            semantics,
         )
         .await
         .map_err(Application)?;
@@ -523,13 +525,19 @@ pub async fn query(
             "--key-file required",
         )))?)
         .map_err(Application)?;
-        let result = dg::client::request(
+        // The statements decide whether this is a read or a write, not
+        // the method: a query is a POST either way, and a read that is
+        // given up on must not be reported as a write that may have
+        // committed.
+        let semantics = dg::client::semantics_of(std::slice::from_ref(&sql));
+        let result = dg::client::request_with_semantics(
             server,
             &key,
             Method::POST,
             &format!("/v1/databases/{name}/query"),
             Some(json!({"sql":sql,"args":args})),
             idempotency_key.as_deref(),
+            semantics,
         )
         .await
         .map_err(Application)?;
