@@ -12,6 +12,9 @@
 //! - responses are size-bounded while streaming; a failed *write*
 //!   transport surfaces as `outcome_unknown` (replay only with the same
 //!   idempotency key), a failed read as `transport_unavailable`;
+//! - a request is classified by the statements it sends, with the same
+//!   rule the server uses, so a read-only query gives up in ten seconds
+//!   and is never reported as a write that may have committed;
 //! - no hidden retries: replay is an explicit caller decision via
 //!   [`Database::execute_with_key`] / [`Database::batch_with_key`].
 //!
@@ -34,6 +37,82 @@ const READ_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a write waits before the client gives up. A write that is
 /// given up on leaves the outcome in doubt, so it waits far longer.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Whether a failed request can have committed data.
+///
+/// The HTTP method cannot tell a read from a write — a query is a POST —
+/// so the statements decide, with the SAME rule the server uses, so the
+/// two agree. A read that is given up on costs a retry; a write that is
+/// given up on leaves the outcome in doubt, and the client must not call
+/// a read a write: telling an operator that a write may have committed
+/// when nothing could have committed is its own kind of wrong answer.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Semantics {
+    /// A read: no durable write can exist.
+    Read,
+    /// A write: a timeout leaves the outcome genuinely in doubt.
+    Write,
+}
+
+/// The transport semantics of one statement.
+pub fn semantics_of(sql: &str) -> Semantics {
+    if is_read_only(sql) {
+        Semantics::Read
+    } else {
+        Semantics::Write
+    }
+}
+
+/// The transport semantics of a set of statements: a batch is a read only
+/// when every statement in it is one.
+pub fn semantics_of_statements(statements: &[Statement]) -> Semantics {
+    if statements.iter().all(|s| is_read_only(&s.sql)) {
+        Semantics::Read
+    } else {
+        Semantics::Write
+    }
+}
+
+/// Whether a statement can only read.
+///
+/// The same rule the server uses for its admission lane: the statement
+/// opens with SELECT/VALUES/EXPLAIN, or with WITH and holds no
+/// data-modifying keyword. It fails closed — anything ambiguous takes the
+/// write lane, which is slower for that request and never wrong.
+pub fn is_read_only(sql: &str) -> bool {
+    let upper = sql.trim_start().to_ascii_uppercase();
+    (upper.starts_with("SELECT")
+        || upper.starts_with("VALUES")
+        || upper.starts_with("EXPLAIN")
+        || upper.starts_with("WITH"))
+        && !has_write_keyword(&upper)
+}
+
+/// Whole-word scan for data-modifying keywords, so a WITH..SELECT whose
+/// CTE is named `updated` stays on the read lane while WITH..INSERT does
+/// not. False positives (a literal saying 'deleted') only cost the write
+/// lane, never correctness.
+fn has_write_keyword(sql: &str) -> bool {
+    const WORDS: [&str; 9] = [
+        "INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "DROP", "ALTER", "VACUUM", "REINDEX",
+    ];
+    let bytes = sql.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i].is_ascii_alphabetic() {
+            let start = i;
+            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                i += 1;
+            }
+            if WORDS.contains(&sql[start..i]) {
+                return true;
+            }
+        } else {
+            i += 1;
+        }
+    }
+    false
+}
 /// Gateway database/credential name rule: `^[a-z0-9][a-z0-9_]{0,63}$`.
 fn valid_name(name: &str) -> bool {
     !name.is_empty()
@@ -319,7 +398,13 @@ impl Gateway {
 
     pub async fn status(&self) -> Result<Status> {
         let v = self
-            .request(reqwest::Method::GET, "/v1/status", None, None, false)
+            .request(
+                reqwest::Method::GET,
+                "/v1/status",
+                None,
+                None,
+                Semantics::Read,
+            )
             .await?;
         serde_json::from_value(v)
             .map_err(|_| ClientError::invalid_gateway("malformed status response"))
@@ -339,7 +424,7 @@ impl Gateway {
                 &format!("/v1/databases/{name}"),
                 None,
                 None,
-                false,
+                Semantics::Read,
             )
             .await?;
         serde_json::from_value(v)
@@ -361,7 +446,7 @@ impl Gateway {
                 "/v1/databases",
                 Some(json!({ "name": name })),
                 None,
-                true,
+                Semantics::Write,
             )
             .await?;
         if v.get("name").and_then(Json::as_str) != Some(name) {
@@ -386,7 +471,7 @@ impl Gateway {
                 &format!("/v1/databases/{name}"),
                 None,
                 None,
-                true,
+                Semantics::Write,
             )
             .await?;
         if v.get("deleted").and_then(Json::as_bool) != Some(true) {
@@ -403,8 +488,9 @@ impl Gateway {
         path: &str,
         body: Option<Json>,
         idempotency: Option<&str>,
-        may_write: bool,
+        semantics: Semantics,
     ) -> Result<Json> {
+        let may_write = semantics == Semantics::Write;
         let mut req = self
             .client
             .request(method, format!("{}{path}", self.origin))
@@ -540,6 +626,11 @@ impl Database {
             "sql": sql,
             "args": args.iter().map(Value::to_json).collect::<Vec<_>>(),
         });
+        // The statements decide whether this is a read or a write: a
+        // query is a POST either way, so the method says nothing, and a
+        // read that is given up on must not be reported as a write that
+        // may have committed.
+        let semantics = semantics_of(sql);
         let v = self
             .gateway
             .request(
@@ -547,10 +638,13 @@ impl Database {
                 &format!("/v1/databases/{}/query", self.name),
                 Some(body),
                 idempotency,
-                true,
+                semantics,
             )
             .await?;
-        parse_result(&v).ok_or_else(|| ClientError::outcome_unknown("malformed query response"))
+        parse_result(&v).ok_or_else(|| match semantics {
+            Semantics::Read => ClientError::invalid_gateway("malformed query response"),
+            Semantics::Write => ClientError::outcome_unknown("malformed query response"),
+        })
     }
 
     /// Run an atomic batch. Keyed replay works as with `execute_with_key`.
@@ -592,6 +686,8 @@ impl Database {
             })).collect::<Vec<_>>(),
             "atomic": true,
         });
+        // A batch is a read only when every statement in it is one.
+        let semantics = semantics_of_statements(&statements);
         let v = self
             .gateway
             .request(
@@ -599,14 +695,17 @@ impl Database {
                 &format!("/v1/databases/{}/batch", self.name),
                 Some(body),
                 idempotency,
-                true,
+                semantics,
             )
             .await?;
         let results = v
             .get("results")
             .and_then(Json::as_array)
             .and_then(|a| a.iter().map(parse_result).collect::<Option<Vec<_>>>())
-            .ok_or_else(|| ClientError::outcome_unknown("malformed batch response"))?;
+            .ok_or_else(|| match semantics {
+                Semantics::Read => ClientError::invalid_gateway("malformed batch response"),
+                Semantics::Write => ClientError::outcome_unknown("malformed batch response"),
+            })?;
         Ok(results)
     }
 
