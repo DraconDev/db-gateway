@@ -53,7 +53,7 @@ pub async fn list(
             .map_err(Application)?;
         return Ok(None);
     }
-    Ok(Some((Method::GET, "/v1/databases".into(), None, None)))
+    Ok(Some((Method::GET, "/v1/databases".into(), None, None, dg::client::Semantics::Read)))
 }
 
 /// The per-database live view: what this database holds and what it
@@ -204,6 +204,7 @@ pub async fn inspect(
         format!("/v1/databases/{name}"),
         None,
         None,
+        dg::client::Semantics::Read,
     )))
 }
 
@@ -373,6 +374,7 @@ pub async fn create(
         "/v1/databases".into(),
         Some(json!({"name":name})),
         None,
+        dg::client::Semantics::Write,
     )))
 }
 
@@ -501,6 +503,7 @@ pub async fn execute(
             "atomic": true,
         })),
         idempotency_key,
+        dg::client::semantics_of(&statements),
     )))
 }
 
@@ -559,6 +562,7 @@ pub async fn query(
         format!("/v1/databases/{name}/query"),
         Some(json!({"sql":sql,"args":args})),
         idempotency_key,
+        dg::client::semantics_of(std::slice::from_ref(&sql)),
     )))
 }
 

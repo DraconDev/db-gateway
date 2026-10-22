@@ -68,6 +68,7 @@ pub async fn create(
         "/v1/keys".into(),
         Some(json!({"name":name,"role":role,"databases":database})),
         None,
+        dg::client::Semantics::Write,
     )))
 }
 
@@ -84,7 +85,7 @@ pub async fn list(
             .map_err(Application)?;
         return Ok(None);
     }
-    Ok(Some((Method::GET, "/v1/keys".into(), None, None)))
+    Ok(Some((Method::GET, "/v1/keys".into(), None, None, dg::client::Semantics::Read)))
 }
 
 /// The credentials that can act on one database.
@@ -210,6 +211,7 @@ pub async fn revoke(
         format!("/v1/keys/{name}"),
         None,
         None,
+        dg::client::Semantics::Write,
     )))
 }
 
