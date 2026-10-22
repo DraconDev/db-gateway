@@ -3,7 +3,19 @@ export type SqlValue = null | boolean | number | string | number[];
 export interface Statement { sql: string; args?: SqlValue[] }
 export interface QueryResult { columns: string[]; rows: SqlValue[][]; rows_affected: number }
 export interface BatchResult { results: QueryResult[] }
-export interface RequestOptions { idempotencyKey?: string; maxResponseBytes?: number }
+/// Whether a request can have committed data. The HTTP method cannot
+/// answer this — a query is a POST whether it reads or writes — so the
+/// statements decide, with the same rule the server uses.
+export type Semantics = 'read' | 'write';
+export interface RequestOptions {
+  idempotencyKey?: string;
+  maxResponseBytes?: number;
+  /// What this request can commit. Defaults to the method's own answer
+  /// (GET reads, everything else writes), which is correct for the
+  /// management routes and fail-closed for anything else. Query and
+  /// batch pass the statement-derived answer explicitly.
+  semantics?: Semantics;
+}
 export interface KeyRequest { name: string; role: 'database_read_only' | 'database_read_write'; databases: string[] }
 export interface KeyInfo { name: string; role: string; databases: string[] }
 export interface TableInfo { name: string; rows: number }
@@ -54,6 +66,69 @@ const HEX64_RE = /^[a-f0-9]{64}$/;
 const MAX_TRANSFER_BYTES = 128 * 1024 * 1024;
 const DEFAULT_MAX_RESPONSE = 266240;
 const CHUNK_BYTES = 1024 * 1024;
+
+/// How long a read waits before the client gives up. A read that is given
+/// up on costs a retry and nothing else, so it gives up quickly.
+const READ_TIMEOUT_MS = 10_000;
+
+/// How long a write waits before the client gives up. A write that is
+/// given up on leaves the outcome in doubt, so it waits far longer: the
+/// answer is what removes the doubt.
+const WRITE_TIMEOUT_MS = 60_000;
+
+/// Data-modifying keywords. A statement that opens like a read but holds
+/// one of these is a write.
+const WRITE_KEYWORDS = ['INSERT', 'UPDATE', 'DELETE', 'REPLACE', 'CREATE', 'DROP', 'ALTER', 'VACUUM', 'REINDEX'];
+
+/// Whole-word scan for data-modifying keywords, so a WITH..SELECT whose
+/// CTE is named `updated` stays on the read lane while WITH..INSERT does
+/// not. False positives (a literal saying 'deleted') only cost the write
+/// lane, never correctness.
+function hasWriteKeyword(sql: string): boolean {
+  const bytes = sql;
+  let i = 0;
+  while (i < bytes.length) {
+    const c = bytes.charCodeAt(i);
+    const alpha = (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
+    if (alpha) {
+      const start = i;
+      while (i < bytes.length) {
+        const d = bytes.charCodeAt(i);
+        const word = (d >= 65 && d <= 90) || (d >= 97 && d <= 122) || (d >= 48 && d <= 57) || d === 95;
+        if (!word) break;
+        i += 1;
+      }
+      if (WRITE_KEYWORDS.includes(bytes.slice(start, i))) return true;
+    } else {
+      i += 1;
+    }
+  }
+  return false;
+}
+
+/// Whether a statement can only read.
+///
+/// The same rule the server uses for its admission lane (and the same one
+/// `dg_client::is_read_only` uses): the statement opens with
+/// SELECT/VALUES/EXPLAIN, or with WITH and holds no data-modifying
+/// keyword. It fails closed — anything ambiguous takes the write lane,
+/// which is slower for that request and never wrong.
+export function isReadOnly(sql: string): boolean {
+  const upper = sql.trimStart().toUpperCase();
+  return (upper.startsWith('SELECT') || upper.startsWith('VALUES') || upper.startsWith('EXPLAIN') || upper.startsWith('WITH'))
+    && !hasWriteKeyword(upper);
+}
+
+/// The transport semantics of one statement.
+export function semanticsOf(sql: string): Semantics {
+  return isReadOnly(sql) ? 'read' : 'write';
+}
+
+/// The transport semantics of a set of statements: a batch is a read only
+/// when every statement in it is one.
+export function semanticsOfStatements(statements: readonly Statement[]): Semantics {
+  return statements.every(s => isReadOnly(s.sql)) ? 'read' : 'write';
+}
 const object = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 function isValue(v: unknown): v is SqlValue {
   return v === null || typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v)) ||
