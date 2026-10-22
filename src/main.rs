@@ -447,7 +447,19 @@ mod cmd_status;
 /// `None` when it fully handled the command itself (the serve/init/
 /// shell/export/import and offline backup commands, plus any command
 /// whose table rendering already answered the operator).
-type Request = (reqwest::Method, String, Option<Value>, Option<String>);
+/// A request the command built: the method, the path, the body, the
+/// idempotency key, and the transport semantics.
+///
+/// The semantics are the request's own, not the method's: a query is a
+/// POST either way, and a read that is given up on must not be reported
+/// as a write that may have committed.
+type Request = (
+    reqwest::Method,
+    String,
+    Option<Value>,
+    Option<String>,
+    dg::client::Semantics,
+);
 
 async fn run(cli: Cli) -> Result<(), dg::ServerError> {
     use dg::{ServerError::Application, error::Error};
@@ -607,7 +619,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             command: KeyCommand::RotateOwner,
         } => cmd_keys::rotate_owner(&cli.server, cli.json, &key_path).await?,
     };
-    let Some((method, path, body, idempotency)) = request else {
+    let Some((method, path, body, idempotency, semantics)) = request else {
         return Ok(());
     };
     let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
@@ -616,13 +628,14 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         "--key-file required",
     )))?)
     .map_err(Application)?;
-    let result = dg::client::request(
+    let result = dg::client::request_with_semantics(
         &cli.server,
         &key,
         method,
         &path,
         body,
         idempotency.as_deref(),
+        semantics,
     )
     .await
     .map_err(Application)?;
