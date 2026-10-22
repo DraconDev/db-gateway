@@ -37,6 +37,13 @@ const BURST_QUERY_MS: u128 = 50;
 /// The slow write's size is calibrated too, so the write still holds the
 /// guard long enough for the reads to arrive while it runs.
 const SLOW_WRITE_MS: u128 = 300;
+/// The floor the calibrated write must clear.
+///
+/// The write has to outlast the moment the read storm starts, or the
+/// reads arrive after it and the test measures nothing. The write's own
+/// duration is a measured quantity, so the test asserts it rather than
+/// assuming it.
+const SLOW_WRITE_FLOOR_MS: u128 = 150;
 
 struct Server {
     child: Child,
@@ -169,6 +176,35 @@ fn queue_counters(address: &str, owner: &str, database: &str) -> (u64, u64) {
         entry["queue_waits"].as_u64().unwrap_or(0),
         entry["queue_timeouts"].as_u64().unwrap_or(0),
     )
+}
+
+/// Wait until the server counts an ADMITTED request for `database`.
+///
+/// The wait counter moves for every attempt, including the ones the queue
+/// sheds, so the count alone does not say the holder is in. The timeout
+/// counter is what tells them apart: an admitted attempt raises the waits
+/// and not the timeouts.
+///
+/// The status endpoint answers from the metrics and never takes the
+/// database's guard, so it answers even while a request holds it.
+fn wait_for_admission(
+    address: &str,
+    owner: &str,
+    database: &str,
+    baseline: (u64, u64),
+) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let (waits, timeouts) = queue_counters(address, owner, database);
+        if waits > baseline.0 && timeouts == baseline.1 {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the write never took the guard on {database}"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
 }
 
 #[test]
