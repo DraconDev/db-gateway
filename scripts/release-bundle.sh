@@ -17,11 +17,35 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT="${1:-$(mktemp -d "${TMPDIR:-/tmp}/dg-bundle-XXXXXX")}"
+# A caller-supplied output directory belongs to the caller; a default one is
+# ours, and ours to remove if we fail before filling it. Without this, every
+# failing run (a missing container engine, a refused target) left an empty
+# /tmp/dg-bundle-XXXXXX behind -- four of them were found on the maintainer's
+# box. `check-orphans.sh` now reports that residue, so it has to be absent on
+# the success path AND the failure path.
+if [ -n "${1:-}" ]; then
+    OUT="$1"
+    OUT_IS_OURS=0
+else
+    OUT="$(mktemp -d "${TMPDIR:-/tmp}/dg-bundle-XXXXXX")"
+    OUT_IS_OURS=1
+fi
 mkdir -p "$OUT"
 
+cleanup_own_out() {
+    [ "$OUT_IS_OURS" = 1 ] || return 0
+    # Only ever remove the directory we created, and only if it is empty-ish:
+    # a failed run should not have published anything, but a partial stage is
+    # ours too.
+    rm -rf "$OUT" 2>/dev/null || true
+}
+
 log() { echo "[release-bundle] $*" >&2; }
-fail() { echo "[release-bundle] FAIL: $*" >&2; exit 1; }
+fail() {
+    echo "[release-bundle] FAIL: $*" >&2
+    cleanup_own_out
+    exit 1
+}
 
 RELEASE_TARGET="${DG_RELEASE_TARGET:-micro2}"
 BUILDER_IMAGE="docker.io/library/ubuntu@sha256:496754492fb28b4d3049432f2ca787449331e23fb14f0dd3fffea86bf5a93eb4"
