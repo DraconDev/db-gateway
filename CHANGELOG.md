@@ -102,8 +102,31 @@ fixes; 1.0.0 waits for production acceptance.
   into "outcome unknown" — the one state an operator has to reconcile by
   hand. A read still gives up in ten seconds (a retry costs nothing
   else); a write waits a minute, because the answer is what removes the
-  doubt. The CLI and the Rust client (`crates/dg-client`) follow that
-  rule; the TypeScript client (`client/`) is untouched.
+  doubt. The CLI, the Rust client (`crates/dg-client`) and the
+  TypeScript client (`client/`) all follow that rule.
+- **The TypeScript client's write budget was restored, and now pinned.**
+  The rule above reached `client/` for four hours on 2026-10-22 and was
+  then removed again by an unrelated commit: both constants
+  (`WRITE_TIMEOUT_MS`/`READ_TIMEOUT_MS`) were deleted from
+  `client/src/index.ts` and every request went back to one hardcoded
+  ten-second timeout, so a busy gateway turned a TypeScript write into
+  `outcome_unknown` exactly as before. Nothing failed, because no test
+  asserted the budget. Both budgets are back, the TypeScript client now
+  also classifies a request by the statements it sends (mirroring
+  `dg_client::semantics_of`, so a read-only query can never be reported
+  as a write that may have committed), and `client/test/timeouts.test.mjs`
+  asserts the two budgets and both failure codes, so the regression
+  fails a test instead of hiding in a diff.
+- **A `dg serve` no longer outlives the process that started it.** Six
+  leaked servers were found running on the maintainer's box, the oldest
+  a day and eight hours old, every one reparented to systemd with its
+  data directory already deleted; they came from test binaries and audit
+  harnesses that were killed rather than reaped. `dg serve` now arms
+  `PR_SET_PDEATHSIG` (and refuses to start if its launcher is already
+  gone), `--detach-safe` opts out for a server that genuinely should
+  outlive its launcher, and `scripts/check-orphans.sh` — run in CI and
+  pinned by `tests/orphan_guard.rs` — fails on any orphaned server or
+  leftover scratch directory, reporting without killing.
 - **A read-only query is answered as a read.** The HTTP method cannot
   tell a read from a write — a query is a POST either way — so the
   statements decide, with the same classification the server uses. The

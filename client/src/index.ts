@@ -215,16 +215,27 @@ export class Gateway {
     const headers: Record<string,string> = { Authorization: `Bearer ${this.credential}`, 'Content-Type': 'application/json' };
     if (options.idempotencyKey !== undefined) headers['Idempotency-Key'] = options.idempotencyKey;
     const limit = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE;
-    // A read cannot have committed anything, so only a non-GET leaves the
-    // write outcome genuinely in doubt. Collapsing both into one code told
-    // the operator a write may have committed even for a failed list/status
-    // call. Mirror web/src/api.ts and branch on the method.
+    // What this request can commit: the statements decide when the caller
+    // knows them, and the method is the answer otherwise (GET reads; the
+    // management routes are all writes). A read cannot have committed
+    // anything, so only a write leaves the outcome genuinely in doubt.
+    // Collapsing the two told the operator a write may have committed even
+    // for a failed list/status call -- and, in the other direction, turned
+    // a read-only query into "outcome unknown" it could never have caused.
+    const mayWrite = (options.semantics ?? (method === 'GET' ? 'read' : 'write')) === 'write';
+    // A read that is given up on costs a retry and nothing else, so it gives
+    // up quickly. A write is not the same: giving up on one leaves the
+    // outcome in doubt, and the answer is what removes the doubt -- so a
+    // write waits far longer. The CLI and the Rust client follow the same
+    // rule, and the three encode one transport contract.
+    const timeoutMs = mayWrite ? WRITE_TIMEOUT_MS : READ_TIMEOUT_MS;
+    const readFailure = (detail: string) => new GatewayError('transport_unavailable', `${detail} The gateway is unavailable through the configured origin.`, 503);
     const writeInDoubt = (detail: string) => new GatewayError('outcome_unknown', `${detail} A write may have committed. Replay with the same key/body within retention; never blindly retry an unkeyed write.`);
     let response: Response;
     try {
-      response = await fetch(this.origin + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(10_000) });
+      response = await fetch(this.origin + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
     } catch {
-      if (method === 'GET') throw new GatewayError('transport_unavailable', 'The gateway is unavailable through the configured origin.', 503);
+      if (!mayWrite) throw readFailure('The request was not answered before the read timeout.');
       throw writeInDoubt('Transport failed.');
     }
     let bytes: Uint8Array;
@@ -247,21 +258,21 @@ export class Gateway {
       for (const chunk of chunks) { bytes.set(chunk,offset); offset += chunk.length; }
     } catch (error) {
       const detail = error instanceof Error && error.message === 'Response limit' ? 'The gateway response exceeded the configured limit' : 'The gateway response was interrupted';
-      if (method === 'GET') throw new GatewayError('invalid_gateway_response', `${detail}.`, 502);
+      if (!mayWrite) throw new GatewayError('invalid_gateway_response', `${detail}.`, 502);
       throw writeInDoubt(`${detail}.`);
     }
     let raw: unknown;
     try {
       raw = JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(bytes));
     } catch {
-      if (method === 'GET') throw new GatewayError('invalid_gateway_response', 'Gateway returned invalid JSON.', 502);
+      if (!mayWrite) throw new GatewayError('invalid_gateway_response', 'Gateway returned invalid JSON.', 502);
       throw writeInDoubt('The gateway returned an unreadable response.');
     }
     if (!response.ok) {
       if (object(raw) && object(raw.error) && typeof raw.error.code === 'string' && typeof raw.error.message === 'string') {
         throw new GatewayError(raw.error.code, raw.error.message, response.status);
       }
-      if (method === 'GET') throw new GatewayError('invalid_gateway_response', 'Gateway returned a malformed error response.', 502);
+      if (!mayWrite) throw new GatewayError('invalid_gateway_response', 'Gateway returned a malformed error response.', 502);
       throw writeInDoubt('The gateway returned an unreadable error response.');
     }
     return raw;
@@ -354,16 +365,24 @@ export class Database {
   async execute(sql: string, args: SqlValue[] = [], options: RequestOptions = {}): Promise<QueryResult> {
     if (typeof sql !== 'string' || sql.length === 0) throw new Error('Invalid SQL argument');
     assertValues(args);
-    const result = await this.gateway.request(`/v1/databases/${this.name}/query`, 'POST', {sql,args},options);
-    if (!isResult(result)) throw new GatewayError('outcome_unknown','Malformed query response');
+    // The HTTP method cannot tell this read from this write -- a query is a
+    // POST either way -- so the statement decides, with the same rule the
+    // server and the Rust client use. A read-only query is then answered as
+    // a read: it gives up quickly and is never reported as a write that may
+    // have committed.
+    const semantics = options.semantics ?? semanticsOf(sql);
+    const result = await this.gateway.request(`/v1/databases/${this.name}/query`, 'POST', {sql,args},{...options, semantics});
+    if (!isResult(result)) throw new GatewayError(semantics === 'read' ? 'invalid_gateway_response' : 'outcome_unknown','Malformed query response');
     return result;
   }
   async batch(statements: Statement[], options: RequestOptions = {}): Promise<BatchResult> {
     if (!Array.isArray(statements) || !statements.every(s => object(s) && typeof (s as {sql?: unknown}).sql === 'string' && ((s as {args?: unknown}).args === undefined || (Array.isArray((s as {args?: unknown}).args) && ((s as {args?: unknown}).args as unknown[]).every(isValue))))) {
       throw new Error('Invalid SQL argument');
     }
-    const result = await this.gateway.request(`/v1/databases/${this.name}/batch`,'POST',{statements,atomic:true},options);
-    if (!object(result) || !Array.isArray(result.results) || !result.results.every(isResult)) throw new GatewayError('outcome_unknown','Malformed batch response');
+    // A batch is a read only when every statement in it is one.
+    const semantics = options.semantics ?? semanticsOfStatements(statements);
+    const result = await this.gateway.request(`/v1/databases/${this.name}/batch`,'POST',{statements,atomic:true},{...options, semantics});
+    if (!object(result) || !Array.isArray(result.results) || !result.results.every(isResult)) throw new GatewayError(semantics === 'read' ? 'invalid_gateway_response' : 'outcome_unknown','Malformed batch response');
     return {results: result.results};
   }
   // Deliberate caller-initiated replay. No hidden automatic retry policy.

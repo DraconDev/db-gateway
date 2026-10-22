@@ -14,6 +14,7 @@ pub async fn serve(
     backup_digest_secs: u64,
     backup_failure_poll_secs: u64,
     backup_notify_webhook: Option<String>,
+    detach_safe: bool,
 ) -> Result<(), dg::ServerError> {
     // A flag that cannot be honoured is refused at startup rather
     // than half-applied: a sink silently dropped means an operator
@@ -75,7 +76,7 @@ pub async fn serve(
             "backup-health notification delivery enabled"
         );
     }
-    dg::serve(listen, data_dir, backup_root, notify).await
+    dg::serve(listen, data_dir, backup_root, notify, !detach_safe).await
 }
 
 pub async fn init(data_dir: PathBuf, json: bool) -> Result<(), dg::ServerError> {

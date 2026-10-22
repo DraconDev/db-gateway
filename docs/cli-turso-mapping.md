@@ -36,7 +36,7 @@ maps each Turso CLI verb to its `dg` equivalent.
 | `turso auth login/logout/token` | `dg init --data-dir ...` | Local-first: no cloud account. Owner credential lives in a 0600 key file (`--key-file`, `DG_KEY_FILE`, or `~/.config/dg/key`). |
 | — | `dg key rotate-owner` | Prints the new owner key once; old dies immediately. |
 
-## Service, backup, console (dg extras)
+## Service, backup, terminal view (dg extras)
 
 No Turso equivalent; kept as the single-node operational surface:
 
@@ -78,7 +78,7 @@ Per the project brief (no billing, no multi-user fluff):
 - `turso org ...` — single owner, no organizations.
 - `turso group ...` / locations / replicas — single node, no regions.
 - `turso plan` / billing / usage invoices — no metering-for-money.
-  Operational row counters exist (`dg status`, console overview) but are
-  visibility only, never invoiced.
+  Operational row counters exist (`dg status`, `dg watch` and the
+  per-database table in `dg tui`) but are visibility only, never invoiced.
 - `turso db update` (version upgrades, extensions) — deploy is a binary
   swap; see `docs/deployment.md`.

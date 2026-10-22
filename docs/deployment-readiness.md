@@ -29,13 +29,19 @@ remaining work are tracked in `docs/audit-2026-10-19.md`._
 ## Verdict
 
 **The supervised non-production deployment is evidenced and operationally
-verified — hourly snapshots, continuous OVH replication, and a pilot
-soak (since 2026-10-16) included — and the first-deploy and
+verified — hourly snapshots, continuous OVH replication, and the pilot
+launched 2026-10-16 with its first nine hours recorded — and the
+first-deploy and
 disaster-recovery paths are now proven on a genuinely clean host. But
 production readiness is not accepted.** Gates 1–4, 6 and 7 are
 verified; gate 8's operator decisions were recorded 2026-10-19; gate 5
 is now composed from measured evidence with the multi-day trend
-sampling live — its final fit verdict waits for the ≥7-day series. No
+sampling live — its final fit verdict waits for the ≥7-day series.
+**The pilot soak is not one of the verified items:** its plan calls for 7
+green days, the committed log
+([`evidence/pilot-soak-log.md`](evidence/pilot-soak-log.md)) holds 14
+hourly entries ending 2026-10-16T21:17Z, and the interval after that has
+not been collected into it. Treat the soak gate as open, not passed. No
 production migration is implied by any of this evidence.
 
 ## Future authorization boundary

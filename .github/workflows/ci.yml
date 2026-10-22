@@ -140,6 +140,18 @@ jobs:
       # by an operator, never in CI. This gate catches a broken probe body or
       # a scraping regression at the same place the deploy-template gate runs.
       - run: ./scripts/host-audit.sh
+      # Orphan/residue gate: a `dg serve` that outlived its launcher, or a
+      # scratch directory a run failed to remove, fails here. On a fresh CI
+      # runner this is a smoke check of the probe; its real job is on a
+      # developer or agent box, where six leaked servers and 277 MB of /tmp
+      # residue once went unnoticed for days. `dg serve` also arms
+      # PR_SET_PDEATHSIG so the class is fixed at the source, and
+      # tests/orphan_guard.rs pins both halves. DG_ORPHAN_MIN_AGE_SECS=0 means
+      # any orphan counts, including one this very job started.
+      - name: Check for orphaned servers and temp residue
+        env:
+          DG_ORPHAN_MIN_AGE_SECS: "0"
+        run: ./scripts/check-orphans.sh
       - run: python3 scripts/check_plan_consistency.py docs/personal-turso-megaplan.md
   audit:
     runs-on: ubuntu-latest

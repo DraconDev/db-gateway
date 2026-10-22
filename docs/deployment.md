@@ -145,6 +145,16 @@ failure (`docs/observability-contract.md` §3a-0).
 - **Loopback listening**: the template defaults to `127.0.0.1:7432`, and the
   server itself rejects non-loopback `--listen` before authentication exists
   (`dg serve --help` documents the option; `validate_listen` enforces it).
+- **A server does not outlive its launcher**: `dg serve` arms
+  `PR_SET_PDEATHSIG`, so a server started by a test, an audit harness or an
+  agent run is stopped by the kernel when that launcher dies instead of
+  sitting in the process table holding a data directory and a port. Five such
+  survivors were found on the maintainer's box (the oldest a day and a half
+  old). The supported supervisor is the systemd unit, whose own process is the
+  server's parent for its whole life, so this changes nothing there. If you
+  genuinely need a server to outlive the shell that backgrounded it, pass
+  `--detach-safe` — and note that `scripts/check-orphans.sh` (run in CI) will
+  report the resulting orphan rather than ignoring it.
 - **HTTPS / private transport**: `dg serve` performs no TLS itself because it
   only listens on loopback. The Rust client requires HTTPS for any
   non-loopback endpoint (src/client.rs endpoint validation), and the

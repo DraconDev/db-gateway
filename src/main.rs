@@ -227,6 +227,17 @@ enum Command {
         /// anyone reviewed.
         #[arg(long)]
         backup_notify_webhook: Option<String>,
+        /// Keep running when the process that started this server exits.
+        ///
+        /// By default `dg serve` asks the kernel to shut it down when its
+        /// launcher dies, so a test, audit or agent run that is killed
+        /// cannot leave a server (and its data directory and port) behind
+        /// for days. Set this when the server is genuinely meant to outlive
+        /// its launcher -- a deliberate `nohup dg serve &` followed by
+        /// closing the shell -- which no documented workflow needs, since
+        /// the supported supervisor is the systemd unit.
+        #[arg(long)]
+        detach_safe: bool,
     },
     /// Owner-only service status: version, uptime, admission config, and
     /// request-pressure counters.
@@ -482,6 +493,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             backup_digest_secs,
             backup_failure_poll_secs,
             backup_notify_webhook,
+            detach_safe,
         } => {
             return cmd_serve::serve(
                 listen,
@@ -490,6 +502,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 backup_digest_secs,
                 backup_failure_poll_secs,
                 backup_notify_webhook,
+                detach_safe,
             )
             .await;
         }

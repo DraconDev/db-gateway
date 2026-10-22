@@ -97,7 +97,7 @@ npm gates above, plus deploy-template and host-audit checks), `deny`
 ## Cutting a release
 
 1. Bump the version **everywhere at once**: `Cargo.toml`,
-   `crates/dg-client/Cargo.toml`, root / `client/` / `web/`
+   `crates/dg-client/Cargo.toml`, the root and `client/`
    `package.json`, and the lockfiles, in one commit.
 2. Move the `CHANGELOG.md` *Unreleased* notes into a dated
    `## [X.Y.Z]` entry.

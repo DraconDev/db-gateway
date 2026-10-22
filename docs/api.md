@@ -29,12 +29,17 @@ seconds; a write waits a minute, because giving up on one leaves the
 outcome in doubt and the answer is what removes the doubt.
 
 What makes a request a read is the request's own shape, not its HTTP
-method — a query is a POST either way. The CLI, the terminal view and
-the Rust client classify the statements with the same rule the server
-uses, so a read-only query is answered as a read: it gives up in ten
-seconds and is reported as an unavailable gateway, never as a write that
-may have committed. The TypeScript client is untouched and still
-classifies by method.
+method — a query is a POST either way. The CLI, the terminal view, the
+Rust client and the TypeScript client all classify the statements with
+the same rule the server uses, so a read-only query is answered as a
+read: it gives up in ten seconds and is reported as an unavailable
+gateway, never as a write that may have committed. A management route
+carries no statements to classify, so the method is the answer there
+(a `GET` reads; every management route that changes something is a
+`POST`/`DELETE`). Each client exports the rule it applies
+(`dg_client::is_read_only`, `isReadOnly`/`semanticsOf` from
+`client/`), so the classification can be checked against the server's
+own rather than taken on trust.
 
 - **TypeScript** — `client/` (`Gateway` / `Database`).
 - **Rust** — `crates/dg-client` (`dg_client::Gateway` /

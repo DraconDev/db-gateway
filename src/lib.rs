@@ -118,13 +118,82 @@ impl BackupNotify {
     }
 }
 
+/// Ask the kernel to kill this process when the process that started it dies.
+///
+/// A `dg serve` launched by a test, an audit script or an agent run is a
+/// child process. When its launcher dies without reaping it -- killed with
+/// SIGKILL, or a harness torn down mid-run -- the server has no parent left
+/// to stop it, and it keeps a data directory and a listening socket open for
+/// as long as the machine is up. Five such servers were found running on the
+/// maintainer's box, the oldest for 1 day 8 hours, every one of them
+/// reparented to systemd with its data directory already deleted.
+///
+/// `PR_SET_PDEATHSIG` closes that hole at the kernel: the signal is delivered
+/// when the *thread* that called fork dies, so we also re-check the parent id
+/// afterwards and shut down immediately if it already changed. A server an
+/// operator started from a shell that then exits on purpose is covered by the
+/// same rule -- the shell is the parent -- which is the documented behaviour
+/// of every process supervisor this tool is run under (systemd's own unit
+/// keeps the service as its own supervision tree root).
+#[cfg(target_os = "linux")]
+fn die_with_parent() {
+    // SAFETY: `prctl` is a plain syscall wrapper taking scalar arguments; no
+    // pointer is passed and no memory is shared with the kernel. The value is
+    // checked, and a failure is reported rather than ignored.
+    let rc = unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM as libc::c_ulong) };
+    if rc != 0 {
+        tracing::warn!(
+            code = "parent_death_signal_failed",
+            "could not arm the parent-death signal; this server would outlive its launcher"
+        );
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn die_with_parent() {}
+
+/// Whether this process has already been reparented (its original parent died
+/// between fork and the `prctl` call, which is a real race on a loaded box).
+#[cfg(target_os = "linux")]
+fn already_orphaned(original_parent: libc::pid_t) -> bool {
+    // SAFETY: `getppid` takes no arguments and cannot fail.
+    unsafe { libc::getppid() != original_parent }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn already_orphaned(_original_parent: i32) -> bool {
+    false
+}
+
 pub async fn serve(
     listen: SocketAddr,
     data_dir: std::path::PathBuf,
     backup_root: Option<std::path::PathBuf>,
     backup_notify: BackupNotify,
+    die_with_launcher: bool,
 ) -> Result<(), ServerError> {
     validate_listen(listen)?;
+    // Arm the parent-death signal before doing any work, and check the race:
+    // if the launcher is already gone, there is no one left to stop us. This
+    // is what stops a server outliving the test, audit or agent run that
+    // started it -- five such servers were found on the maintainer's box, the
+    // oldest a day and a half old. `--detach-safe` opts out for the operator
+    // who really does mean to background it.
+    #[cfg(target_os = "linux")]
+    if die_with_launcher {
+        // SAFETY: `getppid` takes no arguments and cannot fail.
+        let parent = unsafe { libc::getppid() };
+        die_with_parent();
+        if already_orphaned(parent) {
+            return Err(ServerError::Application(error::Error::new(
+                500,
+                "internal_error",
+                "this server's launcher exited before it started; refusing to run unsupervised",
+            )));
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = die_with_launcher;
     let store = tokio::task::spawn_blocking(move || {
         store::Store::open(&data_dir).map(|s| match backup_root {
             // Flag present: explicit root (aside the convention default).
