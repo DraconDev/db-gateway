@@ -203,30 +203,6 @@ fn longest_wait_us(address: &str, owner: &str, database: &str) -> u64 {
         .unwrap_or(0)
 }
 
-/// Wait until the server counts an ADMITTED request for `database`.
-///
-/// The wait counter moves for every attempt, including the ones the queue
-/// sheds, so the count alone does not say the holder is in. The timeout
-/// counter is what tells them apart: an admitted attempt raises the waits
-/// and not the timeouts.
-///
-/// The status endpoint answers from the metrics and never takes the
-/// database's guard, so it answers even while a request holds it.
-fn wait_for_admission(address: &str, owner: &str, database: &str, baseline: (u64, u64)) {
-    let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        let (waits, timeouts) = queue_counters(address, owner, database);
-        if waits > baseline.0 && timeouts == baseline.1 {
-            return;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "the write never took the guard on {database}"
-        );
-        std::thread::sleep(Duration::from_millis(5));
-    }
-}
-
 #[test]
 fn burst_waits_instead_of_shedding() {
     let dir = tempfile::tempdir().unwrap();
@@ -407,25 +383,21 @@ fn reads_proceed_during_slow_write() {
     let mut writer_elapsed = Duration::ZERO;
     let mut saw_contention = false;
     let mut cycles_run = 0u64;
+    let mut max_wait_us = 0u64;
+    let mut reads_made = 0usize;
     for _ in 0..CONTENTION_CYCLES {
         cycles_run += 1;
-        // Each cycle has its own baseline: the gate asks whether the
-        // write of THIS cycle is in, not whether some request ever was.
-        let (cycle_waits, cycle_timeouts) = queue_counters(&server.address, &owner, "mixed");
         // Each cycle gets a fresh write: the guard has to be held again.
         let address = server.address.clone();
         let owner_write = owner.clone();
         let sql = write_sql.clone();
         let writer = std::thread::spawn(move || timed_query(&address, &owner_write, "mixed", &sql));
-        let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
         let (issued_tx, issued_rx) = std::sync::mpsc::channel::<()>();
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let storm_stop = stop.clone();
         let storm_address = server.address.clone();
         let storm_owner = owner.clone();
         let storm = std::thread::spawn(move || {
-            // Wait for the write to be in before issuing anything.
-            let _ = go_rx.recv();
             let client = reqwest::blocking::Client::new();
             let mut reads = Vec::new();
             let mut first = true;
@@ -454,18 +426,13 @@ fn reads_proceed_during_slow_write() {
             reads
         });
 
-        // The write must hold the guard while a read arrives, and only
-        // the server knows when it took it.
-        wait_for_admission(
-            &server.address,
-            &owner,
-            "mixed",
-            (cycle_waits, cycle_timeouts),
-        );
-        go_tx.send(()).unwrap();
         // The handshake: the storm's first request must come back before
         // the writer is joined, so the test never looks at an empty
-        // storm.
+        // storm. The storm issues reads throughout the write rather than
+        // waiting for a signal, because the write's length is not
+        // something the client can predict: a read that arrives during
+        // the write is the case under test, and the storm keeps asking
+        // until it has seen one.
         issued_rx
             .recv_timeout(Duration::from_secs(30))
             .expect("the read storm issued no request");
@@ -480,16 +447,18 @@ fn reads_proceed_during_slow_write() {
         writer_elapsed = elapsed;
         // Did a read really queue for the guard? The server counted the
         // wait, and its counter is the evidence.
-        if longest_wait_us(&server.address, &owner, "mixed") >= CONTENTION_WAIT_US {
+        max_wait_us = longest_wait_us(&server.address, &owner, "mixed");
+        reads_made = readers.len();
+        if max_wait_us >= CONTENTION_WAIT_US {
             saw_contention = true;
             break;
         }
     }
-    let _ = writer_elapsed;
     assert!(
         saw_contention,
         "no read ever waited for the guard: the contention this test is \
-         about never happened"
+         about never happened (max wait {max_wait_us:?}us, the write took \
+         {writer_elapsed:?}, {reads_made} reads were issued)"
     );
     assert!(
         !readers.is_empty(),
