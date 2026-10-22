@@ -40,6 +40,15 @@ const SLOW_WRITE_MS: u128 = 300;
 /// How many contention cycles the test runs before it gives up on seeing
 /// the contention it is looking for.
 const CONTENTION_CYCLES: usize = 3;
+/// How long the wait a read actually did has to be for the contention to
+/// count as observed.
+///
+/// A read that queued behind the write waited for the write to release
+/// the guard, which is a real wait measured in tens of milliseconds. A
+/// server that turned a waiter away at once — no wait at all — is the
+/// regression this test exists to catch, and it shows up as a wait in
+/// the microseconds.
+const CONTENTION_WAIT_US: u64 = 10_000;
 
 struct Server {
     child: Child,
@@ -469,7 +478,7 @@ fn reads_proceed_during_slow_write() {
         writer_elapsed = elapsed;
         // Did a read really queue for the guard? The server counted the
         // wait, and its counter is the evidence.
-        if longest_wait_us(&server.address, &owner, "mixed") > 0 {
+        if longest_wait_us(&server.address, &owner, "mixed") >= CONTENTION_WAIT_US {
             saw_contention = true;
             break;
         }
