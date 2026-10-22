@@ -3,7 +3,8 @@
 //! This is the Rust-side application access path (audit A6): production
 //! writers in the platform are Rust and previously had only the
 //! TypeScript client (`client/`) or the gateway CLI's untyped transport
-//! to copy. The crate mirrors the TypeScript client's contract exactly:
+//! to copy. The crate mirrors the TypeScript client's transport
+//! contract:
 //!
 //! - origins must be HTTPS or a literal loopback HTTP origin; userinfo,
 //!   query, fragment, and non-root paths are refused before any request;
@@ -14,7 +15,8 @@
 //!   idempotency key), a failed read as `transport_unavailable`;
 //! - a request is classified by the statements it sends, with the same
 //!   rule the server uses, so a read-only query gives up in ten seconds
-//!   and is never reported as a write that may have committed;
+//!   and is never reported as a write that may have committed. (The
+//!   TypeScript client is untouched and still classifies by method.)
 //! - no hidden retries: replay is an explicit caller decision via
 //!   [`Database::execute_with_key`] / [`Database::batch_with_key`].
 //!
