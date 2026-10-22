@@ -85,7 +85,13 @@ pub async fn list(
             .map_err(Application)?;
         return Ok(None);
     }
-    Ok(Some((Method::GET, "/v1/keys".into(), None, None, dg::client::Semantics::Read)))
+    Ok(Some((
+        Method::GET,
+        "/v1/keys".into(),
+        None,
+        None,
+        dg::client::Semantics::Read,
+    )))
 }
 
 /// The credentials that can act on one database.
@@ -256,5 +262,6 @@ pub async fn rotate_owner(
         "/v1/keys/owner/rotate".into(),
         None,
         None,
+        dg::client::Semantics::Write,
     )))
 }

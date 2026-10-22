@@ -26,8 +26,15 @@ proxies/redirects, bounded responses, `outcome_unknown` write
 semantics, explicit keyed replay — never hidden retries). A read that
 is given up on costs a retry and nothing else, so it gives up in ten
 seconds; a write waits a minute, because giving up on one leaves the
-outcome in doubt and the answer is what removes the doubt. The CLI
-follows the same rule, and so does the Rust client:
+outcome in doubt and the answer is what removes the doubt.
+
+What makes a request a read is the request's own shape, not its HTTP
+method — a query is a POST either way. The CLI and the Rust client
+classify the statements with the same rule the server uses, so a
+read-only query is answered as a read: it gives up in ten seconds and is
+reported as an unavailable gateway, never as a write that may have
+committed. The TypeScript client is untouched and still classifies by
+method.
 
 - **TypeScript** — `client/` (`Gateway` / `Database`).
 - **Rust** — `crates/dg-client` (`dg_client::Gateway` /

@@ -53,7 +53,13 @@ pub async fn list(
             .map_err(Application)?;
         return Ok(None);
     }
-    Ok(Some((Method::GET, "/v1/databases".into(), None, None, dg::client::Semantics::Read)))
+    Ok(Some((
+        Method::GET,
+        "/v1/databases".into(),
+        None,
+        None,
+        dg::client::Semantics::Read,
+    )))
 }
 
 /// The per-database live view: what this database holds and what it
@@ -322,6 +328,7 @@ pub async fn info(
         format!("/v1/databases/{name}"),
         None,
         None,
+        dg::client::Semantics::Read,
     )))
 }
 
@@ -619,6 +626,7 @@ pub async fn batch(
         format!("/v1/databases/{name}/batch"),
         Some(body_value),
         idempotency_key,
+        dg::client::semantics_of_statements(&body.statements),
     )))
 }
 

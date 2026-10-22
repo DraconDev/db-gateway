@@ -1,7 +1,8 @@
 # dg CLI vs Turso CLI mapping
 
 Goal: Turso-dashboard ergonomics for a personal single-node SQLite
-service — CLI primary, browser console for human visibility, no billing.
+service — the CLI and its terminal view are the operator's surface, no
+billing.
 `dg` keeps its flat command layout (no `dg db ...` regroup); this doc
 maps each Turso CLI verb to its `dg` equivalent.
 

@@ -97,14 +97,20 @@ fixes; 1.0.0 waits for production acceptance.
   shed after at least 400 ms and well under 5 s), and a reader that
   waits for a writer which releases inside the bound is pinned as
   admitted (`src/store/tests.rs`).
-- **The clients give a write more room than a read before they give up.**
-  Ten seconds was the whole timeout, so a gateway that was busy answering
-  turned a write into "outcome unknown" — the one state an operator has
-  to reconcile by hand. A read still gives up in ten seconds (a retry
-  costs nothing else); a write waits a minute, because the answer is
-  what removes the doubt. The CLI and the Rust client
-  (`crates/dg-client`) now follow that rule; the TypeScript client
-  (`client/`) is untouched.
+- **A write waits for its answer; a read does not.** Ten seconds was the
+  whole timeout, so a gateway that was busy answering turned a write
+  into "outcome unknown" — the one state an operator has to reconcile by
+  hand. A read still gives up in ten seconds (a retry costs nothing
+  else); a write waits a minute, because the answer is what removes the
+  doubt. The CLI and the Rust client (`crates/dg-client`) follow that
+  rule; the TypeScript client (`client/`) is untouched.
+- **A read-only query is answered as a read.** The HTTP method cannot
+  tell a read from a write — a query is a POST either way — so the
+  statements decide, with the same classification the server uses. A
+  read-only query now gives up in ten seconds and is reported as an
+  unavailable gateway, instead of waiting a minute and being reported
+  as a write that may have committed when nothing could have
+  committed.
 - **The notification test no longer races the delivery it waits for.**
   It waited for a digest note to arrive — and the collector already
   held the digests from before the sink started rejecting, so the wait

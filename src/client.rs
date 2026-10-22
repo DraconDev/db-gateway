@@ -153,15 +153,20 @@ fn transport_failure(semantics: Semantics) -> Error {
 /// must not call a read a write: telling an operator that a write may
 /// have committed when nothing could have committed is its own kind of
 /// wrong answer.
-pub fn semantics_of(sql: &[String]) -> Semantics {
+pub fn semantics_of<S: AsRef<str>>(sql: &[S]) -> Semantics {
     let statements: Vec<crate::execution::Statement> = sql
         .iter()
         .map(|sql| crate::execution::Statement {
-            sql: sql.clone(),
+            sql: sql.as_ref().to_string(),
             args: Vec::new(),
         })
         .collect();
-    if crate::execution::is_read_only(&statements) {
+    semantics_of_statements(&statements)
+}
+
+/// The transport semantics of a set of statements.
+pub fn semantics_of_statements(statements: &[crate::execution::Statement]) -> Semantics {
+    if crate::execution::is_read_only(statements) {
         Semantics::Read
     } else {
         Semantics::Write
@@ -326,6 +331,29 @@ mod tests {
         let write = transport_failure(Semantics::Write);
         assert_eq!(write.status, 502);
         assert_eq!(write.code, "outcome_unknown");
+    }
+
+    /// The statements decide whether a request is a read or a write.
+    ///
+    /// The HTTP method cannot: a query is a POST either way. The client
+    /// uses the same classification the server uses, so the two agree —
+    /// and a read that is given up on is reported as an unavailable
+    /// gateway, not as a write that may have committed.
+    #[test]
+    fn the_statements_decide_whether_a_request_is_a_read() {
+        assert_eq!(semantics_of(&["SELECT 1".to_string()]), Semantics::Read);
+        assert_eq!(
+            semantics_of(&["WITH x AS (SELECT 1) SELECT * FROM x".to_string()]),
+            Semantics::Read
+        );
+        assert_eq!(
+            semantics_of(&["INSERT INTO t VALUES (1)".to_string()]),
+            Semantics::Write
+        );
+        assert_eq!(
+            semantics_of(&["SELECT 1".to_string(), "DELETE FROM t".to_string()]),
+            Semantics::Write
+        );
     }
 
     /// A write waits longer than a read before the CLI gives up.

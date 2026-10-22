@@ -40,7 +40,13 @@ pub async fn status(
         dg::render::write_sections(&mut out, &terminal_theme(), &sections).map_err(Application)?;
         return Ok(None);
     }
-    Ok(Some((Method::GET, "/v1/backups".into(), None, None, dg::client::Semantics::Read)))
+    Ok(Some((
+        Method::GET,
+        "/v1/backups".into(),
+        None,
+        None,
+        dg::client::Semantics::Read,
+    )))
 }
 
 pub async fn digest(

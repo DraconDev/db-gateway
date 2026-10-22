@@ -27,7 +27,13 @@ pub async fn status(
         .map_err(Application)?;
         return Ok(None);
     }
-    Ok(Some((Method::GET, "/v1/status".into(), None, None)))
+    Ok(Some((
+        Method::GET,
+        "/v1/status".into(),
+        None,
+        None,
+        dg::client::Semantics::Read,
+    )))
 }
 
 /// The `dg watch` snapshot: the same dashboard as `dg status`, read once.

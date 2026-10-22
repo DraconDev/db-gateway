@@ -47,6 +47,7 @@ pub async fn clone_db(
         format!("/v1/databases/{source}/clone"),
         Some(json!({"destination":destination})),
         None,
+        dg::client::Semantics::Write,
     )))
 }
 
@@ -189,5 +190,6 @@ pub async fn delete(
         format!("/v1/databases/{name}"),
         None,
         None,
+        dg::client::Semantics::Write,
     )))
 }

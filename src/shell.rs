@@ -273,8 +273,11 @@ impl Session<'_> {
                         json!([argument, argument]),
                     )
                 };
+                // The statements decide whether this is a read or a
+                // write, not the method: a query is a POST either way.
+                let semantics = crate::client::semantics_of(std::slice::from_ref(&sql));
                 let response = self
-                    .request("query", json!({"sql":sql,"args":args}), None)
+                    .request("query", json!({"sql":sql,"args":args}), None, semantics)
                     .await?;
                 render_with(&response, self.json_mode, self.theme, out)?;
             }
@@ -298,8 +301,11 @@ impl Session<'_> {
                 ));
             }
             _ => {
+                // The statements decide whether this is a read or a
+                // write, not the method: a query is a POST either way.
+                let semantics = crate::client::semantics_of(std::slice::from_ref(&line));
                 let response = self
-                    .request_attempt("query", json!({"sql":line,"args":[]}))
+                    .request_attempt("query", json!({"sql":line,"args":[]}), semantics)
                     .await?;
                 render_with(&response, self.json_mode, self.theme, out)?;
             }
@@ -351,33 +357,46 @@ impl Session<'_> {
                 return Err(Error::invalid());
             }
         };
-        let body = serde_json::to_value(batch).map_err(|_| Error::internal())?;
-        let response = self.request_attempt("batch", body).await?;
+        let body = serde_json::to_value(&batch).map_err(|_| Error::internal())?;
+        let semantics = crate::client::semantics_of_statements(&batch.statements);
+        let response = self.request_attempt("batch", body, semantics).await?;
         render_with(&response, self.json_mode, self.theme, out)?;
         Ok(false)
     }
 
-    async fn request_attempt(&mut self, route: &str, body: Value) -> Result<Value> {
+    async fn request_attempt(
+        &mut self,
+        route: &str,
+        body: Value,
+        semantics: crate::client::Semantics,
+    ) -> Result<Value> {
         let key = self.pending_key.take();
-        let result = self.request(route, body, key.as_deref()).await;
+        let result = self.request(route, body, key.as_deref(), semantics).await;
         if matches!(&result, Err(error) if error.code == "outcome_unknown") {
             self.pending_key = key;
         }
         result
     }
 
-    async fn request(&self, route: &str, body: Value, idempotency: Option<&str>) -> Result<Value> {
+    async fn request(
+        &self,
+        route: &str,
+        body: Value,
+        idempotency: Option<&str>,
+        semantics: crate::client::Semantics,
+    ) -> Result<Value> {
         let database = self
             .database
             .as_deref()
             .ok_or_else(|| Error::new(400, "no_database_selected", "run use <db> first"))?;
-        client::request(
+        client::request_with_semantics(
             self.server,
             self.key,
             reqwest::Method::POST,
             &format!("/v1/databases/{database}/{route}"),
             Some(body),
             idempotency,
+            semantics,
         )
         .await
     }
