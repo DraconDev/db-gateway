@@ -247,5 +247,15 @@ fn a_bare_invocation_off_a_terminal_prints_usage_and_changes_nothing() {
             "bare `dg` {:?} off a terminal must not start the view",
             args
         );
+        // And no colour escapes either. This is written to stderr without
+        // clap's own `print()` (so the stream cannot depend on which error
+        // kind a release maps where), and the obvious way to get that wrong
+        // is `render().ansi()`, which emits escapes unconditionally -- in a
+        // captured pipe, where clap itself would have emitted none.
+        assert!(
+            !stderr.contains('\u{1b}'),
+            "bare `dg` {:?} must not send escape sequences to a pipe:\n{stderr:?}",
+            args
+        );
     }
 }
