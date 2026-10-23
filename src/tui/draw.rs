@@ -40,7 +40,7 @@ fn cell_widget(cell: &render::Cell) -> Cell<'static> {
 /// The widths of a table's columns.
 ///
 /// A column is as wide as its widest cell, so the numbers line up
-/// under their headers; when the table is wider than the pane, every
+/// under their headers; when the table is wider than the area, every
 /// column shares what is left rather than one of them taking it all.
 fn widths(table: &ViewTable, area: u16) -> Vec<Constraint> {
     let columns = table.columns();
@@ -86,7 +86,7 @@ fn table_widget(table: &ViewTable, area: u16, max_rows: usize) -> Table<'static>
 
 /// A section's fields, as lines.
 ///
-/// Only the field blocks: a table is drawn as a table by its own pane, since
+/// Only the field blocks: a table is drawn as a table by its own body, since
 /// a paragraph cannot align columns. Callers therefore have to ask
 /// `section_has_table` before printing a section's heading -- a section whose
 /// only block is a table contributes no lines at all, and printing its
@@ -112,7 +112,7 @@ fn section_lines(section: &Section) -> Vec<Line<'static>> {
 /// Whether a section carries anything `section_lines` can draw.
 ///
 /// A section that holds only a table adds no lines, so a heading printed for
-/// it would be a title standing over nothing. The pane draws the table
+/// it would be a title standing over nothing. The body draws the table
 /// itself; this is what keeps the heading honest.
 fn section_has_lines(section: &Section) -> bool {
     !section_lines(section).is_empty()
@@ -136,7 +136,7 @@ fn heading(title: &str) -> Line<'static> {
 
 /// The border of the tab body.
 ///
-/// A tabbed layout has one body, so there is no longer a set of panes
+/// A tabbed layout has one body, so there is no longer a set of boxes
 /// competing for attention: the border is calm and the tab strip carries the
 /// focus signal.
 fn pane(title: &str, focused: bool) -> Block<'static> {
@@ -230,7 +230,7 @@ fn top_bar(frame: &mut Frame, area: Rect, app: &App) {
 
 /// The tab strip, then the body of the tab that is showing.
 ///
-/// The view shows one tab at a time rather than tiling every pane. A tile
+/// The view shows one tab at a time rather than tiling every answer. A tile
 /// layout forces each answer into a fraction of the screen, so a wide table
 /// is squeezed and a long list is cut; a tab gives the whole width to the
 /// thing being read. The cost is that the other tabs are not visible, and
@@ -308,7 +308,7 @@ fn tabs(frame: &mut Frame, area: Rect, app: &App) {
 
 /// The database list, with each database's traffic.
 ///
-/// The pane says how many databases it holds: a list that silently
+/// The tab says how many databases it holds: a list that silently
 /// cuts itself is a visibility lie, and the count is what tells the
 /// operator to scroll.
 fn databases_pane(frame: &mut Frame, area: Rect, app: &App) {
@@ -337,7 +337,7 @@ fn databases_pane(frame: &mut Frame, area: Rect, app: &App) {
 /// as a table under the field lines rather than being dropped.
 ///
 /// Dropping it was a real defect, hidden by the old tiled layout: the
-/// per-database pane showed the same figures on the same screen, so nobody
+/// databases tab showed the same figures on the same screen, so nobody
 /// noticed the dashboard's own table was missing. With one tab per answer
 /// there is nothing to hide behind, and the table is what makes the service
 /// tab answer "which database is doing the work".
@@ -403,7 +403,7 @@ fn backups_pane(frame: &mut Frame, area: Rect, app: &App) {
     let mut lines = Vec::new();
     let mut table: Option<(String, ViewTable)> = None;
     for section in &sections {
-        // The same rule as the service pane: a heading is only drawn when
+        // The same rule as the service tab: a heading is only drawn when
         // there is something under it.
         if section_has_lines(section) {
             lines.push(heading(section.title()));
@@ -468,9 +468,9 @@ fn outcome_lines(outcome: &Outcome) -> u16 {
     1 + facts + table + u16::from(outcome.error.is_some()) + 4
 }
 
-/// How many rows of a result the outcome pane draws.
+/// How many rows of a result the outcome area draws.
 ///
-/// A pane is not a report: a result with a thousand rows belongs in
+/// That area is not a report: a result with a thousand rows belongs in
 /// the one-shot command that can print them all.
 const OUTCOME_ROWS: usize = 10;
 

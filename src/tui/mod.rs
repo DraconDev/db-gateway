@@ -61,7 +61,7 @@ pub enum Mode {
     },
 }
 
-/// Which pane has the keyboard.
+/// Which tab has the keyboard.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Focus {
     /// The database list.
@@ -95,7 +95,7 @@ impl Focus {
         }
     }
 
-    /// What the pane is called.
+    /// What the tab is called.
     pub fn title(self) -> &'static str {
         match self {
             Self::Databases => "databases",
@@ -119,11 +119,11 @@ pub struct Outcome {
     pub error: Option<String>,
 }
 
-/// How far each pane is scrolled.
+/// How far each tab is scrolled.
 ///
-/// A pane that silently cuts its list is a visibility lie: the operator
+/// A tab that silently cuts its list is a visibility lie: the operator
 /// cannot tell a database that does not exist from one that is below
-/// the fold. So the panes scroll, and they say how much they hold.
+/// the fold. So the tabs scroll, and they say how much they hold.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Scroll {
     /// The database list.
@@ -137,7 +137,7 @@ pub struct Scroll {
 }
 
 impl Scroll {
-    /// The offset of the focused pane.
+    /// The offset of the open tab.
     pub fn of(&mut self, focus: Focus) -> &mut u16 {
         match focus {
             Focus::Databases => &mut self.databases,
@@ -178,9 +178,9 @@ pub struct App {
     pub input: String,
     /// The last action's outcome.
     pub outcome: Option<Outcome>,
-    /// Which pane has the keyboard.
+    /// Which tab has the keyboard.
     pub focus: Focus,
-    /// How far each pane is scrolled.
+    /// How far each tab is scrolled.
     pub scroll: Scroll,
     /// The action waiting to run.
     pending: Option<Invocation>,
@@ -281,7 +281,7 @@ impl App {
         }
     }
 
-    /// Scroll the focused pane.
+    /// Scroll the open tab.
     fn scroll_by(&mut self, lines: i32) {
         let offset = self.scroll.of(self.focus);
         let moved = (*offset as i32 + lines).max(0) as u16;
