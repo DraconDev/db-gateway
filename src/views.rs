@@ -138,21 +138,6 @@ pub fn service_dashboard(status: &serde_json::Value) -> Vec<Section> {
     sections
 }
 
-/// Which figures a traffic table shows.
-///
-/// The dashboard has room for every figure; the terminal view's
-/// database pane is a pane, and shows the ones an operator reads at a
-/// glance. The figures are the same either way — they are read from
-/// the same counters — so a number in one surface is the same number
-/// in the other.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Figures {
-    /// Every figure: the dashboard's per-database table.
-    Full,
-    /// The figures that fit a narrow pane: the view's database list.
-    Brief,
-}
-
 /// The per-database traffic table, over the databases that have done
 /// something.
 ///
@@ -163,7 +148,7 @@ pub fn per_database_table(status: &Value) -> Table {
         .as_object()
         .map(|usage| usage.keys().cloned().collect())
         .unwrap_or_default();
-    traffic_table(&names, status, Figures::Full)
+    traffic_table(&names, status)
 }
 
 /// The database list with each database's traffic.
@@ -174,7 +159,7 @@ pub fn per_database_table(status: &Value) -> Table {
 /// database" must not look the same.
 ///
 /// The columns are the dashboard's own, so the terminal view's
-/// database pane and the CLI's dashboard are the same table.
+/// database list and the CLI's dashboard are the same table.
 pub fn databases(list: &Value, status: &Value) -> Table {
     let mut names: Vec<String> = list["databases"]
         .as_array()
@@ -184,22 +169,23 @@ pub fn databases(list: &Value, status: &Value) -> Table {
         .map(|name| name.as_str().unwrap_or("").to_string())
         .collect();
     names.sort();
-    traffic_table(&names, status, Figures::Brief)
+    traffic_table(&names, status)
 }
 
 /// One traffic table over a list of database names.
-fn traffic_table(names: &[String], status: &Value, figures: Figures) -> Table {
+///
+/// Every figure is shown. There used to be a narrower variant for the
+/// terminal view's database *pane*, when the tiled layout gave each
+/// answer a fraction of the screen; the view is tabbed now, so the
+/// database list is a whole tab and has the width for all of them.
+fn traffic_table(names: &[String], status: &Value) -> Table {
     let mut table = Table::new();
     table.column("database", Align::Left);
     table.column("rows read", Align::Right);
     table.column("rows written", Align::Right);
-    if figures == Figures::Full {
-        table.column("waits", Align::Right);
-    }
+    table.column("waits", Align::Right);
     table.column("wait p95", Align::Right);
-    if figures == Figures::Full {
-        table.column("wait max", Align::Right);
-    }
+    table.column("wait max", Align::Right);
     table.column("last write", Align::Left);
     for name in names {
         let entry = &status["databases"][name.as_str()];
@@ -212,20 +198,15 @@ fn traffic_table(names: &[String], status: &Value, figures: Figures) -> Table {
             Some(epoch) => Cell::text(human_epoch_ago(epoch)),
             None => Cell::text("never"),
         };
-        let mut row = vec![
+        table.row(vec![
             Cell::styled(name.clone(), Style::Cyan),
             Cell::number(entry["rows_read"].as_u64().unwrap_or(0)),
             Cell::number(entry["rows_written"].as_u64().unwrap_or(0)),
-        ];
-        if figures == Figures::Full {
-            row.push(Cell::number(waits));
-        }
-        row.push(figures_cells.p95);
-        if figures == Figures::Full {
-            row.push(figures_cells.max);
-        }
-        row.push(last_write);
-        table.row(row);
+            Cell::number(waits),
+            figures_cells.p95,
+            figures_cells.max,
+            last_write,
+        ]);
     }
     table.footer("wait p95 is this database's own recent waits; wait max is its worst single wait");
     table
