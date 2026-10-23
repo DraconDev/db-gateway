@@ -79,6 +79,33 @@ fn tui_text(status: &Value) -> String {
 }
 
 #[test]
+fn a_section_that_is_only_a_table_does_not_print_an_empty_heading() {
+    // The defect: the service dashboard's "per-database" section holds a
+    // table and nothing else. `section_lines` only draws field blocks -- a
+    // paragraph cannot align columns -- so the heading was printed with no
+    // content under it, and the pane showed a second bare "per-database"
+    // title above the real one at the bottom of the screen.
+    //
+    // The table itself belongs to the database pane, so the right answer
+    // for the dashboard is one heading for a section that has lines, and
+    // none for a section that does not.
+    let status = status();
+    let tui = tui_text(&status);
+    let headings = tui.matches("per-database").count();
+    assert_eq!(
+        headings, 1,
+        "the dashboard must not draw a heading for a section it cannot fill (found {headings}):\n{tui}"
+    );
+    // And the sections that DO have fields still carry their headings.
+    for heading in ["service", "activity", "admission"] {
+        assert!(
+            tui.contains(heading),
+            "the view lost the {heading:?} heading:\n{tui}"
+        );
+    }
+}
+
+#[test]
 fn the_cli_and_the_view_show_the_same_numbers() {
     // The same facts, read once: the CLI's dashboard and the terminal
     // view's dashboard cannot tell the operator different stories.

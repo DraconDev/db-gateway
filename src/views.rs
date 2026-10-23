@@ -657,6 +657,68 @@ mod tests {
     }
 
     #[test]
+    fn a_gateway_that_does_not_report_counts_is_not_drawn_as_holding_none() {
+        // A gateway older than `database_counts` answers without the field.
+        // Rendering the absent figure as 0 made the service pane say "0 live"
+        // while the database list beside it showed two rows -- an operator
+        // cannot tell an empty gateway from one that never answered the
+        // question. The view already refuses to invent a measurement
+        // elsewhere ("no waits recorded"), so it must not invent this one.
+        let status = serde_json::json!({
+            "version": "0.1.0",
+            "uptime_secs": 60,
+            "requests": {
+                "total": 1,
+                "capacity_exceeded": 0,
+                "query_deadline_exceeded": 0,
+                "internal_error": 0,
+                "recent_per_second": [],
+                "recent_span_secs": 0,
+            },
+            "databases": {"demo": {"rows_read": 1, "rows_written": 0}},
+        });
+        let sections = service_dashboard(&status);
+        let mut out = Vec::new();
+        render::write_sections(&mut out, &render::Theme::fixed(false, true), &sections).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(
+            !text.contains("0 live"),
+            "an unreported count must not be drawn as zero live databases:\n{text}"
+        );
+        assert!(
+            text.contains("unknown"),
+            "an unreported count must be drawn as unknown:\n{text}"
+        );
+    }
+
+    #[test]
+    fn a_present_count_still_reads_as_a_number() {
+        // The other side of the rule: when the gateway does report the
+        // counts, the pane shows them rather than "unknown".
+        let status = serde_json::json!({
+            "version": "0.2.0",
+            "uptime_secs": 60,
+            "database_counts": {"live": 2, "tombstoned": 1},
+            "requests": {
+                "total": 1,
+                "capacity_exceeded": 0,
+                "query_deadline_exceeded": 0,
+                "internal_error": 0,
+                "recent_per_second": [],
+                "recent_span_secs": 0,
+            },
+            "databases": {},
+        });
+        let sections = service_dashboard(&status);
+        let mut out = Vec::new();
+        render::write_sections(&mut out, &render::Theme::fixed(false, true), &sections).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(
+            text.contains("2 live, 1 tombstoned"),
+            "a reported count must be shown as reported:\n{text}"
+        );
+    }
+
     fn the_per_database_table_puts_the_p95_and_the_max_under_their_own_headers() {
         // The defect this protects against: the wait-latency column
         // once held each database's MAXIMUM wait under a "wait p95"
