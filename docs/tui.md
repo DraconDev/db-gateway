@@ -31,7 +31,7 @@ A tab strip, and the body of the tab that is showing.
 | Tab | Key | What it answers |
 |---|---|---|
 | Databases | `1` | Every database the gateway lists, with the rows it has read and written, its own wait p95 and its worst wait, and when it was last written |
-| Service | `2` | The service dashboard — version, uptime, request totals and rate, error counts, admission permits, the wait percentiles, the recent request-rate sparkline — and the per-database traffic breakdown |
+| Service | `2` | The service dashboard — version, uptime, request totals and rate, error counts, admission permits, the wait percentiles, the recent request-rate sparkline |
 | Backups | `3` | The backup root, the stale-after threshold, the published sets, and each database's freshness state |
 | Keys | `4` | Every outstanding credential, its role, and the databases it may reach |
 
@@ -44,6 +44,11 @@ forces each answer into a fraction of the width, which squeezes a wide table
 and cuts a long list; a tab gives the whole body to the thing being read. The
 cost — three answers are off screen — is paid by the strip, which always names
 every tab.
+
+Each tab answers one question and shows one answer. The per-database traffic
+breakdown is the databases tab's, and it is not repeated on the service tab:
+the same rows under a second heading, on a second tab, is the tiling problem
+returning in a new shape.
 
 ## The colours
 
