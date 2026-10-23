@@ -91,9 +91,12 @@ fn a_section_that_is_only_a_table_does_not_print_an_empty_heading() {
     // none for a section that does not.
     let status = status();
     let tui = tui_text(&status);
+    // The service pane draws no "per-database" heading at all: that
+    // section's only block is a table, which this pane cannot draw. The
+    // table itself is the database pane's job, further down the screen.
     let headings = tui.matches("per-database").count();
     assert_eq!(
-        headings, 1,
+        headings, 0,
         "the dashboard must not draw a heading for a section it cannot fill (found {headings}):\n{tui}"
     );
     // And the sections that DO have fields still carry their headings.
