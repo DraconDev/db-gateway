@@ -21,6 +21,15 @@ fixes; 1.0.0 waits for production acceptance.
 
 ### Added
 
+- **The terminal view is tabbed, themed and legible.** The four answers
+  are tabs (`1`-`4`, or `tab`/`shift-tab`) instead of tiles, so a wide
+  table gets the whole width instead of a fraction of it. The palette is
+  a semantic dark theme in `src/tui/theme.rs`: colours are assigned to
+  meanings once, every text colour meets WCAG AA against the background
+  (the emphasised ones reach AAA) with the ratios asserted in tests, and
+  colour is never the only signal. The command bar names the keys that
+  work — `1-4`, `tab`, `↑↓`, `:`, `r`, `q` — because the palette behind
+  `:` is invisible to anyone who has not already found it.
 - **Bare `dg` is the terminal view.** With no command, `dg` opens the
   operator's screen rather than printing the subcommand list, so the
   program's name is the way to the surface it describes. It only does so

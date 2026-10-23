@@ -26,17 +26,46 @@ way it always is: through an SSH tunnel.
 
 ## What is on the screen
 
-| Pane | What it answers |
-|---|---|
-| Top bar | Which gateway, when it was last read, and whether it answered |
-| Databases | Every database the gateway lists, with the rows it has read and written, its own wait p95, and when it was last written |
-| Service | The service dashboard: version, uptime, request totals and rate, error counts and rate, admission permits, the wait percentiles, and the recent request-rate sparkline |
-| Backups | The backup root, the stale-after threshold, the published sets, and each database's freshness state |
-| Keys | Every outstanding credential, its role, and the databases it may reach |
-| Last action | What the action you just ran did, and the rows it produced |
+A tab strip, and the body of the tab that is showing.
 
-The view reads the service again every two seconds. `r` reads it
-again at once, and `--refresh <seconds>` changes the cadence.
+| Tab | Key | What it answers |
+|---|---|---|
+| Databases | `1` | Every database the gateway lists, with the rows it has read and written, its own wait p95 and its worst wait, and when it was last written |
+| Service | `2` | The service dashboard — version, uptime, request totals and rate, error counts, admission permits, the wait percentiles, the recent request-rate sparkline — and the per-database traffic breakdown |
+| Backups | `3` | The backup root, the stale-after threshold, the published sets, and each database's freshness state |
+| Keys | `4` | Every outstanding credential, its role, and the databases it may reach |
+
+The tabs are also reached with `tab` and `shift-tab`. Each tab carries its
+number and, where it has one, its count: the strip is a summary, not just a
+switchboard, so an operator can see how much is in a tab without opening it.
+
+The view shows **one tab at a time** rather than tiling every answer. Tiling
+forces each answer into a fraction of the width, which squeezes a wide table
+and cuts a long list; a tab gives the whole body to the thing being read. The
+cost — three answers are off screen — is paid by the strip, which always names
+every tab.
+
+## The colours
+
+The palette is dark, high-contrast, and **semantic**: colours are assigned to
+meanings once, in `src/tui/theme.rs`, and nothing else in the view names a
+colour. A failure and a success cannot drift into looking alike, because they
+are the same two constants everywhere.
+
+Every colour that carries text meets WCAG AA (4.5:1) against the background,
+and the emphasised ones meet AAA (7:1); the ratios are asserted in the theme's
+own tests, so a future tweak that hurts readability fails the build. Colour is
+never the only signal: a failure is red *and* says so, the active tab is
+tinted *and* underlined, and the caret marks it a third time.
+
+## The command bar
+
+The bar along the bottom names the keys that matter, in the same order on
+every screen: `1-4` tabs, `tab` next tab, `↑↓` scroll, `:` commands, `r`
+refresh, `q` quit. Everything else is behind `:` — the palette is powerful but
+invisible, and nobody finds a command they cannot see, so the ones an operator
+needs constantly are always on screen with the key visually distinct from the
+label.
 
 ## The keys
 
