@@ -10,6 +10,35 @@ fn api_error() -> dg::error::Error {
     dg::error::Error::new(400, "api_error", "API request failed; see JSON response")
 }
 
+/// The text of a clap message with every ANSI escape removed.
+///
+/// The non-terminal fallback must be plain: it feeds pipes, redirections and
+/// log capture, where escape sequences are noise that also breaks exact-text
+/// matching. Stripping here keeps that true regardless of how a clap release
+/// renders styling, instead of depending on `Display` happening to strip it.
+fn plain(rendered: &str) -> String {
+    let mut out = String::with_capacity(rendered.len());
+    let mut rest = rendered;
+    while let Some(start) = rest.find('\u{1b}') {
+        out.push_str(&rest[..start]);
+        // Skip the escape sequence: `ESC [ ... final-byte`, where the final
+        // byte is the first character in the 0x40..=0x7e range.
+        let after = &rest[start + 1..];
+        let skipped = match after.strip_prefix('[') {
+            Some(body) => body
+                .char_indices()
+                .find(|(_, c)| ('@'..='~').contains(c))
+                .map(|(i, c)| i + c.len_utf8() + 1)
+                .unwrap_or(after.len()),
+            // A bare two-character escape (e.g. ESC c): drop just the escape.
+            None => after.chars().next().map(char::len_utf8).unwrap_or(0),
+        };
+        rest = &rest[start + 1 + skipped..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Hand a bare `dg` off a terminal to clap, as the required-subcommand
 /// build did, and never guess which stream the answer belongs on.
 ///
@@ -43,14 +72,23 @@ fn missing_subcommand() -> ExitCode {
         ),
         Err(error) => error,
     };
-    // `error.print()` picks the stream from the error kind; writing the
-    // rendered message to stderr is the behaviour being preserved, whatever
-    // clap's table says this release. `Display` (not `ansi()`) is used so
-    // colour still follows the terminal, exactly as `print()` would have
-    // decided it.
+    // `error.print()` picks the stream from the error kind, so it is not
+    // used: stderr is the behaviour being preserved, whatever clap's table
+    // says this release. The rendered text is written here instead.
+    //
+    // Colour is then removed rather than left to a `Display` impl. `print()`
+    // runs the text through a `Colorizer`, which strips styling when the
+    // stream is not a terminal; `StyledStr`'s own `Display`/`ansi()` do not
+    // promise that, and the difference is not cosmetic or visible in an exit
+    // code -- it changes the byte count, splits words like "Usage:" so a
+    // plain-text search stops matching, and puts escape sequences in front of
+    // a pipeline. So the escapes are stripped here, unconditionally: this
+    // path only ever runs when the output is NOT going to a terminal.
     use std::io::Write;
+    let rendered = error.render().to_string();
     let mut stderr = std::io::stderr();
-    let _ = write!(stderr, "{}", error.render());
+    let _ = stderr.write_all(plain(&rendered).as_bytes());
+    let _ = stderr.write_all(b"\n");
     ExitCode::from(2)
 }
 
