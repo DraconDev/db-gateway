@@ -17,6 +17,7 @@
 
 pub mod actions;
 pub mod draw;
+pub mod theme;
 pub mod screen;
 
 use crate::{
