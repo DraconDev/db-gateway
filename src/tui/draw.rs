@@ -423,11 +423,8 @@ fn backups_pane(frame: &mut Frame, area: Rect, app: &App) {
     // table gets the rest: a fixed four-line allowance cut the freshness
     // fields off the moment a gateway reported more than the root.
     let fields_height = lines.len() as u16 + 2;
-    let rows = Layout::vertical([
-        Constraint::Length(fields_height),
-        Constraint::Min(1),
-    ])
-    .split(area);
+    let rows =
+        Layout::vertical([Constraint::Length(fields_height), Constraint::Min(1)]).split(area);
     frame.render_widget(Paragraph::new(Text::from(lines)).block(block), rows[0]);
     if let Some((title, table)) = table {
         let mut state = TableState::default().with_offset(app.scroll.backups as usize);
