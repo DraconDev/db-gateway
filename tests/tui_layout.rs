@@ -116,29 +116,109 @@ fn screen(app: &App, width: u16, height: u16) -> String {
     lines.join("\n")
 }
 
+/// Move to a tab by its number, the way the strip says to.
+fn open_tab(app: &mut App, number: char) {
+    app.on_key(key(ratatui::crossterm::event::KeyCode::Char(number)));
+}
+
 #[test]
-fn the_view_shows_the_service_its_databases_its_backups_and_its_keys_at_once() {
-    // The whole point of the view: the four answers an operator needs
-    // are on one screen, not in four commands.
-    let text = screen(&app(), 120, 40);
-    for expected in [
-        "demo",      // the database
-        "other",     // the database with no traffic
-        "1.0 ms",    // this database's own wait p95
-        "fresh",     // the backup state
-        "robot",     // a scoped credential
-        "connected", // the gateway answered
-        "requests",  // the service dashboard
-        "databases", // the pane names
-        "service",
-        "backups",
-        "keys",
-    ] {
+fn every_tab_is_named_on_screen_and_holds_its_own_answer() {
+    // The view shows one tab at a time. The old layout tiled all four, which
+    // squeezed a wide table into a fraction of the width and cut long lists;
+    // a tab gives the whole body to the thing being read.
+    //
+    // The cost of tabbing is that three answers are off screen, so the strip
+    // has to pay it: every tab is named whether or not it is showing, and
+    // each one really does hold its own answer rather than being a label.
+    let mut app = app();
+    let strip = screen(&app, 120, 40);
+    for name in ["databases", "service", "backups", "keys"] {
         assert!(
-            text.contains(expected),
-            "the view does not show {expected:?}:\n{text}"
+            strip.contains(name),
+            "the tab strip does not name the {name:?} tab:\n{strip}"
         );
     }
+    // The databases tab is the one open at rest, and it shows the list.
+    assert!(strip.contains("demo"), "the databases tab is empty:\n{strip}");
+    assert!(strip.contains("other"), "a quiet database is missing:\n{strip}");
+
+    // Each tab, opened by the number the strip prints, shows its own facts.
+    let mut app_service = app.clone_for_test();
+    open_tab(&mut app_service, '2');
+    let service = screen(&app_service, 120, 40);
+    assert!(
+        service.contains("requests"),
+        "the service tab does not show the dashboard:\n{service}"
+    );
+
+    let mut app_backups = app.clone_for_test();
+    open_tab(&mut app_backups, '3');
+    let backups = screen(&app_backups, 120, 40);
+    assert!(
+        backups.contains("fresh"),
+        "the backups tab does not show the freshness state:\n{backups}"
+    );
+
+    let mut app_keys = app.clone_for_test();
+    open_tab(&mut app_keys, '4');
+    let keys = screen(&app_keys, 120, 40);
+    assert!(
+        keys.contains("robot"),
+        "the keys tab does not show the credentials:\n{keys}"
+    );
+
+    // And the body gives its width to one answer instead of splitting it, so
+    // the database table is wider than it was in the tiled layout.
+    assert!(
+        !screen(&app, 120, 40).contains("robot"),
+        "the keys tab is drawn at the same time as the databases tab"
+    );
+}
+
+#[test]
+fn every_tab_is_reachable_from_the_keyboard() {
+    // A tab you cannot get to is not a tab. Both the numbers and tab/shift-tab
+    // have to work, because the strip advertises both.
+    use ratatui::crossterm::event::KeyCode;
+    let mut app = app();
+    assert_eq!(app.focus, dg::tui::Focus::Databases);
+
+    open_tab(&mut app, '3');
+    assert_eq!(app.focus, dg::tui::Focus::Backups);
+    open_tab(&mut app, '1');
+    assert_eq!(app.focus, dg::tui::Focus::Databases);
+
+    app.on_key(key(KeyCode::Tab));
+    assert_eq!(app.focus, dg::tui::Focus::Service, "tab did not advance");
+    app.on_key(key(KeyCode::BackTab));
+    assert_eq!(
+        app.focus,
+        dg::tui::Focus::Databases,
+        "shift-tab did not go back"
+    );
+    // Backwards from the first tab wraps to the last, so neither direction
+    // can strand the operator.
+    app.on_key(key(KeyCode::BackTab));
+    assert_eq!(app.focus, dg::tui::Focus::Keys, "shift-tab did not wrap");
+}
+
+#[test]
+fn the_bar_names_the_keys_that_work() {
+    // Discoverability is the reason the bar exists: the palette behind `:` is
+    // powerful and invisible, so the keys an operator needs on every screen
+    // are printed, with the key distinct from its label.
+    let text = screen(&app(), 120, 40);
+    for hint in ["tabs", "commands", "refresh", "quit", "scroll"] {
+        assert!(
+            text.contains(hint),
+            "the command bar does not offer {hint:?}:\n{text}"
+        );
+    }
+    // The tab hint names numbers, and numbers work (proved above).
+    assert!(
+        text.contains("1-4"),
+        "the bar does not say how to reach the tabs:\n{text}"
+    );
 }
 
 #[test]
