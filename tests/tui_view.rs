@@ -57,6 +57,11 @@ fn tui_text(status: &Value) -> String {
     app.status = Some(status.clone());
     app.list = Some(json!({"databases": ["demo"]}));
     app.connected = true;
+    // This helper draws the SERVICE dashboard, and the view now shows one tab
+    // at a time -- the databases tab is open at rest. Comparing the CLI's
+    // dashboard against the view's therefore means opening the tab that holds
+    // the dashboard, not reading whatever happens to be on screen.
+    app.focus = dg::tui::Focus::Service;
     let backend = TestBackend::new(120, 120);
     let mut terminal = Terminal::new(backend).expect("a test terminal");
     terminal
