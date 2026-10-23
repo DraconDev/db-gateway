@@ -13,10 +13,11 @@ same view, so a script that already runs `dg tui` does not have to
 change. A bare `dg` only opens the view when stdout AND stdin are a
 terminal and `--json` was not given. Otherwise it behaves exactly as it
 did when the subcommand was required: the usage goes to **stderr**,
-stdout stays empty, and the exit code is 2 — because a pipe cannot drive
-a full-screen view, and a script reading `dg`'s command list (or piping
-`dg --json`) must not be handed one, nor handed help prose where it
-expected silence.
+stdout stays empty, the text is plain (no colour escapes, even when
+`CLICOLOR_FORCE` or `FORCE_COLOR` is set), and the exit code is 2 —
+because a pipe cannot drive a full-screen view, and a script reading
+`dg`'s command list (or piping `dg --json`) must not be handed one, nor
+handed help prose or escape sequences where it expected silence.
 
 It talks to the same gateway, over the same API, with the same
 credential as every other command — `--server` and `--key-file` mean
