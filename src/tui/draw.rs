@@ -443,9 +443,9 @@ fn outcome_pane(frame: &mut Frame, area: Rect, outcome: &Outcome) {
         outcome.headline.clone(),
         Style::default()
             .fg(if outcome.error.is_some() {
-                Color::Red
+                crate::tui::theme::NEGATIVE
             } else {
-                Color::Green
+                crate::tui::theme::POSITIVE
             })
             .add_modifier(Modifier::BOLD),
     ))];
@@ -489,22 +489,36 @@ fn outcome_pane(frame: &mut Frame, area: Rect, outcome: &Outcome) {
 
 /// The bar along the bottom: what the operator can do, and what went
 /// wrong.
+///
+/// This is the discoverability surface. The palette behind `:` is powerful
+/// but invisible -- nobody finds a command they cannot see -- so the bar
+/// names the keys that matter, Always in the same place, in the same order,
+/// with the key visually distinct from its label. The keys here are the
+/// ones an operator needs on every screen; everything else is one `:` away,
+/// and the bar says so.
 fn status_line(frame: &mut Frame, area: Rect, app: &App) {
-    let mut spans = vec![Span::styled(
-        " : ",
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
-    )];
-    spans.push(Span::raw("actions"));
-    spans.push(Span::raw("  r "));
-    spans.push(Span::raw("refresh"));
-    spans.push(Span::raw("  tab "));
-    spans.push(Span::raw("pane"));
-    spans.push(Span::raw("  q "));
-    spans.push(Span::raw("quit"));
+    // Key, then what it does. Ordered by how often it is reached for.
+    const HINTS: [(&str, &str); 6] = [
+        ("1-4", "tabs"),
+        ("tab", "next tab"),
+        ("↑↓", "scroll"),
+        (":", "commands"),
+        ("r", "refresh"),
+        ("q", "quit"),
+    ];
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    for (index, (key, label)) in HINTS.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::styled("  ", crate::tui::theme::status()));
+        }
+        spans.push(Span::styled(*key, crate::tui::theme::key()));
+        spans.push(Span::styled(
+            format!(" {label}"),
+            crate::tui::theme::key_label(),
+        ));
+    }
     if let Some(error) = &app.error {
-        spans.push(Span::raw("  ·  "));
+        spans.push(Span::styled("  ·  ", crate::tui::theme::status()));
         spans.push(Span::styled(error.clone(), paint_style(ViewStyle::Red)));
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
@@ -520,11 +534,9 @@ fn palette(frame: &mut Frame, area: Rect, app: &App) {
     for (index, action) in actions.iter().enumerate() {
         let selected = index == app.highlighted;
         let style = if selected {
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD)
+            crate::tui::theme::selection()
         } else {
-            Style::default()
+            crate::tui::theme::paint(ViewStyle::Plain)
         };
         lines.push(Line::from(vec![
             Span::styled(if selected { "▸ " } else { "  " }, style),
@@ -544,13 +556,8 @@ fn palette(frame: &mut Frame, area: Rect, app: &App) {
         Paragraph::new(Text::from(lines)).block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan))
-                .title(Span::styled(
-                    title,
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                )),
+                .border_style(crate::tui::theme::border_focused())
+                .title(Span::styled(title, crate::tui::theme::heading())),
         ),
         popup,
     );
@@ -561,15 +568,15 @@ fn prompt(frame: &mut Frame, area: Rect, label: &str, input: &str) {
     let width = area.width.saturating_sub(6).clamp(30, 100);
     let popup = centered(area, width, 3);
     let line = Line::from(vec![
-        Span::styled(format!("{label}: "), Style::default().fg(Color::Cyan)),
-        Span::raw(input.to_string()),
-        Span::styled("▏", Style::default().fg(Color::Cyan)),
+        Span::styled(format!("{label}: "), crate::tui::theme::heading()),
+        Span::styled(input.to_string(), crate::tui::theme::paint(ViewStyle::Plain)),
+        Span::styled("▏", crate::tui::theme::key()),
     ]);
     frame.render_widget(
         Paragraph::new(line).block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan)),
+                .border_style(crate::tui::theme::border_focused()),
         ),
         popup,
     );
