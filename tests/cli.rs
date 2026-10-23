@@ -121,10 +121,17 @@ fn the_tui_help_describes_the_tabbed_view_it_actually_opens() {
             "dg tui --help does not name the {tab:?} tab:\n{text}"
         );
     }
-    // The keys that reach those tabs.
+    // The keys that reach those tabs. Assert the navigation keys by name: a
+    // looser `contains("tab")` is satisfied by the word "table" in the prose
+    // above, so it would pass on a help text that had lost every instruction
+    // for moving between tabs (verified by mutation).
     assert!(
-        text.contains("1-4") || text.contains("tab"),
-        "dg tui --help does not say how to move between tabs:\n{text}"
+        text.contains("1-4"),
+        "dg tui --help does not name the number keys that reach the tabs:\n{text}"
+    );
+    assert!(
+        text.contains("shift-tab"),
+        "dg tui --help does not say shift-tab goes back a tab:\n{text}"
     );
     // And not the tiled description it used to give.
     assert!(
