@@ -32,7 +32,7 @@ canonical list below. For "what did we actually measure", go to
 | `access-edge.md` | Access/edge design: mesh/app proxies, socket activation, loopback rules. |
 | `backup-compatibility.md` | Backup-format compatibility assessment against public implementations. |
 | `cli-turso-mapping.md` | How the `dg` CLI maps to the Turso/libSQL surface it replaces. |
-| `tui.md` | The terminal operator view (`dg tui`): the panes, the keys, the actions, and the rules it holds. |
+| `tui.md` | The terminal operator view (`dg tui`): the tabs, the keys, the actions, and the rules it holds. |
 | `deployment.md` | The deploy guide. `scripts/validate-deploy.sh` checks units against it. |
 | `deployment-readiness.md` | micro2 deployment acceptance checklist. |
 | `later-capabilities.md` | Deferred-capability decisions: what was postponed and why. |
