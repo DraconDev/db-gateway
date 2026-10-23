@@ -98,13 +98,16 @@ fi
 INSTALLED="$BINARY"
 if [ "$INSTALL" -eq 1 ]; then
     mkdir -p "$PREFIX"
-    # A running `dg` holds the installed binary open, and the copy
-    # fails with a bare "Text file busy" that says nothing about what
-    # to do. Say it instead.
-    if ! cp "$BINARY" "$PREFIX/dg"; then
-        fail "could not install $PREFIX/dg — a dg may be running (a gateway, or a view); stop it and install again"
+    # Install by replacing the PATH, not the inode.
+    #
+    # A running `dg` holds the installed binary open for execution, and
+    # writing to that inode fails with a bare "Text file busy" that says
+    # nothing about what to do. The installer unlinks the path and renames
+    # the new binary into it: the running view keeps working on its own
+    # code, uninterrupted, and the next launch gets this one.
+    if ! bash "$ROOT/scripts/install-binary.sh" "$BINARY" "$PREFIX/dg"; then
+        fail "could not install $PREFIX/dg"
     fi
-    chmod 755 "$PREFIX/dg"
     INSTALLED="$PREFIX/dg"
     log "installed $INSTALLED"
     case ":$PATH:" in
