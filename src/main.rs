@@ -478,7 +478,7 @@ enum Command {
     /// Open the terminal operator view.
     ///
     /// Four tabs — databases, service, backups and keys — reached with
-    /// no particular key at all, each given the
+    /// the number keys 1-4 or with tab and shift-tab, each given the
     /// whole body of the screen so a wide table is not squeezed into a
     /// fraction of the width. The strip names every tab whether or not
     /// it is showing, with its count where it has one, so nothing is
