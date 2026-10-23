@@ -508,14 +508,20 @@ fn an_install_replaces_a_running_binary_without_disturbing_it() {
     );
 
     // And the running process was not disturbed: same pid, still alive,
-    // still executing its own now-unlinked inode.
+    // still holding its own inode -- and that inode is no longer the file
+    // at the install path, because the path now holds the new binary.
+    //
+    // How the old inode is disposed of varies: a plain unlink leaves the
+    // link pointing at a deleted file, and a recoverable-delete `rm`
+    // moves it aside first. Both leave the running process on the inode
+    // it started with, which is the property that matters.
     assert!(
         server.try_wait().expect("poll the running dg").is_none(),
         "the install killed the running dg"
     );
     let exe_after = fs::read_link(&exe).unwrap_or_else(|e| panic!("read {exe:?}: {e}"));
-    assert!(
-        exe_after.to_string_lossy().contains("deleted"),
+    assert_ne!(
+        exe_after, installed,
         "the running dg still points at the live path {exe_after:?}, so the \
          install did not replace the path under it"
     );
