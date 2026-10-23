@@ -33,11 +33,17 @@ fi
 mkdir -p "$OUT"
 
 cleanup_own_out() {
-    [ "$OUT_IS_OURS" = 1 ] || return 0
-    # Only ever remove the directory we created, and only before a successful
-    # publication: once the bundle is staged the caller is told its path and
-    # the directory is theirs.
-    [ "${BUNDLE_PUBLISHED:-0}" = 1 ] && return 0
+    # A caller-supplied directory is never ours, and a published bundle now
+    # belongs to the caller. Written as `if`s rather than `[ ... ] && return`
+    # because this runs from an EXIT trap under `set -e`: a bare failing test
+    # would abort the trap early, and a trap that exits before its `rm` looks
+    # exactly like a leak.
+    if [ "$OUT_IS_OURS" != 1 ]; then
+        return 0
+    fi
+    if [ "${BUNDLE_PUBLISHED:-0}" = 1 ]; then
+        return 0
+    fi
     rm -rf "$OUT" 2>/dev/null || true
 }
 
