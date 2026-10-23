@@ -555,6 +555,15 @@ impl App {
         let status = self.status.clone().unwrap_or(Value::Null);
         Some(views::databases(list, &status))
     }
+
+    /// The credential list.
+    ///
+    /// The tab strip counts what is in each tab, so it reads the same table
+    /// the tab itself draws -- one source, so the count and the contents
+    /// cannot disagree.
+    pub fn keys_table(&self) -> Option<render::Table> {
+        self.keys.as_ref().map(views::keys)
+    }
 }
 
 /// Read the answer to an action.
