@@ -105,20 +105,22 @@ fn a_section_that_is_only_a_table_does_not_print_an_empty_heading() {
     // fields only. The service dashboard ends with exactly such a section
     // (`per-database`), so the pane showed a title over empty space.
     //
-    // The fix is to DRAW the table, not to suppress the heading -- suppressing
-    // it would trade a dangling title for a missing answer. So the assertion
-    // is that the heading, when present, has its table beneath it.
+    // That defect is fixed, and the fix moved with the layout: the
+    // per-database traffic is the DATABASES tab's answer, drawn there in
+    // full, so the service tab does not draw it at all -- and must not
+    // leave its heading behind either. A heading over nothing is the
+    // original defect; a heading over a table that belongs to another tab
+    // is the same defect wearing a different hat.
     let status = status();
     let tui = tui_text(&status);
-    let headings = tui.matches("per-database").count();
-    if headings > 0 {
-        // If the title is on screen, the table must be too: a header row and
-        // the demo database's traffic belong under it.
-        assert!(
-            tui.contains("rows read") && tui.contains("demo"),
-            "a per-database heading is drawn without its table:\n{tui}"
-        );
-    }
+    assert!(
+        !tui.contains("per-database"),
+        "the service tab repeats the databases tab's table:\n{tui}"
+    );
+    assert!(
+        !tui.contains("rows read"),
+        "the service tab carries the per-database traffic:\n{tui}"
+    );
     // And the sections that need headings keep them.
     for heading in ["activity", "admission"] {
         assert!(
@@ -136,6 +138,35 @@ fn a_section_that_is_only_a_table_does_not_print_an_empty_heading() {
         heading_rows.is_empty(),
         "the dashboard repeats its own tab name as a heading (found {})\n{tui}",
         heading_rows.len()
+    );
+}
+
+#[test]
+fn the_database_tab_carries_every_figure() {
+    // The databases tab is a whole tab, so it has the width for every
+    // figure the dashboard's own table carries. It used to be a narrow
+    // pane in a tiled layout and showed fewer columns, which meant the
+    // service tab had to repeat the table to show the rest -- the same
+    // rows twice, on two tabs.
+    let status = status();
+    let tui = tui_tab_text(&status, dg::tui::Focus::Databases);
+    for column in [
+        "database",
+        "rows read",
+        "rows written",
+        "waits",
+        "wait p95",
+        "wait max",
+        "last write",
+    ] {
+        assert!(
+            tui.contains(column),
+            "the database list is missing the {column:?} column:\n{tui}"
+        );
+    }
+    assert!(
+        tui.contains("demo"),
+        "the database list is missing its database:\n{tui}"
     );
 }
 
