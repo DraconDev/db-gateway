@@ -331,38 +331,70 @@ fn databases_pane(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 /// The service dashboard: what the gateway is doing.
+///
+/// The dashboard is fields and, at the end, one table: the per-database
+/// traffic breakdown. A paragraph cannot align columns, so the table is drawn
+/// as a table under the field lines rather than being dropped.
+///
+/// Dropping it was a real defect, hidden by the old tiled layout: the
+/// per-database pane showed the same figures on the same screen, so nobody
+/// noticed the dashboard's own table was missing. With one tab per answer
+/// there is nothing to hide behind, and the table is what makes the service
+/// tab answer "which database is doing the work".
 fn service_pane(frame: &mut Frame, area: Rect, app: &App) {
     let block = pane(Focus::Service.title(), app.focus == Focus::Service);
     let mut lines = Vec::new();
+    let mut table: Option<ViewTable> = None;
     match &app.status {
         Some(status) => {
             for section in views::service_dashboard(status) {
-                // A section that is only a table would otherwise print a
-                // heading with nothing under it.
-                if !section_has_lines(&section) {
-                    continue;
+                // A section's fields become lines; a section's table becomes
+                // the table drawn below them.
+                let has_lines = section_has_lines(&section);
+                if has_lines {
+                    // The first section is the tab's own headline, and the
+                    // strip already says "service": repeating it spends a
+                    // line saying nothing. The rest are real groups.
+                    if section.title() != Focus::Service.title() {
+                        lines.push(heading(section.title()));
+                    }
+                    lines.extend(section_lines(&section));
                 }
-                // The first section is the tab's own headline, and the tab
-                // strip already says "service": repeating it as a heading
-                // spends a line saying nothing. The rest keep theirs,
-                // because they are genuinely different groups.
-                if section.title() != Focus::Service.title() {
-                    lines.push(heading(section.title()));
+                if let Some(found) = section_table(&section) {
+                    table = Some(found.clone());
                 }
-                lines.extend(section_lines(&section));
             }
         }
         None => lines.push(Line::from("no answer yet")),
     }
-    // The pane scrolls, so a long dashboard does not lose its tail.
+    // The table keeps its own share of the body so it cannot be scrolled off
+    // the bottom of the fields.
+    let table_height = table
+        .as_ref()
+        .map(|table| (table.rows().len() as u16 + 3).min(area.height / 2))
+        .unwrap_or(0);
+    let rows = Layout::vertical([
+        Constraint::Min(3),
+        Constraint::Length(table_height),
+    ])
+    .split(area);
     let offset = app.scroll.service as usize;
     let lines: Vec<Line<'static>> = lines.into_iter().skip(offset).collect();
     frame.render_widget(
-        Paragraph::new(Text::from(lines))
-            .block(block)
-            .wrap(Wrap { trim: false }),
-        area,
+        Paragraph::new(Text::from(lines)).block(block).wrap(Wrap {
+            trim: false,
+        }),
+        rows[0],
     );
+    if let Some(table) = table {
+        let mut state = TableState::default();
+        frame.render_stateful_widget(
+            table_widget(&table, rows[1].width, usize::MAX)
+                .block(pane("per-database", false)),
+            rows[1],
+            &mut state,
+        );
+    }
 }
 
 /// The backup freshness, per database.
