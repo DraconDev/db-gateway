@@ -59,8 +59,20 @@ while read -r placeholder; do
 done <<<"$placeholders"
 
 log "checking ExecStart flags against dg serve --help"
-cargo build --locked --quiet --manifest-path "$ROOT/Cargo.toml" >&2
-help="$("$TARGET_DIR/debug/dg" serve --help)"
+# Reuse the binary that is already built. This check only needs SOME dg to
+# print `serve --help`; it is not the portable-artifact check below, which
+# inspects the real bundle. Building here instead deadlocked: cargo holds the
+# target-dir lock for the whole of `cargo test`, and cargo runs test binaries
+# while it goes on to build other targets, so a nested `cargo build` waits on
+# the lock its own parent holds. In a test that wraps this script in
+# `timeout 60` the result was a 60s stall and a gate that "failed for the
+# wrong reason" with the output cut off here. Build only when the binary is
+# missing entirely (a fresh checkout running this script by hand).
+DG_HELP_BIN="$TARGET_DIR/debug/dg"
+if [ ! -x "$DG_HELP_BIN" ]; then
+    cargo build --locked --quiet --manifest-path "$ROOT/Cargo.toml" >&2
+fi
+help="$("$DG_HELP_BIN" serve --help)"
 exec_line="$(grep -E '^ExecStart=' "$UNIT")"
 for flag in $(grep -o -e '--[a-z-]*' <<<"$exec_line" | sort -u); do
     grep -qF -e "$flag" -- <<<"$help" || fail "ExecStart flag $flag not in dg serve --help"
