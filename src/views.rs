@@ -719,6 +719,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn the_per_database_table_puts_the_p95_and_the_max_under_their_own_headers() {
         // The defect this protects against: the wait-latency column
         // once held each database's MAXIMUM wait under a "wait p95"
