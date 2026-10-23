@@ -231,42 +231,43 @@ fn a_bare_invocation_off_a_terminal_prints_usage_and_changes_nothing() {
                 command.env(name, value);
             }
             let output = command.output().expect("dg runs");
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert_eq!(
-            output.status.code(),
-            Some(2),
-            "bare `dg` {:?} should keep the old exit code",
-            args
-        );
-        // The usage goes to stderr, where it has always gone.
-        assert!(
-            stderr.contains("Usage: dg"),
-            "bare `dg` {:?} off a terminal must print the usage on stderr:\n{stderr}",
-            args
-        );
-        // And stdout stays empty, so nothing new appears in a pipeline or
-        // in front of a `--json` consumer.
-        assert!(
-            stdout.is_empty(),
-            "bare `dg` {:?} must write nothing to stdout, got:\n{stdout}",
-            args
-        );
-        // No alternate screen: nothing took the terminal over.
-        assert!(
-            !stderr.contains("\u{1b}[?1049h") && !stdout.contains("\u{1b}[?1049h"),
-            "bare `dg` {:?} off a terminal must not start the view",
-            args
-        );
-        // And no colour escapes either. This is written to stderr without
-        // clap's own `print()` (so the stream cannot depend on which error
-        // kind a release maps where), and the obvious way to get that wrong
-        // is `render().ansi()`, which emits escapes unconditionally -- in a
-        // captured pipe, where clap itself would have emitted none.
-        assert!(
-            !stderr.contains('\u{1b}'),
-            "bare `dg` {:?} must not send escape sequences to a pipe:\n{stderr:?}",
-            args
-        );
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(
+                output.status.code(),
+                Some(2),
+                "bare `dg` {:?} should keep the old exit code",
+                args
+            );
+            // The usage goes to stderr, where it has always gone.
+            assert!(
+                stderr.contains("Usage: dg"),
+                "bare `dg` {:?} off a terminal must print the usage on stderr:\n{stderr}",
+                args
+            );
+            // And stdout stays empty, so nothing new appears in a pipeline or
+            // in front of a `--json` consumer.
+            assert!(
+                stdout.is_empty(),
+                "bare `dg` {:?} must write nothing to stdout, got:\n{stdout}",
+                args
+            );
+            // No alternate screen: nothing took the terminal over.
+            assert!(
+                !stderr.contains("\u{1b}[?1049h") && !stdout.contains("\u{1b}[?1049h"),
+                "bare `dg` {:?} off a terminal must not start the view",
+                args
+            );
+            // And no colour escapes either. This is written to stderr without
+            // clap's own `print()` (so the stream cannot depend on which error
+            // kind a release maps where), and the obvious way to get that wrong
+            // is `render().ansi()`, which emits escapes unconditionally -- in a
+            // captured pipe, where clap itself would have emitted none.
+            assert!(
+                !stderr.contains('\u{1b}'),
+                "bare `dg` {:?} must not send escape sequences to a pipe:\n{stderr:?}",
+                args
+            );
+        }
     }
 }
