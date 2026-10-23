@@ -11,22 +11,27 @@ fn api_error() -> dg::error::Error {
 }
 
 /// Hand a bare `dg` off a terminal to clap, as the required-subcommand
-/// build did.
+/// build did, and never guess which stream the answer belongs on.
 ///
 /// The subcommand is optional now, so clap no longer runs its own
-/// missing-subcommand check. Reproducing that output by hand was wrong
-/// twice over: `print_help()` writes to STDOUT (the old path wrote to
-/// stderr, so a `--json` pipeline suddenly received 2 KB of prose instead
-/// of JSON-shaped silence), and there are two different messages -- full
-/// help when no argument was given at all, the short "requires a
-/// subcommand" line when flags were.
+/// missing-subcommand check and this has to reproduce it. Two things went
+/// wrong when that was done by hand before:
 ///
-/// So the command is rebuilt the way it looked to clap before this change
-/// (a required subcommand, no arg-required-else-help) and clap is asked to
-/// re-read the real argv. Whatever it decides lands on its own stream with
-/// its own exit code, which is exactly the behaviour being preserved; if
-/// parsing unexpectedly succeeds there is nothing sensible to do, so that
-/// falls back to the short error and exit 2 rather than pretending to run.
+///   * `print_help()` writes to STDOUT. The required-subcommand build wrote
+///     every one of these messages to stderr, so a `dg --json | consumer`
+///     pipeline that used to see silence was handed 2 KB of help prose.
+///   * There are two different messages. With no argument at all clap showed
+///     the full help; with any flag it printed the short "requires a
+///     subcommand" line.
+///
+/// The command is therefore rebuilt the way clap saw it before this change
+/// (a required subcommand, help-on-missing) and clap re-reads the real argv,
+/// so the message and the exit code are its own. The STREAM is not left to
+/// clap's error-kind table, though: that table routes
+/// `DisplayHelpOnMissingArgumentOrSubcommand` differently across releases,
+/// and getting this wrong is invisible in the exit code. So the rendered
+/// text is written to stderr explicitly, which is the one part of the old
+/// behaviour a pipeline can actually observe.
 fn missing_subcommand() -> ExitCode {
     let mut required = Cli::command();
     required = required.subcommand_required(true);
@@ -38,7 +43,14 @@ fn missing_subcommand() -> ExitCode {
         ),
         Err(error) => error,
     };
-    let _ = error.print();
+    // `error.print()` picks the stream from the error kind; writing the
+    // rendered message to stderr is the behaviour being preserved, whatever
+    // clap's table says this release. `Display` (not `ansi()`) is used so
+    // colour still follows the terminal, exactly as `print()` would have
+    // decided it.
+    use std::io::Write;
+    let mut stderr = std::io::stderr();
+    let _ = write!(stderr, "{}", error.render());
     ExitCode::from(2)
 }
 
