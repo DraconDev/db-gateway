@@ -2,7 +2,7 @@
 # One-shot local setup: build dg, install it, verify the install, and
 # optionally smoke-test the gateway end to end.
 #
-# Usage: scripts/setup.sh [--prefix DIR] [--smoke] [--no-install] [--help]
+# Usage: scripts/setup.sh [--prefix DIR] [--smoke] [--no-install] [--strict] [--help]
 #
 #   --prefix DIR   install dg to DIR/dg (default: $HOME/.local/bin)
 #   --smoke        run a disposable end-to-end gateway check after installing
