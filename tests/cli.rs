@@ -99,3 +99,36 @@ fn import_rejects_a_directory_without_a_size_error() {
         "directory import must not claim a size limit: {stderr}"
     );
 }
+
+#[test]
+fn the_tui_help_describes_the_tabbed_view_it_actually_opens() {
+    // The defect this protects: the view became tabbed, but `dg tui --help`
+    // went on describing the tiled screen ("one screen that holds ... at
+    // once"). A help text that describes a layout the program no longer has
+    // is worse than silence -- an operator reads it, expects four things side
+    // by side, and concludes the view is broken when they see tabs.
+    //
+    // So the help has to name the tabs and the keys that reach them. The
+    // assertion is on the behaviour an operator is told to expect, not on any
+    // particular sentence, so rewording the prose still passes.
+    let help = dg(&["tui", "--help"]);
+    assert!(help.status.success(), "dg tui --help failed");
+    let text = String::from_utf8_lossy(&help.stdout);
+
+    for tab in ["databases", "service", "backups", "keys"] {
+        assert!(
+            text.contains(tab),
+            "dg tui --help does not name the {tab:?} tab:\n{text}"
+        );
+    }
+    // The keys that reach those tabs.
+    assert!(
+        text.contains("1-4") || text.contains("tab"),
+        "dg tui --help does not say how to move between tabs:\n{text}"
+    );
+    // And not the tiled description it used to give.
+    assert!(
+        !text.contains("at once"),
+        "dg tui --help still describes the old tiled screen:\n{text}"
+    );
+}
