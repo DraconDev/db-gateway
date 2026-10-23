@@ -105,6 +105,17 @@ fixes; 1.0.0 waits for production acceptance.
 
 ### Fixed
 
+- **The service tab no longer repeats the databases tab.** The tabbed view
+  gave every answer a whole tab, and the service tab ended by drawing the
+  per-database traffic table — the same rows the databases tab draws, under
+  a second heading, on a second tab. It was the tiling problem returning in
+  a new shape: a narrow pane squeezes a table, so the table was split
+  across two tabs to show every column. The service tab is now about the
+  service, and the per-database traffic lives in the databases tab alone —
+  which now has the whole width, and therefore shows every figure, the
+  `waits` count and the worst single wait included. Nothing is lost and
+  nothing is said twice. The CLI's dashboard still carries the table:
+  `dg status` has no other way to show it.
 - **Installing no longer fails while a `dg` is running.** The install copied
   over the installed binary in place, and a running `dg` holds that file open
   for execution — so the copy died with a bare "Text file busy" at exactly the
