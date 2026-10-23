@@ -51,17 +51,13 @@ fn cli_text(status: &Value) -> String {
     String::from_utf8(out).expect("a dashboard is text")
 }
 
-/// The terminal view's drawing of the same dashboard.
-fn tui_text(status: &Value) -> String {
+/// The terminal view's drawing of one tab.
+fn tui_tab_text(status: &Value, focus: dg::tui::Focus) -> String {
     let mut app = dg::tui::App::new("http://127.0.0.1:7432".to_string(), "0".repeat(64));
     app.status = Some(status.clone());
     app.list = Some(json!({"databases": ["demo"]}));
     app.connected = true;
-    // This helper draws the SERVICE dashboard, and the view now shows one tab
-    // at a time -- the databases tab is open at rest. Comparing the CLI's
-    // dashboard against the view's therefore means opening the tab that holds
-    // the dashboard, not reading whatever happens to be on screen.
-    app.focus = dg::tui::Focus::Service;
+    app.focus = focus;
     let backend = TestBackend::new(120, 120);
     let mut terminal = Terminal::new(backend).expect("a test terminal");
     terminal
@@ -81,6 +77,25 @@ fn tui_text(status: &Value) -> String {
         lines.push(line);
     }
     lines.join("\n")
+}
+
+/// The terminal view's drawing of the same dashboard.
+fn tui_text(status: &Value) -> String {
+    // The view shows one tab at a time. The service facts are on the service
+    // tab; the per-database traffic is on the databases tab. Comparing the
+    // CLI's dashboard against the view's means reading the tabs that hold the
+    // dashboard's parts, not reading whatever happens to be on screen.
+    tui_tab_text(status, dg::tui::Focus::Service)
+}
+
+/// Everything the terminal view says about the dashboard: the service tab and
+/// the databases tab together.
+fn tui_dashboard_text(status: &Value) -> String {
+    format!(
+        "{}\n{}",
+        tui_tab_text(status, dg::tui::Focus::Service),
+        tui_tab_text(status, dg::tui::Focus::Databases)
+    )
 }
 
 #[test]
@@ -128,9 +143,14 @@ fn a_section_that_is_only_a_table_does_not_print_an_empty_heading() {
 fn the_cli_and_the_view_show_the_same_numbers() {
     // The same facts, read once: the CLI's dashboard and the terminal
     // view's dashboard cannot tell the operator different stories.
+    //
+    // The view is tabbed, so its story is spread across tabs: the service
+    // facts on the service tab, the per-database traffic on the databases
+    // tab. Both are read here, because the contract is about the view as a
+    // whole and not about one of its tabs.
     let status = status();
     let cli = cli_text(&status);
-    let tui = tui_text(&status);
+    let tui = tui_dashboard_text(&status);
     for fact in [
         "0.2.0",  // the version
         "1h 0m",  // the uptime
@@ -144,12 +164,17 @@ fn the_cli_and_the_view_show_the_same_numbers() {
             "the terminal view does not show {fact:?}:\n{tui}"
         );
     }
-    // The worst single wait is the dashboard's own column: the view's
-    // database pane is a pane, and shows the figures that fit it. The
-    // number is the same one either way.
+    // The worst single wait is the dashboard's own column. It used to be
+    // shown by the CLI alone, because the view's database list was a narrow
+    // pane with room for fewer figures; the list is a whole tab now, so
+    // both surfaces carry every figure.
     assert!(
         cli.contains("900 ms"),
         "the CLI does not show the worst single wait:\n{cli}"
+    );
+    assert!(
+        tui.contains("900 ms"),
+        "the terminal view does not show the worst single wait:\n{tui}"
     );
 }
 
