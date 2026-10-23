@@ -240,30 +240,86 @@ fn top_bar(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
-/// The panes below the top bar.
+/// The tab strip, then the body of the tab that is showing.
+///
+/// The view shows one tab at a time rather than tiling every pane. A tile
+/// layout forces each answer into a fraction of the screen, so a wide table
+/// is squeezed and a long list is cut; a tab gives the whole width to the
+/// thing being read. The cost is that the other tabs are not visible, and
+/// the strip is what pays it: every tab is always named, always numbered, and
+/// always one keypress away.
 fn body(frame: &mut Frame, area: Rect, app: &App) {
     let outcome_height = app
         .outcome
         .as_ref()
         .map(|outcome| outcome_lines(outcome) + 2)
         .unwrap_or(0);
-    let rows =
-        Layout::vertical([Constraint::Min(4), Constraint::Length(outcome_height)]).split(area);
-    let columns =
-        Layout::horizontal([Constraint::Percentage(38), Constraint::Percentage(62)]).split(rows[0]);
-    databases_pane(frame, columns[0], app);
-    let right = Layout::vertical([
-        Constraint::Percentage(50),
-        Constraint::Percentage(28),
-        Constraint::Percentage(22),
+    let rows = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Min(4),
+        Constraint::Length(outcome_height),
     ])
-    .split(columns[1]);
-    service_pane(frame, right[0], app);
-    backups_pane(frame, right[1], app);
-    keys_pane(frame, right[2], app);
-    if let Some(outcome) = &app.outcome {
-        outcome_pane(frame, rows[1], outcome);
+    .split(area);
+    tabs(frame, rows[0], app);
+    match app.focus {
+        Focus::Databases => databases_pane(frame, rows[1], app),
+        Focus::Service => service_pane(frame, rows[1], app),
+        Focus::Backups => backups_pane(frame, rows[1], app),
+        Focus::Keys => keys_pane(frame, rows[1], app),
     }
+    if let Some(outcome) = &app.outcome {
+        outcome_pane(frame, rows[2], outcome);
+    }
+}
+
+/// Every tab, named, with the active one marked.
+///
+/// The strip is the answer to "what is in here": an operator who cannot see
+/// the backups tab still has to know it exists. Each tab carries its number
+/// as well as its name, because the number is what the keyboard shortcut
+/// uses, and a hint that names a key nobody can discover is not a hint.
+fn tabs(frame: &mut Frame, area: Rect, app: &App) {
+    let all = [
+        Focus::Databases,
+        Focus::Service,
+        Focus::Backups,
+        Focus::Keys,
+    ];
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    for (index, focus) in all.iter().enumerate() {
+        // What the tab holds, so the strip is a summary and not just a
+        // switchboard: the count is the same number the tab's own heading
+        // shows.
+        let count = match focus {
+            Focus::Databases => app.databases().map(|table| table.rows().len()),
+            Focus::Keys => app.keys_table().map(|table| table.rows().len()),
+            Focus::Service | Focus::Backups => None,
+        };
+        let label = match count {
+            Some(count) => format!(" {} {} ({count}) ", index + 1, focus.title()),
+            None => format!(" {} {} ", index + 1, focus.title()),
+        };
+        let active = *focus == app.focus;
+        let style = if active {
+            crate::tui::theme::tab_active()
+        } else {
+            crate::tui::theme::tab()
+        };
+        // Underlined means active, so the marker survives a monochrome
+        // terminal; the caret is a second, plainer signal.
+        spans.push(Span::styled(
+            if active {
+                format!("▸{label}")
+            } else {
+                label
+            },
+            style,
+        ));
+        if index + 1 < all.len() {
+            spans.push(Span::styled("│", crate::tui::theme::border()));
+        }
+    }
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 /// The database list, with each database's traffic.
