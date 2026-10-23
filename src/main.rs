@@ -477,15 +477,19 @@ enum Command {
     },
     /// Open the terminal operator view.
     ///
-    /// One screen that holds the service, its databases, their backup
-    /// freshness and its credentials at once, and acts on what it
-    /// shows: create, delete, clone, export and import a database,
-    /// issue, revoke and rotate a key, and run a query, a SQL file or
-    /// a batch.
+    /// Four tabs — databases, service, backups and keys — reached with
+    /// the number keys 1-4 or with tab and shift-tab, each given the
+    /// whole body of the screen so a wide table is not squeezed into a
+    /// fraction of the width. The strip names every tab whether or not
+    /// it is showing, with its count where it has one, so nothing is
+    /// hidden just because it is closed.
     ///
-    /// The facts come from the same view layer the one-shot commands
-    /// draw from, and the requests are the API's own, so the two
-    /// surfaces cannot disagree about the same gateway.
+    /// The view acts on what it shows: create, delete, clone, export
+    /// and import a database, issue, revoke and rotate a key, and run a
+    /// query, a SQL file or a batch. The facts come from the same view
+    /// layer the one-shot commands draw from, and the requests are the
+    /// API's own, so the two surfaces cannot disagree about the same
+    /// gateway.
     Tui {
         /// How often the service is read again, in seconds.
         #[arg(long, default_value_t = 2)]

@@ -73,15 +73,16 @@ label.
 |---|---|
 | `:` | Open the actions |
 | `r` | Read the service again |
-| `tab` | Move to the next pane |
-| `↑` / `↓` | Scroll the focused pane |
-| `page up` / `page down` | Scroll the focused pane a screen at a time |
-| `home` | Back to the top of the focused pane |
+| `tab` | Move to the next tab |
+| `↑` / `↓` | Scroll the open tab |
+| `page up` / `page down` | Scroll the open tab a screen at a time |
+| `home` | Back to the top of the open tab |
 | `q` | Leave the view |
 | `ctrl-c` | Leave the view, from anywhere |
 
-A pane that holds more than it shows says so: the database list and
-the credential list carry their count in the pane's title.
+A tab that holds more than it shows says so: the database list and the
+credential list carry their count in the tab strip and in the body's
+title.
 
 In the actions list: type to filter, `↑`/`↓` to choose, `enter` to
 go, `esc` to go back.
@@ -91,7 +92,7 @@ go, `esc` to go back.
 | Action | What it types | What it does |
 |---|---|---|
 | refresh | — | Reads the service again |
-| query | `query <database> <sql>` | Runs one statement; the rows appear in the last-action pane |
+| query | `query <database> <sql>` | Runs one statement; the rows appear in the last-action area |
 | run sql file | `run <database> <script.sql>` | Runs a SQL file as one atomic batch, statement by statement |
 | run batch file | `batch <database> <batch.json>` | Runs a JSON batch file |
 | create database | `create <name>` | Creates an empty database |

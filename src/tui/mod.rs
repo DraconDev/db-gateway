@@ -1,8 +1,9 @@
 //! The terminal operator view.
 //!
-//! One screen that holds the service, its databases, their backup
-//! freshness and its credentials at once, and lets the operator act on
-//! what it shows.
+//! One screen of four tabs — databases, service, backups and keys — each
+//! given the whole body of the screen rather than a tile, with the strip
+//! always naming every tab so a closed one is still discoverable. The
+//! operator acts on what the open tab shows.
 //!
 //! Three rules hold this module together:
 //!
