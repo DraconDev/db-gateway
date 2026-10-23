@@ -51,7 +51,8 @@ fn spawn_on(data_dir: &std::path::Path) -> Server {
         .unwrap();
     let stderr = child.stderr.take().unwrap();
     let mut address = None;
-    for line in BufReader::new(stderr).lines() {
+    let mut lines = BufReader::new(stderr).lines();
+    for line in lines.by_ref() {
         let line = line.unwrap();
         if let Ok(log) = serde_json::from_str::<Value>(&line)
             && let Some(addr) = log["fields"]["address"].as_str()
@@ -60,6 +61,17 @@ fn spawn_on(data_dir: &std::path::Path) -> Server {
             break;
         }
     }
+    // Keep draining stderr for the life of the server: dropping the reader
+    // here closes the pipe, and the next line the server logs then fails on a
+    // closed stderr. That window is invisible on an idle box and shows up as a
+    // spurious connection refusal under full-suite load.
+    std::thread::spawn(move || {
+        for line in lines {
+            if line.is_err() {
+                break;
+            }
+        }
+    });
     Server {
         child,
         address: address.expect("server logged its listen address"),
