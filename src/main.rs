@@ -3,12 +3,8 @@ use serde_json::Value;
 use std::{io::IsTerminal, net::SocketAddr, path::PathBuf, process::ExitCode};
 
 fn api_failed(response: &Value) -> bool {
-    response.get("error").is_some()
-}
 
 fn api_error() -> dg::error::Error {
-    dg::error::Error::new(400, "api_error", "API request failed; see JSON response")
-}
 
 /// The theme for a command that is drawing to the terminal.
 fn terminal_theme() -> dg::render::Theme {
@@ -691,21 +687,25 @@ async fn main() -> ExitCode {
     // `dg` on its own is the operator's screen, not a usage dump. The view
     // takes the whole terminal over, so it is only chosen where there is a
     // terminal to take over: a pipe, a `--json` caller and a redirected
-    // stdin all keep the old behaviour -- the usage text on stdout and exit
-    // 2 -- because a script that runs `dg` to read its command list must not
-    // get a full-screen view it cannot drive.
+    // stdin all keep the old behaviour, because a script that runs `dg` to
+    // read its command list must not get a full-screen view it cannot drive.
     if cli.command.is_none() {
         let interactive =
             !cli.json && std::io::stdout().is_terminal() && std::io::stdin().is_terminal();
-        match interactive {
-            true => cli.command = Some(Command::Tui { refresh: 2 }),
-            // Not a terminal: the usage text is the answer to a bare `dg`,
-            // with the same exit code clap used to give it.
-            false => {
-                let mut usage = Cli::command();
-                let _ = usage.print_help();
-                return ExitCode::from(2);
-            }
+        if interactive {
+            cli.command = Some(Command::Tui { refresh: 2 });
+        } else {
+            // Not a terminal: this has to be the SAME output the required-
+            // subcommand binary produced, which is why it is not rebuilt by
+            // hand. Making the subcommand optional removed clap's own
+            // "missing subcommand" check, and a hand-rolled `print_help()`
+            // wrote the help to STDOUT -- where the old build wrote nothing
+            // but JSON consumers were then handed 2 KB of prose. So the
+            // command is put back the way clap saw it before this change and
+            // clap produces its own error: full help on stderr when no
+            // argument was given, the short "requires a subcommand" line on
+            // stderr when flags were, and exit 2 either way.
+            return missing_subcommand();
         }
     }
     tracing_subscriber::fmt()
