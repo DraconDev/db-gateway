@@ -25,8 +25,10 @@ fixes; 1.0.0 waits for production acceptance.
   operator's screen rather than printing the subcommand list, so the
   program's name is the way to the surface it describes. It only does so
   where there is a terminal to take over: a pipe, a redirected stdin or
-  `--json` still gets the usage text and exit 2, because a script reading
-  the command list cannot drive a full-screen view. `dg tui` remains the
+  `--json` behaves exactly as it did with a required subcommand — the
+  usage on stderr, stdout empty, exit 2 — because a script reading the
+  command list cannot drive a full-screen view, and a `--json` pipeline
+  must not receive help prose where it saw silence. `dg tui` remains the
   explicit spelling of the same view.
 - **`dg tui` — the terminal operator view.** One screen that holds the
   service, its databases, their backup freshness and its credentials at

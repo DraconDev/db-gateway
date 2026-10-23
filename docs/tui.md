@@ -11,9 +11,12 @@ dg --key-file owner.key
 `dg tui` still works and is the explicit spelling — the two are the
 same view, so a script that already runs `dg tui` does not have to
 change. A bare `dg` only opens the view when stdout AND stdin are a
-terminal and `--json` was not given; otherwise it prints the usage and
-exits 2 exactly as before, because a pipe cannot drive a full-screen
-view and a script reading `dg`'s command list must not be handed one.
+terminal and `--json` was not given. Otherwise it behaves exactly as it
+did when the subcommand was required: the usage goes to **stderr**,
+stdout stays empty, and the exit code is 2 — because a pipe cannot drive
+a full-screen view, and a script reading `dg`'s command list (or piping
+`dg --json`) must not be handed one, nor handed help prose where it
+expected silence.
 
 It talks to the same gateway, over the same API, with the same
 credential as every other command — `--server` and `--key-file` mean
@@ -114,9 +117,9 @@ gives (`src/execution.rs`).
 ## When the terminal is not a terminal
 
 The view refuses to start when stdout is not a terminal, and says so.
-A bare `dg` in that position prints the usage instead — the pre-existing
-behaviour, unchanged — and `dg tui` reports `not_a_terminal` with the
-same advice. For machine output, use the one-shot commands with
+A bare `dg` in that position prints the usage to stderr and exits 2
+instead — the behaviour it had before the view was the default, down to
+the stream — and `dg tui` reports `not_a_terminal` with the same advice. For machine output, use the one-shot commands with
 `--json`: their output is unchanged by any of this.
 
 ## Related

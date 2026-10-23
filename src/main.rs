@@ -3,8 +3,44 @@ use serde_json::Value;
 use std::{io::IsTerminal, net::SocketAddr, path::PathBuf, process::ExitCode};
 
 fn api_failed(response: &Value) -> bool {
+    response.get("error").is_some()
+}
 
 fn api_error() -> dg::error::Error {
+    dg::error::Error::new(400, "api_error", "API request failed; see JSON response")
+}
+
+/// Hand a bare `dg` off a terminal to clap, as the required-subcommand
+/// build did.
+///
+/// The subcommand is optional now, so clap no longer runs its own
+/// missing-subcommand check. Reproducing that output by hand was wrong
+/// twice over: `print_help()` writes to STDOUT (the old path wrote to
+/// stderr, so a `--json` pipeline suddenly received 2 KB of prose instead
+/// of JSON-shaped silence), and there are two different messages -- full
+/// help when no argument was given at all, the short "requires a
+/// subcommand" line when flags were.
+///
+/// So the command is rebuilt the way it looked to clap before this change
+/// (a required subcommand, no arg-required-else-help) and clap is asked to
+/// re-read the real argv. Whatever it decides lands on its own stream with
+/// its own exit code, which is exactly the behaviour being preserved; if
+/// parsing unexpectedly succeeds there is nothing sensible to do, so that
+/// falls back to the short error and exit 2 rather than pretending to run.
+fn missing_subcommand() -> ExitCode {
+    let mut required = Cli::command();
+    required = required.subcommand_required(true);
+    required = required.arg_required_else_help(true);
+    let error = match required.try_get_matches_from_mut(std::env::args_os()) {
+        Ok(_) => required.error(
+            clap::error::ErrorKind::MissingSubcommand,
+            "'dg' requires a subcommand but one was not provided",
+        ),
+        Err(error) => error,
+    };
+    let _ = error.print();
+    ExitCode::from(2)
+}
 
 /// The theme for a command that is drawing to the terminal.
 fn terminal_theme() -> dg::render::Theme {

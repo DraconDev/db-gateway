@@ -200,6 +200,15 @@ fn a_bare_invocation_opens_the_view_on_a_terminal() {
 // The other side of the rule. A script that runs `dg` to read its command
 // list must keep getting the list: it cannot drive a full-screen view, and
 // a `--json` caller has explicitly asked for machine output.
+//
+// The STREAM is the contract, not just the text. The required-subcommand
+// build wrote everything to stderr and left stdout empty, so `dg --json |
+// <json consumer>` received nothing at all. An earlier version of this
+// change reproduced the text with `print_help()`, which writes to stdout:
+// the exit code and the wording still looked right, but 2 KB of help prose
+// arrived where a pipeline had always seen silence. Asserting only that
+// "Usage: dg" appears somewhere let that through, so both streams are
+// pinned here.
 #[test]
 fn a_bare_invocation_off_a_terminal_prints_usage_and_changes_nothing() {
     let run = |args: &[&str]| {
@@ -212,20 +221,29 @@ fn a_bare_invocation_off_a_terminal_prints_usage_and_changes_nothing() {
     for args in [vec![], vec!["--json"]] {
         let output = run(&args);
         let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
         assert_eq!(
             output.status.code(),
             Some(2),
             "bare `dg` {:?} should keep the old exit code",
             args
         );
+        // The usage goes to stderr, where it has always gone.
         assert!(
-            stdout.contains("Usage: dg"),
-            "bare `dg` {:?} off a terminal must print the usage:\n{stdout}",
+            stderr.contains("Usage: dg"),
+            "bare `dg` {:?} off a terminal must print the usage on stderr:\n{stderr}",
+            args
+        );
+        // And stdout stays empty, so nothing new appears in a pipeline or
+        // in front of a `--json` consumer.
+        assert!(
+            stdout.is_empty(),
+            "bare `dg` {:?} must write nothing to stdout, got:\n{stdout}",
             args
         );
         // No alternate screen: nothing took the terminal over.
         assert!(
-            !stdout.contains("\u{1b}[?1049h"),
+            !stderr.contains("\u{1b}[?1049h") && !stdout.contains("\u{1b}[?1049h"),
             "bare `dg` {:?} off a terminal must not start the view",
             args
         );
