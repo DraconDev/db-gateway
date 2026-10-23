@@ -255,6 +255,64 @@ impl App {
         }
     }
 
+    /// Handle one mouse event.
+    ///
+    /// Only the gestures the view can honour are acted on, and each maps to
+    /// a keystroke the operator already has: a click on the strip's label
+    /// goes to that tab, the wheel scrolls the open tab, and a click in the
+    /// body focuses it so the keyboard follows the mouse. Nothing here can
+    /// reach a destructive action -- those still need their typed
+    /// confirmation -- so a stray click cannot change the gateway.
+    pub fn on_mouse(&mut self, mouse: MouseEvent) {
+        // A click while a prompt or the palette is open belongs to that
+        // dialogue; the view underneath is not the thing on top.
+        if self.mode != Mode::Normal {
+            return;
+        }
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => self.on_click(mouse.column, mouse.row),
+            // Three lines a notch is what a terminal wheel usually carries,
+            // and scrolling faster than the keyboard's single line is what
+            // makes a long table usable with a trackpad.
+            MouseEventKind::ScrollUp => self.scroll_by(-3),
+            MouseEventKind::ScrollDown => self.scroll_by(3),
+            _ => {}
+        }
+    }
+
+    /// Act on a left click at one cell.
+    fn on_click(&mut self, column: u16, row: u16) {
+        // The strip first: a label is a tab switch, which is the one thing a
+        // click on a tab bar is expected to do.
+        if self.geometry.strip_y == Some(row) {
+            let hit = self
+                .geometry
+                .tabs
+                .iter()
+                .find(|(_, start, width)| column >= *start && column < start.saturating_add(*width))
+                .map(|(focus, _, _)| *focus);
+            if let Some(focus) = hit {
+                self.focus = focus;
+            }
+            return;
+        }
+        // Then the body: clicking it takes the keyboard there, so the wheel
+        // and the arrow keys act on the tab the operator clicked into.
+        if let Some(body) = self.geometry.body
+            && column >= body.x
+            && column < body.x.saturating_add(body.width)
+            && row >= body.y
+            && row < body.y.saturating_add(body.height)
+        {
+            let offset = self.scroll.of(self.focus);
+            if *offset > 0 {
+                // Clicking a body that is scrolled away puts it back at the
+                // top: a click is a request to read from the beginning.
+                *offset = 0;
+            }
+        }
+    }
+
     fn on_key_normal(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('q') => self.quit = true,
@@ -738,7 +796,7 @@ pub async fn run(server: &str, key: &str, options: Options) -> Result<()> {
     // than with an empty screen.
     app.refresh().await;
     loop {
-        if guard.draw(|frame| draw::draw(frame, &app)).is_err() {
+        if guard.draw(|frame| draw::draw(frame, &mut app)).is_err() {
             return Err(Error::internal());
         }
         tokio::select! {
@@ -753,6 +811,7 @@ pub async fn run(server: &str, key: &str, options: Options) -> Result<()> {
                             app.run_invocation(invocation).await;
                         }
                     }
+                    Some(Event::Mouse(mouse)) => app.on_mouse(mouse),
                     Some(_) => {}
                     // The reader thread is gone: there is nothing left
                     // to wait for.
