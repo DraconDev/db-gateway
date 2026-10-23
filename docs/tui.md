@@ -161,6 +161,7 @@ the stream — and `dg tui` reports `not_a_terminal` with the same advice. For m
 - [docs/architecture.md](architecture.md) — where the view sits
 - `docs/evidence/tui-view-2026-10-22.txt` — a real session against a
   real gateway, rebuilt from the raw pty capture beside it. **Historical:**
-  it predates the tabbed view and shows the tiled layout and the old
-  `tab pane` status bar, so read it for the request/response traffic, not
-  for the layout. `scripts/capture-tui-evidence.sh` makes a current one.
+  it predates the tabbed view, so it shows the tiled layout and the old
+  status bar, and its layout lines should not be read as current. Read it
+  for the request/response traffic. `scripts/capture-tui-evidence.sh`
+  makes a current one.
