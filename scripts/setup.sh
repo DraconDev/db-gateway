@@ -69,6 +69,16 @@ cargo build --release --locked --manifest-path "$ROOT/Cargo.toml" >&2
 BINARY="$TARGET_DIR/release/dg"
 [ -x "$BINARY" ] || fail "expected binary missing after build: $BINARY"
 
+# What is already installed, before this run touches it. The staleness
+# question is about THAT binary -- "does the dg on my PATH match this tree?" --
+# so it has to be asked before the copy replaces it, not after. Asking
+# afterwards compares a just-built binary against a just-built tree and always
+# answers "current", which is exactly why the old check never caught anything.
+EXISTING="$PREFIX/dg"
+if [ -x "$EXISTING" ]; then
+    check_stale "$EXISTING"
+fi
+
 INSTALLED="$BINARY"
 if [ "$INSTALL" -eq 1 ]; then
     mkdir -p "$PREFIX"
@@ -104,20 +114,20 @@ log "verifying install"
 # the honest answer for "the binary on disk does not provably match this
 # tree". Reinstall, or pass --strict, and the question goes away.
 check_stale() {
+    local installed="$1"
     local newest
-    newest="$(find "$ROOT/src" "$ROOT/crates" -name '*.rs' -newer "$INSTALLED" -print -quit 2>/dev/null || true)"
+    newest="$(find "$ROOT/src" "$ROOT/crates" -name '*.rs' -newer "$installed" -print -quit 2>/dev/null || true)"
     if [ -z "$newest" ]; then
-        log "install is current: no source file is newer than $INSTALLED"
+        log "install is current: no source file is newer than $installed"
         return 0
     fi
     local relative="${newest#"$ROOT"/}"
     if [ "$STRICT" = 1 ]; then
-        fail "$INSTALLED is STALE: $relative is newer than the installed binary. Re-run without --no-install to reinstall."
+        fail "$installed is STALE: $relative is newer than the installed binary. Re-run without --no-install to reinstall."
     fi
-    log "WARNING: $INSTALLED is STALE -- $relative is newer than the installed binary."
-    log "WARNING: the binary on disk may not behave like this source tree. Re-run without --no-install to reinstall."
+    log "WARNING: $installed is STALE -- $relative is newer than the installed binary."
+    log "WARNING: it may not behave like this source tree. Re-run without --no-install to reinstall."
 }
-check_stale
 
 # A disposable gateway, driven only through the installed binary: init
 # an owner, serve on an ephemeral port, create a database, write to it,
