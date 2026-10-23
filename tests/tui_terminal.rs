@@ -211,15 +211,26 @@ fn a_bare_invocation_opens_the_view_on_a_terminal() {
 // pinned here.
 #[test]
 fn a_bare_invocation_off_a_terminal_prints_usage_and_changes_nothing() {
-    let run = |args: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_dg"))
-            .args(args)
-            .stdin(Stdio::null())
-            .output()
-            .expect("dg runs")
-    };
-    for args in [vec![], vec!["--json"]] {
-        let output = run(&args);
+    // A colour-forcing environment is included deliberately. clap honours
+    // CLICOLOR_FORCE/FORCE_COLOR even when the stream is a pipe, so a
+    // fallback that renders styled text and writes it verbatim keeps the
+    // escape sequences, splits words like "Usage:" into styled fragments so
+    // a plain-text search no longer matches, and changes the byte count. That
+    // is exactly the shape a reviewer saw once, so it is a case the pin has
+    // to cover rather than an exotic extra.
+    let environments: [&[(&str, &str)]; 3] = [
+        &[],
+        &[("CLICOLOR_FORCE", "1")],
+        &[("FORCE_COLOR", "1"), ("TERM", "xterm-256color")],
+    ];
+    for env in environments {
+        for args in [vec![], vec!["--json"]] {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_dg"));
+            command.args(&args).stdin(Stdio::null());
+            for (name, value) in env {
+                command.env(name, value);
+            }
+            let output = command.output().expect("dg runs");
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert_eq!(
