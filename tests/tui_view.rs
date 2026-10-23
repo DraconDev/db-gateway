@@ -112,10 +112,15 @@ fn a_section_that_is_only_a_table_does_not_print_an_empty_heading() {
         );
     }
     // The dashboard's own headline is not repeated under the tab strip.
-    let service_headings = tui.lines().filter(|line| line.trim() == "service").count();
-    assert_eq!(
-        service_headings, 1,
-        "the word 'service' is drawn as both a tab and a heading (found {service_headings}):\n{tui}"
+    let heading_rows: Vec<&str> = tui
+        .lines()
+        .map(|line| line.trim())
+        .filter(|line| *line == "service")
+        .collect();
+    assert!(
+        heading_rows.is_empty(),
+        "the dashboard repeats its own tab name as a heading (found {})\n{tui}",
+        heading_rows.len()
     );
 }
 
