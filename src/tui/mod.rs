@@ -74,13 +74,23 @@ pub enum Focus {
 }
 
 impl Focus {
-    /// The next pane.
+    /// The next tab.
     pub fn next(self) -> Self {
         match self {
             Self::Databases => Self::Service,
             Self::Service => Self::Backups,
             Self::Backups => Self::Keys,
             Self::Keys => Self::Databases,
+        }
+    }
+
+    /// The previous tab, so `shift-tab` goes back the way it came.
+    pub fn previous(self) -> Self {
+        match self {
+            Self::Databases => Self::Keys,
+            Self::Service => Self::Databases,
+            Self::Backups => Self::Service,
+            Self::Keys => Self::Backups,
         }
     }
 
@@ -247,7 +257,20 @@ impl App {
                 self.filter.clear();
                 self.highlighted = 0;
             }
-            KeyCode::Tab | KeyCode::BackTab => self.focus = self.focus.next(),
+            KeyCode::Tab => self.focus = self.focus.next(),
+            KeyCode::BackTab => self.focus = self.focus.previous(),
+            // The tab strip prints these numbers, so they have to work.
+            // A numbered hint that does not do anything is worse than no
+            // hint: it teaches the operator a key that fails.
+            KeyCode::Char(digit @ '1'..='4') => {
+                let index = digit as usize - '1' as usize;
+                self.focus = [
+                    Focus::Databases,
+                    Focus::Service,
+                    Focus::Backups,
+                    Focus::Keys,
+                ][index];
+            }
             KeyCode::Up => self.scroll_by(-1),
             KeyCode::Down => self.scroll_by(1),
             KeyCode::PageUp => self.scroll_by(-10),
