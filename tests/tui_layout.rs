@@ -139,7 +139,7 @@ fn every_tab_is_named_on_screen_and_holds_its_own_answer() {
     // has to pay it: every tab is named whether or not it is showing, and
     // each one really does hold its own answer rather than being a label.
     let app = app();
-    let strip = screen(&app, 120, 40);
+    let strip = screen(&mut app, 120, 40);
     for name in ["databases", "service", "backups", "keys"] {
         assert!(
             strip.contains(name),
@@ -159,7 +159,7 @@ fn every_tab_is_named_on_screen_and_holds_its_own_answer() {
     // Each tab, opened by the number the strip prints, shows its own facts.
     let mut app_service = app_state();
     open_tab(&mut app_service, '2');
-    let service = screen(&app_service, 120, 40);
+    let service = screen(&mut app_service, 120, 40);
     assert!(
         service.contains("requests"),
         "the service tab does not show the dashboard:\n{service}"
@@ -167,7 +167,7 @@ fn every_tab_is_named_on_screen_and_holds_its_own_answer() {
 
     let mut app_backups = app_state();
     open_tab(&mut app_backups, '3');
-    let backups = screen(&app_backups, 120, 40);
+    let backups = screen(&mut app_backups, 120, 40);
     assert!(
         backups.contains("fresh"),
         "the backups tab does not show the freshness state:\n{backups}"
@@ -175,7 +175,7 @@ fn every_tab_is_named_on_screen_and_holds_its_own_answer() {
 
     let mut app_keys = app_state();
     open_tab(&mut app_keys, '4');
-    let keys = screen(&app_keys, 120, 40);
+    let keys = screen(&mut app_keys, 120, 40);
     assert!(
         keys.contains("robot"),
         "the keys tab does not show the credentials:\n{keys}"
@@ -184,7 +184,7 @@ fn every_tab_is_named_on_screen_and_holds_its_own_answer() {
     // And the body gives its width to one answer instead of splitting it, so
     // the database table is wider than it was in the tiled layout.
     assert!(
-        !screen(&app, 120, 40).contains("robot"),
+        !screen(&mut app, 120, 40).contains("robot"),
         "the keys tab is drawn at the same time as the databases tab"
     );
 }
@@ -221,7 +221,7 @@ fn the_bar_names_the_keys_that_work() {
     // Discoverability is the reason the bar exists: the palette behind `:` is
     // powerful and invisible, so the keys an operator needs on every screen
     // are printed, with the key distinct from its label.
-    let text = screen(&app(), 120, 40);
+    let text = screen(&mut app(), 120, 40);
     for hint in ["tabs", "commands", "refresh", "quit", "scroll"] {
         assert!(
             text.contains(hint),
@@ -239,7 +239,7 @@ fn the_bar_names_the_keys_that_work() {
 fn a_database_with_no_traffic_is_on_screen_with_zeroes() {
     // "No traffic" and "not a database" must not look the same: the
     // list says which databases exist, the counters say what they did.
-    let text = screen(&app(), 120, 40);
+    let text = screen(&mut app(), 120, 40);
     let line = text
         .lines()
         .find(|line| line.contains("other"))
@@ -254,7 +254,7 @@ fn a_database_with_no_traffic_is_on_screen_with_zeroes() {
 fn the_view_fits_a_small_terminal_without_losing_the_databases() {
     // A terminal of eighty columns is the narrowest one an operator
     // is likely to have. The layout has to survive it.
-    let text = screen(&app(), 80, 24);
+    let text = screen(&mut app(), 80, 24);
     assert!(
         text.contains("demo"),
         "the database list is lost on a small terminal:\n{text}"
@@ -270,7 +270,7 @@ fn an_unreachable_gateway_says_so_rather_than_looking_healthy() {
     let mut app = app();
     app.connected = false;
     app.error = Some("transport failed; the gateway is unavailable".to_string());
-    let text = screen(&app, 120, 40);
+    let text = screen(&mut app, 120, 40);
     assert!(
         text.contains("unreachable"),
         "the view does not say the gateway is unreachable:\n{text}"
@@ -287,7 +287,7 @@ fn the_palette_lists_the_actions_and_the_one_that_is_chosen() {
     app.mode = dg::tui::Mode::Palette;
     app.filter = "key".to_string();
     app.highlighted = 0;
-    let text = screen(&app, 120, 40);
+    let text = screen(&mut app, 120, 40);
     assert!(
         text.contains("issue key"),
         "the palette does not list the key actions:\n{text}"
@@ -373,7 +373,7 @@ fn a_long_database_list_scrolls_and_says_how_many_it_holds() {
     let names: Vec<String> = (0..40).map(|index| format!("db{index:02}")).collect();
     app.list = Some(serde_json::json!({"databases": names}));
 
-    let text = screen(&app, 120, 40);
+    let text = screen(&mut app, 120, 40);
     assert!(
         text.contains("databases (40)"),
         "the pane does not say how many databases it holds:\n{text}"
@@ -387,7 +387,7 @@ fn a_long_database_list_scrolls_and_says_how_many_it_holds() {
     for _ in 0..60 {
         app.on_key(key(ratatui::crossterm::event::KeyCode::Down));
     }
-    let text = screen(&app, 120, 40);
+    let text = screen(&mut app, 120, 40);
     assert!(
         text.contains("db39"),
         "the last database cannot be reached by scrolling:\n{text}"

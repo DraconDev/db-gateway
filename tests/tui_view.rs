@@ -65,7 +65,7 @@ fn tui_text(status: &Value) -> String {
     let backend = TestBackend::new(120, 120);
     let mut terminal = Terminal::new(backend).expect("a test terminal");
     terminal
-        .draw(|frame| dg::tui::draw::draw(frame, &app))
+        .draw(|frame| dg::tui::draw::draw(frame, &mut app))
         .expect("the view draws");
     let buffer = terminal.backend().buffer();
     let mut lines = Vec::new();
