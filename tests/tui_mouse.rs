@@ -108,11 +108,17 @@ fn wheel_events(kind: MouseEventKind) -> MouseEvent {
 }
 
 /// Find the column where `needle` starts on the row that holds the tab strip.
+///
+/// The column is counted in cells, not bytes: the active tab is marked with
+/// `▸`, which is three bytes in UTF-8 but occupies one cell. Using the byte
+/// offset would aim the click up to two cells right of the label it meant,
+/// which is how this helper first reported a correct separator as a bug.
 fn column_of(text: &str, needle: &str) -> Option<(u16, u16)> {
+    use unicode_width::UnicodeWidthStr;
     for (row, line) in text.lines().enumerate() {
         if let Some(byte) = line.find(needle) {
-            // The strip is ASCII, so the byte offset is the cell offset.
-            return Some((byte as u16, row as u16));
+            let cells = line[..byte].width() as u16;
+            return Some((cells, row as u16));
         }
     }
     None

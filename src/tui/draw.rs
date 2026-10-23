@@ -321,8 +321,8 @@ fn tabs(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Focus, u16, u16)> {
         let text = if active { format!("▸{label}") } else { label };
         // Record the cells this label will occupy, so a click resolves to
         // what is really on screen rather than to a second layout guess.
-        // A label that starts past the right edge cannot be clicked,
-        // because it cannot be seen.
+        // The width is measured from the text as drawn, caret included, so
+        // the caret's own cell is part of the hit area rather than a gap.
         let width = text.width() as u16;
         let column = area.x.saturating_add(used);
         if column < area.x.saturating_add(area.width) {
