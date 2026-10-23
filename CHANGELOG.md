@@ -105,6 +105,32 @@ fixes; 1.0.0 waits for production acceptance.
 
 ### Fixed
 
+- **Installing no longer fails while a `dg` is running.** The install copied
+  over the installed binary in place, and a running `dg` holds that file open
+  for execution — so the copy died with a bare "Text file busy" at exactly the
+  moment an operator is most likely to install one: their own view on screen.
+  The install now replaces the *path* rather than the inode: the new binary is
+  staged beside the old one, the old path is unlinked and the new one renamed
+  into place. The running view keeps working on the code it started with, and
+  the next launch gets the new binary. `scripts/install-binary.sh` does it, and
+  `tests/operations_scripts.rs` pins the behaviour against a real running
+  binary — including the precondition that a plain `cp` over it still fails,
+  so the test cannot pass by never reaching the busy-file case.
+- **The host audit no longer leaves a temp file behind on every run.** The
+  syntax check redirected its output to a temp file and removed it only when
+  the check *failed*, so every successful audit left a zero-byte file in
+  `TMPDIR` — one per run, accumulating forever on a host that audits on a
+  schedule. Both files are now removed on both paths, and a test pins it by
+  pointing `TMPDIR` at a scratch directory and asserting it comes back empty.
+- **The orphan-guard test can no longer report a survivor that died.** It
+  asked whether a pid was alive by looking for its `/proc` entry, which a
+  zombie still has: a server that had exited and was only waiting to be
+  reaped looked exactly like a server that had ignored its parent-death
+  signal. It also killed the launcher by assumption rather than by reading
+  the server's actual parent from `/proc`, and discarded the kill's own exit
+  status — so a kill that never ran looked like a broken signal. All three
+  are now explicit: a zombie is not alive, the process that dies is the one
+  `PR_SET_PDEATHSIG` actually watches, and a kill that fails says so.
 - **The admission tests no longer depend on the speed of the machine they
   run on.** The suite's premise was a hand-picked row count — a 30 000-row
   insert, a 300 000-row recursive CTE — that had been calibrated on one
