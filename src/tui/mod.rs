@@ -27,7 +27,8 @@ use crate::{
     render, transfer, views,
 };
 use actions::{Action, ActionKind, Invocation};
-use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
+use draw::Geometry;
+use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, MouseButton, MouseEvent, MouseEventKind};
 use screen::Screen;
 use serde_json::Value;
 use std::time::{Duration, Instant};
@@ -182,6 +183,10 @@ pub struct App {
     pub focus: Focus,
     /// How far each tab is scrolled.
     pub scroll: Scroll,
+    /// Where the last frame put the tabs and the body, so a click can be
+    /// resolved against what was actually drawn rather than a second guess
+    /// at the layout.
+    pub geometry: Geometry,
     /// The action waiting to run.
     pending: Option<Invocation>,
     /// Whether the view should end.
@@ -208,6 +213,7 @@ impl App {
             outcome: None,
             focus: Focus::Databases,
             scroll: Scroll::default(),
+            geometry: Geometry::default(),
             pending: None,
             quit: false,
         }

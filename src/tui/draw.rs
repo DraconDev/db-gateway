@@ -22,6 +22,22 @@ use crate::{
 };
 use std::time::{Duration, Instant};
 
+/// Where the tab strip and the tab bodies landed on the last frame.
+///
+/// Every tab has to fit across one line, and a narrow terminal may not
+/// have room for all four. Rather than have the mouse handler guess, the
+/// drawing code records the exact cells each label occupied and the whole
+/// body rectangle, so a click is resolved against what was actually drawn.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Geometry {
+    /// One `(focus, start column, width)` per drawn tab label, in order.
+    pub tabs: Vec<(Focus, u16, u16)>,
+    /// The strip line. Clicks on this row are tab clicks.
+    pub strip_y: Option<u16>,
+    /// The body rectangle of the open tab.
+    pub body: Option<Rect>,
+}
+
 /// The paint for a view style.
 ///
 /// The colours live in `tui::theme`; this is the one bridge from the view
@@ -169,7 +185,7 @@ fn ago(since: Instant) -> String {
 }
 
 /// Draw the whole view.
-pub fn draw(frame: &mut Frame, app: &App) {
+pub fn draw(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
     let rows = Layout::vertical([
         Constraint::Length(1),
@@ -236,7 +252,7 @@ fn top_bar(frame: &mut Frame, area: Rect, app: &App) {
 /// thing being read. The cost is that the other tabs are not visible, and
 /// the strip is what pays it: every tab is always named, always numbered, and
 /// always one keypress away.
-fn body(frame: &mut Frame, area: Rect, app: &App) {
+fn body(frame: &mut Frame, area: Rect, app: &mut App) {
     let outcome_height = app
         .outcome
         .as_ref()
@@ -248,7 +264,12 @@ fn body(frame: &mut Frame, area: Rect, app: &App) {
         Constraint::Length(outcome_height),
     ])
     .split(area);
-    tabs(frame, rows[0], app);
+    let strip = tabs(frame, rows[0], app);
+    app.geometry = Geometry {
+        tabs: strip,
+        strip_y: Some(rows[0].y),
+        body: Some(rows[1]),
+    };
     match app.focus {
         Focus::Databases => databases_tab(frame, rows[1], app),
         Focus::Service => service_tab(frame, rows[1], app),
@@ -266,7 +287,7 @@ fn body(frame: &mut Frame, area: Rect, app: &App) {
 /// the backups tab still has to know it exists. Each tab carries its number
 /// as well as its name, because the number is what the keyboard shortcut
 /// uses, and a hint that names a key nobody can discover is not a hint.
-fn tabs(frame: &mut Frame, area: Rect, app: &App) {
+fn tabs(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Focus, u16, u16)> {
     let all = [
         Focus::Databases,
         Focus::Service,
@@ -274,6 +295,8 @@ fn tabs(frame: &mut Frame, area: Rect, app: &App) {
         Focus::Keys,
     ];
     let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut cells: Vec<(Focus, u16, u16)> = Vec::new();
+    let mut used: u16 = 0;
     for (index, focus) in all.iter().enumerate() {
         // What the tab holds, so the strip is a summary and not just a
         // switchboard: the count is the same number the tab's own heading
@@ -295,15 +318,26 @@ fn tabs(frame: &mut Frame, area: Rect, app: &App) {
         };
         // Underlined means active, so the marker survives a monochrome
         // terminal; the caret is a second, plainer signal.
-        spans.push(Span::styled(
-            if active { format!("▸{label}") } else { label },
-            style,
-        ));
+        let text = if active { format!("▸{label}") } else { label };
+        // Record the cells this label will occupy, so a click resolves to
+        // what is really on screen rather than to a second layout guess.
+        // A label that starts past the right edge cannot be clicked,
+        // because it cannot be seen.
+        let width = text.width() as u16;
+        let column = area.x.saturating_add(used);
+        if column < area.x.saturating_add(area.width) {
+            let visible = width.min(area.x.saturating_add(area.width).saturating_sub(column));
+            cells.push((*focus, column, visible));
+        }
+        used = used.saturating_add(width);
+        spans.push(Span::styled(text, style));
         if index + 1 < all.len() {
             spans.push(Span::styled("│", crate::tui::theme::border()));
+            used = used.saturating_add(1);
         }
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
+    cells
 }
 
 /// The database list, with each database's traffic.
