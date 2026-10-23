@@ -482,7 +482,9 @@ enum Command {
     /// whole body of the screen so a wide table is not squeezed into a
     /// fraction of the width. The strip names every tab whether or not
     /// it is showing, with its count where it has one, so nothing is
-    /// hidden just because it is closed.
+    /// hidden just because it is closed. The mouse reaches the same
+    /// places: click a tab's label to open it, wheel over the body to
+    /// scroll.
     ///
     /// The view acts on what it shows: create, delete, clone, export
     /// and import a database, issue, revoke and rotate a key, and run a

@@ -87,6 +87,27 @@ title.
 In the actions list: type to filter, `↑`/`↓` to choose, `enter` to
 go, `esc` to go back.
 
+## The mouse
+
+The view turns mouse reporting on when it opens and off again when it
+leaves, so the shell you return to keeps its selection and its wheel.
+
+| Gesture | What it does |
+|---|---|
+| click a tab's label | Open that tab, exactly as its number key does |
+| wheel over the body | Scroll the open tab; three lines a notch |
+| click a scrolled body | Back to the top of the open tab |
+
+Only the strip and the body are targets: a click on the separators, the
+top bar or the status line does nothing, and a click that lands while the
+actions list or a prompt is open belongs to that dialogue rather than to
+the view underneath it.
+
+Mouse support deliberately stops at navigation and scrolling. Nothing in
+the view can be started by a click, because the destructive actions are
+confirmed by typing their own name and that confirmation must not be
+reachable by a misplaced pointer.
+
 ## The actions
 
 | Action | What it types | What it does |
