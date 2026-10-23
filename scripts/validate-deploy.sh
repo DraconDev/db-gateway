@@ -68,10 +68,8 @@ log "checking ExecStart flags against dg serve --help"
 # `timeout 60` the result was a 60s stall and a gate that "failed for the
 # wrong reason" with the output cut off here. Build only when the binary is
 # missing entirely (a fresh checkout running this script by hand).
+cargo build --locked --quiet --manifest-path "$ROOT/Cargo.toml" >&2
 DG_HELP_BIN="$TARGET_DIR/debug/dg"
-if [ ! -x "$DG_HELP_BIN" ]; then
-    cargo build --locked --quiet --manifest-path "$ROOT/Cargo.toml" >&2
-fi
 help="$("$DG_HELP_BIN" serve --help)"
 exec_line="$(grep -E '^ExecStart=' "$UNIT")"
 for flag in $(grep -o -e '--[a-z-]*' <<<"$exec_line" | sort -u); do
