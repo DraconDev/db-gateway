@@ -17,8 +17,8 @@
 
 pub mod actions;
 pub mod draw;
-pub mod theme;
 pub mod screen;
+pub mod theme;
 
 use crate::{
     client,

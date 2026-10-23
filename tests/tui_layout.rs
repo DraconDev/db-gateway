@@ -82,6 +82,14 @@ fn list() -> Value {
     json!({"databases": ["demo", "other"]})
 }
 
+/// A view holding the answers above, freshly built.
+///
+/// `App` holds the credential and is deliberately not `Clone`, so a test that
+/// needs a second view builds another instead of copying one.
+fn app_state() -> App {
+    app()
+}
+
 /// A view holding the answers above.
 fn app() -> App {
     let mut app = App::new("http://127.0.0.1:7432".to_string(), "0".repeat(64));
@@ -139,11 +147,17 @@ fn every_tab_is_named_on_screen_and_holds_its_own_answer() {
         );
     }
     // The databases tab is the one open at rest, and it shows the list.
-    assert!(strip.contains("demo"), "the databases tab is empty:\n{strip}");
-    assert!(strip.contains("other"), "a quiet database is missing:\n{strip}");
+    assert!(
+        strip.contains("demo"),
+        "the databases tab is empty:\n{strip}"
+    );
+    assert!(
+        strip.contains("other"),
+        "a quiet database is missing:\n{strip}"
+    );
 
     // Each tab, opened by the number the strip prints, shows its own facts.
-    let mut app_service = app.clone_for_test();
+    let mut app_service = app_state();
     open_tab(&mut app_service, '2');
     let service = screen(&app_service, 120, 40);
     assert!(
@@ -151,7 +165,7 @@ fn every_tab_is_named_on_screen_and_holds_its_own_answer() {
         "the service tab does not show the dashboard:\n{service}"
     );
 
-    let mut app_backups = app.clone_for_test();
+    let mut app_backups = app_state();
     open_tab(&mut app_backups, '3');
     let backups = screen(&app_backups, 120, 40);
     assert!(
@@ -159,7 +173,7 @@ fn every_tab_is_named_on_screen_and_holds_its_own_answer() {
         "the backups tab does not show the freshness state:\n{backups}"
     );
 
-    let mut app_keys = app.clone_for_test();
+    let mut app_keys = app_state();
     open_tab(&mut app_keys, '4');
     let keys = screen(&app_keys, 120, 40);
     assert!(

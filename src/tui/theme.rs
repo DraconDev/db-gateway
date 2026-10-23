@@ -72,12 +72,8 @@ pub fn paint(style: ViewStyle) -> Style {
     match style {
         ViewStyle::Plain => Style::default().fg(TEXT),
         ViewStyle::Dim => Style::default().fg(SURFACE),
-        ViewStyle::Bold => Style::default()
-            .fg(TEXT)
-            .add_modifier(Modifier::BOLD),
-        ViewStyle::Header => Style::default()
-            .fg(ACCENT)
-            .add_modifier(Modifier::BOLD),
+        ViewStyle::Bold => Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+        ViewStyle::Header => Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
         ViewStyle::Red => Style::default().fg(NEGATIVE),
         ViewStyle::Green => Style::default().fg(POSITIVE),
         ViewStyle::Yellow => Style::default().fg(WARNING),
@@ -87,16 +83,12 @@ pub fn paint(style: ViewStyle) -> Style {
 
 /// A heading: a section title on screen.
 pub fn heading() -> Style {
-    Style::default()
-        .fg(ACCENT)
-        .add_modifier(Modifier::BOLD)
+    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
 }
 
 /// A key hint in the command bar: the key itself.
 pub fn key() -> Style {
-    Style::default()
-        .fg(ACCENT)
-        .add_modifier(Modifier::BOLD)
+    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
 }
 
 /// The label next to a key hint.

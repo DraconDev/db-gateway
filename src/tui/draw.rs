@@ -296,11 +296,7 @@ fn tabs(frame: &mut Frame, area: Rect, app: &App) {
         // Underlined means active, so the marker survives a monochrome
         // terminal; the caret is a second, plainer signal.
         spans.push(Span::styled(
-            if active {
-                format!("▸{label}")
-            } else {
-                label
-            },
+            if active { format!("▸{label}") } else { label },
             style,
         ));
         if index + 1 < all.len() {
@@ -569,7 +565,10 @@ fn prompt(frame: &mut Frame, area: Rect, label: &str, input: &str) {
     let popup = centered(area, width, 3);
     let line = Line::from(vec![
         Span::styled(format!("{label}: "), crate::tui::theme::heading()),
-        Span::styled(input.to_string(), crate::tui::theme::paint(ViewStyle::Plain)),
+        Span::styled(
+            input.to_string(),
+            crate::tui::theme::paint(ViewStyle::Plain),
+        ),
         Span::styled("▏", crate::tui::theme::key()),
     ]);
     frame.render_widget(
