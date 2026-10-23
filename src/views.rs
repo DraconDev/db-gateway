@@ -43,14 +43,21 @@ pub fn service_dashboard(status: &serde_json::Value) -> Vec<Section> {
                 .unwrap_or_else(|| "unknown".to_string()),
         ),
     );
-    let live = status["database_counts"]["live"].as_u64().unwrap_or(0);
-    let tombstoned = status["database_counts"]["tombstoned"]
-        .as_u64()
-        .unwrap_or(0);
-    service.field(
-        "databases",
-        Cell::text(format!("{live} live, {tombstoned} tombstoned")),
-    );
+    // A gateway older than `database_counts` answers without the field. It
+    // must not be rendered as "0 live" -- the pane then says the gateway
+    // holds no databases while the list beside it shows two, and an
+    // operator reading that cannot tell an empty gateway from an
+    // unanswerable question. `unknown` is what this codebase already says
+    // for a figure that was never reported ("no waits recorded", "unknown"
+    // backup freshness), so the same rule applies here.
+    let counts = match (
+        status["database_counts"]["live"].as_u64(),
+        status["database_counts"]["tombstoned"].as_u64(),
+    ) {
+        (Some(live), Some(tombstoned)) => format!("{live} live, {tombstoned} tombstoned"),
+        _ => "unknown".to_string(),
+    };
+    service.field("databases", Cell::text(counts));
     sections.push(service);
 
     // How much work it is doing, and how fast.

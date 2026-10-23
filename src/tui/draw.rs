@@ -92,6 +92,13 @@ fn table_widget(table: &ViewTable, area: u16, max_rows: usize) -> Table<'static>
 }
 
 /// A section's fields, as lines.
+///
+/// Only the field blocks: a table is drawn as a table by its own pane, since
+/// a paragraph cannot align columns. Callers therefore have to ask
+/// `section_has_table` before printing a section's heading -- a section whose
+/// only block is a table contributes no lines at all, and printing its
+/// heading anyway put an empty "per-database" title in the middle of the
+/// service dashboard, above nothing.
 fn section_lines(section: &Section) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     for block in section.blocks() {
@@ -107,6 +114,15 @@ fn section_lines(section: &Section) -> Vec<Line<'static>> {
         }
     }
     lines
+}
+
+/// Whether a section carries anything `section_lines` can draw.
+///
+/// A section that holds only a table adds no lines, so a heading printed for
+/// it would be a title standing over nothing. The pane draws the table
+/// itself; this is what keeps the heading honest.
+fn section_has_lines(section: &Section) -> bool {
+    !section_lines(section).is_empty()
 }
 
 /// A section's first table, if it has one.
@@ -281,6 +297,11 @@ fn service_pane(frame: &mut Frame, area: Rect, app: &App) {
     match &app.status {
         Some(status) => {
             for section in views::service_dashboard(status) {
+                // A section that is only a table would otherwise print a
+                // heading with nothing under it.
+                if !section_has_lines(&section) {
+                    continue;
+                }
                 lines.push(heading(section.title()));
                 lines.extend(section_lines(&section));
             }
@@ -309,8 +330,12 @@ fn backups_pane(frame: &mut Frame, area: Rect, app: &App) {
     let mut lines = Vec::new();
     let mut table = None;
     for section in &sections {
-        lines.push(heading(section.title()));
-        lines.extend(section_lines(section));
+        // The same rule as the service pane: a heading is only drawn when
+        // there is something under it.
+        if section_has_lines(section) {
+            lines.push(heading(section.title()));
+            lines.extend(section_lines(section));
+        }
         if table.is_none() {
             table = section_table(section);
         }
