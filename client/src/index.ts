@@ -77,31 +77,88 @@ const READ_TIMEOUT_MS = 10_000;
 const WRITE_TIMEOUT_MS = 60_000;
 
 /// Data-modifying keywords. A statement that opens like a read but holds
-/// one of these is a write.
+/// one of these AS CODE is a write.
 const WRITE_KEYWORDS = ['INSERT', 'UPDATE', 'DELETE', 'REPLACE', 'CREATE', 'DROP', 'ALTER', 'VACUUM', 'REINDEX'];
 
-/// Whole-word scan for data-modifying keywords, so a WITH..SELECT whose
-/// CTE is named `updated` stays on the read lane while WITH..INSERT does
-/// not. False positives (a literal saying 'deleted') only cost the write
-/// lane, never correctness.
+/// Scan the SQL for a data-modifying keyword, ignoring anything that is not
+/// a bare keyword token: single-quoted literals, double-quoted/backtick/
+/// bracket-quoted identifiers, and both comment forms.
+///
+/// The distinction is not cosmetic. `SELECT 'DELETE'` and
+/// `SELECT 1 -- DELETE` write nothing — SQLite proved it (rows returned,
+/// `total_changes` 0) — so treating them as writes reports a read-only query
+/// as `outcome_unknown`, the exact wrong answer this classification exists to
+/// prevent, and makes the caller wait a minute instead of ten seconds. The
+/// same tokenizer runs in `src/execution.rs` and
+/// `crates/dg-client/src/lib.rs`; the three must agree, and
+/// `tests/rust_client.rs` plus `client/test/timeouts.test.mjs` pin that.
+///
+/// It still fails closed in the direction that matters: an unterminated
+/// literal or comment consumes the rest of the string, so a keyword hidden
+/// after one is not seen (a read that SQLite would reject as a syntax error,
+/// never a write that slips through).
 function hasWriteKeyword(sql: string): boolean {
-  const bytes = sql;
   let i = 0;
-  while (i < bytes.length) {
-    const c = bytes.charCodeAt(i);
-    const alpha = (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
-    if (alpha) {
-      const start = i;
-      while (i < bytes.length) {
-        const d = bytes.charCodeAt(i);
-        const word = (d >= 65 && d <= 90) || (d >= 97 && d <= 122) || (d >= 48 && d <= 57) || d === 95;
-        if (!word) break;
+  const n = sql.length;
+  while (i < n) {
+    const c = sql[i];
+    // -- line comment
+    if (c === '-' && sql[i + 1] === '-') {
+      const nl = sql.indexOf('\n', i + 2);
+      i = nl === -1 ? n : nl + 1;
+      continue;
+    }
+    // /* block comment */ (SQLite does not nest these)
+    if (c === '/' && sql[i + 1] === '*') {
+      const close = sql.indexOf('*/', i + 2);
+      i = close === -1 ? n : close + 2;
+      continue;
+    }
+    // 'string literal' -- "" is an escaped quote inside it
+    if (c === "'") {
+      i += 1;
+      while (i < n) {
+        if (sql[i] === "'") {
+          if (sql[i + 1] === "'") { i += 2; continue; }
+          i += 1;
+          break;
+        }
         i += 1;
       }
-      if (WRITE_KEYWORDS.includes(bytes.slice(start, i))) return true;
-    } else {
-      i += 1;
+      continue;
     }
+    // "quoted" / `quoted` / [quoted] identifier: a keyword here is a name
+    if (c === '"' || c === '`') {
+      const quote = c;
+      i += 1;
+      while (i < n) {
+        if (sql[i] === quote) {
+          if (sql[i + 1] === quote) { i += 2; continue; }
+          i += 1;
+          break;
+        }
+        i += 1;
+      }
+      continue;
+    }
+    if (c === '[') {
+      const close = sql.indexOf(']', i + 1);
+      i = close === -1 ? n : close + 1;
+      continue;
+    }
+    // A bare word: the only place a keyword can be a keyword.
+    const alpha = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+    if (alpha) {
+      const start = i;
+      while (i < n) {
+        const d = sql[i];
+        if (!((d >= 'A' && d <= 'Z') || (d >= 'a' && d <= 'z') || (d >= '0' && d <= '9') || d === '_')) break;
+        i += 1;
+      }
+      if (WRITE_KEYWORDS.includes(sql.slice(start, i).toUpperCase())) return true;
+      continue;
+    }
+    i += 1;
   }
   return false;
 }
