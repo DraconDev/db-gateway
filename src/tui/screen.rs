@@ -13,6 +13,7 @@ use ratatui::{
     backend::CrosstermBackend,
     crossterm::{
         execute,
+        event::{DisableMouseCapture, EnableMouseCapture},
         terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
     },
 };
@@ -45,14 +46,29 @@ impl CrosstermScreen {
 impl Screen for CrosstermScreen {
     fn enter(&mut self) -> io::Result<()> {
         enable_raw_mode()?;
-        execute!(self.terminal.backend_mut(), EnterAlternateScreen)?;
+        // Mouse reporting is opt-in at the terminal level: without this the
+        // wheel scrolls the terminal's own scrollback and clicks never reach
+        // the view. It is switched off again in `restore`, because leaving it
+        // on hands the operator a terminal where selection and the wheel no
+        // longer work.
+        execute!(
+            self.terminal.backend_mut(),
+            EnterAlternateScreen,
+            EnableMouseCapture
+        )?;
         self.terminal.hide_cursor()?;
         Ok(())
     }
 
     fn restore(&mut self) -> io::Result<()> {
         disable_raw_mode()?;
-        execute!(self.terminal.backend_mut(), LeaveAlternateScreen)?;
+        // Mouse capture comes off with the screen. Ordered before leaving the
+        // alternate screen so the two never disagree about ownership.
+        execute!(
+            self.terminal.backend_mut(),
+            DisableMouseCapture,
+            LeaveAlternateScreen
+        )?;
         self.terminal.show_cursor()?;
         Ok(())
     }
