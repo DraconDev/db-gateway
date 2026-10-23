@@ -85,32 +85,38 @@ fn tui_text(status: &Value) -> String {
 
 #[test]
 fn a_section_that_is_only_a_table_does_not_print_an_empty_heading() {
-    // The defect: the service dashboard's "per-database" section holds a
-    // table and nothing else. `section_lines` only draws field blocks -- a
-    // paragraph cannot align columns -- so the heading was printed with no
-    // content under it, and the pane showed a second bare "per-database"
-    // title above the real one at the bottom of the screen.
+    // The defect this protects: a section whose only block is a table used to
+    // print its heading and nothing under it, because `section_lines` draws
+    // fields only. The service dashboard ends with exactly such a section
+    // (`per-database`), so the pane showed a title over empty space.
     //
-    // The table itself belongs to the database pane, so the right answer
-    // for the dashboard is one heading for a section that has lines, and
-    // none for a section that does not.
+    // The fix is to DRAW the table, not to suppress the heading -- suppressing
+    // it would trade a dangling title for a missing answer. So the assertion
+    // is that the heading, when present, has its table beneath it.
     let status = status();
     let tui = tui_text(&status);
-    // The service pane draws no "per-database" heading at all: that
-    // section's only block is a table, which this pane cannot draw. The
-    // table itself is the database pane's job, further down the screen.
     let headings = tui.matches("per-database").count();
-    assert_eq!(
-        headings, 0,
-        "the dashboard must not draw a heading for a section it cannot fill (found {headings}):\n{tui}"
-    );
-    // And the sections that DO have fields still carry their headings.
-    for heading in ["service", "activity", "admission"] {
+    if headings > 0 {
+        // If the title is on screen, the table must be too: a header row and
+        // the demo database's traffic belong under it.
+        assert!(
+            tui.contains("rows read") && tui.contains("demo"),
+            "a per-database heading is drawn without its table:\n{tui}"
+        );
+    }
+    // And the sections that need headings keep them.
+    for heading in ["activity", "admission"] {
         assert!(
             tui.contains(heading),
             "the view lost the {heading:?} heading:\n{tui}"
         );
     }
+    // The dashboard's own headline is not repeated under the tab strip.
+    let service_headings = tui.lines().filter(|line| line.trim() == "service").count();
+    assert_eq!(
+        service_headings, 1,
+        "the word 'service' is drawn as both a tab and a heading (found {service_headings}):\n{tui}"
+    );
 }
 
 #[test]

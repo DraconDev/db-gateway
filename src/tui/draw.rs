@@ -373,24 +373,19 @@ fn service_pane(frame: &mut Frame, area: Rect, app: &App) {
         .as_ref()
         .map(|table| (table.rows().len() as u16 + 3).min(area.height / 2))
         .unwrap_or(0);
-    let rows = Layout::vertical([
-        Constraint::Min(3),
-        Constraint::Length(table_height),
-    ])
-    .split(area);
+    let rows = Layout::vertical([Constraint::Min(3), Constraint::Length(table_height)]).split(area);
     let offset = app.scroll.service as usize;
     let lines: Vec<Line<'static>> = lines.into_iter().skip(offset).collect();
     frame.render_widget(
-        Paragraph::new(Text::from(lines)).block(block).wrap(Wrap {
-            trim: false,
-        }),
+        Paragraph::new(Text::from(lines))
+            .block(block)
+            .wrap(Wrap { trim: false }),
         rows[0],
     );
     if let Some(table) = table {
         let mut state = TableState::default();
         frame.render_stateful_widget(
-            table_widget(&table, rows[1].width, usize::MAX)
-                .block(pane("per-database", false)),
+            table_widget(&table, rows[1].width, usize::MAX).block(pane("per-database", false)),
             rows[1],
             &mut state,
         );
