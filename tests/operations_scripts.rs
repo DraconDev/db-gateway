@@ -423,3 +423,103 @@ fn setup_rejects_unknown_arguments_before_doing_anything() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+/// The install used to fail with a bare "Text file busy" whenever a `dg` was
+/// running -- which is exactly when an operator is most likely to install
+/// one: their own view is on screen. The installer now replaces the PATH
+/// instead of the inode, so the running process keeps the code it started
+/// with, and the next launch gets the new binary.
+///
+/// The precondition is asserted rather than assumed: a plain `cp` over the
+/// running binary has to fail, so this test cannot pass by never reaching
+/// the busy-file case it exists to cover.
+#[test]
+fn an_install_replaces_a_running_binary_without_disturbing_it() {
+    let dir = tempdir();
+    let prefix = dir.path().join("prefix");
+    fs::create_dir_all(&prefix).expect("prefix");
+    let installed = prefix.join("dg");
+
+    // A real executable, so the kernel holds its inode open for execution.
+    fs::copy(env!("CARGO_BIN_EXE_dg"), &installed).expect("copy dg");
+    fs::set_permissions(&installed, fs::Permissions::from_mode(0o755)).expect("chmod dg");
+
+    // Run it, so that inode is being executed rather than merely present.
+    let mut server = Command::new(&installed)
+        .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
+        .arg(dir.path().join("data"))
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn the running dg");
+
+    // Wait until it is genuinely executing that file, not merely spawned.
+    let exe = Path::new("/proc").join(server.id().to_string()).join("exe");
+    let mut executing = false;
+    for _ in 0..100 {
+        if fs::read_link(&exe).map(|p| p == installed).unwrap_or(false) {
+            executing = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        executing,
+        "the dg under test never started executing {installed:?}"
+    );
+
+    // The precondition: writing over a running executable is refused. If
+    // this ever succeeds, the busy-file case is no longer reachable and
+    // the rest of the test would prove nothing.
+    let blind = Command::new("cp")
+        .arg(&installed)
+        .arg(dir.path().join("blind-copy"))
+        .output()
+        .expect("run cp");
+    assert!(
+        !blind.status.success(),
+        "a plain cp over the running binary succeeded, so this test is not \
+         exercising the busy-file case it exists to cover"
+    );
+
+    // The install: a different binary, placed over the running one.
+    let source = dir.path().join("new-dg");
+    fs::write(&source, b"#!/bin/sh\necho 'dg 9.9.9-new'\n").expect("write new dg");
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o755)).expect("chmod new dg");
+
+    let output = Command::new("bash")
+        .args(["scripts/install-binary.sh"])
+        .arg(&source)
+        .arg(&installed)
+        .output()
+        .expect("run install-binary.sh");
+    assert!(
+        output.status.success(),
+        "the install failed over a running binary: {}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // The path now holds the new binary.
+    let installed_text = fs::read_to_string(&installed).expect("read installed dg");
+    assert!(
+        installed_text.contains("dg 9.9.9-new"),
+        "the path still holds the old binary: {installed_text}"
+    );
+
+    // And the running process was not disturbed: same pid, still alive,
+    // still executing its own now-unlinked inode.
+    assert!(
+        server.try_wait().expect("poll the running dg").is_none(),
+        "the install killed the running dg"
+    );
+    let exe_after = fs::read_link(&exe).unwrap_or_else(|e| panic!("read {exe:?}: {e}"));
+    assert!(
+        exe_after.to_string_lossy().contains("deleted"),
+        "the running dg still points at the live path {exe_after:?}, so the \
+         install did not replace the path under it"
+    );
+
+    let _ = server.kill();
+    let _ = server.wait();
+}
