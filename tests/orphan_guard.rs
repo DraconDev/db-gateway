@@ -33,7 +33,8 @@ fn repo_root() -> std::path::PathBuf {
 /// died into a reported survivor -- which is exactly the wrong answer for
 /// this file, whose whole subject is "did the server stop?".
 fn process_alive(pid: u32) -> bool {
-    let path = std::path::Path::new(&format!("/proc/{pid}"));
+    let proc_dir = format!("/proc/{pid}");
+    let path = std::path::Path::new(&proc_dir);
     if !path.exists() {
         return false;
     }
