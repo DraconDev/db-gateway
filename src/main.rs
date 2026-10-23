@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use serde_json::Value;
 use std::{io::IsTerminal, net::SocketAddr, path::PathBuf, process::ExitCode};
 
@@ -182,8 +182,13 @@ struct Cli {
     /// Emit JSON (default for all commands except the interactive shell).
     #[arg(long, global = true)]
     json: bool,
+    /// No command opens the terminal view (see `dg tui`).
+    ///
+    /// Optional, not required: `dg` on its own is the operator's screen.
+    /// A pipe or `--json` gets the usage text instead, so nothing that
+    /// parses `dg`'s output can start a full-screen view by accident.
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 #[derive(Subcommand)]
 enum Command {
@@ -485,7 +490,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
     // Credential resolution: explicit flag, env, then the default key file.
     // Missing everywhere is the same local error as before.
     let key_path = cli.key_file.clone().or_else(dg::client::default_key_file);
-    let request = match cli.command {
+    let request = match cli.command.expect("a command is resolved before run") {
         Command::Serve {
             listen,
             data_dir,
@@ -672,7 +677,27 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
 }
 #[tokio::main]
 async fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
+    // `dg` on its own is the operator's screen, not a usage dump. The view
+    // takes the whole terminal over, so it is only chosen where there is a
+    // terminal to take over: a pipe, a `--json` caller and a redirected
+    // stdin all keep the old behaviour -- the usage text on stdout and exit
+    // 2 -- because a script that runs `dg` to read its command list must not
+    // get a full-screen view it cannot drive.
+    if cli.command.is_none() {
+        let interactive =
+            !cli.json && std::io::stdout().is_terminal() && std::io::stdin().is_terminal();
+        match interactive {
+            true => cli.command = Some(Command::Tui { refresh: 2 }),
+            // Not a terminal: the usage text is the answer to a bare `dg`,
+            // with the same exit code clap used to give it.
+            false => {
+                let mut usage = Cli::command();
+                let _ = usage.print_help();
+                return ExitCode::from(2);
+            }
+        }
+    }
     tracing_subscriber::fmt()
         .json()
         .with_writer(std::io::stderr)
