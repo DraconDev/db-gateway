@@ -342,7 +342,13 @@ fn service_pane(frame: &mut Frame, area: Rect, app: &App) {
                 if !section_has_lines(&section) {
                     continue;
                 }
-                lines.push(heading(section.title()));
+                // The first section is the tab's own headline, and the tab
+                // strip already says "service": repeating it as a heading
+                // spends a line saying nothing. The rest keep theirs,
+                // because they are genuinely different groups.
+                if section.title() != Focus::Service.title() {
+                    lines.push(heading(section.title()));
+                }
                 lines.extend(section_lines(&section));
             }
         }
