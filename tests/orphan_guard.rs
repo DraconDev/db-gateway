@@ -26,8 +26,34 @@ fn repo_root() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
+/// Whether a pid is still running.
+///
+/// A zombie is not running: it has already exited and only its exit status
+/// is uncollected. Counting its /proc entry as "alive" turns a process that
+/// died into a reported survivor -- which is exactly the wrong answer for
+/// this file, whose whole subject is "did the server stop?".
 fn process_alive(pid: u32) -> bool {
-    std::path::Path::new(&format!("/proc/{pid}")).exists()
+    let path = std::path::Path::new(&format!("/proc/{pid}"));
+    if !path.exists() {
+        return false;
+    }
+    match std::fs::read_to_string(path.join("status")) {
+        Ok(status) => !status
+            .lines()
+            .any(|line| line.starts_with("State:") && line.contains("(zombie)")),
+        // If /proc is unreadable, assume it is alive: the safe direction
+        // for a guard that must not miss a running server.
+        Err(_) => true,
+    }
+}
+
+/// The pid of a process's parent, read from /proc.
+fn parent_of(pid: u32) -> Option<u32> {
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    status
+        .lines()
+        .find_map(|line| line.strip_prefix("PPid:"))
+        .and_then(|value| value.trim().parse::<u32>().ok())
 }
 
 /// Wait until `pid` is gone, or the deadline passes. Returns whether it died.
@@ -272,20 +298,40 @@ fn a_server_started_normally_dies_with_a_sigkilled_launcher() {
     let server = server.expect("server never started");
     let _reap = ReapOnDrop(server);
 
-    // SIGKILL the launcher itself -- the process that is the server's parent.
-    // Where `setsid` forked, that is not the pid `spawn()` handed back.
+    // The process that must die is the one PR_SET_PDEATHSIG watches: the
+    // server's OWN parent. That is the launcher when the shell execs the
+    // job directly, which is the normal case -- but if a shell inserted an
+    // intermediate process between the launcher and the server, killing the
+    // launcher would leave the process the server actually watches alive,
+    // and the server would survive for a reason that has nothing to do
+    // with PR_SET_PDEATHSIG. Reading the parent from /proc removes that
+    // assumption instead of resting on it.
     let launcher_pid = std::fs::read_to_string(&launcher_pidfile)
         .ok()
         .and_then(|text| text.trim().parse::<u32>().ok())
         .unwrap_or_else(|| child.id());
-    let _ = Command::new("kill")
-        .args(["-9", &launcher_pid.to_string()])
-        .status();
+    let parent_pid = parent_of(server).unwrap_or(launcher_pid);
+
+    // The kill's own result is checked. A kill that never ran -- `kill`
+    // missing from PATH, or a pid that had already gone -- used to look
+    // exactly like a server that ignored its parent-death signal, and the
+    // failure message named the wrong cause. Ten seconds later, on a loaded
+    // box, that is the difference between "the signal did not fire" and
+    // "the signal was never sent".
+    let killed = Command::new("kill")
+        .args(["-9", &parent_pid.to_string()])
+        .status()
+        .expect("run kill");
+    assert!(
+        killed.success(),
+        "could not SIGKILL the server's parent (pid {parent_pid}; launcher pid {launcher_pid}): {killed:?}"
+    );
     let _ = child.wait();
 
     assert!(
         wait_gone(server, Duration::from_secs(10)),
-        "a normally-started server must die when its launcher is SIGKILLed (pid {server} survived); \
+        "a normally-started server must die when its parent is SIGKILLed (server pid {server}, \
+         parent pid {parent_pid}, launcher pid {launcher_pid}); \
          this is the whole point of PR_SET_PDEATHSIG"
     );
 }
