@@ -735,8 +735,25 @@ mod tests {
         // Unknown tables still take the read lane — execution rejects them
         // with invalid_sql; the lane never decides validity.
         assert!(is_read_only(&[s("SELECT * FROM no_such_table")]));
-        assert!(!is_read_only(&[s(
+        // A keyword inside a literal or a comment is TEXT, not a modifying
+        // statement. This assertion used to expect the write lane; SQLite
+        // says the statement writes nothing (rows returned, total_changes 0),
+        // so treating it as a write reported a read-only query as
+        // outcome_unknown. See client/src/index.ts and
+        // crates/dg-client/src/lib.rs for the same rule.
+        assert!(is_read_only(&[s(
             "SELECT * FROM t WHERE note = 'do not delete me'"
+        )]));
+        assert!(is_read_only(&[s("SELECT 'DELETE'")]));
+        assert!(is_read_only(&[s("SELECT 1 -- DELETE")]));
+        assert!(is_read_only(&[s(
+            "SELECT 1 /* INSERT INTO t VALUES (1) */"
+        )]));
+        assert!(is_read_only(&[s("SELECT \"DELETE\" FROM t")]));
+        assert!(is_read_only(&[s("SELECT [INSERT] FROM t")]));
+        // …but a real keyword after a literal is still a write.
+        assert!(!is_read_only(&[s(
+            "WITH m AS (SELECT 'none') DELETE FROM t"
         )]));
     }
     #[test]
