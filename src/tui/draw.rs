@@ -366,64 +366,49 @@ fn databases_tab(frame: &mut Frame, area: Rect, app: &App) {
 
 /// The service dashboard: what the gateway is doing.
 ///
-/// The dashboard is fields and, at the end, one table: the per-database
-/// traffic breakdown. A paragraph cannot align columns, so the table is drawn
-/// as a table under the field lines rather than being dropped.
+/// The dashboard is the service's own facts: which version is answering,
+/// how long it has been up, how much traffic it has taken, and how its
+/// admission limits are set. It ends with a per-database traffic table —
+/// and that table is NOT drawn here, because it is the databases tab's
+/// answer, drawn there in full with the whole width for it. Drawing it
+/// on both tabs made the service tab repeat tab 1: the same rows, with
+/// two extra columns, under a heading the operator had already been
+/// shown.
 ///
-/// Dropping it was a real defect, hidden by the old tiled layout: the
-/// databases tab showed the same figures on the same screen, so nobody
-/// noticed the dashboard's own table was missing. With one tab per answer
-/// there is nothing to hide behind, and the table is what makes the service
-/// tab answer "which database is doing the work".
+/// The CLI's dashboard does still carry the table (`dg status` has no
+/// other way to show it), so the section is still built; it is simply
+/// not the terminal view's job to say it twice.
 fn service_tab(frame: &mut Frame, area: Rect, app: &App) {
     let block = pane(Focus::Service.title(), app.focus == Focus::Service);
     let mut lines = Vec::new();
-    let mut table: Option<ViewTable> = None;
     match &app.status {
         Some(status) => {
             for section in views::service_dashboard(status) {
-                // A section's fields become lines; a section's table becomes
-                // the table drawn below them.
-                let has_lines = section_has_lines(&section);
-                if has_lines {
-                    // The first section is the tab's own headline, and the
-                    // strip already says "service": repeating it spends a
-                    // line saying nothing. The rest are real groups.
-                    if section.title() != Focus::Service.title() {
-                        lines.push(heading(section.title()));
-                    }
-                    lines.extend(section_lines(&section));
+                // A section's fields become lines. A section that is only a
+                // table contributes no lines -- it is the per-database
+                // breakdown, which belongs to the databases tab.
+                if !section_has_lines(&section) {
+                    continue;
                 }
-                if let Some(found) = section_table(&section) {
-                    table = Some(found.clone());
+                // The first section is the tab's own headline, and the
+                // strip already says "service": repeating it spends a
+                // line saying nothing. The rest are real groups.
+                if section.title() != Focus::Service.title() {
+                    lines.push(heading(section.title()));
                 }
+                lines.extend(section_lines(&section));
             }
         }
         None => lines.push(Line::from("no answer yet")),
     }
-    // The table keeps its own share of the body so it cannot be scrolled off
-    // the bottom of the fields.
-    let table_height = table
-        .as_ref()
-        .map(|table| (table.rows().len() as u16 + 3).min(area.height / 2))
-        .unwrap_or(0);
-    let rows = Layout::vertical([Constraint::Min(3), Constraint::Length(table_height)]).split(area);
     let offset = app.scroll.service as usize;
     let lines: Vec<Line<'static>> = lines.into_iter().skip(offset).collect();
     frame.render_widget(
         Paragraph::new(Text::from(lines))
             .block(block)
             .wrap(Wrap { trim: false }),
-        rows[0],
+        area,
     );
-    if let Some(table) = table {
-        let mut state = TableState::default();
-        frame.render_stateful_widget(
-            table_widget(&table, rows[1].width, usize::MAX).block(pane("per-database", false)),
-            rows[1],
-            &mut state,
-        );
-    }
 }
 
 /// The backup freshness, per database.
