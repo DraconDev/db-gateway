@@ -52,7 +52,8 @@ fn spawn(data_dir: &std::path::Path) -> (Server, String) {
         .unwrap();
     let stderr = child.stderr.take().unwrap();
     let mut address = None;
-    for line in BufReader::new(stderr).lines() {
+    let mut lines = BufReader::new(stderr).lines();
+    for line in lines.by_ref() {
         let line = line.unwrap();
         if let Ok(log) = serde_json::from_str::<Value>(&line)
             && let Some(addr) = log["fields"]["address"].as_str()
@@ -61,6 +62,18 @@ fn spawn(data_dir: &std::path::Path) -> (Server, String) {
             break;
         }
     }
+    // Keep draining stderr for the life of the server. The reader used to be
+    // dropped here, which closes the pipe; the next thing the server logged
+    // (a request line, a rejected upload, a warning) would then fail on a
+    // closed stderr. On an idle box that window is easy to miss, which is why
+    // this only ever failed under full-suite load against a busy disk.
+    std::thread::spawn(move || {
+        for line in lines {
+            if line.is_err() {
+                break;
+            }
+        }
+    });
     (
         Server {
             child,
