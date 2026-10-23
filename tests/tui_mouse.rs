@@ -214,7 +214,7 @@ fn a_click_is_ignored_while_a_dialogue_is_open() {
     let (text, _t) = frame(&mut app, 120, 40);
     let (column, row) = column_of(&text, "2 service").expect("the strip shows service");
 
-    for mode in [Mode::Palette, Mode::Prompt { kind: dg::tui::ActionKind::CreateDatabase }] {
+    for mode in [Mode::Palette, Mode::Prompt { kind: dg::tui::actions::ActionKind::CreateDatabase }] {
         app.mode = mode.clone();
         let before = app.focus;
         app.on_mouse(click(column, row));
@@ -234,14 +234,14 @@ fn a_click_is_ignored_while_a_dialogue_is_open() {
 #[test]
 fn a_click_never_starts_an_action() {
     let mut app = app();
-    let (text, _t) = frame(&mut app, 120, 40);
+    frame(&mut app, 120, 40);
     // Click every cell on the strip and in the body.
     for row in 0..6u16 {
         for column in 0..120u16 {
             app.on_mouse(click(column, row));
             assert!(
                 app.take_pending().is_none(),
-                "a click at {column},{row} started an action:\n{text}"
+                "a click at {column},{row} started an action"
             );
         }
     }
