@@ -468,12 +468,16 @@ fn an_install_replaces_a_running_binary_without_disturbing_it() {
         "the dg under test never started executing {installed:?}"
     );
 
-    // The precondition: writing over a running executable is refused. If
+    // The precondition: writing OVER a running executable is refused. If
     // this ever succeeds, the busy-file case is no longer reachable and
     // the rest of the test would prove nothing.
+    let source = dir.path().join("new-dg");
+    fs::write(&source, b"#!/bin/sh\necho 'dg 9.9.9-new'\n").expect("write new dg");
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o755)).expect("chmod new dg");
+
     let blind = Command::new("cp")
+        .arg(&source)
         .arg(&installed)
-        .arg(dir.path().join("blind-copy"))
         .output()
         .expect("run cp");
     assert!(
@@ -483,10 +487,6 @@ fn an_install_replaces_a_running_binary_without_disturbing_it() {
     );
 
     // The install: a different binary, placed over the running one.
-    let source = dir.path().join("new-dg");
-    fs::write(&source, b"#!/bin/sh\necho 'dg 9.9.9-new'\n").expect("write new dg");
-    fs::set_permissions(&source, fs::Permissions::from_mode(0o755)).expect("chmod new dg");
-
     let output = Command::new("bash")
         .args(["scripts/install-binary.sh"])
         .arg(&source)
