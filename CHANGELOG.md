@@ -21,6 +21,13 @@ fixes; 1.0.0 waits for production acceptance.
 
 ### Added
 
+- **A stale install is now reported, not silent.** `scripts/setup.sh`
+  replaces its old `tui --help | grep -q terminal` check — which passed
+  against any build whose help mentioned "terminal", including one from
+  before the view was redesigned — with a comparison of the installed
+  binary's mtime against the newest source file. It warns, and `--strict`
+  fails. The help text and module docs also stopped describing the tiled
+  screen that no longer exists.
 - **The terminal view is tabbed, themed and legible.** The four answers
   are tabs (`1`-`4`, or `tab`/`shift-tab`) instead of tiles, so a wide
   table gets the whole width instead of a fraction of it. The palette is
