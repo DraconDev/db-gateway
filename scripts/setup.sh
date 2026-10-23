@@ -7,6 +7,8 @@
 #   --prefix DIR   install dg to DIR/dg (default: $HOME/.local/bin)
 #   --smoke        run a disposable end-to-end gateway check after installing
 #   --no-install   build and verify only; do not copy the binary
+#   --strict       fail instead of warn when an installed dg is older than the
+#                  source tree (useful in CI and in a release checklist)
 #
 # Never touches credentials, data directories, systemd, or any host: it only
 # compiles, copies one binary, and (with --smoke) exercises disposable temp
@@ -19,12 +21,13 @@ TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/.cargo/target}"
 PREFIX="$HOME/.local/bin"
 SMOKE=0
 INSTALL=1
+STRICT=0
 
 log() { echo "[setup] $*" >&2; }
 fail() { echo "[setup] FAIL: $*" >&2; exit 1; }
 usage() {
     cat >&2 <<'EOF'
-Usage: scripts/setup.sh [--prefix DIR] [--smoke] [--no-install] [--help]
+Usage: scripts/setup.sh [--prefix DIR] [--smoke] [--no-install] [--strict] [--help]
 Build dg (release), install it, verify the install, and optionally smoke-test
 a disposable gateway end to end.
 EOF
@@ -48,6 +51,7 @@ while [ $# -gt 0 ]; do
             ;;
         --smoke) SMOKE=1; shift ;;
         --no-install) INSTALL=0; shift ;;
+        --strict) STRICT=1; shift ;;
         --help) usage; exit 0 ;;
         *) usage_error "unknown argument: $1" ;;
     esac
@@ -85,7 +89,35 @@ fi
 
 log "verifying install"
 "$INSTALLED" --version >&2 || fail "$INSTALLED --version failed"
-"$INSTALLED" tui --help 2>&1 | grep -q "terminal" || fail "$INSTALLED tui --help looks wrong"
+
+# Is the installed binary older than the source it should have come from?
+#
+# The check this replaces was `tui --help | grep -q terminal`. That passes
+# against ANY build whose help mentions the word "terminal" -- including the
+# one from before the view was redesigned -- so it reported a stale install as
+# fine while the operator kept seeing the old screen. A check that cannot fail
+# for the reason it exists is worse than no check, because it is believed.
+#
+# This compares the installed binary's mtime with the newest source file. It
+# is deliberately conservative: a checkout whose files have newer mtimes than
+# the install (a fresh clone, a `touch`, a rebase) reports STALE, and that is
+# the honest answer for "the binary on disk does not provably match this
+# tree". Reinstall, or pass --strict, and the question goes away.
+check_stale() {
+    local newest
+    newest="$(find "$ROOT/src" "$ROOT/crates" -name '*.rs' -newer "$INSTALLED" -print -quit 2>/dev/null || true)"
+    if [ -z "$newest" ]; then
+        log "install is current: no source file is newer than $INSTALLED"
+        return 0
+    fi
+    local relative="${newest#"$ROOT"/}"
+    if [ "$STRICT" = 1 ]; then
+        fail "$INSTALLED is STALE: $relative is newer than the installed binary. Re-run without --no-install to reinstall."
+    fi
+    log "WARNING: $INSTALLED is STALE -- $relative is newer than the installed binary."
+    log "WARNING: the binary on disk may not behave like this source tree. Re-run without --no-install to reinstall."
+}
+check_stale
 
 # A disposable gateway, driven only through the installed binary: init
 # an owner, serve on an ephemeral port, create a database, write to it,
