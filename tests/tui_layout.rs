@@ -102,7 +102,7 @@ fn app() -> App {
 }
 
 /// The text on a test terminal.
-fn screen(app: &App, width: u16, height: u16) -> String {
+fn screen(app: &mut App, width: u16, height: u16) -> String {
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).expect("a test terminal");
     terminal
