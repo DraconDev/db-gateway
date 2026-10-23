@@ -106,7 +106,7 @@ meaning.
 
 | Field | Meaning |
 | --- | --- |
-| `database_counts.live` / `.tombstoned` | Live databases, and databases tombstoned but not yet purged. A tombstone still holds its name, so it still counts against the database cap. |
+| `database_counts.live` / `.tombstoned` | Live databases, and databases tombstoned but not yet purged. A tombstone still holds its name, so it still counts against the database cap. A client rendering these must treat an absent field as **unknown**, not zero: a gateway old enough to omit `database_counts` would otherwise be drawn as holding no databases while the database list beside it was full. |
 | `requests.recent_per_second` | The per-second request counts of the last 60 seconds, oldest first. A fixed-size ring, not a time series: it answers "how busy was it just now" and cannot grow with traffic. |
 | `requests.recent_span_secs` | How many seconds the window actually observed. Less than 60 right after boot, so a rate computed from it is scaled honestly rather than reported against a span the service never lived. |
 | `requests.wait_p50_us` / `.wait_p95_us` | The median and 95th percentile of the recent **admission waits**, in microseconds — across the whole service. `null` when no wait has been recorded: a percentile of nothing is nothing, and `0` would claim the queue never contended. |
