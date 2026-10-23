@@ -128,7 +128,7 @@ fn column_of(text: &str, needle: &str) -> Option<(u16, u16)> {
 fn clicking_a_tab_label_switches_to_that_tab() {
     let mut app = app();
     assert_eq!(app.focus, Focus::Databases, "starts on databases");
-    let (text, _t) = frame(&mut app, 120, 40);
+    frame(&mut app, 120, 40);
 
     for (label, expected) in [
         ("2 service", Focus::Service),
@@ -156,8 +156,8 @@ fn clicking_a_tab_label_switches_to_that_tab() {
 fn clicking_between_labels_leaves_the_tab_alone() {
     let mut app = app();
     let (text, _t) = frame(&mut app, 120, 40);
-    let (column, row) = column_of(&text, "│")
-        .unwrap_or_else(|| panic!("the strip has no separator:\n{text}"));
+    let (column, row) =
+        column_of(&text, "│").unwrap_or_else(|| panic!("the strip has no separator:\n{text}"));
     let before = app.focus;
     app.on_mouse(click(column, row));
     assert_eq!(
@@ -214,7 +214,12 @@ fn a_click_is_ignored_while_a_dialogue_is_open() {
     let (text, _t) = frame(&mut app, 120, 40);
     let (column, row) = column_of(&text, "2 service").expect("the strip shows service");
 
-    for mode in [Mode::Palette, Mode::Prompt { kind: dg::tui::actions::ActionKind::CreateDatabase }] {
+    for mode in [
+        Mode::Palette,
+        Mode::Prompt {
+            kind: dg::tui::actions::ActionKind::CreateDatabase,
+        },
+    ] {
         app.mode = mode.clone();
         let before = app.focus;
         app.on_mouse(click(column, row));
