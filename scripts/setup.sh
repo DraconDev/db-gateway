@@ -193,6 +193,6 @@ cat >&2 <<EOF
 Next:
   # once: init prints {"owner_key": …}; extract the raw key to a 0600 file (shown once)
   dg init --data-dir state/dg | python3 -c "import json,sys; print(json.load(sys.stdin)['owner_key'])" > owner.key && chmod 600 owner.key
-  # the terminal view: the service, its databases, their backups and its keys on one screen
+  # the terminal view: the service, its databases, their backups and its keys, each on its own tab
   dg --key-file owner.key tui
 EOF

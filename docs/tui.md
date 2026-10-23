@@ -1,8 +1,8 @@
 # The terminal view
 
 `dg` with no command is the operator's screen: the service, its
-databases, their backup freshness and its credentials, all live at
-once, with the actions that change them a keystroke away.
+databases, their backup freshness and its credentials, each reachable
+through its own tab, with the actions that change them a keystroke away.
 
 ```sh
 dg --key-file owner.key

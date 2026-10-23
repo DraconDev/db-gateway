@@ -250,10 +250,10 @@ fn body(frame: &mut Frame, area: Rect, app: &App) {
     .split(area);
     tabs(frame, rows[0], app);
     match app.focus {
-        Focus::Databases => databases_pane(frame, rows[1], app),
-        Focus::Service => service_pane(frame, rows[1], app),
-        Focus::Backups => backups_pane(frame, rows[1], app),
-        Focus::Keys => keys_pane(frame, rows[1], app),
+        Focus::Databases => databases_tab(frame, rows[1], app),
+        Focus::Service => service_tab(frame, rows[1], app),
+        Focus::Backups => backups_tab(frame, rows[1], app),
+        Focus::Keys => keys_tab(frame, rows[1], app),
     }
     if let Some(outcome) = &app.outcome {
         outcome_pane(frame, rows[2], outcome);
@@ -311,7 +311,7 @@ fn tabs(frame: &mut Frame, area: Rect, app: &App) {
 /// The tab says how many databases it holds: a list that silently
 /// cuts itself is a visibility lie, and the count is what tells the
 /// operator to scroll.
-fn databases_pane(frame: &mut Frame, area: Rect, app: &App) {
+fn databases_tab(frame: &mut Frame, area: Rect, app: &App) {
     match app.databases() {
         Some(table) => {
             let title = format!("{} ({})", Focus::Databases.title(), table.rows().len());
@@ -341,7 +341,7 @@ fn databases_pane(frame: &mut Frame, area: Rect, app: &App) {
 /// noticed the dashboard's own table was missing. With one tab per answer
 /// there is nothing to hide behind, and the table is what makes the service
 /// tab answer "which database is doing the work".
-fn service_pane(frame: &mut Frame, area: Rect, app: &App) {
+fn service_tab(frame: &mut Frame, area: Rect, app: &App) {
     let block = pane(Focus::Service.title(), app.focus == Focus::Service);
     let mut lines = Vec::new();
     let mut table: Option<ViewTable> = None;
@@ -393,7 +393,7 @@ fn service_pane(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 /// The backup freshness, per database.
-fn backups_pane(frame: &mut Frame, area: Rect, app: &App) {
+fn backups_tab(frame: &mut Frame, area: Rect, app: &App) {
     let block = pane(Focus::Backups.title(), app.focus == Focus::Backups);
     let Some(backups) = &app.backups else {
         frame.render_widget(Paragraph::new("no answer yet").block(block), area);
@@ -437,7 +437,7 @@ fn backups_pane(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 /// The credentials that exist.
-fn keys_pane(frame: &mut Frame, area: Rect, app: &App) {
+fn keys_tab(frame: &mut Frame, area: Rect, app: &App) {
     match &app.keys {
         Some(keys) => {
             let table = views::keys(keys);
