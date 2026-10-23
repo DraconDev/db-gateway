@@ -86,9 +86,15 @@ fn missing_subcommand() -> ExitCode {
     // path only ever runs when the output is NOT going to a terminal.
     use std::io::Write;
     let rendered = error.render().to_string();
+    let text = plain(&rendered);
     let mut stderr = std::io::stderr();
-    let _ = stderr.write_all(plain(&rendered).as_bytes());
-    let _ = stderr.write_all(b"\n");
+    // clap's rendered text already ends with a newline; only add one when it
+    // does not, so the output matches the required-subcommand build byte for
+    // byte rather than gaining a blank line.
+    let _ = stderr.write_all(text.as_bytes());
+    if !text.ends_with('\n') {
+        let _ = stderr.write_all(b"\n");
+    }
     ExitCode::from(2)
 }
 
