@@ -138,7 +138,7 @@ fn every_tab_is_named_on_screen_and_holds_its_own_answer() {
     // The cost of tabbing is that three answers are off screen, so the strip
     // has to pay it: every tab is named whether or not it is showing, and
     // each one really does hold its own answer rather than being a label.
-    let app = app();
+    let mut app = app();
     let strip = screen(&mut app, 120, 40);
     for name in ["databases", "service", "backups", "keys"] {
         assert!(

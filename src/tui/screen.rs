@@ -12,8 +12,8 @@ use ratatui::{
     Frame, Terminal,
     backend::CrosstermBackend,
     crossterm::{
-        execute,
         event::{DisableMouseCapture, EnableMouseCapture},
+        execute,
         terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
     },
 };
