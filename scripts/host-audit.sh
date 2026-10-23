@@ -159,9 +159,12 @@ printf '%s' "$HEAD_BACKUP_SCRIPT" >"$SYNTAX_TMP"
 if ! bash -n "$SYNTAX_TMP" 2>"$SYNTAX_TMP.err"; then
     SYNTAX_STATUS="fail"
     SYNTAX_FAIL="$(cat "$SYNTAX_TMP.err")"
-    rm -f "$SYNTAX_TMP.err"
 fi
-rm -f "$SYNTAX_TMP"
+# Both files go, whether or not the check failed. The redirect writes the
+# .err file on EVERY run, and removing it only on the failure path left a
+# zero-byte file in TMPDIR for every successful audit -- one per run,
+# accumulating forever.
+rm -f "$SYNTAX_TMP.err" "$SYNTAX_TMP"
 
 # --- working tree state (recorded, not fatal) ---
 
