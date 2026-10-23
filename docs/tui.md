@@ -1,12 +1,19 @@
-# The terminal view (`dg tui`)
+# The terminal view
 
-`dg tui` is the operator's screen: the service, its databases, their
-backup freshness and its credentials, all live at once, with the
-actions that change them a keystroke away.
+`dg` with no command is the operator's screen: the service, its
+databases, their backup freshness and its credentials, all live at
+once, with the actions that change them a keystroke away.
 
 ```sh
-dg --key-file owner.key tui
+dg --key-file owner.key
 ```
+
+`dg tui` still works and is the explicit spelling — the two are the
+same view, so a script that already runs `dg tui` does not have to
+change. A bare `dg` only opens the view when stdout AND stdin are a
+terminal and `--json` was not given; otherwise it prints the usage and
+exits 2 exactly as before, because a pipe cannot drive a full-screen
+view and a script reading `dg`'s command list must not be handed one.
 
 It talks to the same gateway, over the same API, with the same
 credential as every other command — `--server` and `--key-file` mean
@@ -106,9 +113,11 @@ gives (`src/execution.rs`).
 
 ## When the terminal is not a terminal
 
-`dg tui` refuses to start when stdout is not a terminal, and says so.
-For machine output, use the one-shot commands with `--json`: their
-output is unchanged by any of this.
+The view refuses to start when stdout is not a terminal, and says so.
+A bare `dg` in that position prints the usage instead — the pre-existing
+behaviour, unchanged — and `dg tui` reports `not_a_terminal` with the
+same advice. For machine output, use the one-shot commands with
+`--json`: their output is unchanged by any of this.
 
 ## Related
 

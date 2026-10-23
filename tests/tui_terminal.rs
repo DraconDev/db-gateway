@@ -113,3 +113,121 @@ fn the_view_leaves_a_shell_that_works() {
         "the gateway does not answer the same way after the view: {stdout}"
     );
 }
+
+/// Run a command in a pty and send it `keys`, returning what the
+/// terminal saw.
+fn pty_command(command: &str, keys: &[u8], settle_ms: u64) -> (bool, String) {
+    let mut child = Command::new("script")
+        .arg("-qec")
+        .arg(command)
+        .arg("/dev/null")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("script starts a pseudo-terminal");
+    let mut stdin = child.stdin.take().expect("the pipe is there");
+    std::thread::sleep(Duration::from_millis(settle_ms));
+    let _ = stdin.write_all(keys);
+    let _ = stdin.flush();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut status = None;
+    while Instant::now() < deadline {
+        match child.try_wait() {
+            Ok(Some(done)) => {
+                status = Some(done);
+                break;
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(100)),
+            Err(_) => break,
+        }
+    }
+    let status = match status {
+        Some(status) => status,
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("the command did not exit in a pty: {command}");
+        }
+    };
+    let mut output = String::new();
+    if let Some(mut stdout) = child.stdout.take() {
+        use std::io::Read;
+        let _ = stdout.read_to_string(&mut output);
+    }
+    (status.success(), output)
+}
+
+// Bare `dg` used to print the subcommand list and exit 2, so a person who
+// typed the program's name got a menu rather than the screen it describes.
+// Now it opens the view — but only where there is a terminal to take over.
+// All three cases are pinned below, because the risk runs both ways: a pipe
+// that starts a full-screen view cannot be read by the script that ran it,
+// and a terminal that prints usage is the bug this change exists to fix.
+#[test]
+fn a_bare_invocation_opens_the_view_on_a_terminal() {
+    let fleet = Fleet::boot();
+    fleet.cli.run(&["create", "bare"]);
+
+    // No subcommand at all: just the credential and the server.
+    let command = format!(
+        "stty rows 40 cols 120 && {} --server {} --key-file {}",
+        env!("CARGO_BIN_EXE_dg"),
+        fleet.cli.server,
+        fleet.cli.key_file.display()
+    );
+    let (success, output) = pty_command(&command, b"q", 900);
+
+    assert!(success, "the bare invocation did not exit cleanly");
+    assert!(
+        output.contains("\u{1b}[?1049h"),
+        "a bare invocation did not open the view:\n{output:?}"
+    );
+    assert!(
+        output.contains("\u{1b}[?1049l"),
+        "a bare invocation did not give the terminal back:\n{output:?}"
+    );
+    assert!(
+        output.contains("bare"),
+        "the view did not draw the database:\n{output:?}"
+    );
+    assert!(
+        !output.contains("Usage: dg"),
+        "a bare invocation printed usage instead of the view:\n{output:?}"
+    );
+}
+
+// The other side of the rule. A script that runs `dg` to read its command
+// list must keep getting the list: it cannot drive a full-screen view, and
+// a `--json` caller has explicitly asked for machine output.
+#[test]
+fn a_bare_invocation_off_a_terminal_prints_usage_and_changes_nothing() {
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_dg"))
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+            .expect("dg runs")
+    };
+    for args in [vec![], vec!["--json"]] {
+        let output = run(&args);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "bare `dg` {:?} should keep the old exit code",
+            args
+        );
+        assert!(
+            stdout.contains("Usage: dg"),
+            "bare `dg` {:?} off a terminal must print the usage:\n{stdout}",
+            args
+        );
+        // No alternate screen: nothing took the terminal over.
+        assert!(
+            !stdout.contains("\u{1b}[?1049h"),
+            "bare `dg` {:?} off a terminal must not start the view",
+            args
+        );
+    }
+}

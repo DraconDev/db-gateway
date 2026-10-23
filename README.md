@@ -43,7 +43,7 @@ Prefer an uninstalled debug build instead: `cargo build --locked` plus `export P
 - **API reference** (routes, value encoding, error codes, write/retry semantics): [docs/api.md](docs/api.md)
 - **Architecture and decision register**: [docs/architecture.md](docs/architecture.md)
 - **Task list / milestones**: [TASKS.md](TASKS.md)
-- **The terminal view** (`dg tui`: the service, its databases, their backups and its credentials on one live screen, and the actions that change them): [docs/tui.md](docs/tui.md)
+- **The terminal view** (bare `dg`, or `dg tui`: the service, its databases, their backups and its credentials on one live screen, and the actions that change them): [docs/tui.md](docs/tui.md)
 
 ## TypeScript client
 

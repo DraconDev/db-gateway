@@ -165,7 +165,17 @@ async fn table_json(
 }
 
 #[derive(Parser)]
-#[command(name = "dg", version, about = "DB Gateway — personal SQLite service")]
+#[command(
+    name = "dg",
+    version,
+    about = "DB Gateway — personal SQLite service",
+    // The bare-invocation behaviour is part of the command surface: a person
+    // who types `dg` gets the operator's screen, so the help has to say so
+    // instead of leaving `[COMMAND]` looking like a half-typed command.
+    after_help = "Running `dg` with no COMMAND opens the terminal view on a terminal; \
+                  a pipe or --json prints this help instead. The view needs a credential, \
+                  like every other command — see `dg tui`."
+)]
 struct Cli {
     /// Precedence: --server flag, then DG_SERVER, then the loopback default.
     #[arg(
