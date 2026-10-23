@@ -99,7 +99,11 @@ exit 44
     let output = run_release(Some(&engine), "micro2");
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("pinned-container release build or smoke test failed"));
+    assert!(
+        stderr.contains("pinned-container release build or smoke test failed"),
+        "unexpected stderr:\n{stderr}\n--- stdout ---\n{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
     assert!(stderr.contains("smoke failed"));
     assert!(output.stdout.is_empty());
 }
