@@ -22,20 +22,13 @@ use crate::{
 };
 use std::time::{Duration, Instant};
 
-/// The colour of a view style.
+/// The paint for a view style.
+///
+/// The colours live in `tui::theme`; this is the one bridge from the view
+/// layer's meaning to a terminal style, so a restyle is a theme change and
+/// not an edit to every drawing function.
 fn paint_style(style: ViewStyle) -> Style {
-    match style {
-        ViewStyle::Plain => Style::default(),
-        ViewStyle::Dim => Style::default().fg(Color::DarkGray),
-        ViewStyle::Bold => Style::default().add_modifier(Modifier::BOLD),
-        ViewStyle::Header => Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
-        ViewStyle::Red => Style::default().fg(Color::Red),
-        ViewStyle::Green => Style::default().fg(Color::Green),
-        ViewStyle::Yellow => Style::default().fg(Color::Yellow),
-        ViewStyle::Cyan => Style::default().fg(Color::Cyan),
-    }
+    crate::tui::theme::paint(style)
 }
 
 /// One cell of a view table, as a widget cell.
@@ -137,30 +130,30 @@ fn section_table(section: &Section) -> Option<&ViewTable> {
 fn heading(title: &str) -> Line<'static> {
     Line::from(Span::styled(
         title.to_string(),
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
+        crate::tui::theme::heading(),
     ))
 }
 
-/// The border of a pane, lit when the pane has the keyboard.
+/// The border of the tab body.
+///
+/// A tabbed layout has one body, so there is no longer a set of panes
+/// competing for attention: the border is calm and the tab strip carries the
+/// focus signal.
 fn pane(title: &str, focused: bool) -> Block<'static> {
-    let style = if focused {
-        Style::default().fg(Color::Cyan)
+    let border = if focused {
+        crate::tui::theme::border_focused()
     } else {
-        Style::default().fg(Color::DarkGray)
+        crate::tui::theme::border()
     };
     Block::default()
         .borders(Borders::ALL)
-        .border_style(style)
+        .border_style(border)
         .title(Span::styled(
             format!(" {title} "),
             if focused {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
+                crate::tui::theme::tab_active()
             } else {
-                Style::default().fg(Color::DarkGray)
+                crate::tui::theme::tab()
             },
         ))
 }
@@ -212,13 +205,8 @@ pub fn draw(frame: &mut Frame, app: &App) {
 /// it answered.
 fn top_bar(frame: &mut Frame, area: Rect, app: &App) {
     let mut spans = vec![
-        Span::styled(
-            " dg ",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(app.server.clone()),
+        Span::styled(" dg ", crate::tui::theme::mark()),
+        Span::styled(app.server.clone(), crate::tui::theme::top_bar()),
     ];
     if let Some(refreshed) = app.refreshed {
         spans.push(Span::raw(" · read "));
@@ -232,9 +220,9 @@ fn top_bar(frame: &mut Frame, area: Rect, app: &App) {
             "unreachable"
         },
         Style::default().fg(if app.connected {
-            Color::Green
+            crate::tui::theme::POSITIVE
         } else {
-            Color::Red
+            crate::tui::theme::NEGATIVE
         }),
     ));
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
