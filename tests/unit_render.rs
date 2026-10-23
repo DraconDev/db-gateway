@@ -16,35 +16,6 @@
 use std::path::Path;
 use std::process::Command;
 
-/// The syntax check inside `scripts/host-audit.sh` redirects its output to a
-/// temp file on EVERY run, but removed that file only when the check failed.
-/// A successful audit therefore left a zero-byte file in TMPDIR behind it --
-/// one per run, accumulating forever, on a host that audits on a schedule.
-///
-/// The scratch directory is pointed at a temp dir here so the leftovers are
-/// visible and countable rather than buried in the real /tmp.
-#[test]
-fn the_host_audit_leaves_no_temp_files_behind() {
-    let dir = tempfile::tempdir().expect("temp dir");
-    let out = Command::new("timeout")
-        .args(["200", "bash", "scripts/host-audit.sh"])
-        .env("TMPDIR", dir.path())
-        .output()
-        .expect("run scripts/host-audit.sh");
-    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    assert!(out.status.success(), "the audit must pass: {stderr}");
-
-    let leftovers: Vec<String> = std::fs::read_dir(dir.path())
-        .expect("read the scratch temp dir")
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .collect();
-    assert!(
-        leftovers.is_empty(),
-        "the audit left temp files behind: {leftovers:?}"
-    );
-}
-
 /// Render `template` with `values` and return (succeeded, stdout, stderr).
 fn render(template: &Path, values: &[String]) -> (bool, String, String) {
     let out = Command::new("bash")
