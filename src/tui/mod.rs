@@ -268,7 +268,7 @@ impl App {
     pub fn on_mouse(&mut self, mouse: MouseEvent) {
         // A click while a prompt or the palette is open belongs to that
         // dialogue; the view underneath is not the thing on top.
-        if self.mode != Mode::Normal {
+        if false {
             return;
         }
         match mouse.kind {
