@@ -34,16 +34,25 @@ mkdir -p "$OUT"
 
 cleanup_own_out() {
     [ "$OUT_IS_OURS" = 1 ] || return 0
-    # Only ever remove the directory we created, and only if it is empty-ish:
-    # a failed run should not have published anything, but a partial stage is
-    # ours too.
+    # Only ever remove the directory we created, and only before a successful
+    # publication: once the bundle is staged the caller is told its path and
+    # the directory is theirs.
+    [ "${BUNDLE_PUBLISHED:-0}" = 1 ] && return 0
     rm -rf "$OUT" 2>/dev/null || true
 }
+
+# The failure paths are not all `fail()` calls. Under `set -euo pipefail` a
+# command that exits non-zero (a failed `cargo build`, an engine that dies
+# mid-inspect) terminates the script directly, so an EXIT trap is the only
+# hook that covers every one of them. `cleanup_own_out` is a no-op once the
+# bundle was published and a no-op for a caller-supplied directory, so a
+# successful run and a caller-owned path are both untouched.
+BUNDLE_PUBLISHED=0
+trap cleanup_own_out EXIT
 
 log() { echo "[release-bundle] $*" >&2; }
 fail() {
     echo "[release-bundle] FAIL: $*" >&2
-    cleanup_own_out
     exit 1
 }
 
@@ -233,4 +242,6 @@ EOF
 log "generating checksums"
 (cd "$OUT" && sha256sum dg README.md LICENSE docs/api.md docs/architecture.md deploy/dg.service BUILD-INFO.txt >SHA256SUMS)
 
+# From here the bundle is the caller's: the EXIT trap must not remove it.
+BUNDLE_PUBLISHED=1
 printf '%s\n' "$OUT"

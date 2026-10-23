@@ -237,6 +237,23 @@ fn the_client_and_the_server_agree_on_what_a_read_is() {
         "  SELECT 1",
         "BEGIN",
         "PRAGMA journal_mode",
+        // Literals and comments: a keyword inside one is text, not a
+        // modifying statement. SQLite confirms each of these writes nothing
+        // (rows returned, total_changes 0), so classifying them as writes
+        // would report a read-only query as outcome_unknown.
+        "SELECT 'DELETE'",
+        "SELECT 'INSERT INTO notes VALUES (1)'",
+        "SELECT 1 -- DELETE",
+        "SELECT 1 /* INSERT INTO notes VALUES (1) */",
+        "SELECT 1 -- DROP TABLE notes",
+        "SELECT \"DELETE\" FROM notes",
+        "SELECT `DROP` FROM notes",
+        "SELECT [INSERT] FROM notes",
+        "SELECT 'it''s a DELETE'",
+        "WITH x AS (SELECT 'DROP TABLE notes') SELECT * FROM x",
+        "WITH updated AS (SELECT 1) SELECT * FROM updated",
+        // …and the keyword after a literal is still a keyword.
+        "WITH m AS (SELECT 'none') DELETE FROM notes",
     ];
     for sql in cases {
         let server = dg::execution::is_read_only(&[dg::execution::Statement {

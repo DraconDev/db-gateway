@@ -30,7 +30,8 @@ remaining work are tracked in `docs/audit-2026-10-19.md`._
 
 **The supervised non-production deployment is evidenced and operationally
 verified — hourly snapshots, continuous OVH replication, and the pilot
-launched 2026-10-16 with its first nine hours recorded — and the
+launched 2026-10-16 with the first 14 hourly entries recorded through
+2026-10-16T21:17Z — and the
 first-deploy and
 disaster-recovery paths are now proven on a genuinely clean host. But
 production readiness is not accepted.** Gates 1–4, 6 and 7 are

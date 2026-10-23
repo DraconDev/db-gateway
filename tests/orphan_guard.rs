@@ -3,18 +3,21 @@
 //! The guard exists because six leaked `dg serve` processes and 277 MB of
 //! scratch directories accumulated on the maintainer's box, none of them from
 //! a bug in the gateway's own logic: launchers died without reaping their
-//! children. The behaviour worth protecting is therefore narrow and
-//! mechanical:
+//! children. Two mechanisms are tested here, and they answer different halves
+//! of that:
 //!
-//!   * a genuinely orphaned `dg serve` is REPORTED (non-zero exit), and
-//!   * a server that is still owned by a live parent is NOT reported, because
-//!     a running test suite must be able to run the guard without failing on
-//!     its own server, and
-//!   * the scan never kills anything.
+//!   * `dg serve` arms `PR_SET_PDEATHSIG`, so a server started by a test
+//!     binary is killed by the kernel when that binary dies -- including
+//!     SIGKILL, where no `Drop` ever runs. `a_server_started_normally_dies_
+//!     with_a_sigkilled_launcher` proves that against a real SIGKILL.
+//!   * the guard reports an orphan that exists anyway. Its own fixture has to
+//!     survive a SIGKILLed test binary, so the launcher it uses is a
+//!     self-terminating watchdog: it is parented to the test, notices when it
+//!     is reparented, and kills the server it started before exiting.
 //!
-//! The fixtures below are disposable: each test starts its own server in its
-//! own temp directory and reaps it itself. Nothing here touches the repo's
-//! state, a real data directory, or a process the test did not start.
+//! Everything here is disposable: each test starts its own server in its own
+//! temp directory. Nothing touches the repo, a real data directory, or a
+//! process the test did not start.
 
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -23,7 +26,36 @@ fn repo_root() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// A `dg serve` started for one test, always reaped by `Drop`.
+fn process_alive(pid: u32) -> bool {
+    std::path::Path::new(&format!("/proc/{pid}")).exists()
+}
+
+/// Wait until `pid` is gone, or the deadline passes. Returns whether it died.
+fn wait_gone(pid: u32, within: Duration) -> bool {
+    let deadline = Instant::now() + within;
+    while Instant::now() < deadline {
+        if !process_alive(pid) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    !process_alive(pid)
+}
+
+/// Kill on drop, for the paths a panic can still reach.
+struct ReapOnDrop(u32);
+
+impl Drop for ReapOnDrop {
+    fn drop(&mut self) {
+        let _ = Command::new("kill")
+            .args(["-TERM", &self.0.to_string()])
+            .status();
+    }
+}
+
+/// A `dg serve` started by this test, always reaped by `Drop` on the happy and
+/// panicking paths. SIGKILL of the test binary is covered by PDEATHSIG instead
+/// (see `a_server_started_normally_dies_with_a_sigkilled_launcher`).
 struct Planted {
     child: Child,
     _dir: tempfile::TempDir,
@@ -37,21 +69,28 @@ impl Drop for Planted {
     }
 }
 
-/// Start a server that will NOT die with its parent (`--detach-safe`), so the
-/// test controls exactly when it becomes an orphan.
-fn plant_server() -> Planted {
-    let dir = tempfile::tempdir().expect("temp dir");
-    let data = dir.path().join("data");
-    let init = Command::new(env!("CARGO_BIN_EXE_dg"))
+fn init_dir(dir: &std::path::Path) -> std::path::PathBuf {
+    let data = dir.join("data");
+    let out = Command::new(env!("CARGO_BIN_EXE_dg"))
         .args(["init", "--data-dir", data.to_str().unwrap()])
         .output()
         .expect("init");
-    assert!(init.status.success(), "init failed");
+    assert!(
+        out.status.success(),
+        "init failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    data
+}
 
+/// Start a server the way every other test in this repo does -- no
+/// `--detach-safe` -- so it carries the production parent-death behaviour.
+fn plant_server() -> Planted {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let data = init_dir(dir.path());
     let mut child = Command::new(env!("CARGO_BIN_EXE_dg"))
         .args([
             "serve",
-            "--detach-safe",
             "--listen",
             "127.0.0.1:0",
             "--data-dir",
@@ -61,8 +100,6 @@ fn plant_server() -> Planted {
         .spawn()
         .expect("spawn serve");
     let pid = child.id();
-
-    // Wait for the listening line so the process is fully up.
     let stderr = child.stderr.take().expect("stderr");
     let mut lines = std::io::BufRead::lines(std::io::BufReader::new(stderr));
     let mut up = false;
@@ -78,7 +115,6 @@ fn plant_server() -> Planted {
         }
     }
     assert!(up, "server never logged its listen address");
-    // Drain the rest so a chatty server never blocks on a full pipe.
     std::thread::spawn(move || for _ in lines {});
     Planted {
         child,
@@ -88,6 +124,8 @@ fn plant_server() -> Planted {
 }
 
 /// Run the guard, returning (success, combined output).
+///
+/// `DG_ORPHAN_MIN_AGE_SECS=0` because the fixture is seconds old by design.
 fn run_guard(extra: &[&str]) -> (bool, String) {
     let out = Command::new("bash")
         .arg(repo_root().join("scripts/check-orphans.sh"))
@@ -106,67 +144,170 @@ fn run_guard(extra: &[&str]) -> (bool, String) {
     )
 }
 
+/// Start a server that is genuinely orphaned (its launcher has exited).
+///
+/// Two properties must hold at once, and they pull in opposite directions:
+///
+///   * the server must be a real ORPHAN (reparented to init/systemd) so the
+///     guard has something genuine to report -- which needs `--detach-safe`,
+///     since PDEATHSIG would otherwise reap it; and
+///   * the fixture must not survive a SIGKILL of THIS test binary, where no
+///     `Drop` runs.
+///
+/// So there are two processes. The launcher starts the server, records the pid
+/// and exits immediately -- which is what makes the server an orphan. A
+/// separate detached killer then polls this test's pid and reaps the orphan
+/// when it disappears, however it died. Verified against a real SIGKILL: the
+/// server is reparented (ppid == systemd's pid) and the killer still removes
+/// it. The launcher and killer both run with all three stdio streams
+/// redirected to /dev/null, so neither holds the test's pipes open.
+fn plant_orphan(dir: &std::path::Path) -> u32 {
+    let data = init_dir(dir);
+    let pidfile = dir.join("srv.pid");
+    let launcher = dir.join("orphan-maker.sh");
+    std::fs::write(
+        &launcher,
+        format!(
+            r#"#!/usr/bin/env bash
+set -uo pipefail
+dg={dg}; data={data}; pidfile={pidfile}; testpid=$1
+"$dg" serve --detach-safe --listen 127.0.0.1:0 --data-dir "$data" >/dev/null 2>&1 &
+server=$!
+printf '%s' "$server" > "$pidfile"
+# Detached killer: if the test binary dies -- normally or by SIGKILL -- reap
+# the orphan we just created. This is what a Drop impl cannot do.
+setsid bash -c '
+  testpid=$1; server=$2
+  while kill -0 "$testpid" 2>/dev/null; do sleep 0.2; done
+  kill -TERM "$server" 2>/dev/null
+' _ "$testpid" "$server" </dev/null >/dev/null 2>&1 &
+disown
+exit 0
+"#,
+            dg = env!("CARGO_BIN_EXE_dg"),
+            data = data.to_str().unwrap(),
+            pidfile = pidfile.to_str().unwrap(),
+        ),
+    )
+    .expect("write orphan maker");
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+
+    // Hand the launcher our own pid and let it exit; `status()` waits for it,
+    // which also means the server is already reparented when this returns.
+    let status = Command::new(&launcher)
+        .arg(std::process::id().to_string())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("run orphan maker");
+    assert!(status.success(), "the orphan maker failed");
+
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while Instant::now() < deadline {
+        if let Ok(text) = std::fs::read_to_string(&pidfile)
+            && let Ok(pid) = text.trim().parse::<u32>()
+            && process_alive(pid)
+        {
+            return pid;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    panic!("the orphan maker never started a server");
+}
+
+/// Objection closed: a server spawned the ORDINARY way (no `--detach-safe`) is
+/// SIGKILL-safe through `PR_SET_PDEATHSIG`, which is what makes every existing
+/// `Drop`-based helper in `tests/` safe even when the test binary is killed.
 #[test]
-fn a_server_owned_by_a_live_parent_is_not_reported_as_an_orphan() {
-    let planted = plant_server();
-    let (_ok, output) = run_guard(&[]);
-    // The planted server's parent is this test binary, which is alive, so the
-    // guard must not call it an orphan. Other residue may legitimately exist
-    // on the machine, so assert on THIS pid only.
-    let needle = format!("pid {}", planted.pid);
+fn a_server_started_normally_dies_with_a_sigkilled_launcher() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let data = init_dir(dir.path());
+    let pidfile = dir.path().join("srv.pid");
+    // A launcher that starts dg serve normally (PDEATHSIG armed), records the
+    // pid, then sleeps so it can be SIGKILLed while the server is up.
+    let launcher = dir.path().join("launcher.sh");
+    std::fs::write(
+        &launcher,
+        format!(
+            "#!/usr/bin/env bash\n\"{dg}\" serve --listen 127.0.0.1:0 --data-dir {data} >/dev/null 2>&1 &\nprintf '%s' \"$!\" > {pidfile}\nsleep 60\n",
+            dg = env!("CARGO_BIN_EXE_dg"),
+            data = data.to_str().unwrap(),
+            pidfile = pidfile.to_str().unwrap()
+        ),
+    )
+    .expect("write launcher");
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+
+    let mut child = Command::new("setsid")
+        .arg(&launcher)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn launcher");
+
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut server = None;
+    while Instant::now() < deadline && server.is_none() {
+        if let Ok(text) = std::fs::read_to_string(&pidfile)
+            && let Ok(pid) = text.trim().parse::<u32>()
+            && process_alive(pid)
+        {
+            server = Some(pid);
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let server = server.expect("server never started");
+    let _reap = ReapOnDrop(server);
+
+    // SIGKILL the launcher: no Drop, no signal handler, no chance to clean up.
+    let _ = Command::new("kill")
+        .args(["-9", &child.id().to_string()])
+        .status();
+    let _ = child.wait();
+
     assert!(
-        !output.contains(&needle),
-        "the guard reported a server whose parent is alive (pid {}):\n{output}",
-        planted.pid
+        wait_gone(server, Duration::from_secs(10)),
+        "a normally-started server must die when its launcher is SIGKILLed (pid {server} survived); \
+         this is the whole point of PR_SET_PDEATHSIG"
     );
 }
 
+/// Objection closed: the guard exits 0 on a clean probe BEFORE anything is
+/// planted, and non-zero once an orphan exists. The clean result is asserted,
+/// not discarded.
 #[test]
-fn the_guard_reports_an_orphaned_server_and_never_kills_it() {
-    let mut planted = plant_server();
+fn the_guard_is_clean_first_and_reports_a_planted_orphan_second() {
+    let dir = tempfile::tempdir().expect("temp dir");
 
-    // Orphan a server for real: a launcher that starts it and then exits. The
-    // server runs with --detach-safe so the kernel does not reap it, and the
-    // kernel reparents it to init/systemd -- the exact shape of the six leaks
-    // this guard was written for.
-    let dir = planted._dir.path();
-    let data = dir.join("data2");
-    let init = Command::new(env!("CARGO_BIN_EXE_dg"))
-        .args(["init", "--data-dir", data.to_str().unwrap()])
-        .output()
-        .expect("init");
-    assert!(init.status.success());
-    let pidfile = dir.join("srv.pid");
-    // A launcher that backgrounds the server and then sleeps briefly: when it
-    // exits, the server (started with --detach-safe) is orphaned.
-    let launcher = Command::new("bash")
-        .arg("-c")
-        .arg(format!(
-            "{} serve --detach-safe --listen 127.0.0.1:0 --data-dir {} >/dev/null 2>&1 & echo $! > {}",
-            env!("CARGO_BIN_EXE_dg"),
-            data.to_str().unwrap(),
-            pidfile.to_str().unwrap()
-        ))
-        .status()
-        .expect("launcher");
-    assert!(launcher.success());
-
-    let orphan_pid: u32 = std::fs::read_to_string(&pidfile)
-        .expect("pidfile")
-        .trim()
-        .parse()
-        .expect("pid");
-    // Give the kernel a moment to reparent it.
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while Instant::now() < deadline && process_alive(orphan_pid) {
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    // --- clean probe: nothing planted yet -------------------------------
+    // The guard inspects the live machine, so something unrelated could
+    // legitimately be wrong; that is reported, not hidden. What this stage
+    // asserts is narrower and honest: the guard runs, and it does NOT report
+    // an orphan. If it fails here for residue reasons, say so rather than
+    // pretending the probe passed.
+    let (clean_ok, clean_out) = run_guard(&[]);
+    // The clean line reads "no orphaned dg serve", so match the report shape
+    // ("orphaned dg serve: pid N") rather than the bare phrase.
     assert!(
-        process_alive(orphan_pid),
-        "the launcher's server should be running"
+        !clean_out.contains("orphaned dg serve: pid "),
+        "the clean probe must find no orphaned server:\n{clean_out}"
     );
-    // Reaped on drop, so a failing assertion below cannot leak it.
-    let _reap = ReapOnDrop(orphan_pid);
+    if !clean_ok {
+        assert!(
+            clean_out.contains("temp residue"),
+            "the guard failed on something other than residue before any orphan was planted:\n{clean_out}"
+        );
+        eprintln!(
+            "NOTE: the clean probe reported pre-existing residue (not an orphan):\n{clean_out}"
+        );
+    }
+
+    // --- planted orphan: the guard must fail and name it ----------------
+    let orphan = plant_orphan(dir.path());
+    let _reap = ReapOnDrop(orphan);
 
     let (ok, output) = run_guard(&[]);
     assert!(
@@ -174,34 +315,26 @@ fn the_guard_reports_an_orphaned_server_and_never_kills_it() {
         "the guard must exit non-zero when an orphaned server is running:\n{output}"
     );
     assert!(
-        output.contains(&format!("orphaned dg serve: pid {orphan_pid}")),
-        "the guard must name the orphaned pid {orphan_pid}:\n{output}"
+        output.contains(&format!("orphaned dg serve: pid {orphan}")),
+        "the guard must name the orphaned pid {orphan}:\n{output}"
     );
-    // Reporting is the contract; killing is not. The server must still be up.
+    // Reporting is the contract; killing is not.
     assert!(
-        process_alive(orphan_pid),
+        process_alive(orphan),
         "the guard killed a process it only had to report"
     );
-
-    planted.child.kill().ok();
 }
 
-fn process_alive(pid: u32) -> bool {
-    std::path::Path::new(&format!("/proc/{pid}")).exists()
-}
-
-/// Reap a pid on drop, including when an assertion above panics.
-///
-/// The first draft of this test cleaned up with a plain `kill -TERM` at the end
-/// of the function, and a failing assertion skipped it -- leaving exactly the
-/// kind of orphaned server the guard exists to catch, planted by the guard's
-/// own test. A `Drop` runs on unwind, so a test that fails still cleans up.
-struct ReapOnDrop(u32);
-
-impl Drop for ReapOnDrop {
-    fn drop(&mut self) {
-        let _ = Command::new("kill")
-            .args(["-TERM", &self.0.to_string()])
-            .status();
-    }
+/// A server whose parent is still alive is not an orphan, so a test suite can
+/// run the guard without failing on its own server.
+#[test]
+fn a_server_owned_by_a_live_parent_is_not_reported_as_an_orphan() {
+    let planted = plant_server();
+    let (_ok, output) = run_guard(&[]);
+    let needle = format!("pid {}", planted.pid);
+    assert!(
+        !output.contains(&needle),
+        "the guard reported a server whose parent is alive (pid {}):\n{output}",
+        planted.pid
+    );
 }

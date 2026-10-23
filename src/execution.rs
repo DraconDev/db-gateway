@@ -416,11 +416,12 @@ fn result_limit() -> Error {
 /// data-modifying keyword. Write enforcement still happens per-statement at
 /// execution via the SQLite authorizer plus `stmt.readonly()`
 /// (run_statement) — this only decides which waiting room a request sits
-/// in. It fails closed: comments, odd heads, string literals containing
-/// keywords, and anything ambiguous take the write lane — slower for that
-/// request, never unsafe. (Prepare-based classification was tried: it fails
-/// on every query naming an application table, since a scratch connection
-/// has no schema, which would put all real reads on the write lane.)
+/// in. It fails closed in the direction that matters: an unterminated
+/// literal or comment, an odd head, or anything ambiguous takes the write
+/// lane — slower for that request, never unsafe. (Prepare-based
+/// classification was tried: it fails on every query naming an application
+/// table, since a scratch connection has no schema, which would put all real
+/// reads on the write lane.)
 pub fn is_read_only(statements: &[Statement]) -> bool {
     statements
         .iter()
@@ -433,30 +434,99 @@ fn is_read_only_one(sql: &str) -> bool {
         || head.starts_with("VALUES")
         || head.starts_with("EXPLAIN")
         || head.starts_with("WITH"))
-        && !has_write_keyword(head)
+        // Scan the ORIGINAL text, not the uppercased copy: the tokenizer
+        // skips literals and comments by their delimiters, and scanning the
+        // original keeps this the same algorithm as the two clients.
+        && !has_write_keyword(sql)
 }
-/// Whole-word scan for data-modifying keywords, so a WITH..SELECT whose
-/// CTE is named `updated` stays on the read lane while WITH..INSERT does
-/// not. False positives (a literal saying 'deleted') only cost the write
-/// lane, never correctness.
+/// Scan the SQL for a data-modifying keyword, ignoring anything that is not a
+/// bare keyword token: single-quoted literals, double-quoted/backtick/bracket
+/// quoted identifiers, and both comment forms.
+///
+/// `SELECT 'DELETE'` and `SELECT 1 -- DELETE` write nothing — SQLite proved it
+/// (rows returned, `total_changes` 0) — so treating them as writes puts a
+/// read-only query on the write lane and reports it as `outcome_unknown`, the
+/// exact wrong answer this classification exists to prevent. The same
+/// tokenizer runs in `crates/dg-client/src/lib.rs` and
+/// `client/src/index.ts`; the three must agree, and `tests/rust_client.rs`
+/// plus `client/test/timeouts.test.mjs` pin that.
 fn has_write_keyword(sql: &str) -> bool {
     const WORDS: [&str; 9] = [
         "INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "DROP", "ALTER", "VACUUM", "REINDEX",
     ];
     let bytes = sql.as_bytes();
+    let n = bytes.len();
     let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i].is_ascii_alphabetic() {
-            let start = i;
-            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+    while i < n {
+        match bytes[i] {
+            // -- line comment
+            b'-' if i + 1 < n && bytes[i + 1] == b'-' => {
+                i += 2;
+                while i < n && bytes[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            // /* block comment */ (SQLite does not nest these)
+            b'/' if i + 1 < n && bytes[i + 1] == b'*' => {
+                i += 2;
+                while i + 1 < n && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                    i += 1;
+                }
+                i = if i + 1 < n { i + 2 } else { n };
+            }
+            // 'string literal' -- '' is an escaped quote inside it
+            b'\'' => {
                 i += 1;
+                while i < n {
+                    if bytes[i] == b'\'' {
+                        if i + 1 < n && bytes[i + 1] == b'\'' {
+                            i += 2;
+                            continue;
+                        }
+                        i += 1;
+                        break;
+                    }
+                    i += 1;
+                }
             }
-            let word = &sql[start..i];
-            if WORDS.contains(&word) {
-                return true;
+            // "quoted" / `quoted` identifier: a keyword here is just a name
+            quote @ (b'"' | b'`') => {
+                i += 1;
+                while i < n {
+                    if bytes[i] == quote {
+                        if i + 1 < n && bytes[i + 1] == quote {
+                            i += 2;
+                            continue;
+                        }
+                        i += 1;
+                        break;
+                    }
+                    i += 1;
+                }
             }
-        } else {
-            i += 1;
+            // [bracket] identifier
+            b'[' => {
+                i += 1;
+                while i < n && bytes[i] != b']' {
+                    i += 1;
+                }
+                if i < n {
+                    i += 1;
+                }
+            }
+            c if c.is_ascii_alphabetic() => {
+                let start = i;
+                while i < n && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                    i += 1;
+                }
+                // ASCII-only uppercase: the scan must see the same bytes the
+                // tokenizer read, so a non-ASCII identifier cannot shift it.
+                let word = sql[start..i].to_ascii_uppercase();
+                if WORDS.contains(&word.as_str()) {
+                    return true;
+                }
+            }
+            _ => i += 1,
         }
     }
     false

@@ -82,36 +82,104 @@ pub fn semantics_of_statements(statements: &[Statement]) -> Semantics {
 /// data-modifying keyword. It fails closed — anything ambiguous takes the
 /// write lane, which is slower for that request and never wrong.
 pub fn is_read_only(sql: &str) -> bool {
-    let upper = sql.trim_start().to_ascii_uppercase();
+    let trimmed = sql.trim_start();
+    let upper = trimmed.to_ascii_uppercase();
     (upper.starts_with("SELECT")
         || upper.starts_with("VALUES")
         || upper.starts_with("EXPLAIN")
         || upper.starts_with("WITH"))
-        && !has_write_keyword(&upper)
+        && !has_write_keyword(trimmed)
 }
 
-/// Whole-word scan for data-modifying keywords, so a WITH..SELECT whose
-/// CTE is named `updated` stays on the read lane while WITH..INSERT does
-/// not. False positives (a literal saying 'deleted') only cost the write
-/// lane, never correctness.
+/// Scan the SQL for a data-modifying keyword, ignoring anything that is not a
+/// bare keyword token: single-quoted literals, double-quoted/backtick/bracket
+/// quoted identifiers, and both comment forms.
+///
+/// The distinction is not cosmetic. `SELECT 'DELETE'` and `SELECT 1 -- DELETE`
+/// write nothing, so classifying them as writes reports a read-only query as
+/// `outcome_unknown` -- the exact wrong answer this classification exists to
+/// prevent -- and makes the caller wait a minute instead of ten seconds. The
+/// same tokenizer runs in `src/execution.rs` and `client/src/index.ts`; the
+/// three must agree, and `tests/rust_client.rs` pins that.
+///
+/// It still fails closed in the direction that matters: an unterminated literal
+/// or comment consumes the rest of the string, so a keyword hidden after one is
+/// not seen (a read that SQLite would reject as a syntax error, never a write
+/// that slips through).
 fn has_write_keyword(sql: &str) -> bool {
     const WORDS: [&str; 9] = [
         "INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "DROP", "ALTER", "VACUUM", "REINDEX",
     ];
     let bytes = sql.as_bytes();
+    let n = bytes.len();
     let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i].is_ascii_alphabetic() {
-            let start = i;
-            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+    while i < n {
+        match bytes[i] {
+            // -- line comment
+            b'-' if i + 1 < n && bytes[i + 1] == b'-' => {
+                i += 2;
+                while i < n && bytes[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            // /* block comment */ (SQLite does not nest these)
+            b'/' if i + 1 < n && bytes[i + 1] == b'*' => {
+                i += 2;
+                while i + 1 < n && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                    i += 1;
+                }
+                i = if i + 1 < n { i + 2 } else { n };
+            }
+            // 'string literal' -- '' is an escaped quote inside it
+            b'\'' => {
                 i += 1;
+                while i < n {
+                    if bytes[i] == b'\'' {
+                        if i + 1 < n && bytes[i + 1] == b'\'' {
+                            i += 2;
+                            continue;
+                        }
+                        i += 1;
+                        break;
+                    }
+                    i += 1;
+                }
             }
-            let word = &sql[start..i];
-            if WORDS.contains(&word) {
-                return true;
+            // "quoted" / `quoted` identifier: a keyword here is just a name
+            quote @ (b'"' | b'`') => {
+                i += 1;
+                while i < n {
+                    if bytes[i] == quote {
+                        if i + 1 < n && bytes[i + 1] == quote {
+                            i += 2;
+                            continue;
+                        }
+                        i += 1;
+                        break;
+                    }
+                    i += 1;
+                }
             }
-        } else {
-            i += 1;
+            // [bracket] identifier
+            b'[' => {
+                i += 1;
+                while i < n && bytes[i] != b']' {
+                    i += 1;
+                }
+                if i < n {
+                    i += 1;
+                }
+            }
+            c if c.is_ascii_alphabetic() => {
+                let start = i;
+                while i < n && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                    i += 1;
+                }
+                if WORDS.contains(&sql[start..i].to_ascii_uppercase().as_str()) {
+                    return true;
+                }
+            }
+            _ => i += 1,
         }
     }
     false

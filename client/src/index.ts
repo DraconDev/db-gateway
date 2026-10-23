@@ -7,6 +7,16 @@ export interface BatchResult { results: QueryResult[] }
 /// answer this — a query is a POST whether it reads or writes — so the
 /// statements decide, with the same rule the server uses.
 export type Semantics = 'read' | 'write';
+/// Transport budgets. The defaults are the published contract; they are
+/// injectable so a test can prove real delayed-completion behaviour in
+/// milliseconds instead of sleeping for a minute, without weakening what a
+/// caller gets by default.
+export interface GatewayOptions {
+  /// How long a read waits. Defaults to [`DEFAULT_READ_TIMEOUT_MS`].
+  readTimeoutMs?: number;
+  /// How long a write waits. Defaults to [`DEFAULT_WRITE_TIMEOUT_MS`].
+  writeTimeoutMs?: number;
+}
 export interface RequestOptions {
   idempotencyKey?: string;
   maxResponseBytes?: number;
@@ -15,6 +25,8 @@ export interface RequestOptions {
   /// management routes and fail-closed for anything else. Query and
   /// batch pass the statement-derived answer explicitly.
   semantics?: Semantics;
+  /// Override this one request's budget. Only tests have a reason to.
+  timeoutMs?: number;
 }
 export interface KeyRequest { name: string; role: 'database_read_only' | 'database_read_write'; databases: string[] }
 export interface KeyInfo { name: string; role: string; databases: string[] }
@@ -69,12 +81,12 @@ const CHUNK_BYTES = 1024 * 1024;
 
 /// How long a read waits before the client gives up. A read that is given
 /// up on costs a retry and nothing else, so it gives up quickly.
-const READ_TIMEOUT_MS = 10_000;
+const DEFAULT_READ_TIMEOUT_MS = 10_000;
 
 /// How long a write waits before the client gives up. A write that is
 /// given up on leaves the outcome in doubt, so it waits far longer: the
 /// answer is what removes the doubt.
-const WRITE_TIMEOUT_MS = 60_000;
+const DEFAULT_WRITE_TIMEOUT_MS = 60_000;
 
 /// Data-modifying keywords. A statement that opens like a read but holds
 /// one of these AS CODE is a write.
@@ -101,7 +113,7 @@ function hasWriteKeyword(sql: string): boolean {
   let i = 0;
   const n = sql.length;
   while (i < n) {
-    const c = sql[i];
+    const c = sql[i] as string;
     // -- line comment
     if (c === '-' && sql[i + 1] === '-') {
       const nl = sql.indexOf('\n', i + 2);
@@ -151,7 +163,7 @@ function hasWriteKeyword(sql: string): boolean {
     if (alpha) {
       const start = i;
       while (i < n) {
-        const d = sql[i];
+        const d = sql[i] as string;
         if (!((d >= 'A' && d <= 'Z') || (d >= 'a' && d <= 'z') || (d >= '0' && d <= '9') || d === '_')) break;
         i += 1;
       }
@@ -257,12 +269,16 @@ function isStatusResponse(v: unknown): v is StatusResponse {
 }
 export class Gateway {
   private readonly origin: string;
-  constructor(server: string, private readonly credential: string) {
+  private readonly readTimeoutMs: number;
+  private readonly writeTimeoutMs: number;
+  constructor(server: string, private readonly credential: string, options: GatewayOptions = {}) {
     const url = new URL(server);
     if (!(url.protocol === 'https:' || (url.protocol === 'http:' && (url.hostname === '127.0.0.1' || url.hostname === '[::1]'))) || url.username || url.password || url.search || url.hash || url.pathname !== '/') {
       throw new Error('Use HTTPS or literal loopback HTTP origin');
     }
     this.origin = url.origin;
+    this.readTimeoutMs = options.readTimeoutMs ?? DEFAULT_READ_TIMEOUT_MS;
+    this.writeTimeoutMs = options.writeTimeoutMs ?? DEFAULT_WRITE_TIMEOUT_MS;
   }
   database(name: string): Database {
     assertName(name);
@@ -285,14 +301,21 @@ export class Gateway {
     // outcome in doubt, and the answer is what removes the doubt -- so a
     // write waits far longer. The CLI and the Rust client follow the same
     // rule, and the three encode one transport contract.
-    const timeoutMs = mayWrite ? WRITE_TIMEOUT_MS : READ_TIMEOUT_MS;
+    const timeoutMs = options.timeoutMs ?? (mayWrite ? this.writeTimeoutMs : this.readTimeoutMs);
     const readFailure = (detail: string) => new GatewayError('transport_unavailable', `${detail} The gateway is unavailable through the configured origin.`, 503);
     const writeInDoubt = (detail: string) => new GatewayError('outcome_unknown', `${detail} A write may have committed. Replay with the same key/body within retention; never blindly retry an unkeyed write.`);
+    // Whether a failure was the clock running out rather than the response
+    // being wrong. A timeout means the gateway is unavailable -- and for a
+    // read that is a retry, never ``invalid_gateway_response``, because the
+    // bytes never arrived to be malformed. `AbortSignal.timeout` surfaces as
+    // either name depending on where it fires, so both are matched.
+    const timedOut = (error: unknown): boolean =>
+      error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
     let response: Response;
     try {
       response = await fetch(this.origin + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
-    } catch {
-      if (!mayWrite) throw readFailure('The request was not answered before the read timeout.');
+    } catch (error) {
+      if (!mayWrite) throw readFailure(timedOut(error) ? 'The request was not answered before the read timeout.' : 'The request could not be sent.');
       throw writeInDoubt('Transport failed.');
     }
     let bytes: Uint8Array;
@@ -314,6 +337,16 @@ export class Gateway {
       let offset = 0;
       for (const chunk of chunks) { bytes.set(chunk,offset); offset += chunk.length; }
     } catch (error) {
+      // A timeout while the body is streaming is still the gateway being
+      // unavailable, not a malformed response: nothing arrived to be
+      // malformed, and the operator's next move is to retry. Reporting it as
+      // invalid_gateway_response told them the gateway said something wrong,
+      // which is a different (and wrong) diagnosis. A genuinely truncated or
+      // malformed response keeps its own mapping below.
+      if (timedOut(error)) {
+        if (!mayWrite) throw readFailure('The response was not received before the read timeout.');
+        throw writeInDoubt('The response was interrupted by the write timeout.');
+      }
       const detail = error instanceof Error && error.message === 'Response limit' ? 'The gateway response exceeded the configured limit' : 'The gateway response was interrupted';
       if (!mayWrite) throw new GatewayError('invalid_gateway_response', `${detail}.`, 502);
       throw writeInDoubt(`${detail}.`);
