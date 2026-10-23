@@ -336,9 +336,78 @@ fn setup_help_documents_interface_without_building() {
         .expect("run setup script");
     assert!(output.status.success());
     let usage = String::from_utf8_lossy(&output.stderr);
-    for flag in ["--prefix", "--smoke", "--no-install", "--help"] {
+    for flag in ["--prefix", "--smoke", "--no-install", "--strict", "--help"] {
         assert!(usage.contains(flag), "missing {flag}: {usage}");
     }
+}
+
+/// The staleness guard exists because the old check could not fail: it ran
+/// `dg tui --help | grep -q terminal`, which passes against a build from any
+/// date, including the five-day-old one an operator was actually running. So
+/// pin the behaviour it was replaced with -- an install older than the source
+/// tree is reported, and under --strict the script refuses to call it done.
+#[test]
+fn setup_flags_an_install_older_than_the_source_tree() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let prefix = dir.path().join("prefix");
+    std::fs::create_dir_all(&prefix).expect("prefix");
+    // A stand-in install that is unmistakably older than any source file.
+    let stale = prefix.join("dg");
+    std::fs::write(&stale, b"#!/bin/sh\necho 'dg 0.0.0-old'\n").expect("write stale dg");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&stale, std::fs::Permissions::from_mode(0o755))
+            .expect("chmod stale dg");
+    }
+    // Backdate it so the comparison is decisive rather than racing the
+    // checkout. `touch` rather than a new dependency for one timestamp.
+    let touched = Command::new("touch")
+        .args(["-d", "2020-01-01T00:00:00Z"])
+        .arg(&stale)
+        .status()
+        .expect("run touch");
+    assert!(touched.success(), "could not backdate the staged dg");
+
+    // Warn mode: says so, and still exits 0 (the install is usable, just old).
+    let warn = Command::new("bash")
+        .args(["scripts/setup.sh", "--no-install", "--prefix"])
+        .arg(&prefix)
+        .output()
+        .expect("run setup in warn mode");
+    let warn_text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&warn.stdout),
+        String::from_utf8_lossy(&warn.stderr)
+    );
+    assert!(
+        warn_text.contains("STALE"),
+        "warn mode did not report the stale install: {warn_text}"
+    );
+    assert!(
+        warn.status.success(),
+        "warn mode must not fail on a stale install: {warn_text}"
+    );
+
+    // Strict mode: same finding, non-zero exit, so CI can gate on it.
+    let strict = Command::new("bash")
+        .args(["scripts/setup.sh", "--no-install", "--strict", "--prefix"])
+        .arg(&prefix)
+        .output()
+        .expect("run setup in strict mode");
+    let strict_text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&strict.stdout),
+        String::from_utf8_lossy(&strict.stderr)
+    );
+    assert!(
+        strict_text.contains("STALE"),
+        "strict mode did not report the stale install: {strict_text}"
+    );
+    assert!(
+        !strict.status.success(),
+        "strict mode must fail on a stale install: {strict_text}"
+    );
 }
 
 #[test]
