@@ -225,16 +225,26 @@ fn a_server_started_normally_dies_with_a_sigkilled_launcher() {
     let dir = tempfile::tempdir().expect("temp dir");
     let data = init_dir(dir.path());
     let pidfile = dir.path().join("srv.pid");
-    // A launcher that starts dg serve normally (PDEATHSIG armed), records the
-    // pid, then sleeps so it can be SIGKILLed while the server is up.
+    let launcher_pidfile = dir.path().join("launcher.pid");
+    // A launcher that starts dg serve normally (PDEATHSIG armed), records both
+    // pids, then sleeps so it can be SIGKILLed while the server is up.
+    //
+    // The launcher records ITS OWN pid because that is the pid that must be
+    // killed. `setsid` is not guaranteed to exec in place: when it forks, the
+    // child pid it returns from `spawn()` is a short-lived `setsid` process,
+    // and the launcher -- the shell that is the server's actual parent --
+    // keeps running. Killing the `setsid` pid therefore leaves the parent
+    // alive, PDEATHSIG correctly does not fire, and the assertion fails on a
+    // loaded box. That is a defect in the test, not in the server.
     let launcher = dir.path().join("launcher.sh");
     std::fs::write(
         &launcher,
         format!(
-            "#!/usr/bin/env bash\n\"{dg}\" serve --listen 127.0.0.1:0 --data-dir {data} >/dev/null 2>&1 &\nprintf '%s' \"$!\" > {pidfile}\nsleep 60\n",
+            "#!/usr/bin/env bash\nprintf '%s' \"$$\" > {launcher_pidfile}\n\"{dg}\" serve --listen 127.0.0.1:0 --data-dir {data} >/dev/null 2>&1 &\nprintf '%s' \"$!\" > {pidfile}\nsleep 60\n",
             dg = env!("CARGO_BIN_EXE_dg"),
             data = data.to_str().unwrap(),
-            pidfile = pidfile.to_str().unwrap()
+            pidfile = pidfile.to_str().unwrap(),
+            launcher_pidfile = launcher_pidfile.to_str().unwrap()
         ),
     )
     .expect("write launcher");
@@ -262,9 +272,14 @@ fn a_server_started_normally_dies_with_a_sigkilled_launcher() {
     let server = server.expect("server never started");
     let _reap = ReapOnDrop(server);
 
-    // SIGKILL the launcher: no Drop, no signal handler, no chance to clean up.
+    // SIGKILL the launcher itself -- the process that is the server's parent.
+    // Where `setsid` forked, that is not the pid `spawn()` handed back.
+    let launcher_pid = std::fs::read_to_string(&launcher_pidfile)
+        .ok()
+        .and_then(|text| text.trim().parse::<u32>().ok())
+        .unwrap_or_else(|| child.id());
     let _ = Command::new("kill")
-        .args(["-9", &child.id().to_string()])
+        .args(["-9", &launcher_pid.to_string()])
         .status();
     let _ = child.wait();
 
