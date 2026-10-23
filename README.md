@@ -38,7 +38,7 @@ dg --key-file owner.key execute game_a script.sql   # run a SQL file, statement 
 dg --key-file owner.key tui                # the terminal view: service, databases, backups and keys, live
 ```
 
-Prefer an uninstalled debug build instead: `cargo build --locked` plus `export PATH="$PWD/.cargo/target/debug:$PATH"`, then the same commands. `scripts/setup.sh --help` lists options (`--prefix`, `--no-install`, `--strict`). It also reports when the `dg` already installed is older than the source tree — that is how a binary that predates a redesign keeps being run without anyone noticing — and `--strict` turns that warning into a failure.
+Prefer an uninstalled debug build instead: `cargo build --locked` plus `export PATH="$PWD/.cargo/target/debug:$PATH"`, then the same commands. `scripts/setup.sh --help` lists options (`--prefix`, `--no-install`, `--strict`). It also reports when the `dg` already installed is older than the source tree — that is how a binary that predates a redesign keeps being run without anyone noticing — and `--strict` turns that warning into a failure. The install does not need the running `dg` closed first: it replaces the binary's path rather than the file, so a view that is already open keeps running on the code it started with, and the next launch picks up the new build.
 
 - **API reference** (routes, value encoding, error codes, write/retry semantics): [docs/api.md](docs/api.md)
 - **Architecture and decision register**: [docs/architecture.md](docs/architecture.md)
