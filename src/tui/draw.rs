@@ -401,7 +401,7 @@ fn backups_pane(frame: &mut Frame, area: Rect, app: &App) {
     };
     let sections = views::backups(backups);
     let mut lines = Vec::new();
-    let mut table = None;
+    let mut table: Option<(String, ViewTable)> = None;
     for section in &sections {
         // The same rule as the service pane: a heading is only drawn when
         // there is something under it.
@@ -409,16 +409,30 @@ fn backups_pane(frame: &mut Frame, area: Rect, app: &App) {
             lines.push(heading(section.title()));
             lines.extend(section_lines(section));
         }
-        if table.is_none() {
-            table = section_table(section);
+        if table.is_none()
+            && let Some(found) = section_table(section)
+        {
+            // The table's title comes from the section that owns it. It used
+            // to be hardcoded to "per-database", so the *published sets*
+            // table was labelled per-database -- a title that names the wrong
+            // thing is worse than no title.
+            table = Some((section.title().to_string(), found.clone()));
         }
     }
-    let rows = Layout::vertical([Constraint::Length(4), Constraint::Min(1)]).split(area);
+    // The fields take exactly the lines they need (plus the border) and the
+    // table gets the rest: a fixed four-line allowance cut the freshness
+    // fields off the moment a gateway reported more than the root.
+    let fields_height = lines.len() as u16 + 2;
+    let rows = Layout::vertical([
+        Constraint::Length(fields_height),
+        Constraint::Min(1),
+    ])
+    .split(area);
     frame.render_widget(Paragraph::new(Text::from(lines)).block(block), rows[0]);
-    if let Some(table) = table {
+    if let Some((title, table)) = table {
         let mut state = TableState::default().with_offset(app.scroll.backups as usize);
         frame.render_stateful_widget(
-            table_widget(table, rows[1].width, usize::MAX).block(pane("per-database", false)),
+            table_widget(&table, rows[1].width, usize::MAX).block(pane(&title, false)),
             rows[1],
             &mut state,
         );
