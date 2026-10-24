@@ -593,13 +593,15 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
     match backups["replica"].as_object() {
         Some(replica) => {
             let mut section = Section::new("replica");
-            section.field(
-                "bucket",
-                Cell::styled(
-                    replica["bucket"].as_str().unwrap_or("unknown").to_string(),
-                    Style::Cyan,
-                ),
-            );
+            // The bucket when the copy is an object store, and the target
+            // itself when it is not: "where the copy is" is one fact, and
+            // the object-store case names it by its bucket.
+            let where_copy_lives = replica["bucket"]
+                .as_str()
+                .map(str::to_string)
+                .or_else(|| replica["target"].as_str().map(str::to_string))
+                .unwrap_or_else(|| "unknown".to_string());
+            section.field("bucket", Cell::styled(where_copy_lives, Style::Cyan));
             for (key, label) in [("endpoint", "endpoint"), ("region", "region")] {
                 section.field(
                     label,
