@@ -221,22 +221,34 @@ fn now_secs() -> u64 {
 /// scanner, and a scanner that over-reaches is worse than one that
 /// under-reaches.
 pub fn normalise(sql: &str) -> String {
+    // The scan is over a vector with an index, not over a peekable
+    // iterator. A lookahead is needed in three places -- the doubled
+    // quote inside a literal, the two characters of a comment opener,
+    // the boundary of a number -- and an iterator would have to be
+    // borrowed twice at once to do that, which the borrow checker
+    // rightly refuses. An index has no such rule: the lookahead is
+    // just a bound-checked read.
+    let chars: Vec<char> = sql.chars().collect();
     let mut out = String::with_capacity(sql.len());
-    let mut chars = sql.chars().peekable();
+    let mut index = 0;
     let mut space = false;
-    while let Some(c) = chars.next() {
+    while index < chars.len() {
+        let c = chars[index];
         match c {
             '\'' => {
                 // A string literal: consume it whole, honouring the
                 // doubled-quote escape, and keep none of it.
                 out.push('?');
                 space = false;
-                while let Some(inner) = chars.next() {
+                index += 1;
+                while index < chars.len() {
+                    let inner = chars[index];
+                    index += 1;
                     if inner == '\'' {
-                        // Two quotes in a row are one escaped quote and
-                        // the literal goes on; a lone quote ends it.
-                        if chars.peek() == Some(&'\'') {
-                            chars.next();
+                        if index < chars.len() && chars[index] == '\'' {
+                            // Two quotes in a row are one escaped quote,
+                            // and the literal goes on.
+                            index += 1;
                             continue;
                         }
                         break;
@@ -250,7 +262,10 @@ pub fn normalise(sql: &str) -> String {
                 }
                 space = false;
                 out.push(c);
-                while let Some(inner) = chars.next() {
+                index += 1;
+                while index < chars.len() {
+                    let inner = chars[index];
+                    index += 1;
                     out.push(inner);
                     if inner == c {
                         break;
@@ -263,28 +278,36 @@ pub fn normalise(sql: &str) -> String {
                 }
                 space = false;
                 out.push(c);
-                while let Some(inner) = chars.next() {
+                index += 1;
+                while index < chars.len() {
+                    let inner = chars[index];
+                    index += 1;
                     out.push(inner);
                     if inner == ']' {
                         break;
                     }
                 }
             }
-            '-' if chars.peek() == Some(&'-') => {
+            '-' if chars.get(index + 1) == Some(&'-') => {
                 // A line comment: drop it to the end of the line.
-                for inner in chars.by_ref() {
+                index += 2;
+                while index < chars.len() {
+                    let inner = chars[index];
+                    index += 1;
                     if inner == '\n' {
                         break;
                     }
                 }
                 space = true;
             }
-            '/' if chars.peek() == Some(&'*') => {
+            '/' if chars.get(index + 1) == Some(&'*') => {
                 // A block comment: drop it to its end.
-                chars.next();
-                while let Some(inner) = chars.next() {
-                    if inner == '*' && chars.peek() == Some(&'/') {
-                        chars.next();
+                index += 2;
+                while index < chars.len() {
+                    let inner = chars[index];
+                    index += 1;
+                    if inner == '*' && chars.get(index) == Some(&'/') {
+                        index += 1;
                         break;
                     }
                 }
@@ -293,10 +316,12 @@ pub fn normalise(sql: &str) -> String {
             ':' | '@' | '$' => {
                 // A named bound parameter: `:name`, `@name`, `$name`.
                 let mut name = String::new();
-                while let Some(&inner) = chars.peek() {
+                let mut scan = index + 1;
+                while scan < chars.len() {
+                    let inner = chars[scan];
                     if inner.is_alphanumeric() || inner == '_' {
                         name.push(inner);
-                        chars.next();
+                        scan += 1;
                     } else {
                         break;
                     }
@@ -307,12 +332,14 @@ pub fn normalise(sql: &str) -> String {
                     }
                     space = false;
                     out.push(c);
+                    index += 1;
                 } else {
                     if space && !out.is_empty() {
                         out.push(' ');
                     }
                     space = false;
                     out.push('?');
+                    index = scan;
                 }
             }
             c if c.is_ascii_digit() => {
@@ -322,9 +349,11 @@ pub fn normalise(sql: &str) -> String {
                 }
                 space = false;
                 out.push('?');
-                while let Some(&inner) = chars.peek() {
+                index += 1;
+                while index < chars.len() {
+                    let inner = chars[index];
                     if inner.is_ascii_alphanumeric() || inner == '.' || inner == '_' {
-                        chars.next();
+                        index += 1;
                     } else {
                         break;
                     }
@@ -338,10 +367,12 @@ pub fn normalise(sql: &str) -> String {
                 }
                 space = false;
                 out.push(c);
-                while let Some(&inner) = chars.peek() {
+                index += 1;
+                while index < chars.len() {
+                    let inner = chars[index];
                     if inner.is_ascii_alphanumeric() || inner == '_' || inner == '$' {
                         out.push(inner);
-                        chars.next();
+                        index += 1;
                     } else {
                         break;
                     }
@@ -349,6 +380,7 @@ pub fn normalise(sql: &str) -> String {
             }
             c if c.is_whitespace() => {
                 space = true;
+                index += 1;
             }
             c => {
                 if space && !out.is_empty() {
@@ -356,6 +388,7 @@ pub fn normalise(sql: &str) -> String {
                 }
                 space = false;
                 out.push(c);
+                index += 1;
             }
         }
     }
