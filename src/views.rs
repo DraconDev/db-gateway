@@ -15,7 +15,8 @@
 
 use crate::render::{
     self, Align, Cell, Section, Style, Table, human_bytes, human_count, human_duration,
-    human_epoch_ago, human_micros, human_percent, human_rate, human_set_stamp, wait_figures,
+    human_epoch_ago, human_instant, human_micros, human_percent, human_rate, human_set_stamp,
+    wait_figures,
 };
 use serde_json::Value;
 
@@ -747,8 +748,8 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
             ) {
                 (Some(start), Some(end)) => format!(
                     "{} to {}",
-                    dg::render::human_instant(start),
-                    dg::render::human_instant(end)
+                    human_instant(start),
+                    human_instant(end)
                 ),
                 _ => "unknown".to_string(),
             };
@@ -775,7 +776,7 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
                             format!(
                                 "{} at {} ({})",
                                 restore["database"].as_str().unwrap_or("unknown"),
-                                dg::render::human_instant(
+                                human_instant(
                                     restore["timestamp"].as_str().unwrap_or("unknown")
                                 ),
                                 outcome
@@ -813,8 +814,8 @@ pub fn restore(backups: &Value) -> Vec<Section> {
             ) {
                 (Some(start), Some(end)) => format!(
                     "{} to {}",
-                    dg::render::human_instant(start),
-                    dg::render::human_instant(end)
+                    human_instant(start),
+                    human_instant(end)
                 ),
                 _ => "unknown".to_string(),
             };
@@ -838,8 +839,8 @@ pub fn restore(backups: &Value) -> Vec<Section> {
                         Cell::text(match (window["oldest"].as_str(), window["newest"].as_str()) {
                             (Some(oldest), Some(newest)) => format!(
                                 "{} to {}",
-                                dg::render::human_instant(oldest),
-                                dg::render::human_instant(newest)
+                                human_instant(oldest),
+                                human_instant(newest)
                             ),
                             _ => "unknown".to_string(),
                         }),
@@ -876,7 +877,7 @@ pub fn restore(backups: &Value) -> Vec<Section> {
             );
             section.field(
                 "moment",
-                Cell::text(dg::render::human_instant(
+                Cell::text(human_instant(
                     restore["timestamp"].as_str().unwrap_or("unknown"),
                 )),
             );
