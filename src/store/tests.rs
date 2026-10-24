@@ -1311,3 +1311,41 @@ fn a_shared_open_leaves_the_owners_in_flight_directories_alone() {
         "the owner open must still sweep orphaned staging directories"
     );
 }
+
+#[test]
+fn locations_place_every_database_and_say_whether_it_is_there() {
+    // The question "where is this database, and is it actually there" is
+    // answered from the store, because the store is what holds the files.
+    // A registry row whose file has gone must be reported as missing, not
+    // as a database of zero bytes: the row is still there, and that
+    // difference is exactly what an operator needs to see.
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path()).unwrap();
+    store.create("live").unwrap();
+    store.create("gone").unwrap();
+
+    let locations = store.locations().unwrap();
+    assert_eq!(locations.len(), 2, "not every database is placed: {locations:?}");
+    let live = locations.iter().find(|l| l.name == "live").unwrap();
+    assert_eq!(live.file, dir.path().join("live.sqlite"));
+    assert!(live.exists, "a created database has no file: {live:?}");
+    assert!(live.size_bytes > 0, "a created database has no size: {live:?}");
+    assert!(!live.tombstoned);
+
+    // The file goes; the registry row stays.
+    std::fs::remove_file(dir.path().join("gone.sqlite")).unwrap();
+    let locations = store.locations().unwrap();
+    let gone = locations.iter().find(|l| l.name == "gone").unwrap();
+    assert!(
+        !gone.exists,
+        "a database whose file is gone is still reported as there: {gone:?}"
+    );
+    assert_eq!(gone.size_bytes, 0);
+
+    // A tombstone keeps its place until the file is purged: the name is
+    // still held, so "is everything live" has to be able to see it.
+    store.delete("live", 3600).unwrap();
+    let locations = store.locations().unwrap();
+    let live = locations.iter().find(|l| l.name == "live").unwrap();
+    assert!(live.tombstoned, "a tombstone is not reported as one: {live:?}");
+}
