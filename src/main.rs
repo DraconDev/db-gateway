@@ -475,6 +475,16 @@ enum Command {
         #[command(subcommand)]
         command: BackupCommand,
     },
+    /// The moments the off-host replica can be taken back to.
+    ///
+    /// The replica keeps a rolling window of write-ahead log, so the
+    /// data can be restored to a moment, not only to the last snapshot.
+    /// Only the host knows how wide that window is -- the bucket and the
+    /// sidecar are its -- so the host publishes it and this reads it.
+    Restore {
+        #[command(subcommand)]
+        command: RestoreCommand,
+    },
     /// Open the terminal operator view.
     ///
     /// Four tabs — databases, service, backups and keys — reached with
