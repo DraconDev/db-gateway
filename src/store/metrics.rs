@@ -23,6 +23,12 @@ pub struct Metrics {
     /// was it just now" without becoming a metrics database, and it
     /// costs one atomic add per request.
     window: Box<[AtomicU64]>,
+    /// The statement shapes the service has run, and what they cost.
+    ///
+    /// It is a separate structure from the counters because it answers a
+    /// different question: not "how much has this database done" but
+    /// "which of its statements is the expensive one".
+    pub queries: QueryLog,
     /// The most recent admission-wait durations, for percentiles.
     ///
     /// A ring rather than a growing list: the percentile of the last
@@ -189,6 +195,7 @@ impl Metrics {
                 .collect::<Vec<_>>()
                 .into_boxed_slice(),
             waits: Mutex::new(WaitSamples::default()),
+            queries: QueryLog::new(),
         }
     }
     pub fn record_queue_wait(&self, name: &str, waited: Duration, timed_out: bool) {

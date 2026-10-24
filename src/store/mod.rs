@@ -24,6 +24,7 @@ mod backup_sets;
 mod disk;
 mod lifecycle;
 mod metrics;
+mod queries;
 mod transfers;
 
 pub use self::admission::{
@@ -36,6 +37,7 @@ pub(crate) use self::backup_sets::{is_set_dir, read_manifest_capped};
 pub use self::disk::{DiskSpace, disk_space};
 pub use self::lifecycle::{Location, validate_name};
 pub use self::metrics::{DbUsage, Metrics, MetricsSnapshot};
+pub use self::queries::{QueryLog, QueryShape, StatementRun};
 pub use self::transfers::{
     MAX_CHUNK, MAX_TRANSFER_SIZE, MAX_TRANSFERS, SnapshotInfo, Staging, TRANSFER_TTL, UploadInfo,
 };

@@ -8,6 +8,7 @@ pub mod client;
 pub mod confirmation;
 pub mod error;
 pub mod execution;
+pub mod mcp;
 pub mod notify;
 pub mod render;
 pub mod shell;
