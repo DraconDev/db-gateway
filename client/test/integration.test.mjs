@@ -135,7 +135,12 @@ test('documented CLI walkthrough runs verbatim after bootstrap and serve', async
     const script = 'set -eu\ndg() { "$DG_BIN" --server "$DG_SERVER" "$@"; }\n' + commands;
     const result = spawnSync('bash', ['-c', script], {
       cwd: dataDir, encoding: 'utf8', timeout: 15_000,
-      env: { ...process.env, DG_BIN: binary, DG_SERVER: `http://${address}` },
+      // HOME points into the sandbox: the walkthrough includes the
+      // config commands, and `dg config set` writes to
+      // $HOME/.config/dg/config.toml. A test that writes the operator's
+      // own config file is a test that breaks the operator's own
+      // default context the next time they run a command.
+      env: { ...process.env, HOME: dataDir, DG_BIN: binary, DG_SERVER: `http://${address}` },
     });
     assert.equal(result.status, 0, result.stderr);
     const output = result.stdout.trim().split('\n').map(line => JSON.parse(line));

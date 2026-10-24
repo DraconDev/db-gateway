@@ -214,6 +214,16 @@ fixes; 1.0.0 waits for production acceptance.
 
 ### Changed
 
+- **micro2 now runs the 0.3.0 line.** The gateway on micro2 was upgraded
+  from 0.2.0 to this tree's 0.3.0 on 2026-10-24 under
+  `docs/upgrade-rollback.md`: a per-database export snapshot into
+  `/var/lib/dg-pre-upgrade-0.3.0/` (the export checksums are identical to
+  the 0.2.0 upgrade's, so the data had not moved), a byte-exact copy of
+  the stopped data directory at `/var/lib/dg.pre-0.3.0`, and the previous
+  binary kept as `dg.prev-0.2.0`. The upgrade was verified by comparing
+  the user-table content of every database before and after: identical.
+  The deployed binary now reports `0.3.0`, which is the tag `v0.3.0`, so
+  the deployed bundle traces to exactly one tagged state again.
 - **The connection order now has a context in it.** `--server` and
   `--key-file` are read by the CLI rather than by the argument parser, so
   that a named context can sit between the flag and the environment: the
