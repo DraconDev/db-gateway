@@ -155,22 +155,31 @@ fn heading(title: &str) -> Line<'static> {
 /// A tabbed layout has one body, so there is no longer a set of boxes
 /// competing for attention: the border is calm and the tab strip carries the
 /// focus signal.
-fn pane(title: &str, focused: bool) -> Block<'static> {
+///
+/// The frame carries no title. The strip one row above already names the tab
+/// and what is in it — "1 databases (2)" — and the frame said the same words
+/// a second time, one row apart. The strip is the summary of every tab, so
+/// it keeps the name and the count; the body shows the answer and lets the
+/// strip say what it is.
+fn pane(focused: bool) -> Block<'static> {
     let border = if focused {
         crate::tui::theme::border_focused()
     } else {
         crate::tui::theme::border()
     };
+    Block::default().borders(Borders::ALL).border_style(border)
+}
+
+/// A named box inside a body: the published sets under the backups tab, the
+/// rows of the last action. These name something the strip does not, so
+/// they keep their title.
+fn pane_titled(title: &str) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
-        .border_style(border)
+        .border_style(crate::tui::theme::border())
         .title(Span::styled(
             format!(" {title} "),
-            if focused {
-                crate::tui::theme::tab_active()
-            } else {
-                crate::tui::theme::tab()
-            },
+            crate::tui::theme::tab(),
         ))
 }
 
@@ -348,8 +357,7 @@ fn tabs(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Focus, u16, u16)> {
 fn databases_tab(frame: &mut Frame, area: Rect, app: &App) {
     match app.databases() {
         Some(table) => {
-            let title = format!("{} ({})", Focus::Databases.title(), table.rows().len());
-            let block = pane(&title, app.focus == Focus::Databases);
+            let block = pane(app.focus == Focus::Databases);
             let mut state = TableState::default().with_offset(app.scroll.databases as usize);
             frame.render_stateful_widget(
                 table_widget(&table, area.width, usize::MAX).block(block),
@@ -358,7 +366,7 @@ fn databases_tab(frame: &mut Frame, area: Rect, app: &App) {
             );
         }
         None => {
-            let block = pane(Focus::Databases.title(), app.focus == Focus::Databases);
+            let block = pane(app.focus == Focus::Databases);
             frame.render_widget(Paragraph::new("no answer yet").block(block), area);
         }
     }
@@ -379,7 +387,7 @@ fn databases_tab(frame: &mut Frame, area: Rect, app: &App) {
 /// other way to show it), so the section is still built; it is simply
 /// not the terminal view's job to say it twice.
 fn service_tab(frame: &mut Frame, area: Rect, app: &App) {
-    let block = pane(Focus::Service.title(), app.focus == Focus::Service);
+    let block = pane(app.focus == Focus::Service);
     let mut lines = Vec::new();
     match &app.status {
         Some(status) => {
@@ -413,7 +421,7 @@ fn service_tab(frame: &mut Frame, area: Rect, app: &App) {
 
 /// The backup freshness, per database.
 fn backups_tab(frame: &mut Frame, area: Rect, app: &App) {
-    let block = pane(Focus::Backups.title(), app.focus == Focus::Backups);
+    let block = pane(app.focus == Focus::Backups);
     let Some(backups) = &app.backups else {
         frame.render_widget(Paragraph::new("no answer yet").block(block), area);
         return;
@@ -448,7 +456,7 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &App) {
     if let Some((title, table)) = table {
         let mut state = TableState::default().with_offset(app.scroll.backups as usize);
         frame.render_stateful_widget(
-            table_widget(&table, rows[1].width, usize::MAX).block(pane(&title, false)),
+            table_widget(&table, rows[1].width, usize::MAX).block(pane_titled(&title)),
             rows[1],
             &mut state,
         );
