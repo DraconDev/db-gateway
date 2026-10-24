@@ -790,10 +790,21 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
             }
             sections.push(section);
         }
-        None => sections.push(unreported(
-            "point-in-time restore",
-            "this host publishes no restore points",
-        )),
+        None => {
+            // Two facts are missing here, not one: the window and the
+            // last restore taken from it. A host that publishes neither
+            // says so about both, rather than drawing one empty section
+            // that reads like "there is nothing to restore to" when the
+            // truth is "nobody has said".
+            sections.push(unreported(
+                "point-in-time restore",
+                "this host publishes no restore points",
+            ));
+            sections.push(unreported(
+                "last restore",
+                "this host publishes no restore result",
+            ));
+        }
     }
 
     sections
