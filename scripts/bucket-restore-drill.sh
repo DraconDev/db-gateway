@@ -96,8 +96,10 @@ chmod 0700 "$SCRATCH"
 cleanup() { [ "${KEEP:-0}" = "1" ] && log "scratch kept at $SCRATCH" || rm -rf "$SCRATCH"; }
 # The result is published whether the drill passed, failed, or was cut
 # short -- an unpublished result is the same as no result, and the point
-# of the drill is the answer, not the run.
-trap 'cleanup; publish_drill' EXIT
+# of the drill is the answer, not the run. The drill's own exit status is
+# the drill's: a failure to publish must not turn a passing drill into a
+# failing one, nor a failing one into a passing one.
+trap 'status=$?; cleanup; publish_drill || true; exit $status' EXIT
 
 dg() {
     local args=("$DG_BIN")
