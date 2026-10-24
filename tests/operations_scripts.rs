@@ -529,3 +529,174 @@ fn an_install_replaces_a_running_binary_without_disturbing_it() {
     let _ = server.kill();
     let _ = server.wait();
 }
+
+/// A `dg` stub that answers `list` with the given names.
+fn fake_dg(dir: &Path, databases: &[&str]) -> std::path::PathBuf {
+    let path = dir.join("dg");
+    let names = format!("{{\"databases\":[{}]}}", {
+        let quoted: Vec<String> = databases.iter().map(|name| format!("\"{name}\"")).collect();
+        quoted.join(",")
+    });
+    fs::write(
+        &path,
+        format!(
+            "#!/bin/sh\n\
+             case \"$1\" in\n\
+             --server) shift 2;;\n\
+             --key-file) shift 2;;\n\
+             esac\n\
+             case \"$1\" in\n\
+             list) echo '{names}';;\n\
+             *) echo '{{}}';;\n\
+             esac\n"
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+/// Run the litestream sync script against a stubbed gateway.
+///
+/// The script is what knows where the off-host copy is, so it is what
+/// publishes it; the gateway only reads what was published.
+fn run_sync(dir: &Path, env: &[(&str, &str)]) -> std::process::Output {
+    let mut command = Command::new("bash");
+    command.arg("scripts/litestream-sync.sh");
+    command.env_clear();
+    command.env("PATH", std::env::var("PATH").unwrap_or_default());
+    command.env("DG_LIST_AS", "");
+    command.env("LITESTREAM_RESTART_CMD", "true");
+    command.env("LITESTREAM_CONFIG_OWNER", "");
+    command.env("HOME", dir);
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    command.output().expect("run litestream-sync.sh")
+}
+
+#[test]
+fn the_sync_publishes_where_the_off_host_copy_is() {
+    let dir = tempdir();
+    let data = dir.path().join("data");
+    let backups = dir.path().join("backups");
+    let config = dir.path().join("litestream.yml");
+    fs::create_dir_all(&data).unwrap();
+    fs::create_dir_all(&backups).unwrap();
+    fs::write(data.join("alpha.sqlite"), b"sqlite").unwrap();
+    fs::write(data.join("beta.sqlite"), b"sqlite").unwrap();
+    let dg = fake_dg(dir.path(), &["alpha", "beta"]);
+
+    let output = run_sync(
+        dir.path(),
+        &[
+            ("DG_BIN", dg.to_str().unwrap()),
+            ("DG_KEY_FILE", dir.path().join("owner.key").to_str().unwrap()),
+            ("DG_DATA_DIR", data.to_str().unwrap()),
+            ("LITESTREAM_CONFIG", config.to_str().unwrap()),
+            ("DG_BACKUP_ROOT", backups.to_str().unwrap()),
+            ("DG_REPLICA_URL_TEMPLATE", "file:///srv/replicas/{name}"),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "the sync failed: {}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // The published status is what the gateway reports when an operator
+    // asks where their data is.
+    let published = backups.join("replica.json");
+    assert!(
+        published.exists(),
+        "the sync published no replica status: {}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let record: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&published).unwrap()).unwrap();
+    assert_eq!(record["target"], serde_json::json!("file:///srv/replicas/{name}"));
+    assert!(
+        record["bucket"].is_null(),
+        "a file replica has no bucket, and saying otherwise would be a lie: {record}"
+    );
+    let covered: Vec<String> = record["databases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|name| name.as_str().unwrap().to_string())
+        .collect();
+    assert!(covered.contains(&"alpha".to_string()), "{covered:?}");
+    assert!(covered.contains(&"beta".to_string()), "{covered:?}");
+    assert!(
+        record["published_at"].as_u64().unwrap_or(0) > 0,
+        "the published status has no timestamp: {record}"
+    );
+}
+
+#[test]
+fn the_published_replica_status_never_carries_a_credential() {
+    // The publisher names a place: the bucket, the endpoint, the region.
+    // A credential in that file would be a credential in a file the
+    // gateway reads and an operator can ask for.
+    let dir = tempdir();
+    let data = dir.path().join("data");
+    let backups = dir.path().join("backups");
+    let config = dir.path().join("litestream.yml");
+    let env_file = dir.path().join("litestream.env");
+    fs::create_dir_all(&data).unwrap();
+    fs::create_dir_all(&backups).unwrap();
+    fs::write(data.join("alpha.sqlite"), b"sqlite").unwrap();
+    fs::write(
+        &env_file,
+        "LITESTREAM_S3_BUCKET=dg-sandbox\n\
+         LITESTREAM_S3_ENDPOINT=s3.example.invalid\n\
+         LITESTREAM_S3_REGION=gra\n\
+         LITESTREAM_S3_ACCESS_KEY_ID=[DRACON_SECRET:REDACTED]\n\
+         LITESTREAM_S3_SECRET_ACCESS_KEY=secret-that-must-not-be-published\n",
+    )
+    .unwrap();
+    let dg = fake_dg(dir.path(), &["alpha"]);
+
+    let output = run_sync(
+        dir.path(),
+        &[
+            ("DG_BIN", dg.to_str().unwrap()),
+            ("DG_KEY_FILE", dir.path().join("owner.key").to_str().unwrap()),
+            ("DG_DATA_DIR", data.to_str().unwrap()),
+            ("LITESTREAM_CONFIG", config.to_str().unwrap()),
+            ("LITESTREAM_ENV_FILE", env_file.to_str().unwrap()),
+            ("DG_BACKUP_ROOT", backups.to_str().unwrap()),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "the sync failed: {}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let published = backups.join("replica.json");
+    assert!(published.exists(), "the sync published no replica status");
+    let text = fs::read_to_string(&published).unwrap();
+    assert!(
+        text.contains("dg-sandbox"),
+        "the published status does not name the bucket: {text}"
+    );
+    assert!(
+        !text.contains("[DRACON_SECRET:REDACTED]"),
+        "the published status carries the access key: {text}"
+    );
+    assert!(
+        !text.contains("secret-that-must-not-be-published"),
+        "the published status carries the secret key: {text}"
+    );
+    // The rendered config keeps the credential references, so the
+    // sidecar still finds them in its environment file.
+    let rendered = fs::read_to_string(&config).unwrap();
+    assert!(
+        rendered.contains("[DRACON_SECRET:REDACTED]") == false,
+        "the rendered config inlined the access key: {rendered}"
+    );
+}
