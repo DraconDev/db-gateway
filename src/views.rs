@@ -388,6 +388,41 @@ pub fn backups(backups: &Value) -> Vec<Section> {
 
     let mut sections = vec![root];
 
+    if let Some(per_database) = backups["per_database"].as_object() {
+        let mut names: Vec<&String> = per_database.keys().collect();
+        names.sort();
+        if !names.is_empty() {
+            let mut freshness = Section::new("per-database");
+            let mut table = Table::new();
+            table.column("database", Align::Left);
+            table.column("state", Align::Left);
+            table.column("newest set", Align::Left);
+            table.column("age", Align::Right);
+            for name in names {
+                let fresh = &per_database[name.as_str()];
+                let state = fresh["state"].as_str().unwrap_or("unknown");
+                table.row(vec![
+                    Cell::styled(name.clone(), Style::Cyan),
+                    Cell::styled(state, backup_state_style(state)),
+                    Cell::text(
+                        fresh["newest_set"]
+                            .as_str()
+                            .map(human_set_stamp)
+                            .unwrap_or_else(|| "—".to_string()),
+                    ),
+                    Cell::text(
+                        fresh["age_secs"]
+                            .as_u64()
+                            .map(human_duration)
+                            .unwrap_or_else(|| "unknown".to_string()),
+                    ),
+                ]);
+            }
+            freshness.table(table);
+            sections.push(freshness);
+        }
+    }
+
     if !sets.is_empty() {
         let mut published = Section::new("published sets");
         let mut table = Table::new();
@@ -422,41 +457,6 @@ pub fn backups(backups: &Value) -> Vec<Section> {
         }
         published.table(table);
         sections.push(published);
-    }
-
-    if let Some(per_database) = backups["per_database"].as_object() {
-        let mut names: Vec<&String> = per_database.keys().collect();
-        names.sort();
-        if !names.is_empty() {
-            let mut freshness = Section::new("per-database");
-            let mut table = Table::new();
-            table.column("database", Align::Left);
-            table.column("state", Align::Left);
-            table.column("newest set", Align::Left);
-            table.column("age", Align::Right);
-            for name in names {
-                let fresh = &per_database[name.as_str()];
-                let state = fresh["state"].as_str().unwrap_or("unknown");
-                table.row(vec![
-                    Cell::styled(name.clone(), Style::Cyan),
-                    Cell::styled(state, backup_state_style(state)),
-                    Cell::text(
-                        fresh["newest_set"]
-                            .as_str()
-                            .map(human_set_stamp)
-                            .unwrap_or_else(|| "—".to_string()),
-                    ),
-                    Cell::text(
-                        fresh["age_secs"]
-                            .as_u64()
-                            .map(human_duration)
-                            .unwrap_or_else(|| "unknown".to_string()),
-                    ),
-                ]);
-            }
-            freshness.table(table);
-            sections.push(freshness);
-        }
     }
 
     sections.extend(copy_sections(backups));
