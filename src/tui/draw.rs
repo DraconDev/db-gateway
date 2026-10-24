@@ -107,9 +107,9 @@ fn table_widget(table: &ViewTable, area: u16, max_rows: usize) -> Table<'static>
 /// prints it under the rows. The view used to drop it, so a column whose
 /// meaning was on screen nowhere was on screen.
 ///
-/// The caption goes directly under the rows rather than at the foot of the
-/// frame: an explanation pinned to the bottom of a tall pane is not next to
-/// what it explains.
+/// The caption goes directly under the rows, as the CLI prints it. An
+/// explanation pinned to the foot of a tall frame is not next to what it
+/// explains, and "wait p95" is read next to the numbers, not a screen away.
 fn framed_table(
     frame: &mut Frame,
     area: Rect,
@@ -120,8 +120,17 @@ fn framed_table(
 ) {
     let caption = table.footer_text().map(str::to_string);
     let inner = block.inner(area);
+    // The table takes exactly its header and its rows, so the caption lands
+    // against them rather than at the foot of the frame. When the table is
+    // taller than the pane it scrolls and the caption takes the last line.
+    let content = 1 + table.rows().len().min(max_rows) as u16;
+    let table_height = if caption.is_some() && content + 1 <= inner.height {
+        content
+    } else {
+        inner.height.saturating_sub(u16::from(caption.is_some()))
+    };
     let rows = Layout::vertical([
-        Constraint::Min(1),
+        Constraint::Length(table_height),
         Constraint::Length(u16::from(caption.is_some())),
     ])
     .split(inner);
