@@ -681,17 +681,23 @@ fn a_host_that_publishes_nothing_reports_nothing_rather_than_nothing_being_true(
     );
     let (status, body) = get(&server.address, "/v1/backups", Some(&owner));
     assert_eq!(status, 200);
+    // The keys are present and null, so a client can tell "nothing was
+    // reported" from "the endpoint does not know about this".
     assert!(
-        body.get("replica").is_none(),
+        body["replica"].is_null(),
         "a host that published no replica status still reports one: {body}"
     );
     assert!(
-        body.get("drill").is_none(),
+        body["drill"].is_null(),
         "a host that published no drill result still reports one: {body}"
     );
     assert!(
-        body.get("last_attempt").is_none(),
+        body["last_attempt"].is_null(),
         "an attempt was invented where none was recorded: {body}"
+    );
+    assert!(
+        body["coverage"].is_null(),
+        "a coverage claim was invented where no set was published: {body}"
     );
 }
 
