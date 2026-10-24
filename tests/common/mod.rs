@@ -18,6 +18,11 @@ pub struct Fleet {
     /// The gateway's data directory. The backup root is derived from it
     /// (`<data-dir>/../dg-backups`), so a test that publishes a fact the
     /// gateway reads needs this path.
+    ///
+    /// This helper is compiled into every test binary, and most of them
+    /// never look at the data directory, so the field is allowed to go
+    /// unread where nobody reads it.
+    #[allow(dead_code)]
     pub data_dir: std::path::PathBuf,
     child: Option<Child>,
     _dir: tempfile::TempDir,
