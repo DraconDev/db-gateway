@@ -654,6 +654,15 @@ impl App {
     pub fn keys_table(&self) -> Option<render::Table> {
         self.keys.as_ref().map(views::keys)
     }
+
+    /// Where each database lives on disk, and whether it is there.
+    ///
+    /// `None` when the gateway does not report its placement. The tab
+    /// says so in words rather than showing an empty table, because an
+    /// empty table would look like a gateway with no databases.
+    pub fn locations(&self) -> Option<render::Table> {
+        views::locations(self.status.as_ref()?)
+    }
 }
 
 /// Read the answer to an action.

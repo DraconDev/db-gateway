@@ -395,18 +395,69 @@ fn tabs(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Focus, u16, u16)> {
 /// The tab says how many databases it holds: a list that silently
 /// cuts itself is a visibility lie, and the count is what tells the
 /// operator to scroll.
+///
+/// Under the traffic table it also shows where each database is on disk
+/// and whether it is there, because "is everything live and working"
+/// needs the file, not only the counters: a live registry row whose file
+/// is gone does no work at all, and its counters would say nothing about
+/// that. The traffic table keeps the tab's own frame -- it is the tab's
+/// answer -- and the locations table is a named box under it.
 fn databases_tab(frame: &mut Frame, area: Rect, app: &App) {
-    match app.databases() {
-        Some(table) => {
-            let block = pane(app.focus == Focus::Databases);
-            let mut state = TableState::default().with_offset(app.scroll.databases as usize);
-            framed_table(frame, area, block, &table, usize::MAX, &mut state);
-        }
-        None => {
-            let block = pane(app.focus == Focus::Databases);
-            frame.render_widget(Paragraph::new("no answer yet").block(block), area);
-        }
-    }
+    let focused = app.focus == Focus::Databases;
+    let Some(traffic) = app.databases() else {
+        let block = pane(focused);
+        frame.render_widget(Paragraph::new("no answer yet").block(block), area);
+        return;
+    };
+    let Some(locations) = app.locations() else {
+        // The gateway does not say where its databases are. Say that, in
+        // words: a missing box reads as "there is nowhere they are",
+        // which is a different and much worse claim.
+        let rows = Layout::vertical([Constraint::Min(4), Constraint::Length(1)]).split(area);
+        let mut state = TableState::default().with_offset(app.scroll.databases as usize);
+        framed_table(frame, rows[0], pane(focused), &traffic, usize::MAX, &mut state);
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                "this gateway does not report where its databases live",
+                crate::tui::theme::status(),
+            )),
+            rows[1],
+        );
+        return;
+    };
+    // The traffic table carries a caption under its rows, so it needs one
+    // more line than the locations table, which has none.
+    let traffic_height = traffic.rows().len() as u16 + 4;
+    let locations_height = locations.rows().len() as u16 + 3;
+    let constraints = if traffic_height + locations_height <= area.height {
+        vec![
+            Constraint::Length(traffic_height),
+            Constraint::Length(locations_height),
+        ]
+    } else {
+        // They do not all fit: each keeps its header and the rest of the
+        // pane is shared, so neither table is cut without saying so.
+        vec![Constraint::Min(4), Constraint::Min(3)]
+    };
+    let rows = Layout::vertical(constraints).split(area);
+    let mut traffic_state = TableState::default().with_offset(app.scroll.databases as usize);
+    framed_table(
+        frame,
+        rows[0],
+        pane(focused),
+        &traffic,
+        usize::MAX,
+        &mut traffic_state,
+    );
+    let mut locations_state = TableState::default().with_offset(app.scroll.databases as usize);
+    framed_table(
+        frame,
+        rows[1],
+        pane_titled("locations"),
+        &locations,
+        usize::MAX,
+        &mut locations_state,
+    );
 }
 
 /// The service dashboard: what the gateway is doing.
