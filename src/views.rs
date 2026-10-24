@@ -1077,7 +1077,11 @@ mod tests {
             .lines()
             .filter(|line| line.contains(".sqlite"))
             .collect();
-        assert_eq!(rows.len(), 3, "the table does not hold one row per database");
+        assert_eq!(
+            rows.len(),
+            3,
+            "the table does not hold one row per database"
+        );
         assert!(
             rows[0].contains("alpha") && rows[0].contains("live"),
             "alpha is not live on its own row: {}",

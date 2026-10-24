@@ -498,7 +498,11 @@ fn status_reports_where_the_gateway_and_its_databases_are() {
         json!(dir.path().join("pdb.sqlite").to_str().unwrap()),
         "the database is not placed: {body}"
     );
-    assert_eq!(placed["exists"], json!(true), "the file is not there: {body}");
+    assert_eq!(
+        placed["exists"],
+        json!(true),
+        "the file is not there: {body}"
+    );
     assert_eq!(placed["tombstoned"], json!(false));
     let (status, _) = post(
         &server.address,

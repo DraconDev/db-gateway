@@ -1325,11 +1325,18 @@ fn locations_place_every_database_and_say_whether_it_is_there() {
     store.create("gone").unwrap();
 
     let locations = store.locations().unwrap();
-    assert_eq!(locations.len(), 2, "not every database is placed: {locations:?}");
+    assert_eq!(
+        locations.len(),
+        2,
+        "not every database is placed: {locations:?}"
+    );
     let live = locations.iter().find(|l| l.name == "live").unwrap();
     assert_eq!(live.file, dir.path().join("live.sqlite"));
     assert!(live.exists, "a created database has no file: {live:?}");
-    assert!(live.size_bytes > 0, "a created database has no size: {live:?}");
+    assert!(
+        live.size_bytes > 0,
+        "a created database has no size: {live:?}"
+    );
     assert!(!live.tombstoned);
 
     // The file goes; the registry row stays.
@@ -1347,5 +1354,8 @@ fn locations_place_every_database_and_say_whether_it_is_there() {
     store.delete("live", 3600).unwrap();
     let locations = store.locations().unwrap();
     let live = locations.iter().find(|l| l.name == "live").unwrap();
-    assert!(live.tombstoned, "a tombstone is not reported as one: {live:?}");
+    assert!(
+        live.tombstoned,
+        "a tombstone is not reported as one: {live:?}"
+    );
 }

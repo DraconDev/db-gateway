@@ -39,7 +39,10 @@ async fn rust_client_drives_a_live_gateway_end_to_end() {
         .databases
         .get("rust_client_db")
         .expect("the created database is placed");
-    assert!(placed.exists, "the created database has no file: {placed:?}");
+    assert!(
+        placed.exists,
+        "the created database has no file: {placed:?}"
+    );
     assert!(placed.file.ends_with("rust_client_db.sqlite"));
 
     // Typed DDL + writes with every value kind.

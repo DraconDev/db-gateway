@@ -433,9 +433,14 @@ fn the_databases_tab_says_where_each_database_is_and_whether_it_is_there() {
     // The state belongs to the database it is about. "live" and
     // "tombstoned" are checked against their own rows, because the
     // command bar and the other tables carry those words too.
-    for (database, state) in [("demo", "live"), ("other", "live"), ("old_one", "tombstoned")] {
+    for (database, state) in [
+        ("demo", "live"),
+        ("other", "live"),
+        ("old_one", "tombstoned"),
+    ] {
         assert!(
-            text.lines().any(|line| line.contains(database) && line.contains(state)),
+            text.lines()
+                .any(|line| line.contains(database) && line.contains(state)),
             "the databases tab does not show {database:?} as {state:?}:\n{text}"
         );
     }
