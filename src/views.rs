@@ -501,20 +501,15 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
         );
         section.field(
             "set",
-            Cell::text(
+            Cell::text(format!(
+                "{} ({} databases, step {})",
                 attempt["set"]
                     .as_str()
                     .map(human_set_stamp)
                     .unwrap_or_else(|| "none published".to_string()),
-            ),
-        );
-        section.field(
-            "databases",
-            Cell::number(attempt["databases"].as_u64().unwrap_or(0)),
-        );
-        section.field(
-            "step",
-            Cell::text(attempt["step"].as_str().unwrap_or("unknown")),
+                attempt["databases"].as_u64().unwrap_or(0),
+                attempt["step"].as_str().unwrap_or("unknown"),
+            )),
         );
         sections.push(section);
     }
@@ -524,16 +519,14 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
         let mut section = Section::new("last failure");
         section.field(
             "when",
-            Cell::text(
+            Cell::text(format!(
+                "{} (step {})",
                 failure["completed_at"]
                     .as_u64()
                     .map(human_epoch_ago)
                     .unwrap_or_else(|| "unknown".to_string()),
-            ),
-        );
-        section.field(
-            "step",
-            Cell::text(failure["step"].as_str().unwrap_or("unknown")),
+                failure["step"].as_str().unwrap_or("unknown"),
+            )),
         );
         sections.push(section);
     }
@@ -637,15 +630,19 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
                         .collect()
                 })
                 .unwrap_or_default();
+            let registry = replica.get("registry").and_then(Value::as_bool) == Some(true);
             section.field(
                 "databases",
-                Cell::text(if databases.is_empty() {
-                    "none".to_string()
-                } else {
-                    databases.join(", ")
-                }),
+                Cell::text(format!(
+                    "{}{}",
+                    if databases.is_empty() {
+                        "none".to_string()
+                    } else {
+                        databases.join(", ")
+                    },
+                    if registry { " (+registry)" } else { "" },
+                )),
             );
-            let registry = replica.get("registry").and_then(Value::as_bool) == Some(true);
             section.field(
                 "registry",
                 Cell::styled(
@@ -662,16 +659,16 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
                 .unwrap_or("unknown");
             section.field(
                 "sidecar",
-                Cell::styled(sidecar.to_string(), sidecar_style(sidecar)),
-            );
-            section.field(
-                "published",
-                Cell::text(
-                    replica
-                        .get("published_at")
-                        .and_then(Value::as_u64)
-                        .map(human_epoch_ago)
-                        .unwrap_or_else(|| "unknown".to_string()),
+                Cell::styled(
+                    format!(
+                        "{sidecar} (published {})",
+                        replica
+                            .get("published_at")
+                            .and_then(Value::as_u64)
+                            .map(human_epoch_ago)
+                            .unwrap_or_else(|| "unknown".to_string())
+                    ),
+                    sidecar_style(sidecar),
                 ),
             );
             sections.push(section);
@@ -703,11 +700,15 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
             );
             section.field(
                 "databases",
-                Cell::number(drill["databases"].as_u64().unwrap_or(0)),
+                Cell::text(format!(
+                    "{} databases{}",
+                    drill["databases"].as_u64().unwrap_or(0),
+                    match drill["detail"].as_str() {
+                        Some(detail) => format!(", {detail}"),
+                        None => String::new(),
+                    }
+                )),
             );
-            if let Some(detail) = drill["detail"].as_str() {
-                section.field("detail", Cell::text(detail));
-            }
             sections.push(section);
         }
         None => sections.push(unreported(
