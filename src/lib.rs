@@ -4,8 +4,10 @@
 pub mod api;
 pub mod backup;
 pub mod backup_health;
+pub mod branch;
 pub mod client;
 pub mod confirmation;
+pub mod db_ops;
 pub mod error;
 pub mod execution;
 pub mod mcp;

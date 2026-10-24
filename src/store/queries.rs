@@ -201,6 +201,56 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
+/// Does the text end with something a token can follow directly?
+///
+/// A word, a closing bracket or a placeholder ends a token. An operator
+/// does not: `a` and `=` are two tokens, and the second one wants a
+/// space before it even where the statement had none.
+fn ends_a_token(out: &str) -> bool {
+    match out.chars().last() {
+        None => false,
+        Some(last) => {
+            last.is_alphanumeric()
+                || last == '_'
+                || last == ')'
+                || last == ']'
+                || last == '"'
+                || last == '`'
+                || last == '?'
+        }
+    }
+}
+
+/// Does the text end with something a token hangs off?
+///
+/// `(` and `[` open something, and `.` names a field of something, so
+/// what follows them belongs to them: `count(*)` is one word, not two.
+fn opens_a_prefix(out: &str) -> bool {
+    matches!(out.chars().last(), Some('(') | Some('[') | Some('.'))
+}
+
+/// Put the space in front of a token.
+///
+/// The rules are the ones a reader of SQL expects: a space where the
+/// statement had one, and no space between an opening bracket and what
+/// it opens.
+fn separate(out: &mut String, space: &mut bool) {
+    if *space && !out.is_empty() && !opens_a_prefix(out) {
+        out.push(' ');
+    }
+    *space = false;
+}
+
+/// Put a placeholder in place of a literal.
+///
+/// The placeholder is a token of its own, so it is separated from what
+/// came before: `= ?` rather than `=?`. Two spellings of the same
+/// statement are one shape, not two.
+fn push_placeholder(out: &mut String, space: &mut bool) {
+    separate(out, space);
+    out.push('?');
+}
+
 /// A statement's shape: its SQL with every literal replaced by a
 /// placeholder, so two runs of the same statement are one shape.
 ///
@@ -238,8 +288,7 @@ pub fn normalise(sql: &str) -> String {
             '\'' => {
                 // A string literal: consume it whole, honouring the
                 // doubled-quote escape, and keep none of it.
-                out.push('?');
-                space = false;
+                push_placeholder(&mut out, &mut space);
                 index += 1;
                 while index < chars.len() {
                     let inner = chars[index];
@@ -255,12 +304,16 @@ pub fn normalise(sql: &str) -> String {
                     }
                 }
             }
+            '?' => {
+                // A parameter marker in the statement itself. SQLite's
+                // own `?` is already a placeholder, so the shape keeps
+                // it and only the spacing is settled.
+                push_placeholder(&mut out, &mut space);
+                index += 1;
+            }
             '"' | '`' => {
                 // A quoted identifier: keep it as it is.
-                if space && !out.is_empty() {
-                    out.push(' ');
-                }
-                space = false;
+                separate(&mut out, &mut space);
                 out.push(c);
                 index += 1;
                 while index < chars.len() {
@@ -273,10 +326,7 @@ pub fn normalise(sql: &str) -> String {
                 }
             }
             '[' => {
-                if space && !out.is_empty() {
-                    out.push(' ');
-                }
-                space = false;
+                separate(&mut out, &mut space);
                 out.push(c);
                 index += 1;
                 while index < chars.len() {
@@ -327,28 +377,17 @@ pub fn normalise(sql: &str) -> String {
                     }
                 }
                 if name.is_empty() {
-                    if space && !out.is_empty() {
-                        out.push(' ');
-                    }
-                    space = false;
+                    separate(&mut out, &mut space);
                     out.push(c);
                     index += 1;
                 } else {
-                    if space && !out.is_empty() {
-                        out.push(' ');
-                    }
-                    space = false;
-                    out.push('?');
+                    push_placeholder(&mut out, &mut space);
                     index = scan;
                 }
             }
             c if c.is_ascii_digit() => {
                 // A number: consume the whole literal.
-                if space && !out.is_empty() {
-                    out.push(' ');
-                }
-                space = false;
-                out.push('?');
+                push_placeholder(&mut out, &mut space);
                 index += 1;
                 while index < chars.len() {
                     let inner = chars[index];
@@ -362,10 +401,7 @@ pub fn normalise(sql: &str) -> String {
             c if c.is_ascii_alphabetic() || c == '_' => {
                 // An identifier or a keyword: consume the whole word, so
                 // that `table2` keeps its digit.
-                if space && !out.is_empty() {
-                    out.push(' ');
-                }
-                space = false;
+                separate(&mut out, &mut space);
                 out.push(c);
                 index += 1;
                 while index < chars.len() {
@@ -382,12 +418,51 @@ pub fn normalise(sql: &str) -> String {
                 space = true;
                 index += 1;
             }
-            c => {
-                if space && !out.is_empty() {
-                    out.push(' ');
-                }
+            c if c == ')' || c == ']' => {
+                // A closing bracket hugs what it closes, and ends
+                // whatever space was pending.
                 space = false;
                 out.push(c);
+                index += 1;
+            }
+            c if c == '(' => {
+                // An opening bracket hugs what it opens.
+                separate(&mut out, &mut space);
+                out.push(c);
+                index += 1;
+            }
+            c if c == '-'
+                && matches!(chars.get(index + 1), Some(next) if next.is_ascii_digit())
+                && !ends_a_token(&out) =>
+            {
+                // A signed number: the minus belongs to the literal, not
+                // to the statement around it. `x = -1` is one value, and
+                // `a - 1` is a subtraction; which one it is depends on
+                // what came before, and that is exactly what the token
+                // before the minus says.
+                push_placeholder(&mut out, &mut space);
+                index += 1;
+                while index < chars.len() {
+                    let inner = chars[index];
+                    if inner.is_ascii_alphanumeric() || inner == '.' || inner == '_' {
+                        index += 1;
+                    } else {
+                        break;
+                    }
+                }
+            }
+            c => {
+                // A separator (`,` `;`) is spaced after, not before:
+                // `a, b` reads right, and `SELECT * FROM t;` does not
+                // gain a space it never had. An operator is spaced on
+                // both sides, so that `a=1` and `a = 1` are one shape.
+                let separator = c == ',' || c == ';';
+                let spaced = space || (!separator && ends_a_token(&out));
+                if spaced && !out.is_empty() && !opens_a_prefix(&out) {
+                    out.push(' ');
+                }
+                out.push(c);
+                space = true;
                 index += 1;
             }
         }
@@ -417,6 +492,12 @@ mod tests {
         assert_eq!(
             normalise("INSERT INTO t VALUES (?, 'x')"),
             "INSERT INTO t VALUES (?, ?)"
+        );
+        // Two spellings of the same statement are one shape, however
+        // the operator wrote them.
+        assert_eq!(
+            normalise("SELECT * FROM t WHERE a = 1"),
+            normalise("SELECT * FROM t WHERE a=1")
         );
     }
 
@@ -463,13 +544,16 @@ mod tests {
     #[test]
     fn the_log_keeps_the_most_useful_shapes_and_drops_the_rest() {
         let log = QueryLog::new();
-        // More distinct shapes than the cap.
+        // More distinct shapes than the cap. The distinctness has to be
+        // in the schema, not in the values: `SELECT 1 FROM t` and
+        // `SELECT 2 FROM t` are the same shape, because the number is
+        // the data and the shape is what the statement did.
         for index in 0..(MAX_SHAPES_PER_DATABASE + 10) {
             log.record(
                 "alpha",
                 "owner",
                 &[StatementRun {
-                    sql: format!("SELECT {index} FROM t"),
+                    sql: format!("SELECT c{index} FROM t"),
                     rows_read: 1,
                     rows_written: 0,
                     micros: 10,

@@ -19,8 +19,10 @@ use std::{
 use tokio::sync::Semaphore;
 
 mod admission;
+mod audit;
 mod auth;
 mod backup_sets;
+mod branches;
 mod disk;
 mod lifecycle;
 mod metrics;
@@ -31,9 +33,11 @@ pub use self::admission::{
     ACQUIRE_TIMEOUT, AdmissionGuard, AdmissionQueue, DbQueue, QueueGuard, READ_PERMITS,
     WRITE_PERMITS,
 };
+pub use self::audit::{AuditEntry, AuditLog};
 pub use self::auth::{KeyRequest, Principal, hash, unauthorized};
 pub use self::backup_sets::BackupSet;
 pub(crate) use self::backup_sets::{is_set_dir, read_manifest_capped};
+pub use self::branches::{BranchRecord, BranchRegistry};
 pub use self::disk::{DiskSpace, disk_space};
 pub use self::lifecycle::{Location, validate_name};
 pub use self::metrics::{DbUsage, Metrics, MetricsSnapshot};
@@ -90,6 +94,10 @@ pub struct Store {
     lifecycle: RwLock<()>,
     transfers: Mutex<HashMap<String, Transfer>>,
     transfer_ttl: Duration,
+    /// Which databases are forks of which, and when the fork was taken.
+    pub branches: BranchRegistry,
+    /// Which credential ran what, and when.
+    pub audit: AuditLog,
 }
 
 impl Store {
@@ -165,6 +173,8 @@ impl Store {
             lifecycle: RwLock::new(()),
             transfers: Mutex::new(HashMap::new()),
             transfer_ttl,
+            branches: BranchRegistry::default(),
+            audit: AuditLog::default(),
         };
         Ok(store)
     }
