@@ -510,6 +510,8 @@ mod tests {
             coverage: None,
             replica: None,
             drill: None,
+            restore_points: None,
+            last_restore: None,
             databases: vec![
                 DatabaseHealth {
                     name: "alpha".into(),
