@@ -568,7 +568,12 @@ fn outcome_pane(frame: &mut Frame, area: Rect, outcome: &Outcome) {
     let table_lines = outcome
         .table
         .as_ref()
-        .map(|table| (table.rows().len().min(OUTCOME_ROWS) as u16) + 3)
+        .map(|table| {
+            // The caption sits under the rows, so a table with a footer needs
+            // one more line than one without.
+            let caption = u16::from(table.footer_text().is_some());
+            (table.rows().len().min(OUTCOME_ROWS) as u16) + 3 + caption
+        })
         .unwrap_or(0);
     let rows = Layout::vertical([
         Constraint::Length(facts + 2),
