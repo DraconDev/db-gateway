@@ -373,6 +373,7 @@ async fn backups(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<
                 "snapshot_interval": replica.snapshot_interval,
                 "databases": replica.databases,
                 "registry": replica.registry,
+                "sidecar": replica.sidecar,
                 "published_at": replica.published_at,
             })
         });

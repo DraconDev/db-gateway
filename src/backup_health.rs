@@ -150,6 +150,10 @@ pub struct ReplicaFacts {
     /// Whether the registry is replicated as well.
     #[serde(default)]
     pub registry: bool,
+    /// Whether the replication sidecar is running: `active`, `inactive`,
+    /// `failed`, or `unknown` when the host cannot tell.
+    #[serde(default)]
+    pub sidecar: Option<String>,
 }
 
 /// The result of the last off-host restore drill.

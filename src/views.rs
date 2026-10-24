@@ -646,6 +646,14 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
                     if registry { Style::Green } else { Style::Yellow },
                 ),
             );
+            // Whether the thing that does the copying is running. A
+            // configured replica that is not replicating is the failure
+            // that looks most like success from a distance.
+            let sidecar = replica["sidecar"].as_str().unwrap_or("unknown");
+            section.field(
+                "sidecar",
+                Cell::styled(sidecar.to_string(), sidecar_style(sidecar)),
+            );
             section.field(
                 "published",
                 Cell::text(
@@ -710,6 +718,18 @@ fn unreported(title: &str, why: &str) -> Section {
     let mut section = Section::new(title);
     section.field("reported", Cell::text(why));
     section
+}
+
+/// The style for the replication sidecar's state.
+///
+/// The word is always spelled out, so the colour is a second rendering of
+/// the same fact rather than the only rendering of it.
+pub fn sidecar_style(state: &str) -> Style {
+    match state {
+        "active" => Style::Green,
+        "inactive" | "failed" => Style::Red,
+        _ => Style::Yellow,
+    }
 }
 
 /// The style for a run's outcome.
