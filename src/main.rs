@@ -1,6 +1,11 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use serde_json::Value;
-use std::{io::IsTerminal, net::SocketAddr, path::PathBuf, process::ExitCode};
+use std::{
+    io::IsTerminal,
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
 
 fn api_failed(response: &Value) -> bool {
     response.get("error").is_some()
@@ -265,18 +270,31 @@ async fn table_json(
                   like every other command — see `dg tui`."
 )]
 struct Cli {
-    /// Precedence: --server flag, then DG_SERVER, then the loopback default.
-    #[arg(
-        long,
-        global = true,
-        env = "DG_SERVER",
-        default_value = "http://127.0.0.1:7432"
-    )]
-    server: String,
+    /// Gateway URL.
+    ///
+    /// Precedence: --server, then --context, then DG_SERVER, then the
+    /// config file's default context, then the loopback default.
+    ///
+    /// The environment variable is read here rather than by the argument
+    /// parser, because a parser that merges a flag and an environment
+    /// variable into one value cannot tell them apart -- and the
+    /// difference is exactly what this order is about: a context says
+    /// "talk to THIS one now", and it has to be able to sit between the
+    /// flag and the environment.
+    #[arg(long, global = true)]
+    server: Option<String>,
     /// File containing a raw credential (0600 on Unix). Never pass secrets as flags.
-    /// Precedence: --key-file flag, then DG_KEY_FILE, then ~/.config/dg/key.
-    #[arg(long, global = true, env = "DG_KEY_FILE")]
+    ///
+    /// Precedence: --key-file, then --context, then DG_KEY_FILE, then the
+    /// config file's default context, then ~/.config/dg/key.
+    #[arg(long, global = true)]
     key_file: Option<PathBuf>,
+    /// Named context to talk to; `dg config list` shows them.
+    ///
+    /// A context is a server and a key FILE, so nothing secret is ever
+    /// written down: the config file holds paths, not credentials.
+    #[arg(long, global = true)]
+    context: Option<String>,
     /// Emit JSON (default for all commands except the interactive shell).
     #[arg(long, global = true)]
     json: bool,
@@ -497,10 +515,90 @@ enum Command {
         #[arg(long)]
         database: Option<String>,
     },
+    /// A fork of a database that can diverge from it.
+    ///
+    /// A branch is the thing a hosted provider will not give an
+    /// operator: a second copy of a database that starts at a known
+    /// moment and then goes its own way. Here the copy is made inside
+    /// the gateway, from the same files the live database uses, so the
+    /// fork is the data and not a description of it.
+    Branch {
+        #[command(subcommand)]
+        command: BranchCommand,
+    },
+    /// Which credential ran what, and when.
+    ///
+    /// The answer to the question an operator asks after something
+    /// unexpected. It records ACTIONS and never the data that moved: a
+    /// statement is recorded as its shape, with its literals replaced.
+    Audit {
+        /// Only the actions of this credential, named by its label.
+        #[arg(long)]
+        principal: Option<String>,
+        /// Only what happened at or after this Unix second.
+        #[arg(long)]
+        since: Option<u64>,
+        /// Keep only the newest entries.
+        #[arg(long)]
+        limit: Option<usize>,
+    },
+    /// Reclaim the space a database file is wasting.
+    ///
+    /// A vacuum rewrites the whole file, so it takes the write lane and
+    /// the same fence every other writer takes.
+    Vacuum {
+        /// Database to vacuum.
+        name: String,
+    },
+    /// Check that a database file is sound.
+    ///
+    /// SQLite's own integrity check and foreign-key check, on a
+    /// read-only connection. It never repairs anything: it says what
+    /// is wrong and leaves the file alone.
+    Integrity {
+        /// Database to check.
+        name: String,
+    },
+    /// What SQLite would do with a statement: its query plan.
+    Explain {
+        /// Database the statement would run against.
+        name: String,
+        /// The statement to explain.
+        sql: String,
+    },
+    /// What differs between two databases.
+    ///
+    /// The comparison runs on the gateway, on the operator's own box, so
+    /// no table data travels over the wire to answer a question about
+    /// the data. It exits nonzero when the two are not the same.
+    Diff {
+        /// The first database.
+        left: String,
+        /// The second database.
+        right: String,
+        /// Show every table, not only the ones that differ.
+        #[arg(long)]
+        all: bool,
+    },
+    /// Named contexts: the servers and key files this box talks to.
+    ///
+    /// A context is a name for a server and a credential FILE, kept in
+    /// `~/.config/dg/config.toml`. Nothing secret is ever written down:
+    /// the file holds paths, and it is created 0600.
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
+    /// Serve the gateway to an MCP client over stdio.
+    ///
+    /// The agent surface: the same read-only views an operator uses,
+    /// spoken as JSON-RPC. It never writes, and it never asks for a key
+    /// -- the credential is the one this CLI already has.
+    Mcp,
     /// Open the terminal operator view.
     ///
-    /// Four tabs — databases, service, backups and keys — reached with
-    /// the number keys 1-4 or with tab and shift-tab, each given the
+    /// Five tabs — databases, service, backups, keys and queries — reached
+    /// with the number keys 1-5 or with tab and shift-tab, each given the
     /// whole body of the screen so a wide table is not squeezed into a
     /// fraction of the width. The strip names every tab whether or not
     /// it is showing, with its count where it has one, so nothing is
@@ -596,9 +694,90 @@ enum RestoreCommand {
     /// directory, verifies the copy and publishes the result, which
     /// this command then reports.
     List,
+    /// What a restore to a moment would reach.
+    ///
+    /// The window is per database: a database whose replica starts
+    /// later cannot be taken back to a moment the others can. This says
+    /// which is which, before anyone asks for the restore.
+    Plan {
+        /// The moment to plan for (ISO 8601, e.g. 2026-10-16T00:00:00Z).
+        /// Without it, the whole window is planned.
+        #[arg(long)]
+        to: Option<String>,
+    },
 }
+#[derive(Subcommand)]
+enum BranchCommand {
+    /// Fork a database: now, or at a moment in the past.
+    Create {
+        /// The database to fork.
+        parent: String,
+        /// The name of the fork; it must not exist yet.
+        name: String,
+        /// Fork at this moment instead of now (ISO 8601, e.g.
+        /// 2026-10-16T00:00:00Z). The moment has to fall inside the
+        /// backup window; the window is reported when it does not.
+        #[arg(long)]
+        from: Option<String>,
+    },
+    /// Every branch, and where each one came from.
+    List,
+    /// One branch in detail.
+    Show {
+        /// Branch to describe.
+        name: String,
+    },
+    /// Delete a branch and the database it forked.
+    Delete {
+        /// Branch to delete.
+        name: String,
+        /// Type the exact branch name again to confirm deletion.
+        #[arg(long, value_name = "NAME")]
+        confirm: Option<String>,
+    },
+}
+#[derive(Subcommand)]
+enum ConfigCommand {
+    /// Every context: its server, its key file, and whether that file
+    /// is actually there.
+    List,
+    /// One context in detail.
+    Show {
+        /// Context to describe.
+        name: String,
+    },
+    /// Create or update a context.
+    ///
+    /// The key file PATH is what is stored. The credential itself never
+    /// enters the config, so nothing here can leak a secret.
+    Set {
+        /// Name for the context.
+        name: String,
+        /// Gateway URL for this context.
+        #[arg(long)]
+        server: String,
+        /// Path to the credential file for this context.
+        #[arg(long)]
+        key_file: PathBuf,
+        /// Make this the context used when no --context is given.
+        #[arg(long)]
+        default: bool,
+    },
+    /// Delete a context.
+    Remove {
+        /// Context to delete.
+        name: String,
+    },
+    /// Where the config file is.
+    Path,
+}
+mod cmd_audit;
 mod cmd_backup;
+mod cmd_branch;
+mod cmd_config;
 mod cmd_data;
+mod cmd_db_ops;
+mod cmd_diff;
 mod cmd_keys;
 mod cmd_lifecycle;
 mod cmd_queries;
@@ -625,12 +804,71 @@ type Request = (
     dg::client::Semantics,
 );
 
+/// The gateway a command talks to, and the credential file it uses.
+///
+/// The named context sits between the flag and the environment, so the
+/// order cannot be left to the argument parser: a parser that merges a
+/// flag and an environment variable into one value cannot tell them
+/// apart. The environment says "where do I usually talk"; a context
+/// says "talk to THIS one now"; and the flag is the operator's word at
+/// the command line, which outranks both.
+///
+/// A machine with no HOME has no config file, and that is not a failure
+/// of the command: the flag and the environment are all there is, so
+/// the built-in defaults finish the job. A config file that EXISTS and
+/// cannot be read is a different thing — that is a broken file the
+/// operator should hear about, and every command that resolves a
+/// connection says so.
+fn connection(
+    server_flag: Option<&str>,
+    key_file_flag: Option<&Path>,
+    context: Option<&str>,
+) -> Result<(String, Option<PathBuf>), dg::ServerError> {
+    match cmd_config::resolve(context, server_flag, key_file_flag) {
+        Ok(resolved) => Ok((resolved.server, resolved.key_file)),
+        Err(dg::ServerError::Application(error)) if error.code == "no_home" => Ok((
+            server_flag
+                .map(str::to_string)
+                .or_else(|| std::env::var("DG_SERVER").ok())
+                .unwrap_or_else(|| DEFAULT_SERVER.to_string()),
+            key_file_flag
+                .map(PathBuf::from)
+                .or_else(|| std::env::var("DG_KEY_FILE").ok().map(PathBuf::from))
+                .or_else(dg::client::default_key_file),
+        )),
+        Err(error) => Err(error),
+    }
+}
+
+/// The gateway a command talks to when nothing says otherwise.
+const DEFAULT_SERVER: &str = "http://127.0.0.1:7432";
+
 async fn run(cli: Cli) -> Result<(), dg::ServerError> {
     use dg::{ServerError::Application, error::Error};
-    // Credential resolution: explicit flag, env, then the default key file.
-    // Missing everywhere is the same local error as before.
-    let key_path = cli.key_file.clone().or_else(dg::client::default_key_file);
-    let request = match cli.command.expect("a command is resolved before run") {
+    let Cli {
+        server: server_flag,
+        key_file: key_file_flag,
+        context,
+        json,
+        command,
+    } = cli;
+    let command = command.expect("a command is resolved before run");
+    // `dg serve`, `dg init` and `dg config` do not talk to a gateway, so
+    // they must not need a connection, a credential or a config file.
+    let talks_to_a_gateway = !matches!(
+        command,
+        Command::Serve { .. } | Command::Init { .. } | Command::Config { .. }
+    );
+    let (server, key_path) = if talks_to_a_gateway {
+        connection(
+            server_flag.as_deref(),
+            key_file_flag.as_deref(),
+            context.as_deref(),
+        )?
+    } else {
+        (String::new(), None)
+    };
+    let request = match command {
         Command::Serve {
             listen,
             data_dir,
@@ -651,9 +889,72 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             )
             .await;
         }
-        Command::Init { data_dir } => return cmd_serve::init(data_dir, cli.json).await,
+        Command::Init { data_dir } => return cmd_serve::init(data_dir, json).await,
+        Command::Config { command } => {
+            // The config file is the context's home, so it is found
+            // here rather than through the resolution that would read
+            // it: a command that edits the file must work even when the
+            // file names a context that does not exist.
+            let path = cmd_config::config_path()?;
+            match command {
+                ConfigCommand::List => cmd_config::list(&path, json)?,
+                ConfigCommand::Show { name } => cmd_config::show(&path, &name, json)?,
+                ConfigCommand::Set {
+                    name,
+                    server: context_server,
+                    key_file: context_key_file,
+                    default,
+                } => cmd_config::set(
+                    &path,
+                    &name,
+                    &context_server,
+                    &context_key_file,
+                    default,
+                    json,
+                )?,
+                ConfigCommand::Remove { name } => cmd_config::remove(&path, &name, json)?,
+                ConfigCommand::Path => cmd_config::path()?,
+            }
+            return Ok(());
+        }
+        Command::Mcp => {
+            // The agent surface. The credential is the one this CLI
+            // already resolved; the agent never supplies one.
+            return dg::mcp::serve(&server, key_path.as_deref())
+                .await
+                .map_err(Application);
+        }
+        Command::Diff { left, right, all } => {
+            return cmd_diff::diff(&server, json, &key_path, &left, &right, all).await;
+        }
+        Command::Audit {
+            principal,
+            since,
+            limit,
+        } => cmd_audit::list(&server, json, &key_path, principal.as_deref(), since, limit).await?,
+        Command::Vacuum { name } => {
+            return cmd_db_ops::vacuum(&server, json, &key_path, name).await;
+        }
+        Command::Integrity { name } => {
+            return cmd_db_ops::integrity(&server, json, &key_path, name).await;
+        }
+        Command::Explain { name, sql } => {
+            return cmd_db_ops::explain(&server, json, &key_path, name, sql).await;
+        }
+        Command::Branch { command } => match command {
+            BranchCommand::Create { parent, name, from } => {
+                return cmd_branch::create(&server, json, &key_path, parent, name, from).await;
+            }
+            BranchCommand::List => return cmd_branch::list(&server, json, &key_path).await,
+            BranchCommand::Show { name } => {
+                return cmd_branch::show(&server, json, &key_path, name).await;
+            }
+            BranchCommand::Delete { name, confirm } => {
+                return cmd_branch::delete(&server, json, &key_path, name, confirm).await;
+            }
+        },
         Command::Shell { name } => {
-            return cmd_data::shell(&cli.server, cli.json, &key_path, name).await;
+            return cmd_data::shell(&server, json, &key_path, name).await;
         }
         Command::Tui { refresh } => {
             // The view takes the terminal over, so it needs one.
@@ -671,7 +972,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             )))?)
             .map_err(Application)?;
             return dg::tui::run(
-                &cli.server,
+                &server,
                 &key,
                 dg::tui::Options {
                     refresh_secs: refresh,
@@ -681,10 +982,10 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             .map_err(Application);
         }
         Command::Export { name, out } => {
-            return cmd_lifecycle::export(&cli.server, cli.json, &key_path, name, out).await;
+            return cmd_lifecycle::export(&server, json, &key_path, name, out).await;
         }
         Command::Import { name, from } => {
-            return cmd_lifecycle::import(&cli.server, cli.json, &key_path, name, from).await;
+            return cmd_lifecycle::import(&server, json, &key_path, name, from).await;
         }
         Command::Backup {
             command:
@@ -696,80 +997,48 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         } => return cmd_backup::digest(data_dir, backup_root, as_json).await,
         Command::Backup {
             command: BackupCommand::Verify { backup_root, set },
-        } => return cmd_backup::verify(backup_root, set, cli.json).await,
-        Command::Status => cmd_status::status(&cli.server, cli.json, &key_path).await?,
-        Command::Watch => cmd_status::watch(&cli.server, cli.json, &key_path).await?,
+        } => return cmd_backup::verify(backup_root, set, json).await,
+        Command::Status => cmd_status::status(&server, json, &key_path).await?,
+        Command::Watch => cmd_status::watch(&server, json, &key_path).await?,
         Command::Backup {
             command: BackupCommand::Status,
-        } => cmd_backup::status(&cli.server, cli.json, &key_path).await?,
+        } => cmd_backup::status(&server, json, &key_path).await?,
         Command::Restore {
             command: RestoreCommand::List,
-        } => cmd_restore::list(&cli.server, cli.json, &key_path).await?,
+        } => cmd_restore::list(&server, json, &key_path).await?,
+        Command::Restore {
+            command: RestoreCommand::Plan { to },
+        } => cmd_restore::plan(&server, json, &key_path, to.as_deref()).await?,
         Command::Queries { database } => {
-            cmd_queries::list(&cli.server, cli.json, &key_path, database.as_deref()).await?
+            cmd_queries::list(&server, json, &key_path, database.as_deref()).await?
         }
-        Command::List => cmd_data::list(&cli.server, cli.json, &key_path).await?,
-        Command::Inspect { name } => {
-            cmd_data::inspect(&cli.server, cli.json, &key_path, name).await?
-        }
-        Command::Info { name } => cmd_data::info(&cli.server, cli.json, &key_path, name).await?,
-        Command::Create { name } => {
-            cmd_data::create(&cli.server, cli.json, &key_path, name).await?
-        }
+        Command::List => cmd_data::list(&server, json, &key_path).await?,
+        Command::Inspect { name } => cmd_data::inspect(&server, json, &key_path, name).await?,
+        Command::Info { name } => cmd_data::info(&server, json, &key_path, name).await?,
+        Command::Create { name } => cmd_data::create(&server, json, &key_path, name).await?,
         Command::Clone {
             source,
             destination,
-        } => cmd_lifecycle::clone_db(&cli.server, cli.json, &key_path, source, destination).await?,
+        } => cmd_lifecycle::clone_db(&server, json, &key_path, source, destination).await?,
         Command::Delete { name, confirm } => {
-            cmd_lifecycle::delete(&cli.server, cli.json, &key_path, name, confirm).await?
+            cmd_lifecycle::delete(&server, json, &key_path, name, confirm).await?
         }
         Command::Query {
             name,
             sql,
             args,
             idempotency_key,
-        } => {
-            cmd_data::query(
-                &cli.server,
-                cli.json,
-                &key_path,
-                name,
-                sql,
-                args,
-                idempotency_key,
-            )
-            .await?
-        }
+        } => cmd_data::query(&server, json, &key_path, name, sql, args, idempotency_key).await?,
         Command::Execute {
             name,
             file,
             idempotency_key,
-        } => {
-            cmd_data::execute(
-                &cli.server,
-                cli.json,
-                &key_path,
-                name,
-                file,
-                idempotency_key,
-            )
-            .await?
-        }
+        } => cmd_data::execute(&server, json, &key_path, name, file, idempotency_key).await?,
         Command::Batch {
             name,
             file,
             idempotency_key,
-        } => {
-            cmd_data::batch(
-                &cli.server,
-                cli.json,
-                &key_path,
-                name,
-                file,
-                idempotency_key,
-            )
-            .await?
-        }
+        } => cmd_data::batch(&server, json, &key_path, name, file, idempotency_key).await?,
         Command::Key {
             command:
                 KeyCommand::Create {
@@ -777,19 +1046,19 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                     role,
                     database,
                 },
-        } => cmd_keys::create(&cli.server, cli.json, &key_path, name, role, database).await?,
+        } => cmd_keys::create(&server, json, &key_path, name, role, database).await?,
         Command::Key {
             command: KeyCommand::List,
-        } => cmd_keys::list(&cli.server, cli.json, &key_path).await?,
+        } => cmd_keys::list(&server, json, &key_path).await?,
         Command::Key {
             command: KeyCommand::Tokens { database },
-        } => cmd_keys::tokens(&cli.server, cli.json, &key_path, database).await?,
+        } => cmd_keys::tokens(&server, json, &key_path, database).await?,
         Command::Key {
             command: KeyCommand::Revoke { name },
-        } => cmd_keys::revoke(&cli.server, cli.json, &key_path, name).await?,
+        } => cmd_keys::revoke(&server, json, &key_path, name).await?,
         Command::Key {
             command: KeyCommand::RotateOwner,
-        } => cmd_keys::rotate_owner(&cli.server, cli.json, &key_path).await?,
+        } => cmd_keys::rotate_owner(&server, json, &key_path).await?,
     };
     let Some((method, path, body, idempotency, semantics)) = request else {
         return Ok(());
@@ -801,7 +1070,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
     )))?)
     .map_err(Application)?;
     let result = dg::client::request_with_semantics(
-        &cli.server,
+        &server,
         &key,
         method,
         &path,

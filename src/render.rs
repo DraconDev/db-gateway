@@ -979,6 +979,100 @@ pub fn human_instant(instant: &str) -> String {
     format!("{date} {hour}:{minute} UTC")
 }
 
+/// The epoch second an ISO 8601 instant names, or `None` when the string
+/// is not one this can read.
+///
+/// The form is `YYYY-MM-DDTHH:MM:SS` with an optional zone: `Z`, or an
+/// offset like `+02:00`. A moment without a zone is read as UTC, which
+/// is what every timestamp in this project is.
+///
+/// This exists because two instants can only be compared once they are
+/// both moments. Comparing the text of `2026-10-16T08:00:00Z` with the
+/// text of `2026-10-16T10:00:00+02:00` says the first is later, and it
+/// is not: they are the same moment. The calendar arithmetic is
+/// Howard Hinnant's `days_from_civil`, the same one `civil_from_days`
+/// above inverts, so no calendar dependency is needed for it.
+pub fn instant_epoch(instant: &str) -> Option<i64> {
+    let bytes = instant.as_bytes();
+    if bytes.len() < 19 || bytes[4] != b'-' || bytes[7] != b'-' || bytes[10] != b'T' {
+        return None;
+    }
+    let digits = |range: std::ops::Range<usize>| bytes[range].iter().all(u8::is_ascii_digit);
+    if !digits(0..4)
+        || !digits(5..7)
+        || !digits(8..10)
+        || !digits(11..13)
+        || !digits(14..16)
+        || bytes[16] != b':'
+        || !digits(17..19)
+    {
+        return None;
+    }
+    let number =
+        |range: std::ops::Range<usize>| -> Option<i64> { instant.get(range)?.parse::<i64>().ok() };
+    let year = number(0..4)?;
+    let month = number(5..7)?;
+    let day = number(8..10)?;
+    let hour = number(11..13)?;
+    let minute = number(14..16)?;
+    let second = number(17..19)?;
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        || second > 60
+    {
+        return None;
+    }
+    let mut secs = days_from_civil(year, month, day) * 86_400 + hour * 3600 + minute * 60 + second;
+    // The zone, when there is one. `Z` is UTC; an offset is how far the
+    // clock there is AHEAD of UTC, so the moment is that much earlier.
+    let zone = instant.get(19..).unwrap_or("").trim();
+    if !zone.is_empty() && zone != "Z" && zone != "z" {
+        let sign = match zone.as_bytes().first() {
+            Some(b'+') => 1,
+            Some(b'-') => -1,
+            _ => return None,
+        };
+        let offset = zone.get(1..)?;
+        let (hours, minutes) = match offset.split_once(':') {
+            Some((hours, minutes)) => (hours, minutes),
+            None => {
+                if offset.len() != 4 {
+                    return None;
+                }
+                (&offset[0..2], &offset[2..4])
+            }
+        };
+        if hours.len() != 2 || minutes.len() != 2 {
+            return None;
+        }
+        if !hours.bytes().all(|byte| byte.is_ascii_digit())
+            || !minutes.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return None;
+        }
+        let hours: i64 = hours.parse().ok()?;
+        let minutes: i64 = minutes.parse().ok()?;
+        secs -= sign * (hours * 3600 + minutes * 60);
+    }
+    Some(secs)
+}
+
+/// The days since the Unix epoch for a civil date.
+///
+/// This is Howard Hinnant's `days_from_civil`, which is exact for the
+/// whole range of a 64-bit day count and needs no calendar dependency.
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = if year >= 0 { year } else { year - 399 } / 400;
+    let year_of_era = year - era * 400;
+    let month_prime = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5;
+    let day_of_year = month_prime + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era - 719_468
+}
+
 /// The civil date for a count of days since the Unix epoch. This is
 /// Howard Hinnant's `civil_from_days`, which is exact for the whole
 /// range of a 64-bit day count and needs no calendar dependency.
@@ -1438,6 +1532,33 @@ mod tests {
         let idle = wait_figures(&serde_json::json!({}), "no waits recorded");
         assert_eq!(idle.p95.parts().0, "no waits recorded");
         assert_eq!(idle.max.parts().0, "no waits recorded");
+    }
+
+    #[test]
+    fn an_instant_is_read_as_the_moment_it_names() {
+        // The epoch second, so two instants can be compared.
+        assert_eq!(instant_epoch("1970-01-01T00:00:00Z"), Some(0));
+        assert_eq!(instant_epoch("2026-10-16T00:00:00Z"), Some(1_792_108_800));
+        // The same moment written two ways is the same moment: this is
+        // why the comparison is done on epochs and not on the text.
+        assert_eq!(
+            instant_epoch("2026-10-16T08:00:00Z"),
+            instant_epoch("2026-10-16T10:00:00+02:00")
+        );
+        assert_eq!(
+            instant_epoch("2026-10-16T08:00:00Z"),
+            instant_epoch("2026-10-16T06:00:00-02:00")
+        );
+        // A moment with no zone is read as UTC, which is what every
+        // timestamp in this project is.
+        assert_eq!(
+            instant_epoch("2026-10-16T00:00:00"),
+            instant_epoch("2026-10-16T00:00:00Z")
+        );
+        // Text that is not an instant is not read as one.
+        assert_eq!(instant_epoch("yesterday"), None);
+        assert_eq!(instant_epoch("2026-10-16"), None);
+        assert_eq!(instant_epoch(""), None);
     }
 
     #[test]

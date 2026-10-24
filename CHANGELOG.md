@@ -17,10 +17,77 @@ tagged state. Deployments and rollbacks follow
 (0.x), minor versions mark feature growth and patch versions mark
 fixes; 1.0.0 waits for production acceptance.
 
-## [Unreleased]
+## [0.3.0] — 2026-10-24
 
 ### Added
 
+- **The gateway knows which statement is the expensive one.** Every
+  statement passes through the gateway on its way to SQLite, so the gateway
+  is the only place that can say what each one cost. A hosted provider
+  cannot answer that question without holding the data of every tenant, and
+  nothing in their business depends on the answer; here there is no
+  middleman and the operator owns the box. What is recorded is the
+  statement's **shape** — its SQL with every literal replaced by a
+  placeholder — so the log names a statement without quoting the data it
+  carried: `SELECT * FROM users WHERE email = 'ada@example.com'` is kept as
+  `SELECT * FROM users WHERE email = ?`. `GET /v1/queries` (owner-only)
+  reports each shape's run count, rows read and written, total and slowest
+  time, and the credentials that ran it; `dg queries` prints the same
+  answer, and the view grows a fifth tab for it. The log is bounded per
+  database — 200 shapes, 16 credentials each — because a query log that
+  fills the disk is the same failure as any other disk exhaustion.
+- **A fork of a database that can diverge from it.** `dg branch create`
+  takes a copy of a database — now, or at a moment in the past when that
+  moment falls inside the backup window — and the copy is a real, writable
+  database in the store, not a description of one. This is the thing a
+  hosted provider will not give an operator, and it is cheap here because
+  the fork is made from the same files the live database uses. The branch's
+  parent and the moment it was taken are recorded durably in the data
+  directory, so a fork made last week is still a fork today.
+- **What differs between two databases.** `dg diff a b` compares two
+  databases where they live: the schema (tables, columns, indexes) and,
+  where the schemas allow it, the rows as multisets of their canonical
+  text. The comparison is bounded and says so — a table compared only
+  part-way is reported as truncated, never as equal. It exits nonzero when
+  the two are not the same, so it can gate a deploy. It runs on the
+  gateway, so no table data travels over the wire to answer a question
+  about the data.
+- **Which credential ran what, and when.** `dg audit` answers the question
+  an operator asks after something unexpected. It records *actions* — a
+  credential ran a statement, created a key, deleted a database — and never
+  the data that moved: a statement is recorded by its shape, and a
+  credential by its label, never by its key. The log is bounded, and a
+  scoped application key cannot read it: the shapes and the actions are a
+  view of every credential's traffic, which is the owner's information.
+- **Three cheap questions about a database.** `dg integrity` runs SQLite's
+  own integrity check and foreign-key check on a read-only connection and
+  reports the messages verbatim — it never repairs anything, because a
+  diagnosis that quietly changes the file is not a diagnosis. `dg vacuum`
+  reclaims the space a file is wasting and reports the bytes it actually
+  reclaimed, under the same write fence every other writer takes.
+  `dg explain` says what SQLite would do with a statement: its query plan,
+  in plain words, with no invented cost model, because SQLite's plan has
+  none.
+- **Named contexts.** `dg config set staging --server … --key-file …`
+  gives a name to a server and a credential FILE, kept in
+  `$HOME/.config/dg/config.toml` (0600, in a 0700 directory). Nothing
+  secret is ever written down: the file holds paths, never a key. The
+  context sits between the flag and the environment in the resolution
+  order, because the environment says "where do I usually talk" and a
+  context says "talk to THIS one now" — and a `--context` that names a
+  context the file does not define is an error, not a silent fallback.
+- **An agent surface.** `dg mcp` serves the gateway's read views to an MCP
+  client over stdio, speaking JSON-RPC 2.0 by hand. It is read-only by
+  construction: the catalogue is `dg_status`, `dg_list`, `dg_info`,
+  `dg_inspect`, `dg_backups` and `dg_query`, and `dg_query` rejects a
+  statement that would write before it sends anything. The credential is
+  the one the CLI already resolved; an agent never supplies one. Stdout is
+  the transport, so every diagnostic goes to stderr.
+- **A plan for a restore.** `dg restore plan --to <ISO8601>` says what a
+  restore to a moment would reach, database by database. The window is
+  per database — a database whose replica starts later than the others
+  cannot be taken back to a moment they can — and the plan names which is
+  which before anyone asks for the restore.
 - **The data can be taken back to a moment, not only to the last
   snapshot.** The off-host replica keeps seven days of write-ahead log,
   so the copy can be restored to any point inside that window — the
@@ -147,6 +214,18 @@ fixes; 1.0.0 waits for production acceptance.
 
 ### Changed
 
+- **The connection order now has a context in it.** `--server` and
+  `--key-file` are read by the CLI rather than by the argument parser, so
+  that a named context can sit between the flag and the environment: the
+  environment says "where do I usually talk", a context says "talk to
+  THIS one now", and the flag is the operator's word at the command line,
+  which outranks both. The order is `--server`/`--key-file`, then
+  `--context`, then `DG_SERVER`/`DG_KEY_FILE`, then the config file's
+  default context, then the built-in defaults. The built-in defaults are
+  unchanged, so a box with no config file behaves exactly as before.
+- **The terminal view has a fifth tab.** The queries tab sits beside
+  databases, service, backups and keys, and answers which statement is
+  the expensive one. The number keys reach tabs `1-5` now.
 - **The freshness reference is no longer labelled as an age limit.** The
   backups tab and `dg backup status` called it "stale after", which read
   as a threshold on the age of a set — and then showed sets older than it

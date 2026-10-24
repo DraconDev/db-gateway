@@ -197,12 +197,16 @@ fn the_config_file_is_private_and_never_widened() {
 }
 
 #[test]
-fn writing_without_its_directory_is_refused() {
+fn writing_without_its_directory_creates_it_privately() {
     let dir = tempfile::tempdir().expect("a temp dir");
     let config = dir.path().join("missing/config.toml");
     let key = write_key(dir.path(), "micro2.key");
 
-    let error = cmd_config::set(
+    // `dg config set` is a request to write a config file, and the
+    // file's directory is part of that request: a first-run box has no
+    // `~/.config/dg/` yet, and refusing to create it would mean the
+    // operator has to make the directory by hand before the tool works.
+    cmd_config::set(
         &config,
         "micro2",
         "http://127.0.0.1:7432",
@@ -210,13 +214,20 @@ fn writing_without_its_directory_is_refused() {
         false,
         true,
     )
-    .expect_err("a missing directory is an error");
-    assert_eq!(error.code(), "config_dir_missing");
-    assert!(!config.exists(), "no config file was written");
-    assert!(
-        !dir.path().join("missing").exists(),
-        "the directory tree was not created"
-    );
+    .expect("the context is saved");
+    assert!(config.exists(), "the config file was written");
+
+    // The directory holds a credential file, so it is created private.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(dir.path().join("missing"))
+            .expect("the directory exists")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o700, "the directory is private: {mode:o}");
+    }
 }
 
 #[test]

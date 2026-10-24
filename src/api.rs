@@ -80,7 +80,20 @@ pub fn router(store: Arc<Store>, deployment: Deployment) -> Router {
         // of the store, so it travels as an extension rather than inside
         // the shared state every handler already takes.
         .layer(Extension(deployment))
-        .with_state(store)
+        .with_state(store.clone())
+        // The comparison is its own router: it opens the two database
+        // files itself, read-only, and it is a read in every sense that
+        // matters to the admission lanes.
+        .merge(crate::diff::router(store.clone()))
+        // The audit log is its own router too, and so are the three
+        // database operations that need to open a file themselves: the
+        // statement path cannot run a PRAGMA, and it cannot run a VACUUM
+        // inside its transaction.
+        .merge(crate::audit::router(store.clone()))
+        .merge(crate::db_ops::router(store.clone()))
+        // The branch registry is read when the router is built, which is
+        // startup: a fork made yesterday is still a fork today.
+        .merge(crate::branch::router(store))
 }
 fn json_body<T>(body: std::result::Result<Json<T>, JsonRejection>) -> Result<T> {
     body.map(|Json(value)| value).map_err(|err| {
@@ -470,6 +483,7 @@ async fn create(
     work(store, headers, move |s, p| {
         p.owner()?;
         s.create_and_note(&body.name)?;
+        crate::audit::record(s, &p, "create", Some(&body.name), None);
         Ok(Json(json!({"name":body.name})))
     })
     .await
@@ -482,7 +496,13 @@ async fn issue(
     let body = json_body(body)?;
     work(store, headers, move |s, p| {
         p.owner()?;
-        Ok(Json(json!({"key":s.issue(body)?})))
+        let label = body.name.clone();
+        let key = s.issue(body)?;
+        // The credential's LABEL is recorded, never the key it just
+        // issued: an audit log that held the key would be the leak it
+        // exists to prevent.
+        crate::audit::record(s, &p, "issue_key", None, Some(label));
+        Ok(Json(json!({"key":key})))
     })
     .await
 }
@@ -502,6 +522,7 @@ async fn revoke(
     work(store, headers, move |s, p| {
         p.owner()?;
         s.revoke(&name)?;
+        crate::audit::record(s, &p, "revoke_key", None, Some(name.clone()));
         Ok(Json(json!({"revoked":true})))
     })
     .await
@@ -510,7 +531,9 @@ async fn revoke(
 async fn rotate_owner(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<Json<Value>> {
     work(store, headers, |s, p| {
         p.owner()?;
-        Ok(Json(json!({"key":s.rotate_owner()?})))
+        let key = s.rotate_owner()?;
+        crate::audit::record(s, &p, "rotate_owner", None, None);
+        Ok(Json(json!({"key":key})))
     })
     .await
 }
@@ -542,6 +565,7 @@ async fn remove(
         // contract, and the fenced write releases the per-name state again
         // when the request fails without a live row.
         s.fenced_write(&name, |s| s.delete(&name, RETENTION_SECS))?;
+        crate::audit::record(s, &p, "delete", Some(&name), None);
         Ok(Json(
             json!({"deleted":true,"purge_after_seconds":RETENTION_SECS}),
         ))
@@ -576,6 +600,7 @@ async fn clone_route(
         s.fenced_write(&body.destination, |s| {
             s.clone_database(&name, &body.destination)
         })?;
+        crate::audit::record(s, &p, "clone", Some(&name), Some(body.destination.clone()));
         Ok(Json(json!({"source":name,"destination":body.destination})))
     })
     .await
@@ -595,6 +620,7 @@ async fn export(
         s.authorize(&p, &name)?;
         let temp = s.export_snapshot_limited(&name, Some(MAX_EXPORT as u64))?;
         let bytes = std::fs::read(temp.path()).map_err(|_| Error::internal())?;
+        crate::audit::record(s, &p, "export", Some(&name), None);
         Ok(Json(json!({"database":name,"sha256":hex::encode(Sha256::digest(&bytes)),"size":bytes.len(),"data_base64":BASE64_STANDARD.encode(bytes)})))
     })
     .await
@@ -638,6 +664,7 @@ async fn import(
         std::fs::write(temp.path(), &bytes).map_err(|_| Error::internal())?;
         let _guard = s.acquire_queue(&body.name, true)?;
         s.fenced_write(&body.name, |s| s.import_from(&body.name, temp.path()))?;
+        crate::audit::record(s, &p, "import", Some(&body.name), Some(name.clone()));
         Ok(Json(json!({"imported":body.name,"from":name})))
     })
     .await
@@ -867,7 +894,7 @@ async fn execute(
         if let Ok(outcome) = result.as_ref() {
             let (rows_read, rows_written) = execution_usage(&outcome.value);
             s.metrics.record_usage(&name, rows_read, rows_written);
-            record_statements(s, &name, &p, &statements, outcome);
+            record_statements(s, &name, &p, &statements, outcome, batch);
         }
         result.map(|outcome| Json(outcome.value))
     })
@@ -918,6 +945,7 @@ fn record_statements(
     principal: &Principal,
     statements: &[Statement],
     outcome: &crate::execution::ExecuteOutcome,
+    batch: bool,
 ) {
     let usage: Vec<(u64, u64)> = match outcome.value["results"].as_array() {
         Some(results) => results.iter().map(statement_usage).collect(),
@@ -937,6 +965,13 @@ fn record_statements(
         })
         .collect();
     store.metrics.queries.record(name, &principal.name, &runs);
+    // The audit log names the same statements, and names them the same
+    // way: by their shape. A statement's values are the data, and the
+    // data is not what the audit log is for.
+    let action = if batch { "batch" } else { "query" };
+    for run in &runs {
+        crate::audit::record_statement(store, principal, action, Some(name), &run.sql);
+    }
 }
 
 /// One statement shape, as the API reports it.
@@ -965,14 +1000,30 @@ fn shape_json(shape: &QueryShape) -> Value {
 /// Owner-only: the log holds the SQL every credential ran, including
 /// the keys an application holds, so it is the owner's view of their
 /// own service and nobody else's.
-async fn queries(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<Json<Value>> {
-    work_read(store, headers, |s, p| {
+/// The optional narrowing of the query log.
+#[derive(Deserialize)]
+struct QueriesQuery {
+    /// Only this database's statements.
+    database: Option<String>,
+}
+
+async fn queries(
+    State(store): State<Arc<Store>>,
+    query: std::result::Result<Query<QueriesQuery>, axum::extract::rejection::QueryRejection>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    let filter = query_params(query)?;
+    work_read(store, headers, move |s, p| {
         p.owner()?;
         let databases: Vec<Value> = s
             .metrics
             .queries
             .all()
             .into_iter()
+            .filter(|(database, _)| match &filter.database {
+                Some(wanted) => database == wanted,
+                None => true,
+            })
             .map(|(database, shapes)| {
                 json!({
                     "database": database,

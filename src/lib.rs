@@ -2,12 +2,14 @@
 //! and retention maintenance for tombstoned databases.
 
 pub mod api;
+pub mod audit;
 pub mod backup;
 pub mod backup_health;
 pub mod branch;
 pub mod client;
 pub mod confirmation;
 pub mod db_ops;
+pub mod diff;
 pub mod error;
 pub mod execution;
 pub mod mcp;

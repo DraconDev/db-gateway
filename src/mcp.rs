@@ -165,9 +165,20 @@ impl std::fmt::Debug for Gateway {
 /// `~/.config/dg/key` -- and read with the same reader the CLI uses, so
 /// the file permissions are checked the same way.
 pub async fn serve(server: &str, key_path: Option<&Path>) -> Result<()> {
-    let key = client::read_key(
-        key_path.ok_or_else(|| Error::new(400, "missing_credential", "--key-file required"))?,
-    )?;
+    let path =
+        key_path.ok_or_else(|| Error::new(400, "missing_credential", "--key-file required"))?;
+    // A missing file is named, not reported as a generic failure: the
+    // reader cannot tell "there is nothing there" from "what is there
+    // is not a credential", and an agent that asked for a key file
+    // deserves to know which of the two it hit.
+    if !path.exists() {
+        return Err(Error::with_message(
+            400,
+            "missing_credential",
+            format!("no credential file at {}", path.display()),
+        ));
+    }
+    let key = client::read_key(path)?;
     let gateway = Gateway::new(server, &key);
     // On stderr, like every other log line this project writes: stdout
     // is the transport, and a line there would be read as protocol.

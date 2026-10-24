@@ -65,6 +65,42 @@ per database; there are no streams to rebuild — a failed read is
 `transport_unavailable`, a failed unkeyed write is `outcome_unknown`,
 and exactly-once resubmission is the caller's explicit keyed replay.
 
+### The agent surface (`dg mcp`)
+
+An AI agent needs the same gateway the operator uses, and it needs that
+gateway to behave the same way for both of them. `dg mcp` serves the
+gateway's read surfaces to an MCP client over stdio, speaking JSON-RPC
+2.0 by hand — the wire format is a handful of JSON objects, and a
+dependency would cost more than the code, which matters in a project
+that keeps a deliberately tiny supply chain (`cargo deny` gates it).
+
+Two rules shape the whole surface:
+
+- **Read-only.** The catalogue is the gateway's read surfaces and
+  nothing else: `dg_status`, `dg_list`, `dg_info`, `dg_inspect`,
+  `dg_backups` and `dg_query`. The write paths — create, delete, clone,
+  import, execute, batch and the key mutations — are not exposed at all,
+  and `dg_query` rejects a statement that would write before it sends
+  anything, so an agent talking to this server cannot ask it to change
+  anything.
+- **Stdout is the transport.** Every byte on stdout is a JSON-RPC
+  message, because stdout is how the client and the server talk: a
+  stray print breaks the session. Diagnostics go to stderr, through
+  tracing, like the rest of the project's logs.
+
+The credential is the one the CLI already resolved — `--key-file`, then
+`--context`, then `DG_KEY_FILE`, then `~/.config/dg/key` — read with the
+same reader the CLI uses, so the file's permissions are checked the same
+way. The agent never supplies a key, so a prompt that asks for one
+cannot make the server hand over a secret. Results are bounded and a
+truncated one says it was truncated; a 64-hex string in a result is
+redacted, because a query's answer can carry a key-shaped value that
+the agent has no business reading.
+
+```sh
+dg mcp                 # speaks JSON-RPC on stdin/stdout
+```
+
 ## Routes
 
 | Method + path | Who | Body | Success response |
@@ -93,6 +129,16 @@ and exactly-once resubmission is the caller's explicit keyed replay.
 | `DELETE /v1/databases/{name}` | owner | — | `{"deleted":true,"purge_after_seconds":86400}` |
 | `GET /v1/status` | owner | — | `{"version":"…","uptime_secs":n,"admission":{"acquire_timeout_ms":500,"read_permits":8,"write_permits":4},"requests":{"total":n,"capacity_exceeded":n,"query_deadline_exceeded":n,"internal_error":n},"databases":{"db":{"rows_read":n,"rows_written":n,"queue_waits":n,"queue_wait_ms":n,"queue_timeouts":n}},"deployment":{"host":"…"/null,"listen":"…","data_dir":"…","backup_root":"…"/null,"databases":{"db":{"file":"…","exists":bool,"size_bytes":n,"tombstoned":bool}}}}` |
 | `GET /v1/backups` | owner | — | `{"backup_root":"…"/null,"stale_after_secs":300,"sets":[{"timestamp":"…","databases":[…],"has_registry":bool,"coverage_start":n/null,"coverage_end":n/null}],"per_database":{"game_a":{"state":"fresh"/"stale"/"unknown","newest_set":"…"/null,"age_secs":n/null}},"last_attempt":{…}/null,"last_failure":{…}/null,"coverage":{…}/null,"replica":{…}/null,"drill":{…}/null,"restore_points":{…}/null,"last_restore":{…}/null}` |
+| `GET /v1/queries` | owner | — | `{"databases":[{"database":"…","shapes":[{"shape":"SELECT … WHERE id = ?","count":n,"rows_read":n,"rows_written":n,"total_micros":n,"max_micros":n,"first_seen":epoch,"last_seen":epoch,"principals":{"name":n}}]}]}` (`?database=<name>` narrows it to one database) |
+| `GET /v1/audit` | owner | — | `{"entries":[{"at":epoch,"principal":"…","role":"…","action":"query","database":"…","detail":"…"}]}` (`?principal=<name>` and `?since=<epoch>` narrow it) |
+| `POST /v1/diff` | owner (read access to both sides) | `{"left":"game_a","right":"game_b"}` | `{"left":"…","right":"…","identical":bool,"schema":{…},"tables":[…],"compared_rows":n,"truncated":bool}` |
+| `POST /v1/branch` | owner | `{"parent":"game_a","name":"game_a_trial","at":"2026-10-16T00:00:00Z"}` (`at` optional) | `{"name":"…","parent":"…","forked_at":epoch,"source":"live"/"snapshot","set":"…"}` |
+| `GET /v1/branches` | owner | — | `{"branches":[{"name":"…","parent":"…","forked_at":epoch,"source":"live"/"snapshot","set":"…"}]}` |
+| `GET /v1/branches/{name}` | owner | — | one branch record |
+| `DELETE /v1/branches/{name}` | owner | — | `{"deleted":true,"forgotten":true}` |
+| `GET /v1/databases/{name}/integrity` | owner | — | `{"database":"…","ok":bool,"integrity":["ok"],"foreign_keys":[]}` (the messages are SQLite's own, verbatim) |
+| `POST /v1/databases/{name}/vacuum` | owner (read-write) | `{}` | `{"database":"…","size_before":n,"size_after":n,"reclaimed":n,"elapsed_ms":n}` |
+| `POST /v1/databases/{name}/explain` | scoped key (read) | `{"sql":"SELECT …"}` | `{"database":"…","plan":[{"id":n,"parent":n,"detail":"SCAN t"}]}` |
 
 Names: `[a-z0-9_]+`, not starting with `_`, max 64 chars. Queries never create databases — a missing database is `404 database_not_found`.
 
@@ -130,6 +176,47 @@ meaning.
 
 The TypeScript client treats every one of these as optional, so a
 server that does not send them still validates.
+
+### The query shapes
+
+`GET /v1/queries` answers the question a hosted provider cannot: **which
+statement is the expensive one?** Every statement passes through the
+gateway on its way to SQLite, so the gateway is the only place that can
+say. For a hosted provider that answer is a privacy liability and a
+tenant-isolation problem, and nothing in their business depends on it;
+here there is no middleman, and the operator owns the box it all
+happens on.
+
+What is recorded is the **shape** of a statement — its SQL with every
+literal replaced by a placeholder — and never the values it carried.
+`SELECT * FROM users WHERE email = 'ada@example.com'` is kept as
+`SELECT * FROM users WHERE email = ?`. A row therefore names a statement
+without quoting the data it moved: the log answers "how much does this
+cost" without becoming a second copy of the data.
+
+| Field | Meaning |
+| --- | --- |
+| `shape` | The statement with its literals replaced by `?`. Identifiers and schema survive, because the column name is schema and the schema is what an operator needs to see. |
+| `count` | How many times the shape ran. |
+| `rows_read` / `rows_written` | The rows it returned and the rows it changed, summed over every run. |
+| `total_micros` / `max_micros` | The total time it took, and its slowest single run. The total says what it costs; the max says how bad it ever got. |
+| `first_seen` / `last_seen` | When it first and last ran, as unix seconds. |
+| `principals` | The credentials that ran it, and how often each did. A credential's **name** is recorded, never its key. |
+
+The endpoint is **owner-only**: the shapes are a view of every
+credential's traffic, which is operator information.
+
+Two bounds, both deliberate. A database keeps at most 200 distinct
+shapes, and a shape attributes itself to at most 16 credentials; past
+either, the least recently seen shape is dropped rather than the log
+growing without limit — a query log that fills the disk is the same
+failure as any other disk exhaustion. The bound is per database on
+purpose: "which query is heavy in THIS database" is the question that
+gets asked, and a global cap would let a chatty database hide the
+answers for every other one.
+
+Shapes are ordered by rows read, then by total time, then by name, so
+the heaviest statement is the first thing read.
 
 ### SQL value encoding
 
@@ -210,12 +297,7 @@ idempotency key — so a write waits a minute, and a transfer phase (which
 commits nothing, but means beginning the whole transfer again) waits the
 same. The answer is what removes the doubt, so the CLI waits for it.
 
-The human views are: `dg list`, `dg info`, `dg inspect`, `dg query`,
-`dg execute`, `dg status`, `dg watch`, `dg backup status`, `dg key list`
-and `dg key tokens` (tables and dashboards), and `dg create`, `dg delete`,
-`dg export`, `dg import`, `dg clone`, `dg key create`, `dg key revoke`,
-`dg key rotate-owner`, `dg backup verify`, `dg batch` and `dg init` (a
-headline and the facts behind it). Piped output always stays JSON, so
+The human views are: `dg list`, `dg info`, `dg inspect`, `dg query`, `dg execute`, `dg status`, `dg watch`, `dg backup status`, `dg queries`, `dg audit`, `dg branch list`, `dg config list`, `dg key list` and `dg key tokens` (tables and dashboards), and `dg create`, `dg delete`, `dg export`, `dg import`, `dg clone`, `dg diff`, `dg branch create`, `dg branch delete`, `dg vacuum`, `dg integrity`, `dg explain`, `dg restore plan`, `dg key create`, `dg key revoke`, `dg key rotate-owner`, `dg backup verify`, `dg batch`, `dg config set`, `dg config remove` and `dg init` (a headline and the facts behind it). Piped output always stays JSON, so
 scripts are unaffected.
 
 The one exception is `dg backup digest`, which is a REPORT rather than
@@ -225,10 +307,11 @@ therefore the default, and `--json` asks for the structured form.
 
 `dg info` also joins per-database `rows_read`/`rows_written` from
 `/v1/status` in its table (degraded to `unavailable` when status is
-unreachable). Global flags: `--server <url>` (default
-`http://127.0.0.1:7432`; HTTPS or literal loopback only), `--key-file
-<path>` (`0600`; optional — see the connection-resolution order below),
-`--json`.
+unreachable). Global flags: `--server <url>` (HTTPS or literal loopback
+only; defaults to `http://127.0.0.1:7432` when nothing else says
+otherwise), `--key-file <path>` (`0600`; optional — see the
+connection-resolution order below), `--context <name>` (a named context
+from `dg config`), `--json`.
 
 ### How the terminal output is drawn
 
@@ -280,7 +363,11 @@ CLI looks the same everywhere. The rules it follows:
   `.tables` and `.schema` — and they draw the SAME views as the
   one-shot commands, so the two cannot drift apart.
 
-Connection resolution, highest precedence first: `--server` / `--key-file` flags, then `DG_SERVER` / `DG_KEY_FILE` environment variables, then defaults (`http://127.0.0.1:7432` and `$HOME/.config/dg/key`). With the env vars set — or the default key file in place — daily commands need no flags at all: `dg list`, `dg query game_a "SELECT …"`.
+Connection resolution, highest precedence first: `--server` / `--key-file` flags, then `--context <name>`, then `DG_SERVER` / `DG_KEY_FILE` environment variables, then the config file's default context, then the built-in defaults (`http://127.0.0.1:7432` and `$HOME/.config/dg/key`).
+
+A **context** is a named pair of a server and a credential FILE, kept in `$HOME/.config/dg/config.toml` (created `0600`, in a `0700` directory). Nothing secret is ever written down: the file holds paths, never a key. The context sits between the flag and the environment on purpose — the environment says "where do I usually talk", a context says "talk to THIS one now", and the flag is the operator's word at the command line, which outranks both. A `--context` that names a context the file does not define is an error, not a silent fallback: quietly using another gateway is worse than refusing.
+
+With the env vars set — or the default key file in place — daily commands need no flags at all: `dg list`, `dg query game_a "SELECT …"`.
 
 ```sh
 dg init --data-dir state/dg            # once per data dir; prints {"owner_key": …} — save it securely, it is shown once
@@ -300,9 +387,27 @@ dg --key-file owner.key batch game_a batch.json
 printf '%s\n' "SELECT count(*) FROM players;" > script.sql
 dg --key-file owner.key execute game_a script.sql
 dg --key-file owner.key inspect game_a
+dg --key-file owner.key queries                 # which statement is the expensive one
+dg --key-file owner.key queries --database game_a
+dg --key-file owner.key audit --principal bot_a # what did that credential do
+dg --key-file owner.key clone game_a game_b
+dg --key-file owner.key diff game_a game_b      # what differs between two databases
+dg --key-file owner.key branch create game_a game_a_trial
+dg --key-file owner.key integrity game_a        # is the file sound
+dg --key-file owner.key explain game_a "SELECT * FROM players"
+dg --key-file owner.key restore plan --to 2026-10-16T00:00:00Z
 dg --key-file owner.key watch
 dg --key-file owner.key key tokens game_a   # the credentials that can act on one database
 dg --key-file owner.key key revoke bot_a
+```
+
+```sh
+dg config list                       # the contexts, and whether their key file is there
+dg config set staging --server http://127.0.0.1:7432 --key-file ~/.config/dg/staging.key --default
+dg config show staging
+dg --context staging list            # talk to that one now
+dg config path                       # where the file is
+dg config remove staging
 ```
 
 Running a SQL file (the statements are split by SQLite itself, so a

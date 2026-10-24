@@ -7,7 +7,7 @@ credential model in `docs/api.md`; this file does not add new claims.
 
 ## Supported versions
 
-Only the current release line (`0.2.x`, tagged `v0.2.0`) is supported.
+Only the current release line (`0.3.x`, tagged `v0.3.0`) is supported.
 The service is **not production-accepted**: it runs as a supervised
 non-production deployment, and no version should be treated as a
 production database service yet.

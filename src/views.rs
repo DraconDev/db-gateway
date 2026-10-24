@@ -810,6 +810,211 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
     sections
 }
 
+/// The plan for a restore: what a restore to a moment would reach.
+///
+/// The window is per database, not global, and that is the fact this
+/// view exists to show: a database whose replica starts later than the
+/// others cannot be taken back to a moment the others can. A restore
+/// to that moment fails for that database and succeeds for the rest, so
+/// the plan says which is which BEFORE anyone asks for the restore.
+///
+/// The window comes from the host, which publishes it; this view only
+/// reads the published facts and compares them with the moment asked
+/// for.
+pub fn restore_plan(backups: &Value, to: Option<&str>) -> Vec<Section> {
+    let plan = RestorePlan::read(backups, to);
+    let mut sections = Vec::new();
+
+    let mut head = Section::new("restore plan");
+    head.field(
+        "moment",
+        Cell::text(match &plan.moment {
+            Some(moment) => moment.clone(),
+            None => "the whole window".to_string(),
+        }),
+    );
+    head.field(
+        "window",
+        Cell::text(match (&plan.window_start, &plan.window_end) {
+            (Some(start), Some(end)) => {
+                format!("{} to {}", human_instant(start), human_instant(end))
+            }
+            _ => "unknown".to_string(),
+        }),
+    );
+    head.field(
+        "sidecar",
+        Cell::text(plan.sidecar.clone().unwrap_or_else(|| "unknown".into())),
+    );
+    sections.push(head);
+
+    if plan.databases.is_empty() {
+        sections.push(unreported(
+            "restore plan",
+            "this host publishes a window with no database in it",
+        ));
+        return sections;
+    }
+    let mut table = Table::new();
+    table
+        .column("database", Align::Left)
+        .column("window", Align::Left)
+        .column("files", Align::Right)
+        .column("bytes", Align::Right)
+        .column("the moment", Align::Left);
+    for database in &plan.databases {
+        table.row(vec![
+            Cell::text(database.name.clone()),
+            Cell::text(database.span()),
+            Cell::text(database.files.to_string()),
+            Cell::text(human_bytes(database.bytes)),
+            Cell::text(database.note.clone()),
+        ]);
+    }
+    let mut section = Section::new("per database");
+    section.table(table);
+    sections.push(section);
+    sections
+}
+
+/// One database's place in a restore plan.
+pub struct PlannedDatabase {
+    /// The database's name.
+    pub name: String,
+    /// The oldest moment the replica holds for it.
+    pub oldest: Option<String>,
+    /// The newest moment the replica holds for it.
+    pub newest: Option<String>,
+    /// How many files the replica holds for it.
+    pub files: u64,
+    /// How many bytes those files are.
+    pub bytes: u64,
+    /// Whether the asked-for moment falls inside this window.
+    ///
+    /// `None` when no moment was asked for, and also when the window
+    /// cannot be read as a span: "unknown" is honest, "no" would be a
+    /// guess.
+    pub covers: Option<bool>,
+    /// Why, in words a person reads.
+    pub note: String,
+}
+
+impl PlannedDatabase {
+    /// The window as a person reads it.
+    pub fn span(&self) -> String {
+        match (&self.oldest, &self.newest) {
+            (Some(oldest), Some(newest)) => {
+                format!("{} to {}", human_instant(oldest), human_instant(newest))
+            }
+            _ => "unknown".to_string(),
+        }
+    }
+}
+
+/// The plan for a restore, as data.
+///
+/// The same reading the human view draws, in machine form: a pipe should
+/// be able to ask "does this database cover that moment" without reading
+/// a table.
+pub struct RestorePlan {
+    /// The moment asked for, when there was one.
+    pub moment: Option<String>,
+    /// The start of the window the host publishes.
+    pub window_start: Option<String>,
+    /// The end of that window.
+    pub window_end: Option<String>,
+    /// Whether the sidecar that does the copying is running.
+    pub sidecar: Option<String>,
+    /// Each database's place in the window.
+    pub databases: Vec<PlannedDatabase>,
+}
+
+impl RestorePlan {
+    /// Read the plan out of the published facts.
+    pub fn read(backups: &Value, to: Option<&str>) -> RestorePlan {
+        let moment = to.map(str::to_string);
+        let at = moment.as_deref().and_then(render::instant_epoch);
+        let Some(points) = backups["restore_points"].as_object() else {
+            return RestorePlan {
+                moment,
+                window_start: None,
+                window_end: None,
+                sidecar: None,
+                databases: Vec::new(),
+            };
+        };
+        let mut databases = Vec::new();
+        if let Some(entries) = points["databases"].as_object() {
+            for (name, window) in entries {
+                let oldest = window["oldest"].as_str().map(str::to_string);
+                let newest = window["newest"].as_str().map(str::to_string);
+                let (covers, note) = match at {
+                    Some(at) => match (
+                        oldest.as_deref().and_then(render::instant_epoch),
+                        newest.as_deref().and_then(render::instant_epoch),
+                    ) {
+                        (Some(oldest), Some(newest)) => {
+                            if at < oldest {
+                                (
+                                    Some(false),
+                                    "no \u{2014} the window opens later".to_string(),
+                                )
+                            } else if at > newest {
+                                (
+                                    Some(false),
+                                    "no \u{2014} the window closed earlier".to_string(),
+                                )
+                            } else {
+                                (Some(true), "yes".to_string())
+                            }
+                        }
+                        _ => (
+                            None,
+                            "unknown \u{2014} the window is not readable".to_string(),
+                        ),
+                    },
+                    None => (None, "-".to_string()),
+                };
+                databases.push(PlannedDatabase {
+                    name: name.clone(),
+                    oldest,
+                    newest,
+                    files: window["files"].as_u64().unwrap_or(0),
+                    bytes: window["bytes"].as_u64().unwrap_or(0),
+                    covers,
+                    note,
+                });
+            }
+        }
+        databases.sort_by(|a, b| a.name.cmp(&b.name));
+        RestorePlan {
+            moment,
+            window_start: points["window_start"].as_str().map(str::to_string),
+            window_end: points["window_end"].as_str().map(str::to_string),
+            sidecar: points["sidecar"].as_str().map(str::to_string),
+            databases,
+        }
+    }
+
+    /// The plan as JSON.
+    pub fn to_json(&self) -> Value {
+        serde_json::json!({
+            "moment": self.moment,
+            "window": {"start": self.window_start, "end": self.window_end},
+            "sidecar": self.sidecar,
+            "databases": self.databases.iter().map(|database| serde_json::json!({
+                "database": database.name,
+                "oldest": database.oldest,
+                "newest": database.newest,
+                "files": database.files,
+                "bytes": database.bytes,
+                "covers": database.covers,
+                "note": database.note,
+            })).collect::<Vec<_>>(),
+        })
+    }
+}
+
 /// The restore points the off-host replica offers, as its own view.
 ///
 /// This is the answer to "can I get my data back from last Tuesday?", so

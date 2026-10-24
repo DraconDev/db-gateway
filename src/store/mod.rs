@@ -41,7 +41,9 @@ pub use self::branches::{BranchRecord, BranchRegistry};
 pub use self::disk::{DiskSpace, disk_space};
 pub use self::lifecycle::{Location, validate_name};
 pub use self::metrics::{DbUsage, Metrics, MetricsSnapshot};
-pub use self::queries::{QueryLog, QueryShape, StatementRun};
+pub use self::queries::{
+    MAX_PRINCIPALS_PER_SHAPE, MAX_SHAPES_PER_DATABASE, QueryLog, QueryShape, StatementRun,
+};
 pub use self::transfers::{
     MAX_CHUNK, MAX_TRANSFER_SIZE, MAX_TRANSFERS, SnapshotInfo, Staging, TRANSFER_TTL, UploadInfo,
 };

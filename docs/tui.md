@@ -34,6 +34,7 @@ A tab strip, and the body of the tab that is showing.
 | Service | `2` | The service dashboard — version, uptime, request totals and rate, error counts, admission permits, the wait percentiles, the recent request-rate sparkline — and where the gateway is running: the host, the address it bound, the data directory, the backup root, the room left on the disk and the retention it holds a deleted name for |
 | Backups | `3` | Whether the copies can be trusted: the backup root, the freshness objective, the last run, what the newest set carries, where the off-host copy is and whether it is running, the last restore drill, the window of moments the copy can be taken back to, the last restore that was taken, the published sets, and each database's freshness state |
 | Keys | `4` | Every outstanding credential, its role, and the databases it may reach |
+| Queries | `5` | Which statement is the expensive one — the statement shapes the service has run, how often each ran, the rows it read and wrote, how long it took, and which credentials ran it |
 
 The tabs are also reached with `tab` and `shift-tab`. Each tab carries its
 number and, where it has one, its count: the strip is a summary, not just a
@@ -42,13 +43,41 @@ switchboard, so an operator can see how much is in a tab without opening it.
 The view shows **one tab at a time** rather than tiling every answer. Tiling
 forces each answer into a fraction of the width, which squeezes a wide table
 and cuts a long list; a tab gives the whole body to the thing being read. The
-cost — three answers are off screen — is paid by the strip, which always names
+cost — four answers are off screen — is paid by the strip, which always names
 every tab.
 
 Each tab answers one question and shows one answer. The per-database traffic
 breakdown is the databases tab's, and it is not repeated on the service tab:
 the same rows under a second heading, on a second tab, is the tiling problem
 returning in a new shape.
+
+## Which query is heavy
+
+The queries tab answers the question a hosted provider cannot answer exactly.
+Every statement passes through the gateway on its way to SQLite, so the gateway
+is the only place that can say what each one cost. For a provider that answer
+is a privacy liability and a tenant-isolation problem, and nothing in their
+business depends on it; here there is no middleman, and the operator owns the
+box it all happens on.
+
+A row names a statement by its **shape** — the SQL with every literal
+replaced by a placeholder — so the table says how expensive a statement is
+without quoting the data it carried. `SELECT * FROM users WHERE email =
+'ada@example.com'` is shown as `SELECT * FROM users WHERE email = ?`. The
+identifiers survive, because a column name is schema, and the schema is what
+an operator needs to see.
+
+Each row carries how many times the shape ran, the rows it read and wrote, the
+total time it took and its slowest single run, and the credentials that ran
+it. The heavy statement is first: the ordering is by rows read, then by total
+time.
+
+A long shape is clipped to the width of the table, with an ellipsis, because
+a statement that wraps pushes every other column off the screen. The full text
+is in `dg queries`, and in `GET /v1/queries`.
+
+The tab is empty when nothing has run yet, and says so rather than drawing
+nothing.
 
 ## Where things are
 
@@ -140,7 +169,7 @@ tinted *and* underlined, and the caret marks it a third time.
 ## The command bar
 
 The bar along the bottom names the keys that matter, in the same order on
-every screen: `1-4` tabs, `tab` next tab, `↑↓` scroll, `:` commands, `r`
+every screen: `1-5` tabs, `tab` next tab, `↑↓` scroll, `:` commands, `r`
 refresh, `q` quit. Everything else is behind `:` — the palette is powerful but
 invisible, and nobody finds a command they cannot see, so the ones an operator
 needs constantly are always on screen with the key visually distinct from the

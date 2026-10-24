@@ -123,11 +123,10 @@ pub fn config_path() -> Result<PathBuf, dg::ServerError> {
 /// is the failure that otherwise shows up later as an unexplained
 /// authentication error.
 pub fn list(path: &Path, json: bool) -> Result<(), dg::ServerError> {
-    let config = load(path).map_err(dg::ServerError::Application)?;
     if json || !std::io::stdout().is_terminal() {
-        return print_line(&contexts_of(&config, path).to_string())
-            .map_err(dg::ServerError::Application);
+        return print_line(&contexts(path)?.to_string()).map_err(dg::ServerError::Application);
     }
+    let config = load(path).map_err(dg::ServerError::Application)?;
     if config.contexts.is_empty() {
         return print_line("no contexts configured").map_err(dg::ServerError::Application);
     }
@@ -507,14 +506,34 @@ fn store(path: &Path, config: &Config) -> Result<(), Error> {
                 "the config path has no directory to write into",
             )
         })?;
-    // The directory is not created: a config tree that appears by
-    // accident is a surprise nobody asked for.
+    // The directory is created when it is missing, and only by an
+    // explicit write: `dg config set` is a request to write a config
+    // file, and the file's directory is part of that request. It is
+    // created 0700, because the credential file lives beside it and
+    // that directory has never been anything but private. Nothing else
+    // creates it: reading a config that is not there is not an error
+    // and must not leave a directory behind.
     if !parent.is_dir() {
-        return Err(Error::with_message(
-            400,
-            "config_dir_missing",
-            format!("{} does not exist; create it first", parent.display()),
-        ));
+        std::fs::create_dir_all(parent).map_err(|error| {
+            Error::with_message(
+                500,
+                "config_write_failed",
+                format!("cannot create {}: {error}", parent.display()),
+            )
+        })?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700)).map_err(
+                |error| {
+                    Error::with_message(
+                        500,
+                        "config_write_failed",
+                        format!("cannot make {} private: {error}", parent.display()),
+                    )
+                },
+            )?;
+        }
     }
     let text = render(config);
     let mut staged = tempfile::Builder::new()

@@ -115,7 +115,7 @@ fn the_tui_help_describes_the_tabbed_view_it_actually_opens() {
     assert!(help.status.success(), "dg tui --help failed");
     let text = String::from_utf8_lossy(&help.stdout);
 
-    for tab in ["databases", "service", "backups", "keys"] {
+    for tab in ["databases", "service", "backups", "keys", "queries"] {
         assert!(
             text.contains(tab),
             "dg tui --help does not name the {tab:?} tab:\n{text}"
@@ -126,7 +126,7 @@ fn the_tui_help_describes_the_tabbed_view_it_actually_opens() {
     // above, so it would pass on a help text that had lost every instruction
     // for moving between tabs (verified by mutation).
     assert!(
-        text.contains("1-4"),
+        text.contains("1-5"),
         "dg tui --help does not name the number keys that reach the tabs:\n{text}"
     );
     assert!(

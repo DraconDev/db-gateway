@@ -1,15 +1,19 @@
 {
   "name": "@dracon/db-gateway",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "exports": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit && tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext test/values.typecheck.ts",
     "test": "npm run typecheck && npm run build && cargo build --manifest-path ../Cargo.toml --locked && node --test test/*.test.mjs"
   },
-  "devDependencies": { "typescript": "^5.9.3" }
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
 }
