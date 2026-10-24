@@ -21,6 +21,17 @@ fixes; 1.0.0 waits for production acceptance.
 
 ### Added
 
+- **The view now says where the gateway and its databases actually are.**
+  The service tab reports the host, the address the listener *actually*
+  bound, the data directory and the backup root; the databases tab adds a
+  locations table under the traffic table, naming each database's file, its
+  size, and whether it is live, tombstoned or missing. A gateway reached
+  through a tunnel cannot be located by looking at the tunnel — and it is
+  the machine on the other end that holds the data — so the gateway reports
+  it: `GET /v1/status` carries an owner-only, additive `deployment` block,
+  and `dg status` prints the same facts. A gateway too old to report its
+  placement says so in words instead of showing an empty table, which would
+  have claimed the opposite.
 - **A stale install is now reported, not silent.** `scripts/setup.sh`
   replaces its old `tui --help | grep -q terminal` check — which passed
   against any build whose help mentioned "terminal", including one from
