@@ -31,8 +31,8 @@ A tab strip, and the body of the tab that is showing.
 | Tab | Key | What it answers |
 |---|---|---|
 | Databases | `1` | Every database the gateway lists, with the rows it has read and written, its own wait p95 and its worst wait, and when it was last written — and, under that, where each database's file is and whether it is actually there |
-| Service | `2` | The service dashboard — version, uptime, request totals and rate, error counts, admission permits, the wait percentiles, the recent request-rate sparkline — and where the gateway is running: the host, the address it bound, the data directory and the backup root |
-| Backups | `3` | The backup root, the stale-after threshold, the published sets, and each database's freshness state |
+| Service | `2` | The service dashboard — version, uptime, request totals and rate, error counts, admission permits, the wait percentiles, the recent request-rate sparkline — and where the gateway is running: the host, the address it bound, the data directory, the backup root, the room left on the disk and the retention it holds a deleted name for |
+| Backups | `3` | Whether the copies can be trusted: the backup root, the stale-after threshold, the last run, what the newest set carries, where the off-host copy is and whether it is running, the last restore drill, the published sets, and each database's freshness state |
 | Keys | `4` | Every outstanding credential, its role, and the databases it may reach |
 
 The tabs are also reached with `tab` and `shift-tab`. Each tab carries its
@@ -69,6 +69,37 @@ words: the service tab shows *placement: not reported by this gateway*, and
 the databases tab says that it does not report where its databases live. An
 empty table would have been a different claim — a gateway with no databases
 — and the two must not look alike.
+
+## Are the copies any good
+
+The backups tab answers the question that comes after "where is it": can I
+trust what I have? Four facts, each in its own group, because they are four
+different claims:
+
+- **last run** — when a backup last ran and whether it worked. A failed run
+  publishes no set, so this record is the only evidence that one happened
+  and failed.
+- **coverage** — what the newest set carries, and whether it carries the
+  registry. The registry matters as much as the data: without it the copies
+  hold files that no key can open.
+- **replica** — where the off-host copy is (the bucket, the endpoint, the
+  region), how long it is kept, what it covers, and whether the sidecar that
+  does the copying is running.
+- **restore drill** — whether the off-host copy has ever been restored and
+  compared against the live gateway. A backup that was never restored is an
+  assumption.
+
+The two tables below them are the per-database freshness and the published
+sets. The freshness table keeps its rows whatever else is on screen: a table
+squeezed down to its header is a table with no answer in it, and the set
+list, which is a log of what has been published, takes the space that is
+left and scrolls.
+
+These facts come from the host, not from the gateway's own memory: the
+sidecar's configuration and the drill's result live on the machine that owns
+the bucket, and the host publishes them where the gateway reads them. A
+host that publishes nothing says so in words — *this host publishes no
+off-host copy status* — rather than leaving a hole where a fact should be.
 
 ## The colours
 
