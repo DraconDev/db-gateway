@@ -542,6 +542,14 @@ fn has_write_keyword(sql: &str) -> bool {
 pub struct ExecuteOutcome {
     pub value: Value,
     pub replayed: bool,
+    /// How long each statement took, in microseconds, in the order the
+    /// statements ran.
+    ///
+    /// The query log needs to say which statement of a batch was the
+    /// expensive one, and a request's total time cannot say that: five
+    /// cheap statements and one slow one look the same from outside.
+    /// Empty for a replayed request, which ran nothing.
+    pub statement_micros: Vec<u64>,
 }
 
 pub fn execute(
@@ -637,6 +645,7 @@ pub fn execute_detailed(
                 return Ok(ExecuteOutcome {
                     value,
                     replayed: true,
+                    statement_micros: Vec::new(),
                 });
             }
             Err(rusqlite::Error::QueryReturnedNoRows) => {}
@@ -652,6 +661,7 @@ pub fn execute_detailed(
         }
     }
     let mut results = Vec::new();
+    let mut statement_micros = Vec::with_capacity(statements.len());
     // Charge every statement against one shared response budget. The small
     // reserve covers JSON punctuation and column metadata; the exact encoded
     // response is checked once before commit.
@@ -662,6 +672,7 @@ pub fn execute_detailed(
     // envelope it has always had.
     let attribute = statements.len() > 1;
     for (index, statement) in statements.iter().enumerate() {
+        let started = Instant::now();
         let result =
             run_statement(&tx, statement, read_only, remaining_result_bytes).map_err(|error| {
                 if attribute {
@@ -670,6 +681,7 @@ pub fn execute_detailed(
                     error
                 }
             })?;
+        statement_micros.push(started.elapsed().as_micros() as u64);
         remaining_result_bytes = remaining_result_bytes.saturating_sub(
             serde_json::to_vec(&result)
                 .map_err(|_| Error::internal())?
@@ -696,6 +708,7 @@ pub fn execute_detailed(
     Ok(ExecuteOutcome {
         value: result,
         replayed: false,
+        statement_micros,
     })
 }
 

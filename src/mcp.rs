@@ -843,12 +843,18 @@ fn bound(payload: Value) -> Value {
     }
     // Rows are what grows, so they are what goes: drop them from the end
     // until the result fits.
-    if value.is_object()
-        && let Some(rows) = value.get_mut("rows").and_then(Value::as_array_mut)
-    {
-        while !rows.is_empty() && serialized_len(&value) > MAX_RESULT_BYTES {
-            rows.pop();
+    let mut dropped = 0usize;
+    while serialized_len(&value) > MAX_RESULT_BYTES {
+        let Some(rows) = value.get_mut("rows").and_then(Value::as_array_mut) else {
+            break;
+        };
+        if rows.is_empty() {
+            break;
         }
+        rows.pop();
+        dropped += 1;
+    }
+    if dropped > 0 {
         value["truncated"] = json!(true);
         value["truncated_note"] = json!(
             "rows were dropped to keep the result within the size limit"

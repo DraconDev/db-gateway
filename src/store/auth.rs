@@ -10,6 +10,13 @@ pub(super) struct DatabaseScope {
 #[derive(Clone)]
 pub struct Principal {
     pub hash: String,
+    /// The credential's name, as the operator gave it.
+    ///
+    /// The hash identifies a credential uniquely but means nothing to a
+    /// human; the name is what an operator reads when they ask "which
+    /// key did this". It is not a secret: it is the label the operator
+    /// chose when they issued the key.
+    pub name: String,
     pub role: String,
     /// Names are retained for the public inventory shape; authorization uses
     /// the private generation-bound scopes below.
@@ -205,15 +212,22 @@ impl Store {
         }
         let hash = hash(key);
         let result = self.meta()?.query_row(
-            "SELECT role,databases FROM credentials WHERE hash=?",
+            "SELECT name,role,databases FROM credentials WHERE hash=?",
             [&hash],
-            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            },
         );
         match result {
-            Ok((role, dbs)) => {
+            Ok((name, role, dbs)) => {
                 let scopes = parse_scopes(&dbs)?;
                 Ok(Principal {
                     hash,
+                    name,
                     role,
                     databases: scope_names(&scopes),
                     scopes,
