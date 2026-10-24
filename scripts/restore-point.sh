@@ -344,7 +344,18 @@ TARGET="$TARGET_DIR/$DATABASE.sqlite"
 # would destroy the only copy of the evidence.
 [ ! -e "$TARGET" ] || fail "refusing to overwrite an existing file: $TARGET"
 
-mkdir -p "$TARGET_DIR"
+# The restore root belongs to the service user, but it sits under
+# /var/lib, which the service user cannot create in: the install step
+# makes it, the way it makes the backup root. When it is missing, the
+# message says exactly how to make it rather than failing on a
+# permission error nobody can act on.
+if [ ! -d "$RESTORE_ROOT" ]; then
+    mkdir -p "$RESTORE_ROOT" 2>/dev/null ||
+        fail "the restore root $RESTORE_ROOT does not exist and could not be created; an administrator must run: install -d -m 0700 -o dg -g dg $RESTORE_ROOT"
+fi
+chmod 0700 "$RESTORE_ROOT" 2>/dev/null || true
+
+mkdir -p "$TARGET_DIR" || fail "could not create the restore directory: $TARGET_DIR"
 chmod 0700 "$TARGET_DIR"
 
 RESTORED_AT="$(date -u +%s)"
