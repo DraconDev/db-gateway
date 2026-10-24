@@ -106,11 +106,13 @@ impl QueryLog {
             if shape.is_empty() {
                 continue;
             }
-            let entry = per_database.entry(shape.clone()).or_insert_with(|| QueryShape {
-                shape: shape.clone(),
-                first_seen: now,
-                ..Default::default()
-            });
+            let entry = per_database
+                .entry(shape.clone())
+                .or_insert_with(|| QueryShape {
+                    shape: shape.clone(),
+                    first_seen: now,
+                    ..Default::default()
+                });
             entry.count += 1;
             entry.rows_read += run.rows_read;
             entry.rows_written += run.rows_written;
@@ -391,8 +393,14 @@ mod tests {
             normalise("SELECT \"email\" FROM users"),
             "SELECT \"email\" FROM users"
         );
-        assert_eq!(normalise("SELECT `email` FROM users"), "SELECT `email` FROM users");
-        assert_eq!(normalise("SELECT [email] FROM users"), "SELECT [email] FROM users");
+        assert_eq!(
+            normalise("SELECT `email` FROM users"),
+            "SELECT `email` FROM users"
+        );
+        assert_eq!(
+            normalise("SELECT [email] FROM users"),
+            "SELECT [email] FROM users"
+        );
         // A digit inside an identifier is part of the name.
         assert_eq!(normalise("SELECT a1 FROM t2"), "SELECT a1 FROM t2");
     }

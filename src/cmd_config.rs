@@ -128,8 +128,7 @@ pub fn list(path: &Path, json: bool) -> Result<(), dg::ServerError> {
             .map_err(dg::ServerError::Application);
     }
     if config.contexts.is_empty() {
-        return print_line("no contexts configured")
-            .map_err(dg::ServerError::Application);
+        return print_line("no contexts configured").map_err(dg::ServerError::Application);
     }
     let mut table = dg::render::Table::new();
     table.column("context", dg::render::Align::Left);
@@ -196,10 +195,7 @@ pub fn show(path: &Path, name: &str, json: bool) -> Result<(), dg::ServerError> 
             },
         ),
     ];
-    let outcome = dg::render::Outcome::with_facts(
-        format!("context {}", name),
-        facts,
-    );
+    let outcome = dg::render::Outcome::with_facts(format!("context {}", name), facts);
     let theme = dg::render::Theme::for_stream(std::io::stdout().is_terminal());
     let mut out = std::io::stdout().lock();
     outcome
@@ -224,7 +220,11 @@ pub fn set(
     validate_server(server).map_err(dg::ServerError::Application)?;
     let mut config = load(path).map_err(dg::ServerError::Application)?;
     let key_file = expand_home(key_file);
-    let updated = match config.contexts.iter_mut().find(|context| context.name == name) {
+    let updated = match config
+        .contexts
+        .iter_mut()
+        .find(|context| context.name == name)
+    {
         Some(context) => {
             context.server = server.to_string();
             context.key_file = key_file.clone();
@@ -262,7 +262,10 @@ pub fn set(
         },
         vec![
             ("server".to_string(), server.to_string()),
-            ("key file".to_string(), key_file.to_string_lossy().into_owned()),
+            (
+                "key file".to_string(),
+                key_file.to_string_lossy().into_owned(),
+            ),
             (
                 "default".to_string(),
                 if document["default"].as_bool() == Some(true) {
@@ -417,7 +420,10 @@ pub fn resolve_with(
         context.server.clone()
     } else if let Some(server) = server_env {
         server.to_string()
-    } else if let Some(context) = config.default_context().map_err(dg::ServerError::Application)? {
+    } else if let Some(context) = config
+        .default_context()
+        .map_err(dg::ServerError::Application)?
+    {
         context.server.clone()
     } else {
         DEFAULT_SERVER.to_string()
@@ -429,7 +435,10 @@ pub fn resolve_with(
         Some(context.key_file.clone())
     } else if let Some(key_file) = key_file_env {
         Some(key_file.to_path_buf())
-    } else if let Some(context) = config.default_context().map_err(dg::ServerError::Application)? {
+    } else if let Some(context) = config
+        .default_context()
+        .map_err(dg::ServerError::Application)?
+    {
         Some(context.key_file.clone())
     } else {
         // The built-in default is the credential file the CLI already
@@ -512,7 +521,10 @@ fn store(path: &Path, config: &Config) -> Result<(), Error> {
             Error::with_message(
                 500,
                 "config_write_failed",
-                format!("cannot stage a config file in {}: {error}", parent.display()),
+                format!(
+                    "cannot stage a config file in {}: {error}",
+                    parent.display()
+                ),
             )
         })?;
     staged.write_all(text.as_bytes()).map_err(|error| {
@@ -770,9 +782,9 @@ fn key(text: &str, line_number: usize) -> Result<String, Error> {
 /// Whether a key can be written without quotes.
 fn bare_key(text: &str) -> bool {
     !text.is_empty()
-        && text
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || character == '_' || character == '-')
+        && text.chars().all(|character| {
+            character.is_ascii_alphanumeric() || character == '_' || character == '-'
+        })
 }
 
 /// Read a TOML basic string: `"..."` with the escapes TOML defines.
@@ -818,15 +830,12 @@ fn unescape(text: &str, line_number: usize) -> Result<String, Error> {
                 }
                 let code = u32::from_str_radix(&digits, 16)
                     .map_err(|_| invalid(line_number, "malformed escape"))?;
-                let character = char::from_u32(code)
-                    .ok_or_else(|| invalid(line_number, "malformed escape"))?;
+                let character =
+                    char::from_u32(code).ok_or_else(|| invalid(line_number, "malformed escape"))?;
                 out.push(character);
             }
             other => {
-                return Err(invalid(
-                    line_number,
-                    format!("unknown escape '\\{other}'"),
-                ));
+                return Err(invalid(line_number, format!("unknown escape '\\{other}'")));
             }
         }
     }

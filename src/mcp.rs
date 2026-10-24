@@ -165,13 +165,9 @@ impl std::fmt::Debug for Gateway {
 /// `~/.config/dg/key` -- and read with the same reader the CLI uses, so
 /// the file permissions are checked the same way.
 pub async fn serve(server: &str, key_path: Option<&Path>) -> Result<()> {
-    let key = client::read_key(key_path.ok_or_else(|| {
-        Error::new(
-            400,
-            "missing_credential",
-            "--key-file required",
-        )
-    })?)?;
+    let key = client::read_key(
+        key_path.ok_or_else(|| Error::new(400, "missing_credential", "--key-file required"))?,
+    )?;
     let gateway = Gateway::new(server, &key);
     serve_loop(std::io::stdin().lock(), std::io::stdout().lock(), &gateway).await
 }
@@ -368,10 +364,7 @@ async fn dispatch(gateway: &Gateway, message: Value) -> Option<Value> {
         return None;
     };
     match method {
-        "initialize" => Some(result_response(
-            id,
-            initialize_result(object.get("params")),
-        )),
+        "initialize" => Some(result_response(id, initialize_result(object.get("params")))),
         "ping" => Some(result_response(id, json!({}))),
         "tools/list" => Some(result_response(id, json!({"tools": catalogue()}))),
         "tools/call" => Some(call_response(gateway, id, object.get("params")).await),
@@ -626,7 +619,10 @@ async fn call_tool(
             Ok(bound(api_value(response)?))
         }
         "dg_list" => {
-            let response = gateway.get("/v1/databases").await.map_err(ToolFailure::from)?;
+            let response = gateway
+                .get("/v1/databases")
+                .await
+                .map_err(ToolFailure::from)?;
             Ok(bound(api_value(response)?))
         }
         "dg_info" => {
@@ -639,7 +635,10 @@ async fn call_tool(
         }
         "dg_inspect" => Ok(bound(inspect(gateway, &database_name(arguments)?).await)),
         "dg_backups" => {
-            let response = gateway.get("/v1/backups").await.map_err(ToolFailure::from)?;
+            let response = gateway
+                .get("/v1/backups")
+                .await
+                .map_err(ToolFailure::from)?;
             Ok(bound(api_value(response)?))
         }
         "dg_query" => query(gateway, arguments).await,
@@ -691,10 +690,7 @@ fn database_name(arguments: &Value) -> std::result::Result<String, ToolFailure> 
 /// written here: `execution::is_read_only` is the same classification
 /// the CLI and the gateway use, so this surface and the rest of the
 /// tool cannot disagree about what counts as a write.
-async fn query(
-    gateway: &Gateway,
-    arguments: &Value,
-) -> std::result::Result<Value, ToolFailure> {
+async fn query(gateway: &Gateway, arguments: &Value) -> std::result::Result<Value, ToolFailure> {
     let database = database_name(arguments)?;
     let sql = arguments
         .get("sql")
@@ -797,7 +793,12 @@ async fn inspect(gateway: &Gateway, database: &str) -> Value {
     };
     let mut payload = json!({"database": info});
     let mut unavailable: Vec<&str> = Vec::new();
-    match gateway.get("/v1/status").await.map_err(ToolFailure::from).and_then(api_value) {
+    match gateway
+        .get("/v1/status")
+        .await
+        .map_err(ToolFailure::from)
+        .and_then(api_value)
+    {
         Ok(status) => {
             payload["activity"] = status
                 .get("databases")
@@ -881,9 +882,8 @@ fn bound(payload: Value) -> Value {
     }
     if dropped > 0 {
         value["truncated"] = json!(true);
-        value["truncated_note"] = json!(
-            "rows were dropped to keep the result within the size limit"
-        );
+        value["truncated_note"] =
+            json!("rows were dropped to keep the result within the size limit");
     }
     if serialized_len(&value) > MAX_RESULT_BYTES {
         // Still too big: the shape itself is the problem, and the reader
@@ -926,7 +926,9 @@ fn shorten_strings(value: &mut Value, depth: usize) {
 
 /// The size of a value once serialized.
 fn serialized_len(value: &Value) -> usize {
-    serde_json::to_vec(value).map(|bytes| bytes.len()).unwrap_or(0)
+    serde_json::to_vec(value)
+        .map(|bytes| bytes.len())
+        .unwrap_or(0)
 }
 
 /// Replace anything that looks like the credential with a marker.

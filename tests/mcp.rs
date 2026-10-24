@@ -83,12 +83,17 @@ async fn the_handshake_lists_tools_and_refuses_an_unknown_one() {
         initialize["result"]["capabilities"]["tools"].is_object(),
         "the server must advertise the tools capability: {initialize}"
     );
-    assert_eq!(initialize["result"]["serverInfo"]["name"].as_str(), Some("dg"));
+    assert_eq!(
+        initialize["result"]["serverInfo"]["name"].as_str(),
+        Some("dg")
+    );
 
     let tools = &answers[1];
     assert_eq!(tools["id"].as_i64(), Some(2));
     assert!(
-        tools["result"]["tools"].as_array().is_some_and(|list| !list.is_empty()),
+        tools["result"]["tools"]
+            .as_array()
+            .is_some_and(|list| !list.is_empty()),
         "the catalogue must not be empty: {tools}"
     );
 
@@ -105,7 +110,9 @@ async fn the_handshake_lists_tools_and_refuses_an_unknown_one() {
         "the failure must carry a stable code: {unknown}"
     );
     assert!(
-        unknown["error"]["message"].as_str().is_some_and(|m| !m.is_empty()),
+        unknown["error"]["message"]
+            .as_str()
+            .is_some_and(|m| !m.is_empty()),
         "the failure must carry a human message: {unknown}"
     );
 }

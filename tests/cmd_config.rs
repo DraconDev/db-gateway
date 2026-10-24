@@ -38,15 +38,8 @@ fn set_list_and_show_round_trip() {
     // so, not look like a working one.
     let missing = dir.path().join("staging.key");
 
-    cmd_config::set(
-        &config,
-        "micro2",
-        "http://127.0.0.1:7432",
-        &key,
-        true,
-        true,
-    )
-    .expect("the context is saved");
+    cmd_config::set(&config, "micro2", "http://127.0.0.1:7432", &key, true, true)
+        .expect("the context is saved");
     cmd_config::set(
         &config,
         "my ctx",
@@ -58,7 +51,10 @@ fn set_list_and_show_round_trip() {
     .expect("the second context is saved");
 
     let listed = cmd_config::contexts(&config).expect("the config is read");
-    assert_eq!(listed["default"], "micro2", "the marked context is the default");
+    assert_eq!(
+        listed["default"], "micro2",
+        "the marked context is the default"
+    );
     let contexts = listed["contexts"]
         .as_array()
         .expect("the contexts are a list");
@@ -103,15 +99,8 @@ fn remove_deletes_only_that_context() {
     let key = write_key(dir.path(), "micro2.key");
     let other = write_key(dir.path(), "staging.key");
 
-    cmd_config::set(
-        &config,
-        "micro2",
-        "http://127.0.0.1:7432",
-        &key,
-        true,
-        true,
-    )
-    .expect("the context is saved");
+    cmd_config::set(&config, "micro2", "http://127.0.0.1:7432", &key, true, true)
+        .expect("the context is saved");
     cmd_config::set(
         &config,
         "staging",
@@ -142,15 +131,8 @@ fn removing_the_default_context_clears_the_default() {
     let config = config_file(dir.path());
     let key = write_key(dir.path(), "micro2.key");
 
-    cmd_config::set(
-        &config,
-        "micro2",
-        "http://127.0.0.1:7432",
-        &key,
-        true,
-        true,
-    )
-    .expect("the context is saved");
+    cmd_config::set(&config, "micro2", "http://127.0.0.1:7432", &key, true, true)
+        .expect("the context is saved");
     cmd_config::remove(&config, "micro2", true).expect("the context is removed");
 
     let listed = cmd_config::contexts(&config).expect("the config is read");
@@ -182,7 +164,11 @@ fn the_config_file_is_private_and_never_widened() {
         .mode()
         & 0o777;
     assert_eq!(mode, 0o600, "the config file is 0600: {mode:o}");
-    assert_eq!(mode & 0o077, 0, "it is not readable by anyone else: {mode:o}");
+    assert_eq!(
+        mode & 0o077,
+        0,
+        "it is not readable by anyone else: {mode:o}"
+    );
 
     // A file that was too open is tightened by a rewrite, never widened.
     std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o644))
@@ -232,15 +218,8 @@ fn resolve_follows_the_documented_order() {
     let dir = tempfile::tempdir().expect("a temp dir");
     let config = config_file(dir.path());
     let key = write_key(dir.path(), "ctx.key");
-    cmd_config::set(
-        &config,
-        "micro2",
-        "http://context:7432",
-        &key,
-        true,
-        true,
-    )
-    .expect("the context is saved");
+    cmd_config::set(&config, "micro2", "http://context:7432", &key, true, true)
+        .expect("the context is saved");
 
     // The flag beats the context.
     let resolved = cmd_config::resolve_with(
@@ -282,15 +261,15 @@ fn resolve_follows_the_documented_order() {
     assert_eq!(resolved.key_file, Some(PathBuf::from("/env.key")));
 
     // The default context beats the built-in defaults.
-    let resolved =
-        cmd_config::resolve_with(&config, None, None, None, None, None).expect("the default resolves");
+    let resolved = cmd_config::resolve_with(&config, None, None, None, None, None)
+        .expect("the default resolves");
     assert_eq!(resolved.server, "http://context:7432");
     assert_eq!(resolved.key_file, Some(key.clone()));
 
     // With no context and no default, the built-in defaults answer.
     let empty = dir.path().join("empty.toml");
-    let resolved =
-        cmd_config::resolve_with(&empty, None, None, None, None, None).expect("the defaults resolve");
+    let resolved = cmd_config::resolve_with(&empty, None, None, None, None, None)
+        .expect("the defaults resolve");
     assert_eq!(resolved.server, "http://127.0.0.1:7432");
     assert_eq!(resolved.key_file, dg::client::default_key_file());
 

@@ -936,10 +936,7 @@ fn record_statements(
             }
         })
         .collect();
-    store
-        .metrics
-        .queries
-        .record(name, &principal.name, &runs);
+    store.metrics.queries.record(name, &principal.name, &runs);
 }
 
 /// One statement shape, as the API reports it.

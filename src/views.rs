@@ -1729,3 +1729,62 @@ mod tests {
         assert!(locations(&serde_json::json!({"version": "0.1.0"})).is_none());
     }
 }
+
+/// The statement shapes the service has run, and what each one cost.
+///
+/// This is the answer to "which query is heavy", and it is the one
+/// thing a hosted provider structurally cannot give: the log holds the
+/// SQL every credential ran, and it never leaves the box.
+///
+/// The shape is the SQL with its literals replaced, so the row names a
+/// statement without quoting the data it carried.
+pub fn queries(payload: &Value) -> Vec<Section> {
+    let mut sections = Vec::new();
+    let databases = payload["databases"].as_array().cloned().unwrap_or_default();
+    if databases.is_empty() {
+        sections.push(unreported(
+            "queries",
+            "this service has run no statements it has recorded",
+        ));
+        return sections;
+    }
+    for entry in &databases {
+        let name = entry["database"].as_str().unwrap_or("unknown");
+        let shapes = entry["shapes"].as_array().cloned().unwrap_or_default();
+        let mut table = Table::new();
+        table
+            .column("statement", Align::Left)
+            .column("runs", Align::Right)
+            .column("rows read", Align::Right)
+            .column("rows written", Align::Right)
+            .column("total time", Align::Right)
+            .column("slowest", Align::Right)
+            .column("by", Align::Left);
+        for shape in &shapes {
+            let principals = shape["principals"]
+                .as_object()
+                .map(|map| {
+                    let mut names: Vec<String> = map
+                        .iter()
+                        .map(|(name, count)| format!("{name} ({count})"))
+                        .collect();
+                    names.sort();
+                    names.join(", ")
+                })
+                .unwrap_or_default();
+            table.row(vec![
+                Cell::text(shape["shape"].as_str().unwrap_or("")),
+                Cell::text(human_count(shape["count"].as_u64().unwrap_or(0), "")),
+                Cell::text(human_count(shape["rows_read"].as_u64().unwrap_or(0), "")),
+                Cell::text(human_count(shape["rows_written"].as_u64().unwrap_or(0), "")),
+                Cell::text(human_micros(shape["total_micros"].as_u64().unwrap_or(0))),
+                Cell::text(human_micros(shape["max_micros"].as_u64().unwrap_or(0))),
+                Cell::text(principals),
+            ]);
+        }
+        let mut section = Section::new(name.to_string());
+        section.table(table);
+        sections.push(section);
+    }
+    sections
+}
