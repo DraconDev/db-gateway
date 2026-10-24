@@ -175,7 +175,7 @@ async fn status(
     Extension(deployment): Extension<Deployment>,
     headers: HeaderMap,
 ) -> Result<Json<Value>> {
-    work_read(store, headers, |s, p| {
+    work_read(store, headers, move |s, p| {
         p.owner()?;
         let m = s.metrics.snapshot();
         let usage = s.metrics.usage_snapshot();
