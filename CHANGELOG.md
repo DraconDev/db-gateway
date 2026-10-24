@@ -129,6 +129,29 @@ fixes; 1.0.0 waits for production acceptance.
   view is the operator's surface. The published TypeScript client
   (`client/`) and the HTTP API are untouched.
 
+### Changed
+
+- **The freshness reference is no longer labelled as an age limit.** The
+  backups tab and `dg backup status` called it "stale after", which read
+  as a threshold on the age of a set — and then showed sets older than it
+  marked `fresh`, because freshness is decided by whether a committed
+  change is covered by a verified copy, not by wall time (observability
+  contract §2). It is now the **freshness objective**, the contract's own
+  word for it: the reference that decides when an unrepresented change
+  deserves an operator's attention, not an age at which a set expires.
+  The API field is unchanged.
+- **micro2 now runs the 0.2.0 line.** The gateway on micro2 was upgraded
+  from 0.1.0 to this tree's 0.2.0 on 2026-10-24 under
+  `docs/upgrade-rollback.md` (per-database export snapshot plus a
+  byte-exact copy of the stopped data directory, previous binary kept as
+  `dg.prev-0.1.0`), and the host's `litestream-sync.sh` and
+  `bucket-restore-drill.sh` were replaced with the versions that publish
+  the replica status and the drill verdict. The upgrade was verified by
+  comparing the user-table content of every database before and after:
+  identical. The deployed binary still reports `0.2.0`, which is now
+  behind the `v0.2.0` tag; the next version bump is what restores
+  "a deployed bundle traces to exactly one tagged state".
+
 ### Fixed
 
 - **The backups tab shows each database's freshness again.** The shared view
