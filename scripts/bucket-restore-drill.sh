@@ -112,6 +112,7 @@ import json, sys
 for n in json.load(sys.stdin).get("databases", []): print(n)
 ' 2>/dev/null) || fail "could not parse 'dg list' JSON"
 [ "${#LIVE[@]}" -gt 0 ] || fail "dg list returned no databases"
+DRILL_DATABASES="${#LIVE[@]}"
 
 # tables_of <db> -- live user tables via the gateway (never _dg_*).
 tables_of() {
@@ -151,9 +152,10 @@ restore_one() { # restore_one <name>
 }
 
 FAILED=0
+FAILED_NAMES=()
 for name in "${LIVE[@]}"; do
     want="$(live_counts "$name")" || fail "could not read live counts for $name"
-    restore_one "$name" || { log "db=$name state=restore-failed"; sed 's/^/  /' "$SCRATCH/restore-$name.log" >&2; FAILED=1; continue; }
+    restore_one "$name" || { log "db=$name state=restore-failed"; sed 's/^/  /' "$SCRATCH/restore-$name.log" >&2; FAILED=1; FAILED_NAMES+=("$name"); continue; }
     got="$(restored_check "$SCRATCH/$name.sqlite")"
     if [ "$got" != "$want" ]; then
         # Maybe the live counts moved during the restore. Re-read; only
@@ -161,7 +163,7 @@ for name in "${LIVE[@]}"; do
         sleep 10
         want2="$(live_counts "$name")" || fail "could not re-read live counts for $name"
         if [ "$want2" != "$want" ]; then
-            restore_one "$name" || { log "db=$name state=restore-failed-on-retry"; FAILED=1; continue; }
+            restore_one "$name" || { log "db=$name state=restore-failed-on-retry"; FAILED=1; FAILED_NAMES+=("$name"); continue; }
             got="$(restored_check "$SCRATCH/$name.sqlite")"
             want="$want2"
         fi
@@ -171,6 +173,7 @@ for name in "${LIVE[@]}"; do
     else
         echo "bucket-restore-drill db=$name state=MISMATCH live=[$want] restored=[$got]"
         FAILED=1
+        FAILED_NAMES+=("$name")
     fi
 done
 
@@ -205,5 +208,12 @@ else
     FAILED=1
 fi
 
-[ "$FAILED" = "0" ] || fail "one or more restores did not verify against the live gateway"
-echo "[$SELF] PASS: ${#LIVE[@]} database(s) + registry restored from replicas and verified"
+if [ "$FAILED" = "0" ]; then
+    DRILL_STATE="ok"
+    DRILL_DETAIL="restored from the replicas and verified against the live gateway"
+    echo "[$SELF] PASS: ${#LIVE[@]} database(s) + registry restored from replicas and verified"
+else
+    DRILL_STATE="failed"
+    DRILL_DETAIL="not verified: ${FAILED_NAMES[*]:-unknown}"
+    fail "one or more restores did not verify against the live gateway"
+fi
