@@ -245,8 +245,8 @@ fn every_tab_is_named_on_screen_and_holds_its_own_answer() {
         "the backups tab does not show the per-database freshness table:\n{backups}"
     );
     // The states themselves, on the row of the database they belong to: the
-    // command bar's "refresh" and the fields' "stale after" are both on
-    // every screen, so the state has to be checked against its own row.
+    // command bar's "refresh" and the fields' "freshness objective" are both
+    // on every screen, so the state has to be checked against its own row.
     for (database, state) in [("demo", "fresh"), ("other", "stale")] {
         assert!(
             backups
