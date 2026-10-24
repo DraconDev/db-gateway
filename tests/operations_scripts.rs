@@ -709,3 +709,105 @@ fn the_published_replica_status_never_carries_a_credential() {
         "the rendered config inlined the access key: {rendered}"
     );
 }
+
+#[test]
+fn the_restore_drill_publishes_whether_the_copies_restored() {
+    // A backup that was never restored is an assumption. The drill is what
+    // turns it into evidence, so its result has to be published where the
+    // gateway can report it -- and published whether it passed or failed.
+    let dir = tempdir();
+    let data = dir.path().join("data");
+    let backups = dir.path().join("backups");
+    fs::create_dir_all(&data).unwrap();
+    fs::create_dir_all(&backups).unwrap();
+    // The live database the drill restores and compares against.
+    {
+        let db = rusqlite::Connection::open(data.join("alpha.sqlite")).unwrap();
+        db.execute_batch(
+            "CREATE TABLE t (id INTEGER PRIMARY KEY); INSERT INTO t VALUES (1),(2),(3);",
+        )
+        .unwrap();
+    }
+    // The registry the drill restores too: it must name the live
+    // databases and carry the credentials, or the copies are files that
+    // no key can open.
+    {
+        let registry = rusqlite::Connection::open(data.join("metadata.sqlite")).unwrap();
+        registry
+            .execute_batch(
+                "CREATE TABLE databases (name TEXT);\
+                 CREATE TABLE credentials (id TEXT);\
+                 INSERT INTO databases VALUES ('alpha');\
+                 INSERT INTO credentials VALUES ('owner');",
+            )
+            .unwrap();
+    }
+    // A litestream that restores by copying: the drill's bar is the
+    // comparison against the live gateway, not the tool.
+    let litestream = dir.path().join("litestream");
+    fs::write(
+        &litestream,
+        "#!/bin/sh\n\
+         out=\"\"; src=\"\"\n\
+         while [ $# -gt 0 ]; do\n\
+           case \"$1\" in -config) shift 2;; -o) out=\"$2\"; shift 2;; *) src=\"$1\"; shift;; esac\n\
+         done\n\
+         cp \"$src\" \"$out\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&litestream, fs::Permissions::from_mode(0o755)).unwrap();
+    // A gateway that answers the list and the counts the drill compares.
+    let dg = dir.path().join("dg");
+    fs::write(
+        &dg,
+        "#!/bin/sh\n\
+         while [ $# -gt 0 ]; do\n\
+           case \"$1\" in --server) shift 2;; --key-file) shift 2;; *) break;; esac\n\
+         done\n\
+         cmd=\"$1\"; shift\n\
+         case \"$cmd\" in\n\
+           list) echo '{\"databases\":[\"alpha\"]}';;\n\
+           query) case \"$3\" in *sqlite_master*) echo '{\"rows\":[[\"t\"]]}';; *) echo '{\"rows\":[[3]]}';; esac;;\n\
+           *) echo '{}';;\n\
+         esac\n",
+    )
+    .unwrap();
+    fs::set_permissions(&dg, fs::Permissions::from_mode(0o755)).unwrap();
+    let config = dir.path().join("litestream.yml");
+    fs::write(&config, "dbs: []\n").unwrap();
+
+    let output = Command::new("bash")
+        .arg("scripts/bucket-restore-drill.sh")
+        .env("DG_BIN", &dg)
+        .env("DG_KEY_FILE", dir.path().join("owner.key"))
+        .env("DG_DATA_DIR", &data)
+        .env("LITESTREAM_BIN", &litestream)
+        .env("LITESTREAM_CONFIG", &config)
+        .env("LITESTREAM_ENV_FILE", dir.path().join("no-such.env"))
+        .env("DG_BACKUP_ROOT", &backups)
+        .env("DG_DRILL_SCRATCH_PARENT", dir.path())
+        .output()
+        .expect("run the restore drill");
+    assert!(
+        output.status.success(),
+        "the drill failed: {}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let published = backups.join("restore-drill.json");
+    assert!(
+        published.exists(),
+        "the drill published no result: {}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let record: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&published).unwrap()).unwrap();
+    assert_eq!(record["outcome"], json!("ok"), "the drill did not pass: {record}");
+    assert_eq!(record["databases"], json!(1), "the drill checked no database: {record}");
+    assert!(
+        record["drilled_at"].as_u64().unwrap_or(0) > 0,
+        "the published result has no timestamp: {record}"
+    );
+}
