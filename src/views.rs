@@ -834,29 +834,29 @@ pub fn restore(backups: &Value) -> Vec<Section> {
             sections.push(section);
 
             if let Some(databases) = points["databases"].as_object() {
+                let mut table = Table::new();
+                table
+                    .column("database", Align::Left)
+                    .column("window", Align::Left)
+                    .column("files", Align::Right);
                 for (name, window) in databases {
-                    let mut row = Section::new(name.clone());
-                    row.field(
-                        "window",
-                        Cell::text(match (window["oldest"].as_str(), window["newest"].as_str()) {
-                            (Some(oldest), Some(newest)) => format!(
-                                "{} to {}",
-                                human_instant(oldest),
-                                human_instant(newest)
-                            ),
-                            _ => "unknown".to_string(),
-                        }),
-                    );
-                    row.field(
-                        "files",
-                        Cell::text(format!(
-                            "{} ({})",
-                            window["files"].as_u64().unwrap_or(0),
-                            human_bytes(window["bytes"].as_u64().unwrap_or(0))
-                        )),
-                    );
-                    sections.push(row);
+                    let span = match (window["oldest"].as_str(), window["newest"].as_str()) {
+                        (Some(oldest), Some(newest)) => format!(
+                            "{} to {}",
+                            human_instant(oldest),
+                            human_instant(newest)
+                        ),
+                        _ => "unknown".to_string(),
+                    };
+                    table.row(vec![
+                        Cell::text(name.clone()),
+                        Cell::text(span),
+                        Cell::text(window["files"].as_u64().unwrap_or(0).to_string()),
+                    ]);
                 }
+                let mut section = Section::new("replicated databases");
+                section.table(table);
+                sections.push(section);
             }
         }
         None => sections.push(unreported(
