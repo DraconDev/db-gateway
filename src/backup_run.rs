@@ -51,6 +51,21 @@
 //! `<backup_root>/<timestamp>`. A rename is atomic, so a reader never
 //! sees a half-written set, and the set's name appears only once every
 //! byte of it is on disk and verified.
+//!
+//! ## What a set is a snapshot OF
+//!
+//! Each database in the set is a consistent snapshot of THAT database,
+//! taken with SQLite's online backup API, which is what makes the file
+//! a valid database rather than a torn copy. The databases in one set
+//! are not at the same instant: the producer's sets are not either,
+//! because it exports each database separately too. A set is a set of
+//! per-database snapshots, and the manifest records when each was
+//! taken.
+//!
+//! While a run is in flight it holds ONE of the service's write
+//! permits, so it counts against the write capacity the way any other
+//! writer does; the other permits stay free and reads keep flowing on
+//! the separate read lane.
 
 use std::fs::{File, OpenOptions};
 use std::io::Read;
@@ -212,8 +227,7 @@ pub fn run_with_fault(
 
     let mut staging = Staging::create(&root)?;
     let started_clock = Instant::now();
-    let (databases, registry) = capture(store, &staging, &names, fault)?;
-    let registry_captured_at = unix_secs(SystemTime::now());
+    let (databases, registry, registry_captured_at) = capture(store, &staging, &names, fault)?;
     let completed_at = unix_secs(SystemTime::now());
     let bytes = databases.iter().map(|database| database.size).sum::<u64>() + registry.size;
 
@@ -241,8 +255,10 @@ pub fn run_with_fault(
 
     // Durability: every staged byte is flushed before the set is
     // published, and the backup root is flushed after the rename, so a
-    // crash cannot surface a published set with unwritten bytes.
-    sync_directory(&staging.path)?;
+    // crash cannot surface a published set with unwritten bytes. The
+    // database copies are written by SQLite, so they are flushed here
+    // rather than by the copy that made them.
+    sync_staging(&staging)?;
 
     let destination = root.join(&timestamp);
     if std::fs::symlink_metadata(&destination).is_ok() {
@@ -328,7 +344,7 @@ fn capture(
     staging: &Staging,
     names: &[String],
     fault: FaultPoint,
-) -> Result<(Vec<BackupRunDatabase>, BackupRunRegistry)> {
+) -> Result<(Vec<BackupRunDatabase>, BackupRunRegistry, u64)> {
     let mut databases = Vec::with_capacity(names.len());
     for (index, name) in names.iter().enumerate() {
         let file = format!("{name}.sqlite");
@@ -377,6 +393,9 @@ fn capture(
     // a valid backup.
     let registry_path = staging.path.join(REGISTRY_FILE);
     copy_registry(store, &registry_path)?;
+    // The moment the registry copy was taken, taken the way the producer
+    // takes it: right after the copy, not at the end of the run.
+    let registry_captured_at = unix_secs(SystemTime::now());
     let registry = BackupRunRegistry {
         file: REGISTRY_FILE.to_string(),
         size: file_size(&registry_path)?,
@@ -389,7 +408,7 @@ fn capture(
             "the run was failed on purpose after the registry was staged",
         ));
     }
-    Ok((databases, registry))
+    Ok((databases, registry, registry_captured_at))
 }
 
 /// A database that could not be captured, said in the operator's terms.
@@ -714,6 +733,27 @@ fn sync_directory(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Flush every file in the staging directory, and the directory itself.
+///
+/// The producer does the same walk before it publishes: a set whose
+/// bytes are not on disk is a set that does not exist.
+fn sync_staging(staging: &Staging) -> Result<()> {
+    let entries = std::fs::read_dir(&staging.path).map_err(|_| Error::internal())?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .map_err(|_| Error::internal())?;
+        file.sync_all().map_err(|_| Error::internal())?;
+    }
+    sync_directory(&staging.path)
+}
+
 /// Seconds since the Unix epoch.
 fn unix_secs(stamp: SystemTime) -> u64 {
     stamp
@@ -780,14 +820,19 @@ fn credential(headers: &HeaderMap) -> Result<String> {
 /// Publish one backup set.
 async fn run_route(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<Json<Value>> {
     let credential = credential(&headers)?;
-    // The run holds the service-wide WRITE lane for its whole duration.
-    // The set spans every database, so a per-database lane cannot
-    // express it: taking every database's lane in turn would risk a
-    // deadlock against concurrent multi-database work and would not be
-    // simpler. The one lane that covers the whole deployment is the
-    // write lane, and holding it makes the set a coherent point in time
-    // -- no write can commit while the copies are taken. Reads keep
-    // flowing on the separate read lane.
+    // The run holds ONE of the service's write permits for its whole
+    // duration. The set spans every database, so a per-database lane
+    // cannot express it: taking every database's lane in turn would
+    // risk a deadlock against concurrent multi-database work and would
+    // not be simpler. One permit of the service-wide lane is what
+    // covers the whole deployment, and it makes the run count against
+    // the write capacity the way any other writer does. The other
+    // permits stay free, and reads keep flowing on the read lane.
+    //
+    // What the run does NOT do is freeze the service: each database's
+    // copy is a consistent snapshot of that database, and the
+    // databases in one set are not at the same instant -- exactly as in
+    // the producer's sets, which export each database separately.
     let metrics = store.clone();
     metrics.metrics.record_request();
     let permit =

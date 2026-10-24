@@ -268,14 +268,17 @@ async fn a_run_publishes_a_set_the_producer_would_accept() {
         manifest["started_at"].as_u64().unwrap()
             <= manifest["registry_captured_at"].as_u64().unwrap()
     );
-    // `created` is the timestamp rendered the producer's way.
-    assert_eq!(
-        manifest["created"],
-        "2026-10-24T19:55:00Z".replace(
-            "2026-10-24T19:55:00Z",
-            manifest["created"].as_str().unwrap()
-        )
+    // `created` is the set's name rendered the producer's way.
+    let expected_created = format!(
+        "{}-{}-{}T{}:{}:{}Z",
+        &set[0..4],
+        &set[4..6],
+        &set[6..8],
+        &set[9..11],
+        &set[11..13],
+        &set[13..15]
     );
+    assert_eq!(manifest["created"], expected_created);
     let created = manifest["created"].as_str().unwrap();
     assert_eq!(created.len(), 20);
     assert_eq!(&created[4..5], "-");
