@@ -165,6 +165,41 @@ fn already_orphaned(_original_parent: i32) -> bool {
     false
 }
 
+/// The machine's hostname, when the platform can report one.
+///
+/// The gateway is often reached through a tunnel from the operator's
+/// machine, so "which host is this actually running on" cannot be worked
+/// out by the client: the client sees a loopback port and a forwarded
+/// connection, and the machine on the other end is the one that holds the
+/// data. The gateway is therefore the only place that can answer it.
+///
+/// `None` when the platform does not say -- an unknown host is reported as
+/// unknown, never invented.
+#[cfg(unix)]
+fn hostname() -> Option<String> {
+    let mut buffer = [0u8; 256];
+    // SAFETY: `gethostname` writes at most `buffer.len()` bytes into the
+    // buffer it is given. It cannot read or write any other memory, and
+    // the buffer is a live local array of exactly that size.
+    let result = unsafe {
+        libc::gethostname(buffer.as_mut_ptr().cast::<libc::c_char>(), buffer.len())
+    };
+    if result != 0 {
+        return None;
+    }
+    // The name is NUL-terminated when it fits; a name that fills the
+    // buffer exactly may not be, so the terminator is searched for rather
+    // than assumed.
+    let end = buffer.iter().position(|byte| *byte == 0).unwrap_or(buffer.len());
+    let name = String::from_utf8_lossy(&buffer[..end]).trim().to_string();
+    (!name.is_empty()).then_some(name)
+}
+
+#[cfg(not(unix))]
+fn hostname() -> Option<String> {
+    None
+}
+
 pub async fn serve(
     listen: SocketAddr,
     data_dir: std::path::PathBuf,
@@ -207,9 +242,18 @@ pub async fn serve(
     .map_err(|_| ServerError::Application(error::Error::internal()))?
     .map_err(ServerError::Application)?;
     let store = std::sync::Arc::new(store);
-    let app = router().merge(api::router(store.clone()));
+    // Bind before the router is built. The address a listener actually gets
+    // is not always the one that was asked for -- `--listen 127.0.0.1:0`
+    // binds an ephemeral port -- and the address the gateway reports has to
+    // be the one it is really reachable on, not the one that was requested.
     let listener = TcpListener::bind(listen).await?;
-    tracing::info!(address = %listener.local_addr()?, "liveness server listening");
+    let bound = listener.local_addr()?;
+    let deployment = api::Deployment {
+        listen: bound,
+        host: hostname(),
+    };
+    let app = router().merge(api::router(store.clone(), deployment));
+    tracing::info!(address = %bound, "liveness server listening");
     let server = axum::serve(listener, app).with_graceful_shutdown(shutdown_signal());
     if backup_notify.enabled() {
         // Detached on purpose: the notifier runs until the process ends, and
