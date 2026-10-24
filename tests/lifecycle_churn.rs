@@ -287,7 +287,11 @@ fn three_hundred_ops_keep_registry_and_files_exact() {
     for entry in std::fs::read_dir(server.dir.path()).unwrap() {
         let name = entry.unwrap().file_name().to_string_lossy().into_owned();
         assert!(!name.starts_with(".lifecycle-"), "staging residue: {name}");
-        if name == "metadata.sqlite" {
+        // The gateway's own bookkeeping lives beside the databases and
+        // is not one of them: the registry, and the audit trail these
+        // operations are writing as they run. Neither is residue, and
+        // neither is a database stem.
+        if name == "metadata.sqlite" || name == "audit.jsonl" {
             continue;
         }
         let stem = name

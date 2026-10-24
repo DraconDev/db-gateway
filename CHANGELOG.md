@@ -17,6 +17,34 @@ tagged state. Deployments and rollbacks follow
 (0.x), minor versions mark feature growth and patch versions mark
 fixes; 1.0.0 waits for production acceptance.
 
+## [0.3.1] — 2026-10-24
+
+### Fixed
+
+- **The audit trail survives a restart.** The trail was held in the
+  gateway's memory, so a restart emptied it — and a restart is very often
+  the thing an operator is asking about after an incident: the question
+  the trail exists to answer is "which credential was doing what when it
+  went down", and the old answer was "nothing, the process died". The
+  trail is now appended to `<data-dir>/audit.jsonl` (mode 0600, inside
+  the data directory's 0700) as each entry is recorded, and the file is
+  read back at startup, so the gateway comes back up still able to say
+  what the credentials on it were doing. The endpoint, the filters and
+  the CLI are unchanged; they simply answer across a restart now. The
+  file is bounded like the log it serves: 2000 entries in memory, and the
+  file is rewritten from those entries when it passes 4 MiB, so neither
+  grows without limit. The query log stays in memory on purpose — it
+  answers a present-tense question ("which statement is heavy right
+  now"), and a restart costs it nothing.
+
+### Changed
+
+- `docs/api.md` and `docs/tui.md` said the terminal view had **four**
+  answers after it grew a fifth tab; both now say five.
+- The audit trail's lifetime is stated where the trail is described:
+  durable across a restart, bounded in size, and never holding a
+  credential's secret or a statement's values.
+
 ## [0.3.0] — 2026-10-24
 
 ### Added

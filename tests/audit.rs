@@ -405,3 +405,86 @@ fn the_human_table_says_when_in_a_form_a_person_reads() {
         "the raw epoch is not printed: {text}"
     );
 }
+
+/// The trail is on disk, so a restart does not erase it.
+///
+/// The question this log answers is asked after something unexpected,
+/// and a restart is often the unexpected thing: a gateway that comes
+/// back up with an empty trail cannot say which credential was doing
+/// what when it went down.
+#[test]
+fn the_trail_survives_a_restart() {
+    let dir = tempfile::tempdir().expect("a temp dir");
+    {
+        let store = Store::open(dir.path()).expect("the store opens");
+        let key = store.bootstrap().expect("the owner key is issued");
+        let owner = store.authenticate(&key).expect("the owner authenticates");
+        dg::audit::record(
+            &store,
+            &owner,
+            "query",
+            Some("shop"),
+            Some("before-the-restart".to_string()),
+        );
+        // The process goes away with the entry still in its memory.
+    }
+
+    // The gateway comes back up on the same data directory.
+    let store = Store::open(dir.path()).expect("the store opens again");
+    let recorded = store.audit.entries();
+    assert_eq!(
+        recorded.len(),
+        1,
+        "the entry outlived the restart: {recorded:?}"
+    );
+    assert_eq!(
+        recorded[0].detail.as_deref(),
+        Some("before-the-restart"),
+        "and it is the same entry: {recorded:?}"
+    );
+
+    // The trail is a file, and it is private.
+    let trail = dir.path().join("audit.jsonl");
+    assert!(trail.exists(), "the trail file is there");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&trail)
+            .expect("the trail's metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600, "the trail is private to its owner");
+    }
+}
+
+/// The file on disk keeps the promise the endpoint makes: shapes, never
+/// values, and never a credential's secret.
+#[test]
+fn the_trail_on_disk_holds_no_values_and_no_secrets() {
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let store = Store::open(dir.path()).expect("the store opens");
+    let key = store.bootstrap().expect("the owner key is issued");
+    let owner = store.authenticate(&key).expect("the owner authenticates");
+    dg::audit::record_statement(
+        &store,
+        &owner,
+        "query",
+        Some("shop"),
+        &format!("SELECT * FROM shop WHERE token = '{LITERAL}'"),
+    );
+
+    let text = std::fs::read_to_string(dir.path().join("audit.jsonl")).expect("the trail is read");
+    assert!(
+        !text.contains(LITERAL),
+        "the statement's values are not on disk: {text}"
+    );
+    assert!(
+        text.contains("SELECT * FROM shop WHERE token = ?"),
+        "the statement's shape is on disk: {text}"
+    );
+    assert!(
+        !text.contains(&key),
+        "the credential's secret is not on disk: {text}"
+    );
+}

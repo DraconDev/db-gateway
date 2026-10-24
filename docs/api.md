@@ -219,6 +219,45 @@ answers for every other one.
 Shapes are ordered by rows read, then by total time, then by name, so
 the heaviest statement is the first thing read.
 
+The shape log lives in the gateway's memory. It answers a present-tense
+question — which statement is heavy *right now* — so a restart costs it
+nothing and it starts empty again. The audit trail below is the one
+that has to outlive a restart, and it does.
+
+### The audit trail
+
+`GET /v1/audit` answers the question an operator asks after something
+unexpected: **which credential did this, and when?** It records ACTIONS
+— a credential ran a statement, created a key, deleted a database — and
+never the data that moved. A statement is recorded by its **shape**, with
+every literal replaced by a placeholder; a credential is recorded by its
+**label**, never by its key. The endpoint is owner-only, because the log
+is a view of every credential on the box.
+
+The trail is **durable**: it is appended to `<data-dir>/audit.jsonl` as
+each entry is recorded, and that file is read back when the gateway
+starts. A restart therefore does not erase it — which matters, because a
+restart is very often the thing that went down, and a gateway that comes
+back up with an empty trail cannot say what its credentials were doing
+when it stopped.
+
+The file is the operator's own: mode `0600`, inside the data directory's
+`0700`, and it holds no secret — a credential's label and a statement's
+shape, never a key and never a value. It is written and flushed as each
+entry is made, so a restart of the process keeps it; a host that loses
+power can lose the most recent entries, because an `fsync` per request
+is not a cost worth paying for a trail that is read after the fact.
+
+The trail is bounded like the log it serves: 2000 entries in memory, and
+the file is rewritten from those entries once it passes 4 MiB, so neither
+the log nor the file grows without limit.
+
+A backup set does **not** carry the trail. A set carries databases and
+the registry, and it is written so that every reader — the producer, the
+gateway, the verifier — sees the same shape. The trail is the gateway's
+own record of who used those databases, and it stays where it was
+written.
+
 ### A backup set on demand
 
 `POST /v1/backups/run` takes a backup set NOW, from inside the gateway.
@@ -475,7 +514,7 @@ dg --key-file owner.key tui              # the terminal view: the service, its d
 
 Versioned sets are produced by `scripts/micro2-backup.sh` (one run at a time per backup root; stale staging from killed runs is cleaned at startup; every run appends an outcome line to `<backup-root>/attempts.jsonl`). The script exports each live database through the online-backup path, copies the registry through the SQLite backup API, validates hashes, integrity, foreign keys, and protected tables before atomic publication, then prunes to `--keep` sets. `dg backup verify` repeats the manifest/hash/integrity/FK/protected-table checks on demand and prints a JSON report (`ok`, `failures`, member list); it exits nonzero with `backup_verification_failed` when any check fails, or `backup_set_not_found` for unknown sets. Restore follows [the recovery contract](recovery-contract.md) §3 (registry-restored or fresh-registry path).
 
-`dg tui` is the terminal operator view: the same four answers — the service dashboard, the databases, the backup freshness and the credentials — on one screen, read again every two seconds, with the lifecycle, credential and SQL actions a keystroke away ([the view's own guide](tui.md)). It asks for the same routes this document describes and changes none of them, so the API a client sees is the API it saw before. The credential never reaches the screen: the view holds it in memory, and the only key it ever draws is a newly issued one, which the gateway shows once and never again.
+`dg tui` is the terminal operator view: the same five answers — the service dashboard, the databases, the backup freshness, the credentials and the query shapes — on one screen, read again every two seconds, with the lifecycle, credential and SQL actions a keystroke away ([the view's own guide](tui.md)). It asks for the same routes this document describes and changes none of them, so the API a client sees is the API it saw before. The credential never reaches the screen: the view holds it in memory, and the only key it ever draws is a newly issued one, which the gateway shows once and never again.
 
 `GET /health/live` is unauthenticated liveness only (`{"status":"ok"}`) — it says nothing about database, disk, or backup readiness. `/v1/status` counters are status-level (total plus 429/408/500 signals); per-code detail lives in the structured logs. The per-database map adds the admission-queue measurement (`queue_waits`, `queue_wait_ms`, `queue_timeouts`): sustained `queue_timeouts` growth means per-database writer starvation under read flood and is the trigger for the writer-preferring bound (scale proposal Phase 2). `/v1/backups` reads versioned sets from the backup root (`<data-dir>/../dg-backups` convention, `--backup-root` override; missing root means `unknown`, never healthy). Per-database state compares the last successful API mutation against the newest set containing the database: `fresh` (set covers all writes, or no writes recorded), `stale` (writes newer than the newest set), `unknown` (no root, unreadable root, or no set contains it). `stale_after_secs` (300) is the look-at-it reference from the observability contract, not an accepted RPO. Freshness is set membership by timestamp, not a restore drill — restore readiness stays a separate rehearsal. `dg serve --help` lists the `--backup-root` flag.
 

@@ -176,7 +176,16 @@ impl Store {
             transfers: Mutex::new(HashMap::new()),
             transfer_ttl,
             branches: BranchRegistry::default(),
-            audit: AuditLog::default(),
+            // The trail belongs to the owner: it is the process that
+            // serves requests and therefore the one whose actions are
+            // worth recording. A reader opens the data directory
+            // without it, so two processes never append to the same
+            // file.
+            audit: if owner {
+                AuditLog::open(&root.join("audit.jsonl"))
+            } else {
+                AuditLog::default()
+            },
         };
         Ok(store)
     }

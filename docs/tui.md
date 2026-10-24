@@ -43,7 +43,7 @@ switchboard, so an operator can see how much is in a tab without opening it.
 The view shows **one tab at a time** rather than tiling every answer. Tiling
 forces each answer into a fraction of the width, which squeezes a wide table
 and cuts a long list; a tab gives the whole body to the thing being read. The
-cost — four answers are off screen — is paid by the strip, which always names
+cost — five answers are off screen — is paid by the strip, which always names
 every tab.
 
 Each tab answers one question and shows one answer. The per-database traffic
@@ -77,7 +77,10 @@ a statement that wraps pushes every other column off the screen. The full text
 is in `dg queries`, and in `GET /v1/queries`.
 
 The tab is empty when nothing has run yet, and says so rather than drawing
-nothing.
+nothing. The shapes it holds live in the gateway's memory, so a restart
+empties the tab and it fills again as the statements run: it answers a
+present-tense question, and the trail that has to outlive a restart is
+`dg audit`'s, which is on disk.
 
 ## Where things are
 
