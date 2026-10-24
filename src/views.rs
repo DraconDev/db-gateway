@@ -381,7 +381,7 @@ pub fn backups(backups: &Value) -> Vec<Section> {
     // Calling it "stale after" put a number next to a table of ages and
     // ages that were larger, and read as a contradiction.
     root.field(
-        "freshness objective",
+        "stale after",
         Cell::text(
             backups["stale_after_secs"]
                 .as_u64()
