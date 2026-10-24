@@ -176,10 +176,17 @@ fn every_tab_is_named_on_screen_and_holds_its_own_answer() {
         backups.contains("newest set"),
         "the backups tab does not show the per-database freshness table:\n{backups}"
     );
-    assert!(
-        backups.contains("fresh") && backups.contains("stale"),
-        "the backups tab does not show the freshness states:\n{backups}"
-    );
+    // The states themselves, on the row of the database they belong to: the
+    // command bar's "refresh" and the fields' "stale after" are both on
+    // every screen, so the state has to be checked against its own row.
+    for (database, state) in [("demo", "fresh"), ("other", "stale")] {
+        assert!(
+            backups
+                .lines()
+                .any(|line| line.contains(database) && line.contains(state)),
+            "the backups tab does not show {database:?} as {state:?}:\n{backups}"
+        );
+    }
     assert!(
         backups.contains("published sets"),
         "the backups tab does not show the published sets:\n{backups}"
