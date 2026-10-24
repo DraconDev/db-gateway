@@ -168,9 +168,20 @@ fn every_tab_is_named_on_screen_and_holds_its_own_answer() {
     let mut app_backups = app_state();
     open_tab(&mut app_backups, '3');
     let backups = screen(&mut app_backups, 120, 40);
+    // The freshness table, not the substring "fresh": every screen has
+    // "refresh" on the command bar, so a check for the substring passed on
+    // a screen that showed no freshness at all.
     assert!(
-        backups.contains("fresh"),
-        "the backups tab does not show the freshness state:\n{backups}"
+        backups.contains("newest set"),
+        "the backups tab does not show the per-database freshness table:\n{backups}"
+    );
+    assert!(
+        backups.contains("fresh") && backups.contains("stale"),
+        "the backups tab does not show the freshness states:\n{backups}"
+    );
+    assert!(
+        backups.contains("published sets"),
+        "the backups tab does not show the published sets:\n{backups}"
     );
 
     let mut app_keys = app_state();
