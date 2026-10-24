@@ -32,7 +32,7 @@ A tab strip, and the body of the tab that is showing.
 |---|---|---|
 | Databases | `1` | Every database the gateway lists, with the rows it has read and written, its own wait p95 and its worst wait, and when it was last written — and, under that, where each database's file is and whether it is actually there |
 | Service | `2` | The service dashboard — version, uptime, request totals and rate, error counts, admission permits, the wait percentiles, the recent request-rate sparkline — and where the gateway is running: the host, the address it bound, the data directory, the backup root, the room left on the disk and the retention it holds a deleted name for |
-| Backups | `3` | Whether the copies can be trusted: the backup root, the stale-after threshold, the last run, what the newest set carries, where the off-host copy is and whether it is running, the last restore drill, the published sets, and each database's freshness state |
+| Backups | `3` | Whether the copies can be trusted: the backup root, the freshness objective, the last run, what the newest set carries, where the off-host copy is and whether it is running, the last restore drill, the window of moments the copy can be taken back to, the last restore that was taken, the published sets, and each database's freshness state |
 | Keys | `4` | Every outstanding credential, its role, and the databases it may reach |
 
 The tabs are also reached with `tab` and `shift-tab`. Each tab carries its
@@ -88,6 +88,11 @@ different claims:
 - **restore drill** — whether the off-host copy has ever been restored and
   compared against the live gateway. A backup that was never restored is an
   assumption.
+- **point-in-time restore** — the window of moments the copy can be taken
+  back to, and the last restore that was actually taken. "There is a backup"
+  is a claim; "you can go back to any moment between these two" is the one
+  that matters at two in the morning. A window nobody has ever exercised is
+  a promise, so the last restore is shown beside it.
 
 The two tables below them are the per-database freshness and the published
 sets. The freshness table keeps its rows whatever else is on screen: a table
@@ -103,10 +108,21 @@ objective is the reference that decides when an unrepresented change deserves
 an operator's attention.
 
 These facts come from the host, not from the gateway's own memory: the
-sidecar's configuration and the drill's result live on the machine that owns
-the bucket, and the host publishes them where the gateway reads them. A
-host that publishes nothing says so in words — *this host publishes no
-off-host copy status* — rather than leaving a hole where a fact should be.
+sidecar's configuration, the drill's result and the restore window live on
+the machine that owns the bucket, and the host publishes them where the
+gateway reads them. A host that publishes nothing says so in words — *this
+host publishes no off-host copy status* — rather than leaving a hole where a
+fact should be.
+
+The restore window is the one that turns a backup into a recovery. The
+replica keeps a rolling window of write-ahead log, so the data can be
+restored to a moment and not only to the last hourly snapshot. The window
+is published by `scripts/restore-point.sh --list`, and taking a restore is
+the host's job — it holds the bucket's credentials — through
+`scripts/restore-point.sh --apply --to <ISO8601> --database <name>`, which
+restores into a fresh directory, verifies the copy and publishes what it
+produced. The view reports both the window and the last restore, so the
+claim and the evidence sit next to each other.
 
 ## The colours
 
