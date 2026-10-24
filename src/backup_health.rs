@@ -89,6 +89,117 @@ impl AttemptRecord {
     }
 }
 
+/// What the newest published set carries.
+///
+/// The per-database freshness answers "is there a set that contains this
+/// database". This answers a different question: does the newest set
+/// carry the whole deployment, registry included. A set without the
+/// registry holds the data but not the credentials and scopes that make
+/// it usable, so a restore from it gives back files that no key can open.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Coverage {
+    /// The live databases.
+    pub live: usize,
+    /// How many of them the newest set carries.
+    pub in_newest_set: usize,
+    /// The ones it does not, by name.
+    pub missing: Vec<String>,
+    /// Whether the newest set carries the registry.
+    pub registry: bool,
+}
+
+/// Where the off-host copy is, as the host reports it.
+///
+/// The gateway does not know where the bucket is: the sidecar's config is
+/// the host's business, and the host already publishes what it rendered
+/// (`scripts/litestream-sync.sh` writes this file into the backup root).
+/// The gateway reads it the same way it reads the attempt log, so an
+/// operator sees one answer wherever it is asked for.
+///
+/// A file that is absent means "this host does not report its replica",
+/// which is not the same claim as "there is no replica".
+///
+/// The fields are a whitelist on purpose. The publisher writes bucket,
+/// endpoint and region -- never the access key or the secret -- and a
+/// file carrying anything else is read without those extra values ever
+/// reaching a report.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReplicaFacts {
+    /// When the host published this.
+    pub published_at: u64,
+    /// The bucket the copies are in.
+    pub bucket: String,
+    /// The endpoint the bucket is reached through.
+    #[serde(default)]
+    pub endpoint: Option<String>,
+    /// The region the bucket lives in.
+    #[serde(default)]
+    pub region: Option<String>,
+    /// How long the bucket keeps its history.
+    #[serde(default)]
+    pub retention: Option<String>,
+    /// How often a snapshot is taken.
+    #[serde(default)]
+    pub snapshot_interval: Option<String>,
+    /// The databases the replica covers.
+    #[serde(default)]
+    pub databases: Vec<String>,
+    /// Whether the registry is replicated as well.
+    #[serde(default)]
+    pub registry: bool,
+}
+
+/// The result of the last off-host restore drill.
+///
+/// A backup that was never restored is an assumption; a drill that
+/// restored the copies and compared them against the live gateway is
+/// evidence. The drill runs on the host (it needs the bucket's
+/// credentials and the sidecar), and it publishes its result here for the
+/// same reason the replica publishes its settings: the operator asks the
+/// gateway, and the gateway says what the host last proved.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DrillFacts {
+    /// When the drill ran.
+    pub drilled_at: u64,
+    /// `ok` when every database restored and verified, `failed` otherwise.
+    pub outcome: String,
+    /// How many databases the drill restored and verified.
+    #[serde(default)]
+    pub databases: u64,
+    /// What the drill reported, in its own words.
+    #[serde(default)]
+    pub detail: Option<String>,
+}
+
+impl DrillFacts {
+    /// Whether the drill proved the copies restore.
+    pub fn ok(&self) -> bool {
+        self.outcome == "ok"
+    }
+}
+
+/// Read a JSON file the host published, if it is there and it parses.
+///
+/// Tolerant by construction, like the attempt log: the file is written by
+/// another process, so a half-written one is normal rather than
+/// corruption, and a view must not fail to render because of it. A file
+/// that does not parse is treated as no file at all -- the answer is then
+/// "not reported", which is honest.
+fn read_published<T: for<'de> Deserialize<'de>>(path: &std::path::Path) -> Option<T> {
+    let text = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// Where the off-host copy is, as the host last published it.
+pub fn read_replica(root: &std::path::Path) -> Option<ReplicaFacts> {
+    read_published(&root.join("replica.json"))
+}
+
+/// The result of the last off-host restore drill.
+pub fn read_drill(root: &std::path::Path) -> Option<DrillFacts> {
+    read_published(&root.join("restore-drill.json"))
+}
+
 /// The whole snapshot: what the digest reports and what the endpoint serves.
 #[derive(Debug, Clone, Serialize)]
 pub struct BackupHealth {
@@ -217,6 +328,27 @@ pub fn snapshot(store: &Store) -> Result<BackupHealth, crate::error::Error> {
         }
         None => (None, None),
     };
+    // What the newest set carries, and what the host reports about the
+    // off-host copy and the last drill. Both are absent when the host
+    // does not publish them, and absent is reported as absent.
+    let coverage = sets.as_ref().and_then(|sets| {
+        let newest = sets.first()?;
+        let missing: Vec<String> = names
+            .iter()
+            .filter(|name| !newest.databases.contains(name))
+            .cloned()
+            .collect();
+        Some(Coverage {
+            live: names.len(),
+            in_newest_set: names.len() - missing.len(),
+            missing,
+            registry: newest.has_registry,
+        })
+    });
+    let (replica, drill) = match root.as_deref() {
+        Some(root) => (read_replica(root), read_drill(root)),
+        None => (None, None),
+    };
     Ok(BackupHealth {
         backup_root: root,
         stale_after_secs: STALE_AFTER_SECS,
@@ -227,6 +359,9 @@ pub fn snapshot(store: &Store) -> Result<BackupHealth, crate::error::Error> {
         databases,
         last_attempt,
         last_failure,
+        coverage,
+        replica,
+        drill,
     })
 }
 
