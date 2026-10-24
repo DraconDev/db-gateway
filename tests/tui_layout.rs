@@ -658,3 +658,36 @@ fn a_host_that_publishes_no_copy_status_says_so() {
         "the backups tab does not say the host publishes no drill result:\n{text}"
     );
 }
+
+#[test]
+fn the_freshness_reference_is_named_as_an_objective_not_as_an_age_threshold() {
+    // The contract judges freshness by whether a committed change is
+    // covered (observability contract §2), not by wall time. A heading
+    // that called the reference "stale after" put a number next to the
+    // ages in the table below it and read as a contradiction: a set
+    // fourteen minutes old, marked fresh, under a heading that said
+    // five minutes. The operator's first thought would be that the view
+    // is lying, which is exactly what this screen exists to prevent.
+    let mut app = app();
+    let mut payload = backups();
+    payload["stale_after_secs"] = json!(300);
+    payload["per_database"]["demo"]["age_secs"] = json!(864);
+    app.backups = Some(payload);
+    open_tab(&mut app, '3');
+    let text = screen(&mut app, 191, 50);
+    assert!(
+        text.contains("freshness objective: 5m 0s"),
+        "the backups tab does not name the freshness objective:\n{text}"
+    );
+    assert!(
+        !text.contains("stale after"),
+        "the backups tab still calls the reference an age threshold:\n{text}"
+    );
+    // The old set that covers every write is still fresh, and the screen
+    // must not contradict itself about that.
+    assert!(
+        text.lines()
+            .any(|line| line.contains("demo") && line.contains("fresh")),
+        "the fresh database is not shown as fresh:\n{text}"
+    );
+}
