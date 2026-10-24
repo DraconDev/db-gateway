@@ -26,6 +26,21 @@ async fn rust_client_drives_a_live_gateway_end_to_end() {
     );
     let status = owner.status().await.unwrap();
     assert!(!status.version.is_empty());
+    // The placement comes with the status: the client cannot work out
+    // where the gateway is for itself, and a typed client that could not
+    // see it would be a typed client with no answer to "where is this".
+    let deployment = status
+        .deployment
+        .as_ref()
+        .expect("the gateway reports its placement");
+    assert!(deployment.listen.starts_with("127.0.0.1:"));
+    assert!(!deployment.data_dir.is_empty());
+    let placed = deployment
+        .databases
+        .get("rust_client_db")
+        .expect("the created database is placed");
+    assert!(placed.exists, "the created database has no file: {placed:?}");
+    assert!(placed.file.ends_with("rust_client_db.sqlite"));
 
     // Typed DDL + writes with every value kind.
     let db = owner.database("rust_client_db").unwrap();
