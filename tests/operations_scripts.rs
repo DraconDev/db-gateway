@@ -903,10 +903,7 @@ fn the_restore_point_script_publishes_the_window_the_replica_offers() {
         &[
             ("LITESTREAM_BIN", litestream.to_str().unwrap()),
             ("LITESTREAM_CONFIG", config.to_str().unwrap()),
-            (
-                "LITESTREAM_ENV_FILE",
-                dir.path().join("absent.env").to_str().unwrap(),
-            ),
+            ("LITESTREAM_ENV_FILE", absent_env.to_str().unwrap()),
             ("DG_DATA_DIR", data.to_str().unwrap()),
             ("DG_BACKUP_ROOT", backups.to_str().unwrap()),
             ("RESTORE_ROOT", restores.to_str().unwrap()),
@@ -956,10 +953,7 @@ fn the_restore_point_script_publishes_what_a_restore_produced() {
         &[
             ("LITESTREAM_BIN", litestream.to_str().unwrap()),
             ("LITESTREAM_CONFIG", config.to_str().unwrap()),
-            (
-                "LITESTREAM_ENV_FILE",
-                dir.path().join("absent.env").to_str().unwrap(),
-            ),
+            ("LITESTREAM_ENV_FILE", absent_env.to_str().unwrap()),
             ("DG_DATA_DIR", data.to_str().unwrap()),
             ("DG_BACKUP_ROOT", backups.to_str().unwrap()),
             ("RESTORE_ROOT", restores.to_str().unwrap()),
