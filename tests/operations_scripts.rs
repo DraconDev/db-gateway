@@ -660,7 +660,7 @@ fn the_published_replica_status_never_carries_a_credential() {
          LITESTREAM_S3_ENDPOINT=s3.example.invalid\n\
          LITESTREAM_S3_REGION=gra\n\
          LITESTREAM_S3_ACCESS_KEY_ID=[DRACON_SECRET:REDACTED]\n\
-         LITESTREAM_S3_SECRET_ACCESS_KEY=secret-that-must-not-be-published\n",
+         LITESTREAM_S3_SECRET_ACCESS_KEY=placeholder-secret-not-published\n",
     )
     .unwrap();
     let dg = fake_dg(dir.path(), &["alpha"]);
@@ -698,7 +698,7 @@ fn the_published_replica_status_never_carries_a_credential() {
         "the published status carries the access key: {text}"
     );
     assert!(
-        !text.contains("secret-that-must-not-be-published"),
+        !text.contains("placeholder-secret-not-published"),
         "the published status carries the secret key: {text}"
     );
     // The rendered config keeps the credential references, so the

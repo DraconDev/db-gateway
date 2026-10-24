@@ -157,6 +157,11 @@ fn piped_output_stays_json_and_identical_to_the_json_flag() {
             // lands in it. It is masked as a whole, so its SHAPE is
             // still compared.
             "recent_per_second",
+            // The room left on the filesystem and the size of the
+            // database files are measurements of the moment: two calls a
+            // moment apart need not agree.
+            "disk",
+            "databases_bytes",
         ];
         let mask = |value: &mut serde_json::Value| mask_live(value, &live);
         let mut left: serde_json::Value = serde_json::from_str(&forced_text).unwrap();

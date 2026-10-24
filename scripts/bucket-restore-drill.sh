@@ -99,7 +99,13 @@ cleanup() { [ "${KEEP:-0}" = "1" ] && log "scratch kept at $SCRATCH" || rm -rf "
 # of the drill is the answer, not the run. The drill's own exit status is
 # the drill's: a failure to publish must not turn a passing drill into a
 # failing one, nor a failing one into a passing one.
-trap 'status=$?; cleanup; publish_drill || true; exit $status' EXIT
+on_exit() {
+    local status=$?
+    cleanup
+    publish_drill || true
+    exit $status
+}
+trap on_exit EXIT
 
 dg() {
     local args=("$DG_BIN")
