@@ -13,6 +13,7 @@
 //! marker, or no coverage boundary is `unknown` -- never silently `fresh`,
 //! because "unknown" is the state that keeps a scheduled job honest.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -207,6 +208,104 @@ pub fn read_drill(root: &std::path::Path) -> Option<DrillFacts> {
     read_published(&root.join("restore-drill.json"))
 }
 
+/// The window of moments the off-host replica can be restored to.
+///
+/// "There is a backup" is a claim. "You can go back to any moment
+/// between these two" is the claim that matters at two in the morning,
+/// and it is a different one: the replica keeps a rolling window of
+/// write-ahead log, and the width of that window is a property of the
+/// bucket and the sidecar -- both of which belong to the host. So the
+/// host publishes the window, the way it publishes where the copy is
+/// and what the drill proved, and the gateway reports it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RestorePoints {
+    /// When the host published this.
+    pub published_at: u64,
+    /// The earliest moment that can be restored to.
+    #[serde(default)]
+    pub window_start: Option<String>,
+    /// The newest moment the published files cover.
+    #[serde(default)]
+    pub window_end: Option<String>,
+    /// The sidecar's state: `active`, `inactive`, `failed`, or
+    /// `unknown` when the host cannot tell.
+    #[serde(default)]
+    pub sidecar: Option<String>,
+    /// What each replicated database's own window looks like.
+    #[serde(default)]
+    pub databases: BTreeMap<String, RestoreWindow>,
+}
+
+/// One database's restore window.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RestoreWindow {
+    /// The oldest file the replica holds for this database.
+    #[serde(default)]
+    pub oldest: Option<String>,
+    /// The newest file the replica holds for this database.
+    #[serde(default)]
+    pub newest: Option<String>,
+    /// How many files make up the window.
+    #[serde(default)]
+    pub files: u64,
+    /// How many bytes those files hold.
+    #[serde(default)]
+    pub bytes: u64,
+}
+
+/// The result of the last point-in-time restore taken from the replica.
+///
+/// A window an operator is told about and never exercises is a promise.
+/// A restore that was taken, verified and published is evidence, in the
+/// same way the drill is: the host does it (it holds the bucket's
+/// credentials), and the gateway reports what the host last did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RestoreResult {
+    /// When the restore ran.
+    pub restored_at: u64,
+    /// Which database was restored.
+    pub database: String,
+    /// The moment it was restored to.
+    pub timestamp: String,
+    /// `ok` when the copy restored and verified, `failed` otherwise.
+    pub outcome: String,
+    /// What the restore reported, in its own words.
+    #[serde(default)]
+    pub detail: Option<String>,
+    /// How many user tables the restored copy holds.
+    #[serde(default)]
+    pub tables: u64,
+    /// How many rows it holds.
+    #[serde(default)]
+    pub rows: u64,
+    /// How large the restored file is.
+    #[serde(default)]
+    pub size_bytes: u64,
+    /// What SQLite's own integrity check said about it.
+    #[serde(default)]
+    pub integrity: Option<String>,
+    /// Where the restored copy is on the host.
+    #[serde(default)]
+    pub path: Option<String>,
+}
+
+impl RestoreResult {
+    /// Whether the restore produced a verified copy.
+    pub fn ok(&self) -> bool {
+        self.outcome == "ok"
+    }
+}
+
+/// The window of moments the replica can be restored to.
+pub fn read_restore_points(root: &std::path::Path) -> Option<RestorePoints> {
+    read_published(&root.join("restore-points.json"))
+}
+
+/// The result of the last point-in-time restore.
+pub fn read_restore_result(root: &std::path::Path) -> Option<RestoreResult> {
+    read_published(&root.join("restore-results.json"))
+}
+
 /// The whole snapshot: what the digest reports and what the endpoint serves.
 #[derive(Debug, Clone, Serialize)]
 pub struct BackupHealth {
@@ -227,6 +326,12 @@ pub struct BackupHealth {
     /// The last off-host restore drill.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drill: Option<DrillFacts>,
+    /// The window of moments the off-host replica can be restored to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restore_points: Option<RestorePoints>,
+    /// The last point-in-time restore taken from the replica.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_restore: Option<RestoreResult>,
 }
 
 impl BackupHealth {
