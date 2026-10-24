@@ -705,7 +705,7 @@ fn the_published_replica_status_never_carries_a_credential() {
     // sidecar still finds them in its environment file.
     let rendered = fs::read_to_string(&config).unwrap();
     assert!(
-        rendered.contains("[DRACON_SECRET:REDACTED]") == false,
+        !rendered.contains("[DRACON_SECRET:REDACTED]"),
         "the rendered config inlined the access key: {rendered}"
     );
 }
