@@ -49,7 +49,7 @@ async fn purged_name_replacement_rejects_old_scoped_replay_key() {
             databases: vec!["reused".into()],
         })
         .unwrap();
-    let app = api::router(store.clone());
+    let app = api::router(store.clone(), test_deployment());
 
     let (status, body) = call(
         &app,
