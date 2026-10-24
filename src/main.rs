@@ -573,10 +573,23 @@ enum BackupCommand {
         set: String,
     },
 }
+#[derive(Subcommand)]
+enum RestoreCommand {
+    /// The window of moments the off-host replica can be restored to,
+    /// per database, and the last restore that was taken from it.
+    ///
+    /// Taking a restore is the host's job: it holds the bucket's
+    /// credentials and the sidecar. `scripts/restore-point.sh` is the
+    /// supported interface for that -- it restores into a fresh
+    /// directory, verifies the copy and publishes the result, which
+    /// this command then reports.
+    List,
+}
 mod cmd_backup;
 mod cmd_data;
 mod cmd_keys;
 mod cmd_lifecycle;
+mod cmd_restore;
 mod cmd_serve;
 mod cmd_status;
 
@@ -676,7 +689,9 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         Command::Backup {
             command: BackupCommand::Status,
         } => cmd_backup::status(&cli.server, cli.json, &key_path).await?,
-        Command::List => cmd_data::list(&cli.server, cli.json, &key_path).await?,
+        Command::Restore {
+            command: RestoreCommand::List,
+        } => cmd_restore::list(&cli.server, cli.json, &key_path).await?,        Command::List => cmd_data::list(&cli.server, cli.json, &key_path).await?,
         Command::Inspect { name } => {
             cmd_data::inspect(&cli.server, cli.json, &key_path, name).await?
         }
