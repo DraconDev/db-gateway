@@ -100,6 +100,45 @@ fn table_widget(table: &ViewTable, area: u16, max_rows: usize) -> Table<'static>
     Table::new(rows, widths(table, area)).header(header)
 }
 
+/// A table inside a frame, with the view's footer under it as a caption.
+///
+/// The shared view layer writes a footer because the columns need one: the
+/// traffic table says what "wait p95" and "wait max" mean, and the CLI
+/// prints it under the rows. The view used to drop it, so a column whose
+/// meaning was on screen nowhere was on screen.
+///
+/// The caption goes directly under the rows rather than at the foot of the
+/// frame: an explanation pinned to the bottom of a tall pane is not next to
+/// what it explains.
+fn framed_table(
+    frame: &mut Frame,
+    area: Rect,
+    block: Block<'static>,
+    table: &ViewTable,
+    max_rows: usize,
+    state: &mut TableState,
+) {
+    let caption = table.footer_text().map(str::to_string);
+    let inner = block.inner(area);
+    let rows = Layout::vertical([
+        Constraint::Min(1),
+        Constraint::Length(u16::from(caption.is_some())),
+    ])
+    .split(inner);
+    frame.render_stateful_widget(
+        table_widget(table, inner.width, max_rows),
+        rows[0],
+        state,
+    );
+    if let Some(text) = caption {
+        frame.render_widget(
+            Paragraph::new(text).style(crate::tui::theme::status()),
+            rows[1],
+        );
+    }
+    frame.render_widget(block, area);
+}
+
 /// A section's fields, as lines.
 ///
 /// Only the field blocks: a table is drawn as a table by its own body, since
@@ -359,11 +398,7 @@ fn databases_tab(frame: &mut Frame, area: Rect, app: &App) {
         Some(table) => {
             let block = pane(app.focus == Focus::Databases);
             let mut state = TableState::default().with_offset(app.scroll.databases as usize);
-            frame.render_stateful_widget(
-                table_widget(&table, area.width, usize::MAX).block(block),
-                area,
-                &mut state,
-            );
+            framed_table(frame, area, block, &table, usize::MAX, &mut state);
         }
         None => {
             let block = pane(app.focus == Focus::Databases);
@@ -455,9 +490,12 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(Paragraph::new(Text::from(lines)).block(block), rows[0]);
     if let Some((title, table)) = table {
         let mut state = TableState::default().with_offset(app.scroll.backups as usize);
-        frame.render_stateful_widget(
-            table_widget(&table, rows[1].width, usize::MAX).block(pane_titled(&title)),
+        framed_table(
+            frame,
             rows[1],
+            pane_titled(&title),
+            &table,
+            usize::MAX,
             &mut state,
         );
     }
@@ -470,11 +508,7 @@ fn keys_tab(frame: &mut Frame, area: Rect, app: &App) {
             let table = views::keys(keys);
             let block = pane(app.focus == Focus::Keys);
             let mut state = TableState::default().with_offset(app.scroll.keys as usize);
-            frame.render_stateful_widget(
-                table_widget(&table, area.width, usize::MAX).block(block),
-                area,
-                &mut state,
-            );
+            framed_table(frame, area, block, &table, usize::MAX, &mut state);
         }
         None => {
             let block = pane(app.focus == Focus::Keys);
@@ -546,9 +580,13 @@ fn outcome_pane(frame: &mut Frame, area: Rect, outcome: &Outcome) {
         rows[0],
     );
     if let Some(table) = &outcome.table {
-        frame.render_widget(
-            table_widget(table, rows[1].width, OUTCOME_ROWS).block(pane_titled("rows")),
+        framed_table(
+            frame,
             rows[1],
+            pane_titled("rows"),
+            table,
+            OUTCOME_ROWS,
+            &mut TableState::default(),
         );
     }
 }
