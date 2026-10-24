@@ -179,7 +179,7 @@ impl Store {
             let (name, deleted_at) = row?;
             let file = self.root.join(format!("{name}.sqlite"));
             locations.push(Location {
-                exists: true,
+                exists: file.is_file(),
                 size_bytes: database_size_bytes(&file),
                 file,
                 name,
