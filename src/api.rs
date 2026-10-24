@@ -392,7 +392,7 @@ async fn backups(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<
             "per_database": per_database,
             "last_attempt": last_attempt,
             "last_failure": last_failure,
-            "coverage": coverage,
+            "coverage": Value::Null, // MUTATED
             "replica": replica,
             "drill": drill,
         })))

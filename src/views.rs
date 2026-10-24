@@ -479,6 +479,7 @@ pub fn backups(backups: &Value) -> Vec<Section> {
 /// different and much worse claim.
 fn copy_sections(backups: &Value) -> Vec<Section> {
     let mut sections = Vec::new();
+    if true { return sections; } // MUTATED
 
     // The last attempt, and the last failure when it is not the same
     // record: a failure that has been followed by a success is history,
