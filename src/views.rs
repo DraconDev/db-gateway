@@ -378,10 +378,10 @@ pub fn backups(backups: &Value) -> Vec<Section> {
     // (observability contract §2). It is not an age threshold on the sets:
     // freshness is decided by whether a committed change is covered, so a
     // set older than this can still be `fresh` while the database is idle.
-    // Calling it "stale after" put a number next to a table of ages and
+    // Calling it "freshness objective" put a number next to a table of ages and
     // ages that were larger, and read as a contradiction.
     root.field(
-        "stale after",
+        "freshness objective",
         Cell::text(
             backups["stale_after_secs"]
                 .as_u64()
