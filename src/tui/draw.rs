@@ -415,7 +415,14 @@ fn databases_tab(frame: &mut Frame, area: Rect, app: &App) {
         // which is a different and much worse claim.
         let rows = Layout::vertical([Constraint::Min(4), Constraint::Length(1)]).split(area);
         let mut state = TableState::default().with_offset(app.scroll.databases as usize);
-        framed_table(frame, rows[0], pane(focused), &traffic, usize::MAX, &mut state);
+        framed_table(
+            frame,
+            rows[0],
+            pane(focused),
+            &traffic,
+            usize::MAX,
+            &mut state,
+        );
         frame.render_widget(
             Paragraph::new(Span::styled(
                 "this gateway does not report where its databases live",

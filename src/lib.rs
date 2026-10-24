@@ -181,16 +181,18 @@ fn hostname() -> Option<String> {
     // SAFETY: `gethostname` writes at most `buffer.len()` bytes into the
     // buffer it is given. It cannot read or write any other memory, and
     // the buffer is a live local array of exactly that size.
-    let result = unsafe {
-        libc::gethostname(buffer.as_mut_ptr().cast::<libc::c_char>(), buffer.len())
-    };
+    let result =
+        unsafe { libc::gethostname(buffer.as_mut_ptr().cast::<libc::c_char>(), buffer.len()) };
     if result != 0 {
         return None;
     }
     // The name is NUL-terminated when it fits; a name that fills the
     // buffer exactly may not be, so the terminator is searched for rather
     // than assumed.
-    let end = buffer.iter().position(|byte| *byte == 0).unwrap_or(buffer.len());
+    let end = buffer
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(buffer.len());
     let name = String::from_utf8_lossy(&buffer[..end]).trim().to_string();
     (!name.is_empty()).then_some(name)
 }

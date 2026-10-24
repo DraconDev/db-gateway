@@ -167,10 +167,7 @@ pub fn service_dashboard(status: &serde_json::Value) -> Vec<Section> {
 pub fn deployment(status: &Value) -> Section {
     let mut section = Section::new("deployment");
     let Some(deployment) = status["deployment"].as_object() else {
-        section.field(
-            "placement",
-            Cell::text("not reported by this gateway"),
-        );
+        section.field("placement", Cell::text("not reported by this gateway"));
         return section;
     };
     section.field(
@@ -182,12 +179,20 @@ pub fn deployment(status: &Value) -> Section {
     );
     section.field(
         "listen",
-        Cell::text(deployment["listen"].as_str().unwrap_or("unknown").to_string()),
+        Cell::text(
+            deployment["listen"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string(),
+        ),
     );
     section.field(
         "data dir",
         Cell::styled(
-            deployment["data_dir"].as_str().unwrap_or("unknown").to_string(),
+            deployment["data_dir"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string(),
             Style::Cyan,
         ),
     );
