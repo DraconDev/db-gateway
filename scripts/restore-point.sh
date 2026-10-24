@@ -295,37 +295,11 @@ if [ "$MODE" = "plan" ]; then
     exit 0
 fi
 
-# --- --apply: restore, verify, publish ------------------------------------
-
-STAMP="$(printf '%s' "$TIMESTAMP" | tr -cd '0-9')"
-[ -n "$STAMP" ] && [ "${#STAMP}" -ge 8 ] || fail "could not read a target directory name from: $TIMESTAMP"
-TARGET_DIR="${OUT_DIR:-$RESTORE_ROOT/$STAMP}"
-TARGET="$TARGET_DIR/$DATABASE.sqlite"
-
-# A restore never overwrites. An existing file means the operator asked
-# twice, or something else owns that path, and either way writing over it
-# would destroy the only copy of the evidence.
-[ ! -e "$TARGET" ] || fail "refusing to overwrite an existing file: $TARGET"
-
-mkdir -p -m 0700 "$TARGET_DIR"
-
-RESTORED_AT="$(date -u +%s)"
-OUTCOME="failed"
-DETAIL=""
-TABLES=0
-ROWS=0
-SIZE=0
-INTEGRITY="unknown"
-
-# The restore is the one thing that reads the bucket with the real
-# credentials, so it is the one thing that can fail for reasons that
-# have nothing to do with the data.
-if "$LITESTREAM_BIN" restore -config "$LITESTREAM_CONFIG" \
-    -o "$TARGET" -timestamp "$TIMESTAMP" "$DB_PATH" 2>"$TARGET_DIR/restore.log"; then
-    if [ -s "$TARGET" ]; then
-        # The restored copy is verified, not trusted: integrity first,
-        # then the shape and size of the data it carries.
-        if VERIFY="$(python3 - "$TARGET" <<'PY' 2>&1)"
+# The restored copy is verified, not trusted: integrity first, then the
+# shape and size of the data it carries. A function rather than a heredoc
+# inside a command substitution, so the payload is readable on its own.
+verify_restored() {
+    python3 - "$1" <<'PY'
 import json
 import sqlite3
 import sys
@@ -356,7 +330,40 @@ try:
 finally:
     con.close()
 PY
-        then
+}
+
+# --- --apply: restore, verify, publish ------------------------------------
+
+STAMP="$(printf '%s' "$TIMESTAMP" | tr -cd '0-9')"
+[ -n "$STAMP" ] && [ "${#STAMP}" -ge 8 ] || fail "could not read a target directory name from: $TIMESTAMP"
+TARGET_DIR="${OUT_DIR:-$RESTORE_ROOT/$STAMP}"
+TARGET="$TARGET_DIR/$DATABASE.sqlite"
+
+# A restore never overwrites. An existing file means the operator asked
+# twice, or something else owns that path, and either way writing over it
+# would destroy the only copy of the evidence.
+[ ! -e "$TARGET" ] || fail "refusing to overwrite an existing file: $TARGET"
+
+mkdir -p "$TARGET_DIR"
+chmod 0700 "$TARGET_DIR"
+
+RESTORED_AT="$(date -u +%s)"
+OUTCOME="failed"
+DETAIL=""
+TABLES=0
+ROWS=0
+SIZE=0
+INTEGRITY="unknown"
+
+# The restore is the one thing that reads the bucket with the real
+# credentials, so it is the one thing that can fail for reasons that
+# have nothing to do with the data.
+if "$LITESTREAM_BIN" restore -config "$LITESTREAM_CONFIG" \
+    -o "$TARGET" -timestamp "$TIMESTAMP" "$DB_PATH" 2>"$TARGET_DIR/restore.log"; then
+    if [ -s "$TARGET" ]; then
+        # The restored copy is verified, not trusted: integrity first,
+        # then the shape and size of the data it carries.
+        if VERIFY="$(verify_restored "$TARGET" 2>&1)"; then
             INTEGRITY="$(printf '%s' "$VERIFY" | python3 -c 'import json,sys; print(json.load(sys.stdin)["integrity"])')"
             TABLES="$(printf '%s' "$VERIFY" | python3 -c 'import json,sys; print(json.load(sys.stdin)["tables"])')"
             ROWS="$(printf '%s' "$VERIFY" | python3 -c 'import json,sys; print(json.load(sys.stdin)["rows"])')"
