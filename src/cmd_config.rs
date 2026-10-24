@@ -170,26 +170,25 @@ pub fn show(path: &Path, name: &str, json: bool) -> Result<(), dg::ServerError> 
     if json || !std::io::stdout().is_terminal() {
         return print_line(&document.to_string()).map_err(dg::ServerError::Application);
     }
-    let context = document;
     let facts = vec![
         (
             "server".to_string(),
-            context["server"].as_str().unwrap_or_default().to_string(),
+            document["server"].as_str().unwrap_or_default().to_string(),
         ),
         (
             "key file".to_string(),
-            context["key_file"].as_str().unwrap_or_default().to_string(),
+            document["key_file"].as_str().unwrap_or_default().to_string(),
         ),
         (
             "key".to_string(),
-            match context["key_present"].as_bool() {
+            match document["key_present"].as_bool() {
                 Some(true) => "present".to_string(),
                 _ => "missing".to_string(),
             },
         ),
         (
             "default".to_string(),
-            match context["default"].as_bool() {
+            match document["default"].as_bool() {
                 Some(true) => "yes".to_string(),
                 _ => "no".to_string(),
             },
@@ -668,6 +667,9 @@ fn parse(text: &str) -> Result<Config, Error> {
     let mut default: Option<String> = None;
     let mut contexts: Vec<Context> = Vec::new();
     let mut open: Option<Context> = None;
+    // The line a context's table started on, so an error about it points
+    // at the context and not at the line that happened to follow it.
+    let mut open_line = 0usize;
 
     for (index, raw) in text.lines().enumerate() {
         let line = raw.trim();
@@ -677,13 +679,14 @@ fn parse(text: &str) -> Result<Config, Error> {
         }
         if line.starts_with('[') {
             if let Some(context) = open.take() {
-                contexts.push(finish(context, line_number)?);
+                contexts.push(finish(context, open_line)?);
             }
             open = Some(Context {
                 name: table_name(line, line_number)?,
                 server: String::new(),
                 key_file: PathBuf::new(),
             });
+            open_line = line_number;
             continue;
         }
         let (key, value) = assignment(line, line_number)?;
@@ -705,7 +708,7 @@ fn parse(text: &str) -> Result<Config, Error> {
         }
     }
     if let Some(context) = open.take() {
-        contexts.push(finish(context, text.lines().count() + 1)?);
+        contexts.push(finish(context, open_line)?);
     }
     // Two contexts with one name would make `--context` ambiguous, and
     // the second would silently win.
