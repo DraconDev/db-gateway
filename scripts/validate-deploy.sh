@@ -51,7 +51,7 @@ log "checking placeholders are documented"
 # Every service template's placeholders must be documented, not just
 # dg.service's: the backup units (deploy/dg-backup.service,
 # dg-backup-digest.service) are installed from the same guide.
-placeholders="$(grep -h -o '{{[A-Z_]*}}' "$UNIT" "$ROOT/deploy/dg-backup.service" "$ROOT/deploy/dg-backup-digest.service" "$ROOT/deploy/dg-restore-drill.service" "$ROOT/deploy/dg-resource-sample.service" "$ROOT/deploy/dg-alerts.service" "$ROOT/deploy/dg-mesh-proxy.socket" | sort -u)"
+placeholders="$(grep -h -o '{{[A-Z_]*}}' "$UNIT" "$ROOT/deploy/dg-backup.service" "$ROOT/deploy/dg-backup-digest.service" "$ROOT/deploy/dg-restore-drill.service" "$ROOT/deploy/dg-restore-points.service" "$ROOT/deploy/dg-resource-sample.service" "$ROOT/deploy/dg-alerts.service" "$ROOT/deploy/dg-mesh-proxy.socket" | sort -u)"
 [ -n "$placeholders" ] || fail "no placeholders found; template must not hardcode target values"
 while read -r placeholder; do
     grep -qF "\`$placeholder\`" "$GUIDE" \
