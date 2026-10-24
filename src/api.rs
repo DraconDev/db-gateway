@@ -218,6 +218,10 @@ async fn status(
         // a gateway reached through a tunnel looks like a loopback port
         // from the outside, and the machine on the other end is the one
         // holding the files.
+        //
+        // It costs a stat per database file, which is why the placement is
+        // answered here rather than per database: one poll covers every
+        // database, instead of the client asking once per name.
         let mut locations = serde_json::Map::new();
         for location in s.locations()? {
             locations.insert(
