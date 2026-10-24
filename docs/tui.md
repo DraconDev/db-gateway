@@ -30,8 +30,8 @@ A tab strip, and the body of the tab that is showing.
 
 | Tab | Key | What it answers |
 |---|---|---|
-| Databases | `1` | Every database the gateway lists, with the rows it has read and written, its own wait p95 and its worst wait, and when it was last written |
-| Service | `2` | The service dashboard — version, uptime, request totals and rate, error counts, admission permits, the wait percentiles, the recent request-rate sparkline |
+| Databases | `1` | Every database the gateway lists, with the rows it has read and written, its own wait p95 and its worst wait, and when it was last written — and, under that, where each database's file is and whether it is actually there |
+| Service | `2` | The service dashboard — version, uptime, request totals and rate, error counts, admission permits, the wait percentiles, the recent request-rate sparkline — and where the gateway is running: the host, the address it bound, the data directory and the backup root |
 | Backups | `3` | The backup root, the stale-after threshold, the published sets, and each database's freshness state |
 | Keys | `4` | Every outstanding credential, its role, and the databases it may reach |
 
@@ -49,6 +49,26 @@ Each tab answers one question and shows one answer. The per-database traffic
 breakdown is the databases tab's, and it is not repeated on the service tab:
 the same rows under a second heading, on a second tab, is the tiling problem
 returning in a new shape.
+
+## Where things are
+
+The service tab says where the gateway is running — the host, the address it
+actually bound, the directory it keeps its databases in, and the backup root
+it watches — and the databases tab says where each database's file is and
+whether that file is there. The counters say what a database did; only the
+file says whether it could.
+
+Neither answer can be worked out by the client. A gateway is usually reached
+through a tunnel, so from the operator's machine it is a loopback port and
+nothing more, and the machine on the other end is the one holding the data.
+The gateway is therefore the only place that can report it, and it does so in
+`GET /v1/status` — the same answer the CLI's `dg status` prints.
+
+A gateway that does not report its placement (an older build) says so in
+words: the service tab shows *placement: not reported by this gateway*, and
+the databases tab says that it does not report where its databases live. An
+empty table would have been a different claim — a gateway with no databases
+— and the two must not look alike.
 
 ## The colours
 
