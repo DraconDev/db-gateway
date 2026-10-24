@@ -142,7 +142,8 @@ fn a_section_that_is_only_a_table_does_not_print_an_empty_heading() {
 }
 
 #[test]
-fn the_database_tab_carries_every_figure() {    // The databases tab is a whole tab, so it has the width for every
+fn the_database_tab_carries_every_figure() {
+    // The databases tab is a whole tab, so it has the width for every
     // figure the dashboard's own table carries. It used to be a narrow
     // pane in a tiled layout and showed fewer columns, which meant the
     // service tab had to repeat the table to show the rest -- the same

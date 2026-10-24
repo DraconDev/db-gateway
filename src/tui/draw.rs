@@ -124,7 +124,7 @@ fn framed_table(
     // against them rather than at the foot of the frame. When the table is
     // taller than the pane it scrolls and the caption takes the last line.
     let content = 1 + table.rows().len().min(max_rows) as u16;
-    let table_height = if caption.is_some() && content + 1 <= inner.height {
+    let table_height = if caption.is_some() && content < inner.height {
         content
     } else {
         inner.height.saturating_sub(u16::from(caption.is_some()))
@@ -134,11 +134,7 @@ fn framed_table(
         Constraint::Length(u16::from(caption.is_some())),
     ])
     .split(inner);
-    frame.render_stateful_widget(
-        table_widget(table, inner.width, max_rows),
-        rows[0],
-        state,
-    );
+    frame.render_stateful_widget(table_widget(table, inner.width, max_rows), rows[0], state);
     if let Some(text) = caption {
         frame.render_widget(
             Paragraph::new(text).style(crate::tui::theme::status()),
@@ -225,10 +221,7 @@ fn pane_titled(title: &str) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
         .border_style(crate::tui::theme::border())
-        .title(Span::styled(
-            format!(" {title} "),
-            crate::tui::theme::tab(),
-        ))
+        .title(Span::styled(format!(" {title} "), crate::tui::theme::tab()))
 }
 
 /// How long ago something happened, as a person reads it.
