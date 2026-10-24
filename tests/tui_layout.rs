@@ -467,14 +467,14 @@ fn a_gateway_that_reports_no_placement_says_so_rather_than_looking_empty() {
     // An older gateway has no placement to report. Drawing an empty
     // table would read as "there is nowhere they are", which is a
     // different and much worse claim than "this gateway does not say".
-    let mut app = app();
-    app.status = Some(json!({
+    let mut databases_app = app();
+    databases_app.status = Some(json!({
         "version": "0.1.0",
         "uptime_secs": 60,
         "database_counts": {"live": 1, "tombstoned": 0},
         "databases": {}
     }));
-    let databases = screen(&mut app, 191, 40);
+    let databases = screen(&mut databases_app, 191, 40);
     assert!(
         databases.contains("does not report where its databases live"),
         "the databases tab does not say the gateway does not report its placement:\n{databases}"
@@ -484,10 +484,10 @@ fn a_gateway_that_reports_no_placement_says_so_rather_than_looking_empty() {
         "an unreported placement is drawn as an empty locations table:\n{databases}"
     );
 
-    let mut app = app();
-    app.status = Some(json!({"version": "0.1.0", "uptime_secs": 60}));
-    open_tab(&mut app, '2');
-    let service = screen(&mut app, 191, 40);
+    let mut service_app = app();
+    service_app.status = Some(json!({"version": "0.1.0", "uptime_secs": 60}));
+    open_tab(&mut service_app, '2');
+    let service = screen(&mut service_app, 191, 40);
     assert!(
         service.contains("not reported by this gateway"),
         "the service tab does not say the gateway does not report its placement:\n{service}"
