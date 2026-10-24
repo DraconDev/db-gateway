@@ -457,6 +457,13 @@ fn service_tab(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 /// The backup freshness, per database.
+///
+/// The shared view builds two tables here — the published sets, and each
+/// database's freshness — and the view used to draw only the first of them,
+/// because it kept "the table" rather than "the tables". The freshness table
+/// is the one this tab exists for, and `docs/tui.md` promises it. The test
+/// that should have caught that looked for the substring "fresh", which
+/// every screen contains in the word "refresh" on the command bar.
 fn backups_tab(frame: &mut Frame, area: Rect, app: &App) {
     let block = pane(app.focus == Focus::Backups);
     let Some(backups) = &app.backups else {
@@ -465,7 +472,7 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &App) {
     };
     let sections = views::backups(backups);
     let mut lines = Vec::new();
-    let mut table: Option<(String, ViewTable)> = None;
+    let mut tables: Vec<(String, ViewTable)> = Vec::new();
     for section in &sections {
         // The same rule as the service tab: a heading is only drawn when
         // there is something under it.
@@ -473,30 +480,40 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &App) {
             lines.push(heading(section.title()));
             lines.extend(section_lines(section));
         }
-        if table.is_none()
-            && let Some(found) = section_table(section)
-        {
+        if let Some(found) = section_table(section) {
             // The table's title comes from the section that owns it. It used
             // to be hardcoded to "per-database", so the *published sets*
             // table was labelled per-database -- a title that names the wrong
             // thing is worse than no title.
-            table = Some((section.title().to_string(), found.clone()));
+            tables.push((section.title().to_string(), found.clone()));
         }
     }
-    // The fields take exactly the lines they need (plus the border) and the
-    // table gets the rest: a fixed four-line allowance cut the freshness
-    // fields off the moment a gateway reported more than the root.
+    // The fields take exactly the lines they need (plus the border): a fixed
+    // four-line allowance cut the freshness fields off the moment a gateway
+    // reported more than the root. Each table then takes its own rows, so a
+    // box hugs its content instead of padding it with blank lines. When they
+    // do not all fit, each table gets a share of the pane and scrolls.
     let fields_height = lines.len() as u16 + 2;
-    let rows =
-        Layout::vertical([Constraint::Length(fields_height), Constraint::Min(1)]).split(area);
+    let needed: u16 = tables.iter().map(|(_, table)| table.rows().len() as u16 + 3).sum();
+    let mut constraints = vec![Constraint::Length(fields_height)];
+    if fields_height + needed <= area.height {
+        constraints.extend(
+            tables
+                .iter()
+                .map(|(_, table)| Constraint::Length(table.rows().len() as u16 + 3)),
+        );
+    } else {
+        constraints.extend(tables.iter().map(|_| Constraint::Min(1)));
+    }
+    let rows = Layout::vertical(constraints).split(area);
     frame.render_widget(Paragraph::new(Text::from(lines)).block(block), rows[0]);
-    if let Some((title, table)) = table {
+    for (index, (title, table)) in tables.iter().enumerate() {
         let mut state = TableState::default().with_offset(app.scroll.backups as usize);
         framed_table(
             frame,
-            rows[1],
-            pane_titled(&title),
-            &table,
+            rows[index + 1],
+            pane_titled(title),
+            table,
             usize::MAX,
             &mut state,
         );
