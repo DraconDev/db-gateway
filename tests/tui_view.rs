@@ -294,3 +294,43 @@ fn a_lone_statement_that_fails_carries_the_reason() {
         "the row claims the statement did not run:\n{text}"
     );
 }
+
+#[test]
+fn the_tab_is_named_once() {
+    // The strip names every tab and what is in it, so an operator who
+    // cannot see a tab still knows it exists. The body used to say the same
+    // words again in its frame title, one row apart: "databases (2)" in the
+    // strip and "databases (2)" as the title. The strip is the summary of
+    // every tab, so it keeps the name and the count; the body shows the
+    // answer and lets the strip say what it is.
+    let status = status();
+    for (focus, name) in [
+        (dg::tui::Focus::Databases, "databases (2)"),
+        (dg::tui::Focus::Service, "2 service"),
+        (dg::tui::Focus::Keys, "4 keys"),
+    ] {
+        let tui = tui_tab_text(&status, focus);
+        let said = tui.matches(name).count();
+        assert_eq!(
+            said, 1,
+            "the strip should say {name:?} exactly once, and the body should \
+             not repeat it:\n{tui}"
+        );
+    }
+}
+
+#[test]
+fn the_traffic_table_says_what_its_wait_columns_mean() {
+    // The shared view layer writes a footer on the traffic table because
+    // "wait p95" and "wait max" are different facts and a reader cannot tell
+    // which is which. The CLI prints it. The view used to drop it, so a
+    // column whose meaning was on screen nowhere was on screen -- and tab 1
+    // now carries the "wait max" column, which is the one most easily
+    // misread.
+    let status = status();
+    let tui = tui_tab_text(&status, dg::tui::Focus::Databases);
+    assert!(
+        tui.contains("wait p95 is this database's own recent waits"),
+        "the traffic table does not explain its wait columns:\n{tui}"
+    );
+}
