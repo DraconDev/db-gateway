@@ -32,7 +32,7 @@
 //! CLI cannot read is never half-applied, and never a panic.
 
 use dg::error::Error;
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
 /// The gateway the CLI talks to when nothing else says otherwise.
@@ -89,6 +89,7 @@ impl Config {
 ///
 /// Both halves are resolved the same way, and the resolution is documented
 /// in `resolve`.
+#[derive(Debug)]
 pub struct ResolvedContext {
     /// The gateway URL to talk to.
     pub server: String,
