@@ -305,7 +305,7 @@ fn the_tab_is_named_once() {
     // answer and lets the strip say what it is.
     let status = status();
     for (focus, name) in [
-        (dg::tui::Focus::Databases, "databases (2)"),
+        (dg::tui::Focus::Databases, "1 databases (1)"),
         (dg::tui::Focus::Service, "2 service"),
         (dg::tui::Focus::Keys, "4 keys"),
     ] {
