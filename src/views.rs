@@ -1509,7 +1509,10 @@ mod tests {
         // The state of the sidecar is spelled out: a configured replica
         // that is not replicating is the failure that looks most like
         // success from a distance.
-        assert!(text.contains("active"), "the sidecar state is missing: {text}");
+        assert!(
+            text.contains("active"),
+            "the sidecar state is missing: {text}"
+        );
         // The registry is not in the newest set, and that is said. The
         // fields are an aligned list, so the check is on the line that
         // names the registry rather than on a phrase.
