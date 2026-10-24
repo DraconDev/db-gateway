@@ -551,16 +551,21 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &App) {
             tables.push((section.title().to_string(), found.clone()));
         }
     }
-    // The fields are the tab's context and the tables are its answer, so
-    // the tables get their rows first and the fields take what is left.
-    // The fields are capped so that a tall list of them can never starve
-    // the freshness table, which is the reason this tab exists.
+    // The tables are the tab's answer, so the table that answers the
+    // question keeps its rows; the last table is a log of what has been
+    // published, and takes what is left. The fields are capped so that a
+    // long list of them can never squeeze a table down to its header,
+    // which is a table with no answer in it.
     let needed: u16 = tables
         .iter()
         .map(|(_, table)| table.rows().len() as u16 + 3)
         .sum();
-    let tables_minimum: u16 = tables.len() as u16 * 3;
-    let fields_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(tables_minimum));
+    let fixed_tables: u16 = tables
+        .iter()
+        .take(tables.len().saturating_sub(1))
+        .map(|(_, table)| table.rows().len() as u16 + 3)
+        .sum();
+    let fields_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(fixed_tables + 3));
     let mut constraints = vec![Constraint::Length(fields_height)];
     if fields_height + needed <= area.height {
         constraints.extend(
@@ -569,13 +574,21 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &App) {
                 .map(|(_, table)| Constraint::Length(table.rows().len() as u16 + 3)),
         );
     } else {
-        constraints.extend(tables.iter().map(|_| Constraint::Min(3)));
+        // Every table but the last keeps its rows; the last one takes the
+        // slack and scrolls.
+        let last = tables.len().saturating_sub(1);
+        for (index, (_, table)) in tables.iter().enumerate() {
+            constraints.push(if index == last {
+                Constraint::Min(3)
+            } else {
+                Constraint::Length(table.rows().len() as u16 + 3)
+            });
+        }
     }
     let rows = Layout::vertical(constraints).split(area);
     // Scrolling moves whatever is cut off: the fields when they are
-    // longer than the pane, the tables when they are. A section below the
-    // fold is still reachable, and the tables still start at their first
-    // row.
+    // longer than the pane, the log table when it is. A section below the
+    // fold is still reachable.
     let offset = app.scroll.backups as usize;
     let fields_clipped = fields_height < lines.len() as u16 + 2;
     let lines: Vec<Line<'static>> = if fields_clipped {
@@ -584,9 +597,12 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &App) {
         lines
     };
     frame.render_widget(Paragraph::new(Text::from(lines)).block(block), rows[0]);
+    let last = tables.len().saturating_sub(1);
     for (index, (title, table)) in tables.iter().enumerate() {
+        // Only the flexible table scrolls: a table that keeps its rows
+        // must not lose its first row to a scroll meant for another one.
         let mut state = TableState::default();
-        if !fields_clipped {
+        if index == last && !fields_clipped {
             state = TableState::default().with_offset(offset);
         }
         framed_table(
