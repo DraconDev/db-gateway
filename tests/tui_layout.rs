@@ -590,3 +590,71 @@ fn a_long_database_list_scrolls_and_says_how_many_it_holds() {
         "the pane did not scroll at all:\n{text}"
     );
 }
+
+#[test]
+fn the_backups_tab_says_whether_the_copies_are_any_good() {
+    // Four questions an operator asks before they trust the copies: did
+    // the last run work, what does the newest set carry, where is the
+    // off-host copy, and has that copy ever been restored.
+    let mut app = app();
+    open_tab(&mut app, '3');
+    let text = screen(&mut app, 191, 50);
+    for fact in [
+        "dg-sandbox",
+        "s3.example.invalid",
+        "gra",
+        "168h",
+        "publish",
+        "export",
+    ] {
+        assert!(
+            text.contains(fact),
+            "the backups tab does not say {fact:?}:\n{text}"
+        );
+    }
+    // The state of the sidecar and the drill are shown as words, not as
+    // the absence of a line: a configured replica that is not replicating
+    // is the failure that looks most like success from a distance.
+    assert!(
+        text.contains("active"),
+        "the backups tab does not say whether the sidecar is running:\n{text}"
+    );
+    assert!(
+        text.contains("restored and verified"),
+        "the backups tab does not say what the last drill proved:\n{text}"
+    );
+    // The newest set does not carry every live database, and the tab
+    // says which one is missing rather than only counting.
+    assert!(
+        text.contains("1 of 2 live databases"),
+        "the backups tab does not say what the newest set carries:\n{text}"
+    );
+    assert!(
+        text.contains("other"),
+        "the backups tab does not name the database the newest set misses:\n{text}"
+    );
+}
+
+#[test]
+fn a_host_that_publishes_no_copy_status_says_so() {
+    // The absence of a published fact is a fact: this host does not
+    // report its replica or its drill. It must not be drawn as an empty
+    // table or, worse, as nothing at all.
+    let mut app = app();
+    app.backups = Some(json!({
+        "backup_root": "/var/lib/dg-backups",
+        "stale_after_secs": 86400,
+        "sets": [],
+        "per_database": {}
+    }));
+    open_tab(&mut app, '3');
+    let text = screen(&mut app, 191, 50);
+    assert!(
+        text.contains("this host publishes no off-host copy status"),
+        "the backups tab does not say the host publishes no replica status:\n{text}"
+    );
+    assert!(
+        text.contains("this host publishes no restore drill result"),
+        "the backups tab does not say the host publishes no drill result:\n{text}"
+    );
+}
