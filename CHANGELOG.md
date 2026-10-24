@@ -105,6 +105,17 @@ fixes; 1.0.0 waits for production acceptance.
 
 ### Fixed
 
+- **The tab's name is no longer said twice.** The strip names every tab and
+  what is in it — "1 databases (2)" — and the body's frame title said the
+  same words again, one row apart. The strip is the summary of every tab,
+  including the ones you cannot see, so it keeps the name and the count; the
+  body shows the answer and lets the strip say what it is.
+- **The view now shows what its wait columns mean.** The shared view layer
+  writes a footer on the traffic table — "wait p95 is this database's own
+  recent waits; wait max is its worst single wait" — and the CLI prints it.
+  The terminal view dropped it, so a column whose meaning was on screen
+  nowhere was on screen. It is now a caption directly under the rows, as the
+  CLI prints it.
 - **The service tab no longer repeats the databases tab.** The tabbed view
   gave every answer a whole tab, and the service tab ended by drawing the
   per-database traffic table — the same rows the databases tab draws, under

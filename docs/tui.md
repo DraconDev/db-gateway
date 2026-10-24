@@ -86,8 +86,13 @@ label.
 | `ctrl-c` | Leave the view, from anywhere |
 
 A tab that holds more than it shows says so: the database list and the
-credential list carry their count in the tab strip and in the body's
-title.
+credential list carry their count in the tab strip. The strip is the summary
+of every tab — including the ones you cannot see — so it is where the count
+belongs, and the body's frame does not repeat it.
+
+A table that needs explaining says so under itself. The database list's
+`wait p95` and `wait max` are different facts, and the line under the rows
+says which is which.
 
 In the actions list: type to filter, `↑`/`↓` to choose, `enter` to
 go, `esc` to go back.
