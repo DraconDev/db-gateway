@@ -231,8 +231,10 @@ pub fn normalise(sql: &str) -> String {
                 // doubled-quote escape, and keep none of it.
                 out.push('?');
                 space = false;
-                for inner in chars.by_ref() {
+                while let Some(inner) = chars.next() {
                     if inner == '\'' {
+                        // Two quotes in a row are one escaped quote and
+                        // the literal goes on; a lone quote ends it.
                         if chars.peek() == Some(&'\'') {
                             chars.next();
                             continue;
