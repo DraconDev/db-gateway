@@ -91,21 +91,30 @@ and exactly-once resubmission is the caller's explicit keyed replay.
 | `POST /v1/uploads/{id}/commit` | owner | `{"name":"…"}` | `{"imported":"…"}` |
 | `DELETE /v1/uploads/{id}` | owner | — | `{"aborted":true}` |
 | `DELETE /v1/databases/{name}` | owner | — | `{"deleted":true,"purge_after_seconds":86400}` |
-| `GET /v1/status` | owner | — | `{"version":"…","uptime_secs":n,"admission":{"acquire_timeout_ms":500,"read_permits":8,"write_permits":4},"requests":{"total":n,"capacity_exceeded":n,"query_deadline_exceeded":n,"internal_error":n},"databases":{"db":{"rows_read":n,"rows_written":n,"queue_waits":n,"queue_wait_ms":n,"queue_timeouts":n}}}` |
+| `GET /v1/status` | owner | — | `{"version":"…","uptime_secs":n,"admission":{"acquire_timeout_ms":500,"read_permits":8,"write_permits":4},"requests":{"total":n,"capacity_exceeded":n,"query_deadline_exceeded":n,"internal_error":n},"databases":{"db":{"rows_read":n,"rows_written":n,"queue_waits":n,"queue_wait_ms":n,"queue_timeouts":n}},"deployment":{"host":"…"/null,"listen":"…","data_dir":"…","backup_root":"…"/null,"databases":{"db":{"file":"…","exists":bool,"size_bytes":n,"tombstoned":bool}}}}` |
 | `GET /v1/backups` | owner | — | `{"backup_root":"…"/null,"stale_after_secs":300,"sets":[{"timestamp":"…","databases":[…],"has_registry":bool,"coverage_start":n/null,"coverage_end":n/null}],"per_database":{"game_a":{"state":"fresh"/"stale"/"unknown","newest_set":"…"/null,"age_secs":n/null}}}` |
 
 Names: `[a-z0-9_]+`, not starting with `_`, max 64 chars. Queries never create databases — a missing database is `404 database_not_found`.
 
 ### The status snapshot
 
-`GET /v1/status` answers four questions: how many databases are live and
-how many are on their way out, how busy the service is and how often it
-fails, how long admission waits are, and which database is doing the work.
+`GET /v1/status` answers five questions: where the gateway is running and
+where it keeps its files, how many databases are live and how many are on
+their way out, how busy the service is and how often it fails, how long
+admission waits are, and which database is doing the work.
 The fields below are all additive; the pre-existing ones keep their
 meaning.
 
 | Field | Meaning |
 | --- | --- |
+| `deployment.host` | The machine's hostname, or `null` when the platform does not report one. The client usually cannot work this out for itself: a gateway reached through a tunnel is a loopback port from the outside, and the machine on the other end is the one holding the data. |
+| `deployment.listen` | The address the listener **actually bound**, not the one that was requested: `dg serve --listen 127.0.0.1:0` binds an ephemeral port, and a report of the requested address would be a lie. |
+| `deployment.data_dir` | The directory the gateway keeps its databases in — the path it was started with, so it is the path in the unit file. |
+| `deployment.backup_root` | The backup root the gateway watches, or `null` when none is configured. This is the path, not a claim that anything is backed up; freshness is `GET /v1/backups`. |
+| `deployment.databases.<db>.file` | The file that database lives in, absolute. |
+| `deployment.databases.<db>.exists` | Whether that file is there now. A registry row whose file is gone is a fault, and is reported as missing rather than as a database of zero bytes. |
+| `deployment.databases.<db>.size_bytes` | The main file plus its WAL sidecars. |
+| `deployment.databases.<db>.tombstoned` | Whether the name is tombstoned: deleted, but still on disk until the retention window purges it. Tombstoned databases are listed here too, because "is everything live" cannot be answered from a list of only the live ones. |
 | `database_counts.live` / `.tombstoned` | Live databases, and databases tombstoned but not yet purged. A tombstone still holds its name, so it still counts against the database cap. A client rendering these must treat an absent field as **unknown**, not zero: a gateway old enough to omit `database_counts` would otherwise be drawn as holding no databases while the database list beside it was full. |
 | `requests.recent_per_second` | The per-second request counts of the last 60 seconds, oldest first. A fixed-size ring, not a time series: it answers "how busy was it just now" and cannot grow with traffic. |
 | `requests.recent_span_secs` | How many seconds the window actually observed. Less than 60 right after boot, so a rate computed from it is scaled honestly rather than reported against a span the service never lived. |
