@@ -372,6 +372,9 @@ INTEGRITY="unknown"
 if "$LITESTREAM_BIN" restore -config "$LITESTREAM_CONFIG" \
     -o "$TARGET" -timestamp "$TIMESTAMP" "$DB_PATH" 2>"$TARGET_DIR/restore.log"; then
     if [ -s "$TARGET" ]; then
+        # The restored copy is data: it gets the same mode as every other
+        # copy of a database on this host.
+        chmod 0600 "$TARGET" 2>/dev/null || true
         # The restored copy is verified, not trusted: integrity first,
         # then the shape and size of the data it carries.
         if VERIFY="$(verify_restored "$TARGET" 2>&1)"; then
