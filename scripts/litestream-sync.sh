@@ -42,12 +42,23 @@
 #                            `metadata` entry (default: 1; 0 opts out)
 #   DG_LITESTREAM_RETENTION replica retention  (default: 168h)
 #   DG_LITESTREAM_SNAPSHOT_INTERVAL              (default: 24h)
+#   DG_BACKUP_ROOT           where the replica status is published
+#                           (default: /var/lib/dg-backups)
+#   DG_LITESTREAM_STATUS_CMD command that reports the sidecar's state
+#                           (default: systemctl is-active dg-litestream.service;
+#                            empty string disables the check)
 #
 # The S3 access/secret keys are never inlined: the rendered config keeps
 # ${LITESTREAM_S3_*} references for the two credential keys (expanded by
 # litestream from the sidecar's EnvironmentFile), exactly as the
 # installer's render did. Only bucket/endpoint/region -- not secrets --
 # are substituted from the env file, and they are never echoed.
+#
+# The published replica status carries the same non-secret facts: where
+# the copy is, how long it is kept, what it covers, and whether the
+# sidecar is running. It is written where the gateway reads it, so the
+# operator can ask the gateway where their data is and get the host's
+# own answer. Credentials are never written there either.
 
 set -euo pipefail
 SELF="litestream-sync"
@@ -67,6 +78,8 @@ DG_KEY_FILE="${DG_KEY_FILE:-/etc/dg/owner.key}"
 DG_DATA_DIR="${DG_DATA_DIR:-/var/lib/dg}"
 CONFIG="${LITESTREAM_CONFIG:-/etc/litestream.yml}"
 ENV_FILE="${LITESTREAM_ENV_FILE:-/etc/dg/litestream.env}"
+BACKUP_ROOT="${DG_BACKUP_ROOT:-/var/lib/dg-backups}"
+STATUS_CMD="${DG_LITESTREAM_STATUS_CMD-systemctl is-active dg-litestream.service}"
 RESTART_CMD="${LITESTREAM_RESTART_CMD-systemctl restart dg-litestream.service}"
 CONFIG_OWNER="${LITESTREAM_CONFIG_OWNER-dg:dg}"
 if [ -z "${DG_LIST_AS+x}" ]; then
@@ -155,6 +168,13 @@ fi
 # doc records their production state separately).
 RETENTION="${DG_LITESTREAM_RETENTION:-168h}"
 SNAPSHOT_INTERVAL="${DG_LITESTREAM_SNAPSHOT_INTERVAL:-24h}"
+
+# Where the copy is. Empty until the replica settings are read below; the
+# file-replica mode has no bucket, and says so rather than naming one.
+TARGET=""
+BUCKET=""
+ENDPOINT=""
+REGION=""
 
 # --- 2. Replica settings. ------------------------------------------------
 render_one() { # render_one <name> -- one dbs: entry; name may be "metadata"
