@@ -577,7 +577,8 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &App) {
     // fold is still reachable, and the tables still start at their first
     // row.
     let offset = app.scroll.backups as usize;
-    let lines: Vec<Line<'static>> = if fields_height < lines.len() as u16 + 2 {
+    let fields_clipped = fields_height < lines.len() as u16 + 2;
+    let lines: Vec<Line<'static>> = if fields_clipped {
         lines.into_iter().skip(offset).collect()
     } else {
         lines
@@ -585,7 +586,7 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(Paragraph::new(Text::from(lines)).block(block), rows[0]);
     for (index, (title, table)) in tables.iter().enumerate() {
         let mut state = TableState::default();
-        if fields_height >= lines.len() as u16 + 2 {
+        if !fields_clipped {
             state = TableState::default().with_offset(offset);
         }
         framed_table(
