@@ -1061,10 +1061,7 @@ fn the_restore_point_script_refuses_a_moment_it_cannot_restore() {
     let env = [
         ("LITESTREAM_BIN", litestream.to_str().unwrap()),
         ("LITESTREAM_CONFIG", config.to_str().unwrap()),
-        (
-            "LITESTREAM_ENV_FILE",
-            absent_env.to_str().unwrap(),
-        ),
+        ("LITESTREAM_ENV_FILE", absent_env.to_str().unwrap()),
         ("DG_DATA_DIR", data.to_str().unwrap()),
         ("DG_BACKUP_ROOT", backups.to_str().unwrap()),
         ("RESTORE_ROOT", restores.to_str().unwrap()),
