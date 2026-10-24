@@ -14,8 +14,8 @@
 //! surface draws the same reading.
 
 use crate::render::{
-    self, Align, Cell, Section, Style, Table, human_count, human_duration, human_epoch_ago,
-    human_micros, human_percent, human_rate, human_set_stamp, wait_figures,
+    self, Align, Cell, Section, Style, Table, human_bytes, human_count, human_duration,
+    human_epoch_ago, human_micros, human_percent, human_rate, human_set_stamp, wait_figures,
 };
 use serde_json::Value;
 
@@ -59,6 +59,12 @@ pub fn service_dashboard(status: &serde_json::Value) -> Vec<Section> {
     };
     service.field("databases", Cell::text(counts));
     sections.push(service);
+
+    // Where this gateway is, and where it keeps its files. The facts a
+    // client cannot work out for itself: a gateway reached through a
+    // tunnel is on a machine the client knows nothing about, and that
+    // machine is the one holding the data.
+    sections.push(deployment(status));
 
     // How much work it is doing, and how fast.
     let requests = &status["requests"];
@@ -135,7 +141,110 @@ pub fn service_dashboard(status: &serde_json::Value) -> Vec<Section> {
         sections.push(per_database);
     }
 
+    // Where each database actually is, and whether it is there. This is
+    // the dashboard's last section because it is the slowest-changing
+    // fact here and the one an operator goes to when the rest of the
+    // picture is not making sense.
+    if let Some(table) = locations(status) {
+        let mut placement = Section::new("locations");
+        placement.table(table);
+        sections.push(placement);
+    }
+
     sections
+}
+
+/// Where the gateway is running, and where it keeps its files.
+///
+/// The client cannot answer this for itself. A gateway is usually reached
+/// through a tunnel, so from the client it is a loopback port and nothing
+/// more -- the machine on the other end of the tunnel is the one holding
+/// the data, and only the gateway knows which machine that is.
+///
+/// A gateway that does not report its placement (an older build) says so
+/// once, rather than drawing four "unknown" lines that read like a
+/// gateway which has lost its files.
+pub fn deployment(status: &Value) -> Section {
+    let mut section = Section::new("deployment");
+    let Some(deployment) = status["deployment"].as_object() else {
+        section.field(
+            "placement",
+            Cell::text("not reported by this gateway"),
+        );
+        return section;
+    };
+    section.field(
+        "host",
+        Cell::styled(
+            deployment["host"].as_str().unwrap_or("unknown").to_string(),
+            Style::Cyan,
+        ),
+    );
+    section.field(
+        "listen",
+        Cell::text(deployment["listen"].as_str().unwrap_or("unknown").to_string()),
+    );
+    section.field(
+        "data dir",
+        Cell::styled(
+            deployment["data_dir"].as_str().unwrap_or("unknown").to_string(),
+            Style::Cyan,
+        ),
+    );
+    // The backup root is configured whether or not the directory is
+    // readable, so this is the path, not a claim that anything is
+    // backed up. Whether it is fresh is the backups tab's answer.
+    let backup_root = match deployment["backup_root"].as_str() {
+        Some(root) => root.to_string(),
+        None => "none configured".to_string(),
+    };
+    section.field("backup root", Cell::styled(backup_root, Style::Cyan));
+    section
+}
+
+/// Where each database lives on disk, and whether it is there.
+///
+/// `None` when the gateway does not report its placement. An empty table
+/// would be a different claim -- a gateway with no databases -- and the
+/// two must not look alike.
+pub fn locations(status: &Value) -> Option<Table> {
+    let databases = status["deployment"]["databases"].as_object()?;
+    let mut table = Table::new();
+    table.column("database", Align::Left);
+    table.column("file", Align::Left);
+    table.column("size", Align::Right);
+    table.column("state", Align::Left);
+    for (name, entry) in databases {
+        let (state, style) = location_state(entry);
+        table.row(vec![
+            Cell::styled(name.clone(), Style::Cyan),
+            Cell::text(entry["file"].as_str().unwrap_or("?").to_string()),
+            Cell::text(
+                entry["size_bytes"]
+                    .as_u64()
+                    .map(human_bytes)
+                    .unwrap_or_else(|| "unknown".to_string()),
+            ),
+            Cell::styled(state, style),
+        ]);
+    }
+    Some(table)
+}
+
+/// The state of one database file: live, tombstoned, or missing.
+///
+/// A tombstone wins over a missing file: the name is still held and the
+/// row is still on its way to being purged, which is what the operator
+/// needs to know. A live database whose file is not there is the real
+/// fault, and it is reported as one.
+fn location_state(entry: &Value) -> (String, Style) {
+    if entry["tombstoned"].as_bool() == Some(true) {
+        return ("tombstoned".to_string(), Style::Yellow);
+    }
+    if entry["exists"].as_bool() != Some(true) {
+        return ("missing".to_string(), Style::Red);
+    }
+    ("live".to_string(), Style::Green)
 }
 
 /// The per-database traffic table, over the databases that have done
