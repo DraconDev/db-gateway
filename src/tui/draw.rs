@@ -494,7 +494,10 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &App) {
     // box hugs its content instead of padding it with blank lines. When they
     // do not all fit, each table gets a share of the pane and scrolls.
     let fields_height = lines.len() as u16 + 2;
-    let needed: u16 = tables.iter().map(|(_, table)| table.rows().len() as u16 + 3).sum();
+    let needed: u16 = tables
+        .iter()
+        .map(|(_, table)| table.rows().len() as u16 + 3)
+        .sum();
     let mut constraints = vec![Constraint::Length(fields_height)];
     if fields_height + needed <= area.height {
         constraints.extend(
