@@ -385,6 +385,48 @@ async fn backups(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<
                 "detail": drill.detail,
             })
         });
+        // The window of moments the off-host replica can be restored to,
+        // and the last restore that was taken from it. Both are the
+        // host's to know and the host's to publish; the gateway reports
+        // them the way it reports where the copy is.
+        let restore_points = health.restore_points.as_ref().map(|points| {
+            let databases: serde_json::Map<String, serde_json::Value> = points
+                .databases
+                .iter()
+                .map(|(name, window)| {
+                    (
+                        name.clone(),
+                        json!({
+                            "oldest": window.oldest,
+                            "newest": window.newest,
+                            "files": window.files,
+                            "bytes": window.bytes,
+                        }),
+                    )
+                })
+                .collect();
+            json!({
+                "published_at": points.published_at,
+                "window_start": points.window_start,
+                "window_end": points.window_end,
+                "sidecar": points.sidecar,
+                "databases": databases,
+            })
+        });
+        let last_restore = health.last_restore.as_ref().map(|restore| {
+            json!({
+                "restored_at": restore.restored_at,
+                "database": restore.database,
+                "timestamp": restore.timestamp,
+                "outcome": restore.outcome,
+                "detail": restore.detail,
+                "tables": restore.tables,
+                "rows": restore.rows,
+                "size_bytes": restore.size_bytes,
+                "integrity": restore.integrity,
+                "path": restore.path,
+            })
+        });
         Ok(Json(json!({
             "backup_root": s.backup_root().map(|p| p.to_string_lossy().into_owned()),
             "stale_after_secs": STALE_AFTER_SECS,
@@ -395,6 +437,8 @@ async fn backups(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<
             "coverage": coverage,
             "replica": replica,
             "drill": drill,
+            "restore_points": restore_points,
+            "last_restore": last_restore,
         })))
     })
     .await

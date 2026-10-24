@@ -465,6 +465,10 @@ pub fn snapshot(store: &Store) -> Result<BackupHealth, crate::error::Error> {
         Some(root) => (read_replica(root), read_drill(root)),
         None => (None, None),
     };
+    let (restore_points, last_restore) = match root.as_deref() {
+        Some(root) => (read_restore_points(root), read_restore_result(root)),
+        None => (None, None),
+    };
     Ok(BackupHealth {
         backup_root: root,
         stale_after_secs: STALE_AFTER_SECS,
@@ -478,6 +482,8 @@ pub fn snapshot(store: &Store) -> Result<BackupHealth, crate::error::Error> {
         coverage,
         replica,
         drill,
+        restore_points,
+        last_restore,
     })
 }
 
