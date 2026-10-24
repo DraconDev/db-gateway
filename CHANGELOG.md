@@ -105,6 +105,15 @@ fixes; 1.0.0 waits for production acceptance.
 
 ### Fixed
 
+- **The backups tab shows each database's freshness again.** The shared view
+  builds two tables for it — the published sets, and each database's
+  freshness — and the view kept "the table" rather than "the tables", so the
+  freshness table was drawn nowhere. It is the one the tab exists for, and
+  `docs/tui.md` has always promised it. The test that should have caught
+  this looked for the substring "fresh", which every screen contains in the
+  word "refresh" on the command bar, so it passed on a screen that showed no
+  freshness at all. It now checks the table and each state against its own
+  row.
 - **The tab's name is no longer said twice.** The strip names every tab and
   what is in it — "1 databases (2)" — and the body's frame title said the
   same words again, one row apart. The strip is the summary of every tab,
