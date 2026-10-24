@@ -1,0 +1,21 @@
+# Timer for dg-restore-points.service: publish the restore window the
+# off-host replica offers.
+#
+# Copy to /etc/systemd/system/dg-restore-points.timer on the target host
+# alongside dg-restore-points.service, then
+#   systemctl daemon-reload && systemctl enable --now dg-restore-points.timer
+#
+# Every five minutes, matching the litestream config sync: the window
+# moves when the replica does, so it is published at the cadence the
+# copy is refreshed. The steady-state cost is one listing of the
+# replica's files per database per interval.
+
+[Unit]
+Description=Periodic db-gateway restore window publisher
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
