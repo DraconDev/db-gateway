@@ -497,6 +497,21 @@ fn a_gateway_that_reports_no_placement_says_so_rather_than_looking_empty() {
         service.contains("not reported by this gateway"),
         "the service tab does not say the gateway does not report its placement:\n{service}"
     );
+
+    // A status answer that has not arrived is a different thing from a
+    // gateway that does not give one: blaming the gateway for a question
+    // nobody has answered yet is its own kind of wrong.
+    let mut unanswered = app();
+    unanswered.status = None;
+    let databases = screen(&mut unanswered, 191, 40);
+    assert!(
+        databases.contains("no answer yet"),
+        "the databases tab does not say the placement has not arrived:\n{databases}"
+    );
+    assert!(
+        !databases.contains("does not report where its databases live"),
+        "a question nobody has answered yet is blamed on the gateway:\n{databases}"
+    );
 }
 
 #[test]
