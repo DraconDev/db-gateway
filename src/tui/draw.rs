@@ -468,8 +468,7 @@ fn keys_tab(frame: &mut Frame, area: Rect, app: &App) {
     match &app.keys {
         Some(keys) => {
             let table = views::keys(keys);
-            let title = format!("{} ({})", Focus::Keys.title(), table.rows().len());
-            let block = pane(&title, app.focus == Focus::Keys);
+            let block = pane(app.focus == Focus::Keys);
             let mut state = TableState::default().with_offset(app.scroll.keys as usize);
             frame.render_stateful_widget(
                 table_widget(&table, area.width, usize::MAX).block(block),
@@ -478,7 +477,7 @@ fn keys_tab(frame: &mut Frame, area: Rect, app: &App) {
             );
         }
         None => {
-            let block = pane(Focus::Keys.title(), app.focus == Focus::Keys);
+            let block = pane(app.focus == Focus::Keys);
             frame.render_widget(Paragraph::new("no answer yet").block(block), area);
         }
     }
@@ -543,12 +542,12 @@ fn outcome_pane(frame: &mut Frame, area: Rect, outcome: &Outcome) {
     ])
     .split(area);
     frame.render_widget(
-        Paragraph::new(Text::from(lines)).block(pane("last action", false)),
+        Paragraph::new(Text::from(lines)).block(pane_titled("last action")),
         rows[0],
     );
     if let Some(table) = &outcome.table {
         frame.render_widget(
-            table_widget(table, rows[1].width, OUTCOME_ROWS).block(pane("rows", false)),
+            table_widget(table, rows[1].width, OUTCOME_ROWS).block(pane_titled("rows")),
             rows[1],
         );
     }
