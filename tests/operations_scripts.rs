@@ -1011,7 +1011,7 @@ fn the_published_restore_facts_never_carry_a_credential() {
     fs::write(
         &env_file,
         "LITESTREAM_S3_ACCESS_KEY_ID=[DRACON_SECRET:REDACTED]KEY\n\
-         LITESTREAM_S3_SECRET_ACCESS_KEY=super-secret-value-that-must-never-be-published\n",
+         LITESTREAM_S3_SECRET_ACCESS_KEY=placeholder-secret-not-published\n",
     )
     .unwrap();
 
@@ -1038,7 +1038,7 @@ fn the_published_restore_facts_never_carry_a_credential() {
         "the published window carries the access key: {published}"
     );
     assert!(
-        !published.contains("super-secret-value"),
+        !published.contains("placeholder-secret-not-published"),
         "the published window carries the secret key: {published}"
     );
 }
