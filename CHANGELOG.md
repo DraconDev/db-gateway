@@ -36,6 +36,18 @@ fixes; 1.0.0 waits for production acceptance.
   answer, and the view grows a fifth tab for it. The log is bounded per
   database — 200 shapes, 16 credentials each — because a query log that
   fills the disk is the same failure as any other disk exhaustion.
+- **A backup set can be taken now, not only on the hour.** `dg backup
+  run` asks the gateway for a backup set and the gateway takes one: the
+  same directory, the same manifest, the same checksums and the same
+  registry copy the host's hourly producer writes, so the two are
+  indistinguishable to every reader. Each database is copied through
+  SQLite's online backup API, every file is checked before the set is
+  published, and the set is published with an atomic rename — a reader
+  never sees a half-written set. The run takes the SAME lock the hourly
+  producer takes, so the two producers exclude each other instead of
+  publishing at once; a run that finds the lock held fails rather than
+  waiting. Retention stays the producer's business: one policy, one
+  place to change it.
 - **A fork of a database that can diverge from it.** `dg branch create`
   takes a copy of a database — now, or at a moment in the past when that
   moment falls inside the backup window — and the copy is a real, writable

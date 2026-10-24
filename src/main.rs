@@ -650,6 +650,16 @@ enum KeyCommand {
 }
 #[derive(Subcommand)]
 enum BackupCommand {
+    /// Take a backup set NOW, from inside the gateway.
+    ///
+    /// The set is written in the same shape the host's hourly producer
+    /// writes — the same manifest, the same checksums, the same
+    /// directory names — and it takes the producer's lock, so the two
+    /// never publish at the same time. The gateway copies each database
+    /// through SQLite's online backup API, checks every file before the
+    /// set is published, and publishes with an atomic rename: a reader
+    /// never sees a half-written set.
+    Run,
     /// Owner-only backup freshness: versioned sets plus per-database
     /// fresh/stale/unknown state.
     Status,
@@ -773,6 +783,7 @@ enum ConfigCommand {
 }
 mod cmd_audit;
 mod cmd_backup;
+mod cmd_backup_run;
 mod cmd_branch;
 mod cmd_config;
 mod cmd_data;
@@ -998,6 +1009,9 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         Command::Backup {
             command: BackupCommand::Verify { backup_root, set },
         } => return cmd_backup::verify(backup_root, set, json).await,
+        Command::Backup {
+            command: BackupCommand::Run,
+        } => return cmd_backup_run::run(&server, json, &key_path).await,
         Command::Status => cmd_status::status(&server, json, &key_path).await?,
         Command::Watch => cmd_status::watch(&server, json, &key_path).await?,
         Command::Backup {

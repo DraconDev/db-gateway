@@ -43,6 +43,7 @@ maps each Turso CLI verb to its `dg` equivalent.
 | dashboard "Branches" (Create From Point-in-Time) | `dg branch create <parent> <name> --from <ISO8601>` | The same, at a moment inside the backup window. A moment before the oldest set is refused, and the window that IS available is named. |
 | dashboard "Branches" | `dg branch list`, `dg branch show <name>`, `dg branch delete <name> --confirm <name>` | The forks, where each came from, and their removal. |
 | dashboard "Overview" | `dg integrity <name>` | SQLite's own integrity check and foreign-key check, on a read-only connection, reported verbatim. It never repairs anything. |
+| dashboard "Overview" | `dg backup run` | Take a backup set now, from inside the gateway: the same set the hourly producer writes, published atomically and under the producer's own lock. |
 | — | `dg vacuum <name>` | Reclaims the space a file is wasting, under the same write fence every other writer takes, and reports the bytes it actually reclaimed. |
 | — | `dg explain <name> "<sql>"` | What SQLite would do with a statement: its query plan, in plain words, with no invented cost model. |
 

@@ -91,6 +91,10 @@ pub fn router(store: Arc<Store>, deployment: Deployment) -> Router {
         // inside its transaction.
         .merge(crate::audit::router(store.clone()))
         .merge(crate::db_ops::router(store.clone()))
+        // A backup set on demand: the gateway can take one now, in the
+        // same shape the host's hourly producer writes, and it takes the
+        // producer's lock so the two never publish at once.
+        .merge(crate::backup_run::router(store.clone()))
         // The branch registry is read when the router is built, which is
         // startup: a fork made yesterday is still a fork today.
         .merge(crate::branch::router(store))

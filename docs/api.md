@@ -130,6 +130,7 @@ dg mcp                 # speaks JSON-RPC on stdin/stdout
 | `GET /v1/status` | owner | — | `{"version":"…","uptime_secs":n,"admission":{"acquire_timeout_ms":500,"read_permits":8,"write_permits":4},"requests":{"total":n,"capacity_exceeded":n,"query_deadline_exceeded":n,"internal_error":n},"databases":{"db":{"rows_read":n,"rows_written":n,"queue_waits":n,"queue_wait_ms":n,"queue_timeouts":n}},"deployment":{"host":"…"/null,"listen":"…","data_dir":"…","backup_root":"…"/null,"databases":{"db":{"file":"…","exists":bool,"size_bytes":n,"tombstoned":bool}}}}` |
 | `GET /v1/backups` | owner | — | `{"backup_root":"…"/null,"stale_after_secs":300,"sets":[{"timestamp":"…","databases":[…],"has_registry":bool,"coverage_start":n/null,"coverage_end":n/null}],"per_database":{"game_a":{"state":"fresh"/"stale"/"unknown","newest_set":"…"/null,"age_secs":n/null}},"last_attempt":{…}/null,"last_failure":{…}/null,"coverage":{…}/null,"replica":{…}/null,"drill":{…}/null,"restore_points":{…}/null,"last_restore":{…}/null}` |
 | `GET /v1/queries` | owner | — | `{"databases":[{"database":"…","shapes":[{"shape":"SELECT … WHERE id = ?","count":n,"rows_read":n,"rows_written":n,"total_micros":n,"max_micros":n,"first_seen":epoch,"last_seen":epoch,"principals":{"name":n}}]}]}` (`?database=<name>` narrows it to one database) |
+| `POST /v1/backups/run` | owner (read-write) | `{}` | `{"set":"20261024T195500Z","databases":[{"name":"…","size":n,"sha256":"…"}],"registry":{…},"started_at":epoch,"completed_at":epoch,"duration_ms":n}` |
 | `GET /v1/audit` | owner | — | `{"entries":[{"at":epoch,"principal":"…","role":"…","action":"query","database":"…","detail":"…"}]}` (`?principal=<name>` and `?since=<epoch>` narrow it) |
 | `POST /v1/diff` | owner (read access to both sides) | `{"left":"game_a","right":"game_b"}` | `{"left":"…","right":"…","identical":bool,"schema":{…},"tables":[…],"compared_rows":n,"truncated":bool}` |
 | `POST /v1/branch` | owner | `{"parent":"game_a","name":"game_a_trial","at":"2026-10-16T00:00:00Z"}` (`at` optional) | `{"name":"…","parent":"…","forked_at":epoch,"source":"live"/"snapshot","set":"…"}` |
@@ -218,6 +219,31 @@ answers for every other one.
 Shapes are ordered by rows read, then by total time, then by name, so
 the heaviest statement is the first thing read.
 
+### A backup set on demand
+
+`POST /v1/backups/run` takes a backup set NOW, from inside the gateway.
+The hourly producer on the host already writes sets into the backup root;
+this writes one in exactly the same shape, so the two are
+indistinguishable to every reader:
+
+- the set is a directory named `YYYYMMDDTHHMMSSZ`, holding one
+  `<database>.sqlite` per live database, a `<database>.sha256` sidecar
+  per database, `metadata.sqlite.bak` (the registry) and `manifest.json`;
+- each database is copied through SQLite's online backup API, because a
+  file copy of a live WAL-mode database is not a valid backup;
+- every file is checked BEFORE the set is published — each must be a
+  standalone database that passes `PRAGMA integrity_check`, and the
+  manifest's size and checksum must agree with the bytes on disk;
+- the set is published with an atomic rename, so a reader never sees a
+  half-written set;
+- the run takes the SAME lock the hourly producer takes
+  (`<backup_root>/.backup.lock`), so the two producers exclude each
+  other rather than publishing at once. A run that finds the lock held
+  fails, and waits for nothing.
+
+The run does not prune: retention is the hourly producer's policy, and
+two writers with two retention rules would fight.
+
 ### SQL value encoding
 
 Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1`, `number→INTEGER/REAL` (unsigned integers above `2^63-1` are rejected), `string→TEXT`, `array of 0–255 integers→BLOB` (returned as arrays of numbers). Objects (including `{ "integer": "42" }`) are rejected. Two output coercions are silent by design: non-finite REALs (`NaN`/`±Inf`, unrepresentable in JSON) come back as `null`, and TEXT with invalid UTF-8 bytes comes back lossy (replacement characters). The TypeScript client uses JavaScript numbers: integers outside ±(2^53−1) are not guaranteed exact. For exact large identifiers, store and transmit decimal TEXT; there is no integer-wrapper encoding in M1.
@@ -297,7 +323,7 @@ idempotency key — so a write waits a minute, and a transfer phase (which
 commits nothing, but means beginning the whole transfer again) waits the
 same. The answer is what removes the doubt, so the CLI waits for it.
 
-The human views are: `dg list`, `dg info`, `dg inspect`, `dg query`, `dg execute`, `dg status`, `dg watch`, `dg backup status`, `dg queries`, `dg audit`, `dg branch list`, `dg config list`, `dg key list` and `dg key tokens` (tables and dashboards), and `dg create`, `dg delete`, `dg export`, `dg import`, `dg clone`, `dg diff`, `dg branch create`, `dg branch delete`, `dg vacuum`, `dg integrity`, `dg explain`, `dg restore plan`, `dg key create`, `dg key revoke`, `dg key rotate-owner`, `dg backup verify`, `dg batch`, `dg config set`, `dg config remove` and `dg init` (a headline and the facts behind it). Piped output always stays JSON, so
+The human views are: `dg list`, `dg info`, `dg inspect`, `dg query`, `dg execute`, `dg status`, `dg watch`, `dg backup status`, `dg backup run`, `dg queries`, `dg audit`, `dg branch list`, `dg config list`, `dg key list` and `dg key tokens` (tables and dashboards), and `dg create`, `dg delete`, `dg export`, `dg import`, `dg clone`, `dg diff`, `dg branch create`, `dg branch delete`, `dg vacuum`, `dg integrity`, `dg explain`, `dg restore plan`, `dg key create`, `dg key revoke`, `dg key rotate-owner`, `dg backup verify`, `dg batch`, `dg config set`, `dg config remove` and `dg init` (a headline and the facts behind it). Piped output always stays JSON, so
 scripts are unaffected.
 
 The one exception is `dg backup digest`, which is a REPORT rather than

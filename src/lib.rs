@@ -5,6 +5,7 @@ pub mod api;
 pub mod audit;
 pub mod backup;
 pub mod backup_health;
+pub mod backup_run;
 pub mod branch;
 pub mod client;
 pub mod confirmation;
