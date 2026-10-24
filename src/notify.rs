@@ -504,6 +504,12 @@ mod tests {
             backup_root: Some(std::path::PathBuf::from("/var/lib/dg-backups")),
             stale_after_secs: 300,
             generated_at: 1_700_000_000,
+            // The notifier only reads the freshness and the attempts; the
+            // placement facts the endpoint also reports are not its
+            // business, and leaving them unset says so.
+            coverage: None,
+            replica: None,
+            drill: None,
             databases: vec![
                 DatabaseHealth {
                     name: "alpha".into(),
