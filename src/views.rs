@@ -64,7 +64,7 @@ pub fn service_dashboard(status: &serde_json::Value) -> Vec<Section> {
     // client cannot work out for itself: a gateway reached through a
     // tunnel is on a machine the client knows nothing about, and that
     // machine is the one holding the data.
-    sections.push(deployment(status));
+    // MUTATED
 
     // How much work it is doing, and how fast.
     let requests = &status["requests"];

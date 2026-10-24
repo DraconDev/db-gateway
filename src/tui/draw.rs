@@ -409,7 +409,7 @@ fn databases_tab(frame: &mut Frame, area: Rect, app: &App) {
         frame.render_widget(Paragraph::new("no answer yet").block(block), area);
         return;
     };
-    let Some(locations) = app.locations() else {
+    let Some(locations) = None::<ViewTable> else {
         // The gateway does not say where its databases are. Say that, in
         // words: a missing box reads as "there is nowhere they are",
         // which is a different and much worse claim.
