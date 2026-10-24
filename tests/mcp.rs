@@ -1,13 +1,21 @@
 //! The MCP server's protocol, driven the way a client drives it.
 //!
-//! Every test speaks the wire format itself -- one JSON-RPC message per
-//! line -- and asserts what comes back. A gateway is not needed: the
-//! paths under test (the handshake, the catalogue, an unknown tool, a
+//! Most tests speak the wire format itself -- one JSON-RPC message per
+//! line -- and assert what comes back. A gateway is not needed for them:
+//! the paths under test (the handshake, the catalogue, an unknown tool, a
 //! malformed line, a refused write) are answered before any request
 //! leaves the process, and the one path that would reach the network is
 //! pointed at a port nothing listens on, so a test that reached it by
 //! accident fails at once instead of waiting for a timeout.
+//!
+//! The last test is the exception: it runs against a real gateway, so
+//! the tools are proved to answer with the gateway's own facts and not
+//! only to be well-shaped.
 
+#[path = "common/mod.rs"]
+mod common;
+
+use common::Fleet;
 use serde_json::{Value, json};
 use std::io::Write;
 

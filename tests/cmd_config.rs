@@ -21,13 +21,19 @@ fn config_file(dir: &Path) -> PathBuf {
 }
 
 /// A credential file, private like the real one.
+///
+/// The content is distinctive so a test can prove it never reaches the
+/// config file.
 fn write_key(dir: &Path, name: &str) -> PathBuf {
     let path = dir.join(name);
-    std::fs::write(&path, "credential").expect("the key file is written");
+    std::fs::write(&path, SECRET).expect("the key file is written");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
         .expect("the key file is private");
     path
 }
+
+/// What a credential file holds. It must never appear in the config.
+const SECRET: &str = "the-secret-credential-value";
 
 #[test]
 fn set_list_and_show_round_trip() {
@@ -87,7 +93,7 @@ fn set_list_and_show_round_trip() {
     assert!(text.contains("[contexts.micro2]"), "{text}");
     assert!(text.contains("[contexts.\"my ctx\"]"), "{text}");
     assert!(
-        !text.contains("credential"),
+        !text.contains(SECRET),
         "the credential is not in the config: {text}"
     );
 }
