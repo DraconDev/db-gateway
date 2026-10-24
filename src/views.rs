@@ -1510,10 +1510,16 @@ mod tests {
         // that is not replicating is the failure that looks most like
         // success from a distance.
         assert!(text.contains("active"), "the sidecar state is missing: {text}");
-        // The registry is not in the newest set, and that is said.
+        // The registry is not in the newest set, and that is said. The
+        // fields are an aligned list, so the check is on the line that
+        // names the registry rather than on a phrase.
+        let registry_line = text
+            .lines()
+            .find(|line| line.contains("registry"))
+            .unwrap_or_else(|| panic!("the registry is not mentioned at all: {text}"));
         assert!(
-            text.contains("registry: no"),
-            "a set without the registry is not called out: {text}"
+            registry_line.contains("no"),
+            "a set without the registry is not called out: {registry_line}"
         );
     }
 
