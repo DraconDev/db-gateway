@@ -89,7 +89,7 @@ pub async fn digest(
             Cell::styled(note.title.clone(), severity_style(&note.severity)),
         );
         root.field(
-            "stale after",
+            "freshness objective",
             Cell::text(dg::render::human_duration(note.stale_after_secs)),
         );
         if let Some(failure) = &health.last_failure {
