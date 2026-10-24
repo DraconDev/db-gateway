@@ -223,7 +223,9 @@ async fn status(
         // answered here rather than per database: one poll covers every
         // database, instead of the client asking once per name.
         let mut locations = serde_json::Map::new();
+        let mut databases_bytes = 0u64;
         for location in s.locations()? {
+            databases_bytes = databases_bytes.saturating_add(location.size_bytes);
             locations.insert(
                 location.name.clone(),
                 json!({
@@ -234,6 +236,16 @@ async fn status(
                 }),
             );
         }
+        let disk = crate::store::disk_space(s.root()).map(|space| {
+            json!({
+                "total_bytes": space.total_bytes,
+                "free_bytes": space.free_bytes,
+                "used_bytes": space.used_bytes,
+                "used_percent": space.used_percent(),
+                "total_inodes": space.total_inodes,
+                "free_inodes": space.free_inodes,
+            })
+        });
         Ok(Json(json!({
             "version": env!("CARGO_PKG_VERSION"),
             "uptime_secs": m.uptime_secs,
@@ -267,6 +279,16 @@ async fn status(
                 "data_dir": s.root().display().to_string(),
                 "backup_root": s.backup_root().map(|root| root.to_string_lossy().into_owned()),
                 "databases": locations,
+                // How much room is left on the filesystem the data lives
+                // on. The observability contract names this as the
+                // disk-pressure signal: low disk blocks safe writes,
+                // imports and staging, and an operator wants to see it
+                // before a write fails rather than after.
+                "disk": disk,
+                // The total the database files occupy. The directory
+                // also holds the registry and staging, so this is the
+                // databases' own size, not the directory's.
+                "databases_bytes": databases_bytes,
             },
         })))
     })
@@ -314,11 +336,60 @@ async fn backups(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<
                 }),
             );
         }
+        // The last attempt is the only durable evidence of a run that
+        // failed: a failed run publishes no set, so "no new set" cannot
+        // tell a failure from a job that never ran.
+        let attempt_json = |attempt: &crate::backup_health::AttemptRecord| {
+            json!({
+                "ts": attempt.ts,
+                "started_at": attempt.started_at,
+                "completed_at": attempt.completed_at,
+                "outcome": attempt.outcome,
+                "set": attempt.set,
+                "databases": attempt.databases,
+                "step": attempt.step,
+            })
+        };
+        let last_attempt = health.last_attempt.as_ref().map(attempt_json);
+        let last_failure = health.last_failure.as_ref().map(attempt_json);
+        let coverage = health.coverage.as_ref().map(|coverage| {
+            json!({
+                "live": coverage.live,
+                "in_newest_set": coverage.in_newest_set,
+                "missing": coverage.missing,
+                "registry": coverage.registry,
+            })
+        });
+        let replica = health.replica.as_ref().map(|replica| {
+            json!({
+                "bucket": replica.bucket,
+                "endpoint": replica.endpoint,
+                "region": replica.region,
+                "retention": replica.retention,
+                "snapshot_interval": replica.snapshot_interval,
+                "databases": replica.databases,
+                "registry": replica.registry,
+                "published_at": replica.published_at,
+            })
+        });
+        let drill = health.drill.as_ref().map(|drill| {
+            json!({
+                "drilled_at": drill.drilled_at,
+                "outcome": drill.outcome,
+                "databases": drill.databases,
+                "detail": drill.detail,
+            })
+        });
         Ok(Json(json!({
             "backup_root": s.backup_root().map(|p| p.to_string_lossy().into_owned()),
             "stale_after_secs": STALE_AFTER_SECS,
             "sets": set_json,
             "per_database": per_database,
+            "last_attempt": last_attempt,
+            "last_failure": last_failure,
+            "coverage": coverage,
+            "replica": replica,
+            "drill": drill,
         })))
     })
     .await
