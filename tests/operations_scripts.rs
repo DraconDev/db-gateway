@@ -1,5 +1,6 @@
 //! Focused contract tests for operator scripts changed by the project audit.
 
+use serde_json::{Value, json};
 use sha2::Digest;
 use std::{fs, os::unix::fs::PermissionsExt, path::Path, process::Command, thread, time::Duration};
 
@@ -675,7 +676,7 @@ fn the_published_replica_status_never_carries_a_credential() {
             ),
             ("DG_DATA_DIR", data.to_str().unwrap()),
             ("LITESTREAM_CONFIG", config.to_str().unwrap()),
-            ("LITESTREAM_ENV_FILE", env_file.to_str().unwrap()),
+            ("LITESTREAM_ENV_FILE", env_file.as_str()),
             ("DG_BACKUP_ROOT", backups.to_str().unwrap()),
         ],
     );
@@ -894,6 +895,7 @@ fn the_restore_point_script_publishes_the_window_the_replica_offers() {
     fs::write(data.join("alpha.sqlite"), b"sqlite").unwrap();
     let litestream = fake_litestream(dir.path());
     let config = litestream_config(dir.path(), &data, &["alpha"]);
+    let absent_env = dir.path().join("absent.env");
 
     let output = run_restore_point(
         dir.path(),
@@ -940,6 +942,7 @@ fn the_restore_point_script_publishes_what_a_restore_produced() {
     fs::write(data.join("alpha.sqlite"), b"sqlite").unwrap();
     let litestream = fake_litestream(dir.path());
     let config = litestream_config(dir.path(), &data, &["alpha"]);
+    let absent_env = dir.path().join("absent.env");
 
     let output = run_restore_point(
         dir.path(),
@@ -1004,6 +1007,7 @@ fn the_published_restore_facts_never_carry_a_credential() {
     let litestream = fake_litestream(dir.path());
     let config = litestream_config(dir.path(), &data, &["alpha"]);
     let env_file = dir.path().join("litestream.env");
+    let absent_env = dir.path().join("absent.env");
     fs::write(
         &env_file,
         "LITESTREAM_S3_ACCESS_KEY_ID=[DRACON_SECRET:REDACTED]KEY\n\
@@ -1017,7 +1021,7 @@ fn the_published_restore_facts_never_carry_a_credential() {
         &[
             ("LITESTREAM_BIN", litestream.to_str().unwrap()),
             ("LITESTREAM_CONFIG", config.to_str().unwrap()),
-            ("LITESTREAM_ENV_FILE", env_file.to_str().unwrap()),
+            ("LITESTREAM_ENV_FILE", env_file.as_str()),
             ("DG_DATA_DIR", data.to_str().unwrap()),
             ("DG_BACKUP_ROOT", backups.to_str().unwrap()),
             ("RESTORE_ROOT", restores.to_str().unwrap()),
@@ -1053,6 +1057,7 @@ fn the_restore_point_script_refuses_a_moment_it_cannot_restore() {
     fs::write(data.join("alpha.sqlite"), b"sqlite").unwrap();
     let litestream = fake_litestream(dir.path());
     let config = litestream_config(dir.path(), &data, &["alpha"]);
+    let absent_env = dir.path().join("absent.env");
     let env = [
         ("LITESTREAM_BIN", litestream.to_str().unwrap()),
         ("LITESTREAM_CONFIG", config.to_str().unwrap()),
