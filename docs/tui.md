@@ -95,6 +95,13 @@ squeezed down to its header is a table with no answer in it, and the set
 list, which is a log of what has been published, takes the space that is
 left and scrolls.
 
+The number at the top of the tab is the **freshness objective**, not an age
+limit. Freshness is decided by whether a committed change is covered by a
+verified copy, so a set can be older than the objective and still be `fresh`
+while the database is idle; the table below is the authority, and the
+objective is the reference that decides when an unrepresented change deserves
+an operator's attention.
+
 These facts come from the host, not from the gateway's own memory: the
 sidecar's configuration and the drill's result live on the machine that owns
 the bucket, and the host publishes them where the gateway reads them. A
