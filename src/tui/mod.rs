@@ -80,6 +80,19 @@ pub enum Focus {
 }
 
 impl Focus {
+    /// Every tab, in the order the strip shows them.
+    ///
+    /// The strip, the number keys and the command bar all have to agree
+    /// on how many tabs there are, and a list they can all be built from
+    /// is what keeps them from drifting apart.
+    pub const ALL: [Focus; 5] = [
+        Focus::Databases,
+        Focus::Service,
+        Focus::Backups,
+        Focus::Keys,
+        Focus::Queries,
+    ];
+
     /// The next tab.
     pub fn next(self) -> Self {
         match self {

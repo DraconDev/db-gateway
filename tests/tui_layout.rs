@@ -383,10 +383,14 @@ fn the_bar_names_the_keys_that_work() {
             "the command bar does not offer {hint:?}:\n{text}"
         );
     }
-    // The tab hint names numbers, and numbers work (proved above).
+    // The tab hint names numbers, and numbers work (proved above). The
+    // range has to cover EVERY tab: a bar that says "1-4" when there are
+    // five tabs hides the fifth one from the operator, and the hint is
+    // the only place the count is written down.
+    let tabs = dg::tui::Focus::ALL.len();
     assert!(
-        text.contains("1-4"),
-        "the bar does not say how to reach the tabs:\n{text}"
+        text.contains(&format!("1-{tabs}")),
+        "the bar does not say how to reach all {tabs} tabs:\n{text}"
     );
 }
 

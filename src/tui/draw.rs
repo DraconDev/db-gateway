@@ -748,7 +748,7 @@ fn outcome_pane(frame: &mut Frame, area: Rect, outcome: &Outcome) {
 fn status_line(frame: &mut Frame, area: Rect, app: &App) {
     // Key, then what it does. Ordered by how often it is reached for.
     const HINTS: [(&str, &str); 6] = [
-        ("1-4", "tabs"),
+        ("1-5", "tabs"),
         ("tab", "next tab"),
         ("↑↓", "scroll"),
         (":", "commands"),
