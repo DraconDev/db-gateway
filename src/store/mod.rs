@@ -32,8 +32,8 @@ pub use self::admission::{
 };
 pub use self::auth::{KeyRequest, Principal, hash, unauthorized};
 pub use self::backup_sets::BackupSet;
-pub use self::disk::{DiskSpace, disk_space};
 pub(crate) use self::backup_sets::{is_set_dir, read_manifest_capped};
+pub use self::disk::{DiskSpace, disk_space};
 pub use self::lifecycle::{Location, validate_name};
 pub use self::metrics::{DbUsage, Metrics, MetricsSnapshot};
 pub use self::transfers::{

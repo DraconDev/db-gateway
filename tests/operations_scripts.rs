@@ -591,7 +591,10 @@ fn the_sync_publishes_where_the_off_host_copy_is() {
         dir.path(),
         &[
             ("DG_BIN", dg.to_str().unwrap()),
-            ("DG_KEY_FILE", dir.path().join("owner.key").to_str().unwrap()),
+            (
+                "DG_KEY_FILE",
+                dir.path().join("owner.key").to_str().unwrap(),
+            ),
             ("DG_DATA_DIR", data.to_str().unwrap()),
             ("LITESTREAM_CONFIG", config.to_str().unwrap()),
             ("DG_BACKUP_ROOT", backups.to_str().unwrap()),
@@ -616,7 +619,10 @@ fn the_sync_publishes_where_the_off_host_copy_is() {
     );
     let record: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&published).unwrap()).unwrap();
-    assert_eq!(record["target"], serde_json::json!("file:///srv/replicas/{name}"));
+    assert_eq!(
+        record["target"],
+        serde_json::json!("file:///srv/replicas/{name}")
+    );
     assert!(
         record["bucket"].is_null(),
         "a file replica has no bucket, and saying otherwise would be a lie: {record}"
@@ -663,7 +669,10 @@ fn the_published_replica_status_never_carries_a_credential() {
         dir.path(),
         &[
             ("DG_BIN", dg.to_str().unwrap()),
-            ("DG_KEY_FILE", dir.path().join("owner.key").to_str().unwrap()),
+            (
+                "DG_KEY_FILE",
+                dir.path().join("owner.key").to_str().unwrap(),
+            ),
             ("DG_DATA_DIR", data.to_str().unwrap()),
             ("LITESTREAM_CONFIG", config.to_str().unwrap()),
             ("LITESTREAM_ENV_FILE", env_file.to_str().unwrap()),

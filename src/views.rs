@@ -572,7 +572,11 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
                 "registry",
                 Cell::styled(
                     if registry { "yes" } else { "no" }.to_string(),
-                    if registry { Style::Green } else { Style::Yellow },
+                    if registry {
+                        Style::Green
+                    } else {
+                        Style::Yellow
+                    },
                 ),
             );
             sections.push(section);
@@ -593,35 +597,45 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
                 .get("bucket")
                 .and_then(Value::as_str)
                 .map(str::to_string)
-                .or_else(|| replica.get("target").and_then(Value::as_str).map(str::to_string))
+                .or_else(|| {
+                    replica
+                        .get("target")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
                 .unwrap_or_else(|| "unknown".to_string());
             section.field("bucket", Cell::styled(where_copy_lives, Style::Cyan));
-            for (key, label) in [("endpoint", "endpoint"), ("region", "region")] {
-                section.field(
-                    label,
-                    Cell::text(
-                        replica
-                            .get(key)
-                            .and_then(Value::as_str)
-                            .unwrap_or("unknown"),
-                    ),
-                );
-            }
             section.field(
-                "retention",
-                Cell::text(replica["retention"].as_str().unwrap_or("unknown")),
+                "endpoint",
+                Cell::text(format!(
+                    "{} ({})",
+                    replica
+                        .get("endpoint")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown"),
+                    replica
+                        .get("region")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown"),
+                )),
             );
             section.field(
-                "snapshot",
-                Cell::text(
+                "retention",
+                Cell::text(format!(
+                    "{} (snapshot {})",
+                    replica
+                        .get("retention")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown"),
                     replica
                         .get("snapshot_interval")
                         .and_then(Value::as_str)
                         .unwrap_or("unknown"),
-                ),
+                )),
             );
-            let databases: Vec<String> = replica["databases"]
-                .as_array()
+            let databases: Vec<String> = replica
+                .get("databases")
+                .and_then(Value::as_array)
                 .map(|names| {
                     names
                         .iter()
@@ -630,6 +644,9 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
                         .collect()
                 })
                 .unwrap_or_default();
+            // The registry is a database too, and the one without which the
+            // copies hold files that no key can open -- so it is named
+            // beside them rather than in a line of its own.
             let registry = replica.get("registry").and_then(Value::as_bool) == Some(true);
             section.field(
                 "databases",
@@ -642,13 +659,6 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
                     },
                     if registry { " (+registry)" } else { "" },
                 )),
-            );
-            section.field(
-                "registry",
-                Cell::styled(
-                    if registry { "yes" } else { "no" }.to_string(),
-                    if registry { Style::Green } else { Style::Yellow },
-                ),
             );
             // Whether the thing that does the copying is running. A
             // configured replica that is not replicating is the failure
