@@ -379,7 +379,12 @@ fn stdout_carries_the_protocol_and_nothing_else() {
     );
 
     let mut child = std::process::Command::new(std::env::current_exe().expect("the test binary"))
-        .args(["--ignored", "--exact", "stdout_capture_child"])
+        .args([
+            "--ignored",
+            "--exact",
+            "stdout_capture_child",
+            "--nocapture",
+        ])
         .env("DG_MCP_CAPTURE", &capture)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())

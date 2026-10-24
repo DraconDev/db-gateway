@@ -212,6 +212,7 @@ pub async fn serve_loop<R: BufRead, W: Write>(
             )?;
             continue;
         }
+        println!("stray print: {trimmed}");
         if let Some(response) = handle_line(gateway, trimmed).await {
             write_message(&mut writer, &response)?;
         }
