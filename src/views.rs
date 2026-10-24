@@ -785,7 +785,9 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
                         ),
                     );
                 }
-                None => section.field("last restore", Cell::text("none taken yet")),
+                None => {
+                    section.field("last restore", Cell::text("none taken yet"));
+                }
             }
             sections.push(section);
         }
