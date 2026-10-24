@@ -231,6 +231,78 @@ fi
 
 DESIRED="$(render)"
 
+# --- 3. What the host knows about the replica. ---------------------------
+# The gateway cannot know where the bucket is: this script is what knows.
+# Publishing it means the operator asks the gateway "where is my data" and
+# gets the host's own answer rather than a blank.
+#
+# The credentials are never written: only the bucket, endpoint and region,
+# which name a place rather than open it. The file is written atomically,
+# so a reader never sees half of it.
+sidecar_state() {
+    if [ -z "$STATUS_CMD" ]; then echo "unknown"; return 0; fi
+    local out
+    out="$(bash -c "$STATUS_CMD" 2>/dev/null)" || out=""
+    case "$out" in
+        active) echo "active" ;;
+        inactive|failed) echo "$out" ;;
+        *) echo "unknown" ;;
+    esac
+}
+
+publish_replica() {
+    [ -d "$BACKUP_ROOT" ] || return 0
+    local published_at sidecar
+    published_at="$(date -u +%s)"
+    sidecar="$(sidecar_state)"
+    # The databases the replica covers, without the registry: the
+    # registry is reported on its own line, because it is not a database
+    # an operator would look for among them.
+    local covered=()
+    for name in "${EXPECTED[@]}"; do
+        [ "$name" = "metadata" ] && continue
+        covered+=("$name")
+    done
+    if ! python3 - "$BACKUP_ROOT/replica.json" "$published_at" "$TARGET" "$BUCKET" \
+        "$ENDPOINT" "$REGION" "$RETENTION" "$SNAPSHOT_INTERVAL" "$sidecar" \
+        "$INCLUDE_REGISTRY" "${covered[@]}" <<'PY'
+import json
+import os
+import sys
+
+(path, published_at, target, bucket, endpoint, region, retention, interval,
+ sidecar, registry, *databases) = sys.argv[1:]
+record = {
+    "published_at": int(published_at),
+    "target": target,
+    "bucket": bucket or None,
+    "endpoint": endpoint or None,
+    "region": region or None,
+    "retention": retention,
+    "snapshot_interval": interval,
+    "databases": databases,
+    "registry": registry == "1",
+    "sidecar": sidecar,
+}
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as stream:
+    json.dump(record, stream, sort_keys=True)
+    stream.write("\n")
+    stream.flush()
+    os.fsync(stream.fileno())
+# The gateway reads this as another user, so it must be readable by it.
+os.chmod(tmp, 0o644)
+os.replace(tmp, path)
+PY
+    then
+        log "warning: could not publish the replica status to $BACKUP_ROOT/replica.json"
+        return 0
+    fi
+    # The publisher may run as root while the gateway reads as another
+    # user, so the file is handed to the same owner the config has.
+    [ -z "$CONFIG_OWNER" ] || chown "$CONFIG_OWNER" "$BACKUP_ROOT/replica.json" 2>/dev/null || true
+}
+
 if [ "$MODE" = "print" ]; then
     printf '%s\n' "$DESIRED"
     exit 0
@@ -293,6 +365,7 @@ fi
 
 # --- 3. Apply: replace only on change, restart, revert on failure. ------
 if config_matches; then
+    publish_replica
     log "in sync (${#EXPECTED[@]} database(s) incl. registry if present); no change"
     exit 0
 fi
@@ -348,3 +421,6 @@ if [ -n "$RESTART_CMD" ]; then
     log "sidecar restarted"
 fi
 RESTART_OK=1
+# The sidecar is running the new config now, so this is what the replica
+# is: publish it where the gateway can answer with it.
+publish_replica
