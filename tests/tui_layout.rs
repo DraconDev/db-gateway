@@ -64,7 +64,8 @@ fn backups() -> Value {
             "coverage_end": 1_700_000_100
         }],
         "per_database": {
-            "demo": {"state": "fresh", "newest_set": "20261021T070000Z", "age_secs": 3600}
+            "demo": {"state": "fresh", "newest_set": "20261021T070000Z", "age_secs": 3600},
+            "other": {"state": "stale", "newest_set": "20261001T070000Z", "age_secs": 1728000}
         }
     })
 }
