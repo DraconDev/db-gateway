@@ -37,6 +37,7 @@ Related: `docs/deployment.md` (install configuration),
 | Resource pressure | gateway RSS, SQLite/page-cache behavior, CPU, and future sidecar RSS/I/O | measurements remain inside the accepted host budget | measured by the composed sampler series since 2026-10-19 (audit A7); thresholds are the budget's half-cap ceilings |
 | Backup freshness | newest verified copy per database, lag after committed changes, last success, last failure, and restore-test result | the newest verified copy is within the selected snapshot-cadence objective after committed changes | `stale`, `failed`, or `unknown` must be visible; a scheduled job alone is not healthy |
 | Restore readiness | checksum, SQLite integrity, foreign-key check, protected-table check, and exact application-data comparison | a separate-target restore passes all checks | any mismatch blocks trust in the backup and raises an incident |
+| Restore window | the moments the off-host replica can be taken back to, per database, and the last point-in-time restore that was taken, published by the host and reported in `GET /v1/backups` (`restore_points`, `last_restore`) | the window covers the moments an operator may need, and a restore taken from it verified | a window that is narrower than the retention claims, or a window nobody has ever exercised, is a promise rather than a recovery |
 
 `/health/live` is intentionally only liveness. It must not be relabeled as
 backup or database readiness. `/v1/backups` and `dg backup status` now expose
