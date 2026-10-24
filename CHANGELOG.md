@@ -21,6 +21,21 @@ fixes; 1.0.0 waits for production acceptance.
 
 ### Added
 
+- **The view now says whether your copies can be trusted.** The backups tab
+  answers the question that comes after "where is it": the last backup run
+  and whether it worked, what the newest published set carries (and whether
+  it carries the registry, without which the copies hold files that no key
+  can open), where the off-host copy is — bucket, endpoint, region, retention,
+  coverage — whether the sidecar that does the copying is running, and
+  whether the off-host copy has ever been restored and compared against the
+  live gateway. The service tab adds the room left on the disk the data
+  lives on, and how long a deleted name is held. `GET /v1/status` carries
+  the placement, the disk headroom and the retention; `GET /v1/backups`
+  carries the run, the coverage, the replica and the drill. The facts about
+  the off-host copy come from the host, which publishes them where the
+  gateway reads them (`scripts/litestream-sync.sh` and
+  `scripts/bucket-restore-drill.sh`); a host that publishes nothing says so
+  in words rather than leaving a hole where a fact should be.
 - **The view now says where the gateway and its databases actually are.**
   The service tab reports the host, the address the listener *actually*
   bound, the data directory and the backup root; the databases tab adds a
