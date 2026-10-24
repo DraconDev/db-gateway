@@ -27,8 +27,13 @@ pub async fn list(
     server: &str,
     json: bool,
     key_path: &Option<PathBuf>,
+    database: Option<&str>,
 ) -> Result<Option<Request>, dg::ServerError> {
-    if let Some(payload) = table_json(server, json, key_path, Method::GET, "/v1/queries").await? {
+    let path = match database {
+        Some(name) => format!("/v1/queries?database={name}"),
+        None => "/v1/queries".to_string(),
+    };
+    if let Some(payload) = table_json(server, json, key_path, Method::GET, &path).await? {
         let sections = dg::views::queries(&payload);
         let mut out = std::io::stdout();
         dg::render::write_sections(&mut out, &terminal_theme(), &sections).map_err(Application)?;
@@ -36,7 +41,7 @@ pub async fn list(
     }
     Ok(Some((
         Method::GET,
-        "/v1/queries".into(),
+        path.into(),
         None,
         None,
         dg::client::Semantics::Read,

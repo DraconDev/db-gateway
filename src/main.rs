@@ -485,6 +485,18 @@ enum Command {
         #[command(subcommand)]
         command: RestoreCommand,
     },
+    /// The statements the service has run, and what each one cost.
+    ///
+    /// Every statement passes through the gateway on its way to SQLite,
+    /// so the gateway is the only place that can say which one is the
+    /// expensive one. What is shown is the shape of a statement -- its
+    /// SQL with every literal replaced by a placeholder -- so a row
+    /// names a statement without quoting the data it carried.
+    Queries {
+        /// Only this database's statements.
+        #[arg(long)]
+        database: Option<String>,
+    },
     /// Open the terminal operator view.
     ///
     /// Four tabs — databases, service, backups and keys — reached with
@@ -589,6 +601,7 @@ mod cmd_backup;
 mod cmd_data;
 mod cmd_keys;
 mod cmd_lifecycle;
+mod cmd_queries;
 mod cmd_restore;
 mod cmd_serve;
 mod cmd_status;
@@ -692,6 +705,9 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         Command::Restore {
             command: RestoreCommand::List,
         } => cmd_restore::list(&cli.server, cli.json, &key_path).await?,
+        Command::Queries { database } => {
+            cmd_queries::list(&cli.server, cli.json, &key_path, database.as_deref()).await?
+        }
         Command::List => cmd_data::list(&cli.server, cli.json, &key_path).await?,
         Command::Inspect { name } => {
             cmd_data::inspect(&cli.server, cli.json, &key_path, name).await?

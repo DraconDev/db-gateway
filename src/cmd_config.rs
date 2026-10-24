@@ -177,7 +177,10 @@ pub fn show(path: &Path, name: &str, json: bool) -> Result<(), dg::ServerError> 
         ),
         (
             "key file".to_string(),
-            document["key_file"].as_str().unwrap_or_default().to_string(),
+            document["key_file"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
         ),
         (
             "key".to_string(),
