@@ -1000,7 +1000,7 @@ mod tests {
     #[test]
     fn a_result_too_large_is_reported_rather_than_silently_cut() {
         let rows: Vec<Value> = (0..500)
-            .map(|index| json!({"text": "y".repeat(MAX_VALUE_CHARS)}))
+            .map(|_| json!({"text": "y".repeat(MAX_VALUE_CHARS)}))
             .collect();
         let value = bound(json!({"columns": ["text"], "rows": rows}));
         assert!(
