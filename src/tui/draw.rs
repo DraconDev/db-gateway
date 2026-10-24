@@ -412,7 +412,15 @@ fn databases_tab(frame: &mut Frame, area: Rect, app: &App) {
     let Some(locations) = app.locations() else {
         // The gateway does not say where its databases are. Say that, in
         // words: a missing box reads as "there is nowhere they are",
-        // which is a different and much worse claim.
+        // which is a different and much worse claim. A status answer that
+        // has not arrived is a different thing again, and is named as
+        // such: blaming the gateway for a question nobody has answered
+        // yet is its own kind of wrong.
+        let note = if app.status.is_none() {
+            "no answer yet"
+        } else {
+            "this gateway does not report where its databases live"
+        };
         let rows = Layout::vertical([Constraint::Min(4), Constraint::Length(1)]).split(area);
         let mut state = TableState::default().with_offset(app.scroll.databases as usize);
         framed_table(
@@ -424,10 +432,7 @@ fn databases_tab(frame: &mut Frame, area: Rect, app: &App) {
             &mut state,
         );
         frame.render_widget(
-            Paragraph::new(Span::styled(
-                "this gateway does not report where its databases live",
-                crate::tui::theme::status(),
-            )),
+            Paragraph::new(Span::styled(note, crate::tui::theme::status())),
             rows[1],
         );
         return;
