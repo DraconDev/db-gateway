@@ -1439,6 +1439,103 @@ mod tests {
         );
     }
 
+    /// The backups payload as a gateway that reports everything.
+    fn copied() -> serde_json::Value {
+        serde_json::json!({
+            "backup_root": "/var/lib/dg-backups",
+            "stale_after_secs": 300,
+            "sets": [],
+            "per_database": {},
+            "last_attempt": {
+                "ts": "20261024T090000Z",
+                "completed_at": 1_764_000_000u64,
+                "outcome": "ok",
+                "set": "20261024T090000Z",
+                "databases": 2,
+                "step": "publish"
+            },
+            "coverage": {"live": 2, "in_newest_set": 1, "missing": ["other"], "registry": false},
+            "replica": {
+                "target": "s3://dg-sandbox",
+                "bucket": "dg-sandbox",
+                "endpoint": "s3.example.invalid",
+                "region": "gra",
+                "retention": "168h",
+                "snapshot_interval": "24h",
+                "databases": ["demo"],
+                "registry": true,
+                "sidecar": "active",
+                "published_at": 1_764_000_060u64
+            },
+            "drill": {
+                "drilled_at": 1_760_000_000u64,
+                "outcome": "failed",
+                "databases": 2,
+                "detail": "not verified: other"
+            }
+        })
+    }
+
+    /// Every section of the copies view, as one text.
+    fn copies_text(backups: &serde_json::Value) -> String {
+        let mut text = String::new();
+        for section in copy_sections(backups) {
+            text.push_str(&render_section(&section));
+            text.push('\n');
+        }
+        text
+    }
+
+    #[test]
+    fn the_copies_view_says_where_the_off_host_copy_is_and_whether_it_restored() {
+        // The four questions, each with its own section, because they are
+        // four different claims.
+        let text = copies_text(&copied());
+        for fact in [
+            "dg-sandbox",
+            "s3.example.invalid",
+            "gra",
+            "168h",
+            "publish",
+            "1 of 2 live databases",
+            "other",
+            "not verified: other",
+        ] {
+            assert!(
+                text.contains(fact),
+                "the copies view does not say {fact:?}: {text}"
+            );
+        }
+        // The state of the sidecar is spelled out: a configured replica
+        // that is not replicating is the failure that looks most like
+        // success from a distance.
+        assert!(text.contains("active"), "the sidecar state is missing: {text}");
+        // The registry is not in the newest set, and that is said.
+        assert!(
+            text.contains("registry: no"),
+            "a set without the registry is not called out: {text}"
+        );
+    }
+
+    #[test]
+    fn a_host_that_publishes_nothing_says_so_rather_than_drawing_nothing() {
+        // A missing section reads as "there is nothing to say", which is a
+        // different and much worse claim than "nobody said".
+        let text = copies_text(&serde_json::json!({"backup_root": "/var/lib/dg-backups"}));
+        assert!(
+            text.contains("this host publishes no off-host copy status"),
+            "the replica is not called unreported: {text}"
+        );
+        assert!(
+            text.contains("this host publishes no restore drill result"),
+            "the drill is not called unreported: {text}"
+        );
+        assert!(
+            text.contains("the gateway reports no coverage"),
+            "the coverage is not called unreported: {text}"
+        );
+    }
+
     #[test]
     fn a_gateway_that_places_nothing_yields_no_table_rather_than_an_empty_one() {
         // An empty table is a different claim -- a gateway with no
