@@ -723,3 +723,49 @@ fn the_freshness_reference_is_named_as_an_objective_not_as_an_age_threshold() {
         "the fresh database is not shown as fresh:\n{text}"
     );
 }
+
+#[test]
+fn the_backups_tab_says_which_moments_the_copy_can_be_taken_back_to() {
+    // The window is the claim that matters at 2am: not "there is a
+    // backup" but "you can go back to any moment between these two".
+    // It is the host's fact, and the host publishes it.
+    let mut app = app();
+    open_tab(&mut app, '3');
+    let text = screen(&mut app, 191, 50);
+    assert!(
+        text.contains("2026-10-15 14:16 UTC to 2026-10-20 09:30 UTC"),
+        "the backups tab does not show the restore window:\n{text}"
+    );
+    assert!(
+        text.contains("point-in-time restore"),
+        "the backups tab does not name the restore points:\n{text}"
+    );
+    // The last restore that was taken, so the window is not just a
+    // promise nobody has exercised.
+    assert!(
+        text.contains("demo at 2026-10-16 00:00 UTC (ok)"),
+        "the backups tab does not show the last restore:\n{text}"
+    );
+}
+
+#[test]
+fn a_host_that_publishes_no_restore_points_says_so() {
+    // The same rule as every other fact: a missing one is reported in
+    // words, never drawn as an empty table that reads like "nothing to
+    // restore from" when the truth is "nobody said".
+    let mut app = app();
+    let mut payload = backups();
+    payload["restore_points"] = serde_json::Value::Null;
+    payload["last_restore"] = serde_json::Value::Null;
+    app.backups = Some(payload);
+    open_tab(&mut app, '3');
+    let text = screen(&mut app, 191, 50);
+    assert!(
+        text.contains("this host publishes no restore points"),
+        "the backups tab does not say the host publishes no restore points:\n{text}"
+    );
+    assert!(
+        text.contains("this host publishes no restore result"),
+        "the backups tab does not say the host publishes no restore result:\n{text}"
+    );
+}

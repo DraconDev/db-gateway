@@ -691,7 +691,8 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         } => cmd_backup::status(&cli.server, cli.json, &key_path).await?,
         Command::Restore {
             command: RestoreCommand::List,
-        } => cmd_restore::list(&cli.server, cli.json, &key_path).await?,        Command::List => cmd_data::list(&cli.server, cli.json, &key_path).await?,
+        } => cmd_restore::list(&cli.server, cli.json, &key_path).await?,
+        Command::List => cmd_data::list(&cli.server, cli.json, &key_path).await?,
         Command::Inspect { name } => {
             cmd_data::inspect(&cli.server, cli.json, &key_path, name).await?
         }

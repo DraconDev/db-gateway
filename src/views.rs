@@ -746,15 +746,16 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
                 points["window_start"].as_str(),
                 points["window_end"].as_str(),
             ) {
-                (Some(start), Some(end)) => format!(
-                    "{} to {}",
-                    human_instant(start),
-                    human_instant(end)
-                ),
+                (Some(start), Some(end)) => {
+                    format!("{} to {}", human_instant(start), human_instant(end))
+                }
                 _ => "unknown".to_string(),
             };
             section.field("window", Cell::text(window));
-            let databases = points["databases"].as_object().map(|map| map.len()).unwrap_or(0);
+            let databases = points["databases"]
+                .as_object()
+                .map(|map| map.len())
+                .unwrap_or(0);
             let sidecar = points["sidecar"].as_str().unwrap_or("unknown");
             section.field(
                 "replicated",
@@ -776,9 +777,7 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
                             format!(
                                 "{} at {} ({})",
                                 restore["database"].as_str().unwrap_or("unknown"),
-                                human_instant(
-                                    restore["timestamp"].as_str().unwrap_or("unknown")
-                                ),
+                                human_instant(restore["timestamp"].as_str().unwrap_or("unknown")),
                                 outcome
                             ),
                             attempt_outcome_style(outcome),
@@ -814,11 +813,9 @@ pub fn restore(backups: &Value) -> Vec<Section> {
                 points["window_start"].as_str(),
                 points["window_end"].as_str(),
             ) {
-                (Some(start), Some(end)) => format!(
-                    "{} to {}",
-                    human_instant(start),
-                    human_instant(end)
-                ),
+                (Some(start), Some(end)) => {
+                    format!("{} to {}", human_instant(start), human_instant(end))
+                }
                 _ => "unknown".to_string(),
             };
             section.field("window", Cell::text(window));
@@ -841,11 +838,9 @@ pub fn restore(backups: &Value) -> Vec<Section> {
                     .column("files", Align::Right);
                 for (name, window) in databases {
                     let span = match (window["oldest"].as_str(), window["newest"].as_str()) {
-                        (Some(oldest), Some(newest)) => format!(
-                            "{} to {}",
-                            human_instant(oldest),
-                            human_instant(newest)
-                        ),
+                        (Some(oldest), Some(newest)) => {
+                            format!("{} to {}", human_instant(oldest), human_instant(newest))
+                        }
                         _ => "unknown".to_string(),
                     };
                     table.row(vec![
