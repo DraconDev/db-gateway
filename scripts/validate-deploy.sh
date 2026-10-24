@@ -431,6 +431,13 @@ if command -v systemd-analyze >/dev/null 2>&1; then
         "DG_RESTORE_DRILL_SCRIPT=$ROOT/scripts/bucket-restore-drill.sh" \
         "DG_OWNER_KEY_FILE=$tmp/owner.key" >"$tmp/dg-restore-drill.service"
     cp "$ROOT/deploy/dg-restore-drill.timer" "$tmp/"
+    "$ROOT/scripts/unit-render.sh" "$ROOT/deploy/dg-restore-points.service" \
+        "DG_USER=$(id -un)" \
+        "DG_DATA_DIR=$tmp/data" \
+        "DG_BACKUP_ROOT=$tmp/data" \
+        "DG_RESTORE_ROOT=$tmp/restores" \
+        "DG_RESTORE_POINT_SCRIPT=$ROOT/scripts/restore-point.sh" >"$tmp/dg-restore-points.service"
+    cp "$ROOT/deploy/dg-restore-points.timer" "$tmp/"
     "$ROOT/scripts/unit-render.sh" "$ROOT/deploy/dg-resource-sample.service" \
         "DG_USER=$(id -un)" \
         "DG_DATA_DIR=$tmp/data" \
