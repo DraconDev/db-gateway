@@ -44,6 +44,30 @@ export interface DatabaseUsage {
   /** When the database was last written, as unix seconds. `null` when it has never been written. */
   last_write?: number | null;
 }
+/** Where one database's file is, and whether it is there. */
+export interface DatabaseLocation {
+  /** The absolute path of the file that database lives in. */
+  file: string;
+  /** Whether that file is there now. A registry row whose file is gone is a fault. */
+  exists: boolean;
+  /** The main file plus its WAL sidecars, in bytes. */
+  size_bytes: number;
+  /** Whether the name is tombstoned: deleted, but still on disk until the retention window purges it. */
+  tombstoned: boolean;
+}
+/** Where the gateway is running, and where it keeps its files. */
+export interface Deployment {
+  /** The machine's hostname, or null when the platform does not report one. */
+  host?: string | null;
+  /** The address the listener actually bound, not the one that was requested. */
+  listen: string;
+  /** The directory the gateway keeps its databases in. */
+  data_dir: string;
+  /** The backup root the gateway watches, or null when none is configured. */
+  backup_root?: string | null;
+  /** Where each registered database lives, tombstoned ones included. */
+  databases?: Record<string, DatabaseLocation>;
+}
 export interface StatusResponse {
   version: string;
   uptime_secs: number;
@@ -65,6 +89,8 @@ export interface StatusResponse {
   databases?: Record<string, DatabaseUsage>;
   /** How many databases are live, and how many are tombstoned. */
   database_counts?: { live: number; tombstoned: number };
+  /** Where the gateway is, and where each of its databases is. Absent when the gateway does not report it. */
+  deployment?: Deployment;
 }
 export type DatabaseInfo =
   | { name: string; tombstoned: false; size_bytes: number; created_at: number; tables: TableInfo[] }

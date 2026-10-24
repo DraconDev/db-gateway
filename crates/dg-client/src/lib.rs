@@ -356,6 +356,42 @@ pub struct Status {
     pub requests: serde_json::Value,
     #[serde(default)]
     pub databases: Option<serde_json::Value>,
+    /// Where the gateway is running, and where it keeps its files.
+    ///
+    /// `None` against a gateway that does not report its placement: the
+    /// question is then unanswerable, not answered with blanks.
+    #[serde(default)]
+    pub deployment: Option<Deployment>,
+}
+
+/// Where the gateway is running, and where each of its databases is.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Deployment {
+    /// The machine's hostname, when the platform reports one.
+    pub host: Option<String>,
+    /// The address the listener actually bound.
+    pub listen: String,
+    /// The directory the gateway keeps its databases in.
+    pub data_dir: String,
+    /// The backup root the gateway watches, when one is configured.
+    pub backup_root: Option<String>,
+    /// Where each registered database lives.
+    #[serde(default)]
+    pub databases: std::collections::BTreeMap<String, DatabaseLocation>,
+}
+
+/// Where one database's file is, and whether it is there.
+#[derive(Clone, Debug, Deserialize)]
+pub struct DatabaseLocation {
+    /// The absolute path of the file that database lives in.
+    pub file: String,
+    /// Whether that file is there now.
+    pub exists: bool,
+    /// The main file plus its WAL sidecars, in bytes.
+    pub size_bytes: u64,
+    /// Whether the name is tombstoned: deleted, but still on disk until
+    /// the retention window purges it.
+    pub tombstoned: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
