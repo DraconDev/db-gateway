@@ -454,3 +454,116 @@ async fn every_tool_in_the_catalogue_is_callable() {
     );
     let _ = json!({});
 }
+
+/// The JSON a tool answered with.
+///
+/// The tool's own payload travels as the text of the content block,
+/// which is the shape every MCP client reads.
+fn tool_payload(answer: &Value) -> Value {
+    let text = answer["result"]["content"][0]["text"]
+        .as_str()
+        .expect("the answer carries text content");
+    serde_json::from_str(text).expect("the text is the tool's own JSON")
+}
+
+/// The tools answer with the gateway's own facts.
+///
+/// The protocol tests prove the shape of the answers; this one proves
+/// they are the truth: the database the operator created is the
+/// database the tools report, the rows it holds are the rows the query
+/// returns, and a statement that would change something is refused
+/// before the gateway ever sees it.
+#[tokio::test]
+async fn the_tools_answer_from_a_real_gateway() {
+    let fleet = Fleet::boot();
+    assert_eq!(fleet.cli.ok("create", &["create", "app"])["name"], "app");
+    fleet.cli.q(
+        "seed table",
+        "app",
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)",
+    );
+    fleet
+        .cli
+        .q("seed row", "app", "INSERT INTO t (name) VALUES ('alpha')");
+
+    // The credential is the one the CLI uses, read the same way: the
+    // server resolves it the same way and never asks for it again.
+    let key = dg::client::read_key(&fleet.cli.key_file).expect("read the credential");
+    let gateway = dg::mcp::Gateway::new(&fleet.cli.server, &key);
+
+    let input = [
+        r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"dg_list","arguments":{}}}"#,
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"dg_info","arguments":{"name":"app"}}}"#,
+        r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"dg_query","arguments":{"name":"app","sql":"SELECT name FROM t ORDER BY id"}}}"#,
+        r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"dg_query","arguments":{"name":"app","sql":"DELETE FROM t"}}}"#,
+        r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"dg_status","arguments":{}}}"#,
+        r#"{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"dg_backups","arguments":{}}}"#,
+        r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"dg_inspect","arguments":{"name":"app"}}}"#,
+    ]
+    .join("\n");
+    let mut output: Vec<u8> = Vec::new();
+    dg::mcp::serve_loop(
+        std::io::Cursor::new(format!("{input}\n").into_bytes()),
+        &mut output,
+        &gateway,
+    )
+    .await
+    .expect("the loop ends when the input ends");
+    let answers: Vec<Value> = String::from_utf8(output)
+        .expect("the protocol is utf-8")
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("every line is a protocol message"))
+        .collect();
+    assert_eq!(answers.len(), 7, "every call must be answered: {answers:?}");
+
+    let databases = tool_payload(&answers[0]);
+    assert!(
+        databases["databases"]
+            .as_array()
+            .is_some_and(|names| names.iter().any(|name| name == "app")),
+        "the listing must name the database the operator created: {databases}"
+    );
+
+    let info = tool_payload(&answers[1]);
+    assert_eq!(info["name"].as_str(), Some("app"));
+
+    let rows = tool_payload(&answers[2]);
+    assert_eq!(rows["columns"], json!(["name"]));
+    assert_eq!(rows["rows"], json!([["alpha"]]));
+    assert_eq!(rows["rows_total"].as_u64(), Some(1));
+
+    // The write is refused by the server's own read-only rule, before a
+    // request is made -- so the row is still there.
+    assert_eq!(
+        answers[3]["error"]["data"]["code"].as_str(),
+        Some("sql_forbidden"),
+        "a write statement must be refused: {answers:?}"
+    );
+
+    let status = tool_payload(&answers[4]);
+    assert!(
+        status["version"].as_str().is_some(),
+        "the status must carry the version: {status}"
+    );
+
+    let backups = tool_payload(&answers[5]);
+    assert!(
+        backups.is_object(),
+        "the backup view must be an object: {backups}"
+    );
+
+    let inspect = tool_payload(&answers[6]);
+    assert_eq!(inspect["database"]["name"].as_str(), Some("app"));
+    assert!(
+        inspect["backup"].is_object(),
+        "the live view must carry the backup facts: {inspect}"
+    );
+
+    // The row survived: the refused statement never reached the gateway.
+    assert_eq!(
+        fleet
+            .cli
+            .q("the row is still there", "app", "SELECT name FROM t"),
+        json!([["alpha"]])
+    );
+}
