@@ -733,10 +733,172 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
         )),
     }
 
+    // The moments the off-host copy can be taken back to, and the last
+    // time one was. "There is a backup" is a claim; "you can go back to
+    // any moment between these two" is the one that matters at 2am, and
+    // a window nobody has ever exercised is a promise rather than
+    // evidence -- so both are reported side by side.
+    match backups["restore_points"].as_object() {
+        Some(points) => {
+            let mut section = Section::new("point-in-time restore");
+            let window = match (
+                points["window_start"].as_str(),
+                points["window_end"].as_str(),
+            ) {
+                (Some(start), Some(end)) => format!(
+                    "{} to {}",
+                    dg::render::human_instant(start),
+                    dg::render::human_instant(end)
+                ),
+                _ => "unknown".to_string(),
+            };
+            section.field("window", Cell::text(window));
+            let databases = points["databases"].as_object().map(|map| map.len()).unwrap_or(0);
+            let sidecar = points["sidecar"].as_str().unwrap_or("unknown");
+            section.field(
+                "replicated",
+                Cell::styled(
+                    format!("{databases} databases, sidecar {sidecar}"),
+                    sidecar_style(sidecar),
+                ),
+            );
+            // The last restore that was taken, when there was one. A
+            // window with no exercise is still a window, but it is a
+            // promise, and saying so is more useful than implying the
+            // path was walked.
+            match backups["last_restore"].as_object() {
+                Some(restore) => {
+                    let outcome = restore["outcome"].as_str().unwrap_or("unknown");
+                    section.field(
+                        "last restore",
+                        Cell::styled(
+                            format!(
+                                "{} at {} ({})",
+                                restore["database"].as_str().unwrap_or("unknown"),
+                                dg::render::human_instant(
+                                    restore["timestamp"].as_str().unwrap_or("unknown")
+                                ),
+                                outcome
+                            ),
+                            attempt_outcome_style(outcome),
+                        ),
+                    );
+                }
+                None => section.field("last restore", Cell::text("none taken yet")),
+            }
+            sections.push(section);
+        }
+        None => sections.push(unreported(
+            "point-in-time restore",
+            "this host publishes no restore points",
+        )),
+    }
+
     sections
 }
 
-/// A section that says a fact is not reported.
+/// The restore points the off-host replica offers, as its own view.
+///
+/// This is the answer to "can I get my data back from last Tuesday?", so
+/// it stands on its own rather than hiding inside the backups view: an
+/// operator who asks for it is usually about to need it.
+pub fn restore(backups: &Value) -> Vec<Section> {
+    let mut sections = Vec::new();
+    match backups["restore_points"].as_object() {
+        Some(points) => {
+            let mut section = Section::new("restore points");
+            let window = match (
+                points["window_start"].as_str(),
+                points["window_end"].as_str(),
+            ) {
+                (Some(start), Some(end)) => format!(
+                    "{} to {}",
+                    dg::render::human_instant(start),
+                    dg::render::human_instant(end)
+                ),
+                _ => "unknown".to_string(),
+            };
+            section.field("window", Cell::text(window));
+            section.field(
+                "published",
+                Cell::text(
+                    points["published_at"]
+                        .as_u64()
+                        .map(human_epoch_ago)
+                        .unwrap_or_else(|| "unknown".to_string()),
+                ),
+            );
+            sections.push(section);
+
+            if let Some(databases) = points["databases"].as_object() {
+                for (name, window) in databases {
+                    let mut row = Section::new(name.clone());
+                    row.field(
+                        "window",
+                        Cell::text(match (window["oldest"].as_str(), window["newest"].as_str()) {
+                            (Some(oldest), Some(newest)) => format!(
+                                "{} to {}",
+                                dg::render::human_instant(oldest),
+                                dg::render::human_instant(newest)
+                            ),
+                            _ => "unknown".to_string(),
+                        }),
+                    );
+                    row.field(
+                        "files",
+                        Cell::text(format!(
+                            "{} ({})",
+                            window["files"].as_u64().unwrap_or(0),
+                            human_bytes(window["bytes"].as_u64().unwrap_or(0))
+                        )),
+                    );
+                    sections.push(row);
+                }
+            }
+        }
+        None => sections.push(unreported(
+            "restore points",
+            "this host publishes no restore points",
+        )),
+    }
+
+    match backups["last_restore"].as_object() {
+        Some(restore) => {
+            let mut section = Section::new("last restore");
+            let outcome = restore["outcome"].as_str().unwrap_or("unknown");
+            section.field(
+                "outcome",
+                Cell::styled(outcome.to_string(), attempt_outcome_style(outcome)),
+            );
+            section.field(
+                "database",
+                Cell::text(restore["database"].as_str().unwrap_or("unknown")),
+            );
+            section.field(
+                "moment",
+                Cell::text(dg::render::human_instant(
+                    restore["timestamp"].as_str().unwrap_or("unknown"),
+                )),
+            );
+            section.field(
+                "contents",
+                Cell::text(format!(
+                    "{} tables, {} rows, {}",
+                    restore["tables"].as_u64().unwrap_or(0),
+                    restore["rows"].as_u64().unwrap_or(0),
+                    human_bytes(restore["size_bytes"].as_u64().unwrap_or(0))
+                )),
+            );
+            sections.push(section);
+        }
+        None => sections.push(unreported(
+            "last restore",
+            "this host has published no restore result",
+        )),
+    }
+
+    sections
+}
 ///
 /// The point is that a missing section reads as "there is nothing to
 /// say", which is a different claim from "nobody said". A gateway that
