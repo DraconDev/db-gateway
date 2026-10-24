@@ -424,6 +424,40 @@ fn stdout_carries_the_protocol_and_nothing_else() {
     }
 }
 
+/// An envelope that is not JSON-RPC is refused, not guessed at.
+///
+/// The client is not assumed to be well behaved: a message without the
+/// version, a batch, a bare string -- none of them may reach the
+/// dispatcher, and none of them may take the session down.
+#[tokio::test]
+async fn an_envelope_that_is_not_json_rpc_is_refused() {
+    let answers = session(&[
+        r#"{"jsonrpc":"1.0","id":1,"method":"ping"}"#,
+        r#"[{"jsonrpc":"2.0","id":2,"method":"ping"}]"#,
+        r#""just a string""#,
+        r#"{"id":3,"method":"ping"}"#,
+        r#"{"jsonrpc":"2.0","id":4}"#,
+    ])
+    .await;
+
+    assert_eq!(
+        answers.len(),
+        5,
+        "every message must be answered: {answers:?}"
+    );
+    for answer in &answers {
+        assert_eq!(
+            answer["error"]["code"].as_i64(),
+            Some(-32600),
+            "a message that is not a JSON-RPC request is an invalid request: {answer}"
+        );
+        assert!(
+            answer["id"].is_null(),
+            "a message whose id cannot be trusted is answered with a null id: {answer}"
+        );
+    }
+}
+
 /// The catalogue and the handshake agree with each other.
 ///
 /// A client reads the tool list once and then calls what it finds

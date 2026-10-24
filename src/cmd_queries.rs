@@ -41,7 +41,7 @@ pub async fn list(
     }
     Ok(Some((
         Method::GET,
-        path.into(),
+        path,
         None,
         None,
         dg::client::Semantics::Read,

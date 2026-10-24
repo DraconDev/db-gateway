@@ -231,7 +231,7 @@ pub fn normalise(sql: &str) -> String {
                 // doubled-quote escape, and keep none of it.
                 out.push('?');
                 space = false;
-                while let Some(inner) = chars.next() {
+                for inner in chars.by_ref() {
                     if inner == '\'' {
                         if chars.peek() == Some(&'\'') {
                             chars.next();
@@ -248,7 +248,7 @@ pub fn normalise(sql: &str) -> String {
                 }
                 space = false;
                 out.push(c);
-                while let Some(inner) = chars.next() {
+                for inner in chars.by_ref() {
                     out.push(inner);
                     if inner == c {
                         break;

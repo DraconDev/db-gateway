@@ -169,6 +169,9 @@ pub async fn serve(server: &str, key_path: Option<&Path>) -> Result<()> {
         key_path.ok_or_else(|| Error::new(400, "missing_credential", "--key-file required"))?,
     )?;
     let gateway = Gateway::new(server, &key);
+    // On stderr, like every other log line this project writes: stdout
+    // is the transport, and a line there would be read as protocol.
+    tracing::info!(server = gateway.server(), "mcp server ready");
     serve_loop(std::io::stdin().lock(), std::io::stdout().lock(), &gateway).await
 }
 
@@ -212,7 +215,6 @@ pub async fn serve_loop<R: BufRead, W: Write>(
             )?;
             continue;
         }
-        println!("stray print: {trimmed}");
         if let Some(response) = handle_line(gateway, trimmed).await {
             write_message(&mut writer, &response)?;
         }

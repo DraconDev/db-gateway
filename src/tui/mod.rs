@@ -75,6 +75,8 @@ pub enum Focus {
     Backups,
     /// The credentials.
     Keys,
+    /// The statement shapes the service has run.
+    Queries,
 }
 
 impl Focus {
@@ -84,17 +86,19 @@ impl Focus {
             Self::Databases => Self::Service,
             Self::Service => Self::Backups,
             Self::Backups => Self::Keys,
-            Self::Keys => Self::Databases,
+            Self::Keys => Self::Queries,
+            Self::Queries => Self::Databases,
         }
     }
 
     /// The previous tab, so `shift-tab` goes back the way it came.
     pub fn previous(self) -> Self {
         match self {
-            Self::Databases => Self::Keys,
+            Self::Databases => Self::Queries,
             Self::Service => Self::Databases,
             Self::Backups => Self::Service,
             Self::Keys => Self::Backups,
+            Self::Queries => Self::Keys,
         }
     }
 
@@ -105,6 +109,7 @@ impl Focus {
             Self::Service => "service",
             Self::Backups => "backups",
             Self::Keys => "keys",
+            Self::Queries => "queries",
         }
     }
 }
@@ -137,6 +142,8 @@ pub struct Scroll {
     pub backups: u16,
     /// The credentials.
     pub keys: u16,
+    /// The statement shapes.
+    pub queries: u16,
 }
 
 impl Scroll {
@@ -147,6 +154,7 @@ impl Scroll {
             Focus::Service => &mut self.service,
             Focus::Backups => &mut self.backups,
             Focus::Keys => &mut self.keys,
+            Focus::Queries => &mut self.queries,
         }
     }
 }
@@ -165,6 +173,8 @@ pub struct App {
     pub keys: Option<Value>,
     /// The gateway's answer about the databases.
     pub list: Option<Value>,
+    /// The gateway's answer about the statement shapes it has run.
+    pub queries: Option<Value>,
     /// When the answers last arrived.
     pub refreshed: Option<Instant>,
     /// Whether the gateway answered the last refresh.
@@ -205,6 +215,7 @@ impl App {
             backups: None,
             keys: None,
             list: None,
+            queries: None,
             refreshed: None,
             connected: false,
             error: None,
@@ -329,13 +340,14 @@ impl App {
             // The tab strip prints these numbers, so they have to work.
             // A numbered hint that does not do anything is worse than no
             // hint: it teaches the operator a key that fails.
-            KeyCode::Char(digit @ '1'..='4') => {
+            KeyCode::Char(digit @ '1'..='5') => {
                 let index = digit as usize - '1' as usize;
                 self.focus = [
                     Focus::Databases,
                     Focus::Service,
                     Focus::Backups,
                     Focus::Keys,
+                    Focus::Queries,
                 ][index];
             }
             KeyCode::Up => self.scroll_by(-1),
@@ -481,6 +493,7 @@ impl App {
         let backups = self.fetch("/v1/backups").await;
         let keys = self.fetch("/v1/keys").await;
         let list = self.fetch("/v1/databases").await;
+        let queries = self.fetch("/v1/queries").await;
         let mut failures: Vec<String> = Vec::new();
         match status {
             Ok(value) => self.status = Some(value),
@@ -496,6 +509,10 @@ impl App {
         }
         match list {
             Ok(value) => self.list = Some(value),
+            Err(error) => failures.push(error.message.to_string()),
+        }
+        match queries {
+            Ok(value) => self.queries = Some(value),
             Err(error) => failures.push(error.message.to_string()),
         }
         // The gateway is reachable when it answered anything at all: a
@@ -653,6 +670,15 @@ impl App {
     /// cannot disagree.
     pub fn keys_table(&self) -> Option<render::Table> {
         self.keys.as_ref().map(views::keys)
+    }
+
+    /// The statement shapes the service has run.
+    ///
+    /// The tab strip counts what is in each tab, so it reads the same table
+    /// the tab itself draws -- one source, so the count and the contents
+    /// cannot disagree.
+    pub fn query_table(&self) -> Option<render::Table> {
+        self.queries.as_ref().map(views::query_table)
     }
 
     /// Where each database lives on disk, and whether it is there.

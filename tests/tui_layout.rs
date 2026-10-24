@@ -191,6 +191,41 @@ fn app_state() -> App {
     app()
 }
 
+/// The statement shapes the view holds.
+fn queries() -> Value {
+    json!({
+        "databases": [
+            {
+                "database": "demo",
+                "shapes": [
+                    {
+                        "shape": "SELECT id, name FROM users WHERE id = ?",
+                        "count": 12,
+                        "rows_read": 480,
+                        "rows_written": 0,
+                        "total_micros": 120000,
+                        "max_micros": 40000,
+                        "first_seen": 1_700_000_000,
+                        "last_seen": 1_700_000_100,
+                        "principals": {"owner": 12}
+                    },
+                    {
+                        "shape": "INSERT INTO sessions VALUES (?, ?)",
+                        "count": 3,
+                        "rows_read": 0,
+                        "rows_written": 3,
+                        "total_micros": 900,
+                        "max_micros": 400,
+                        "first_seen": 1_700_000_000,
+                        "last_seen": 1_700_000_100,
+                        "principals": {"robot": 3}
+                    }
+                ]
+            }
+        ]
+    })
+}
+
 /// A view holding the answers above.
 fn app() -> App {
     let mut app = App::new("http://127.0.0.1:7432".to_string(), "0".repeat(64));
@@ -198,6 +233,7 @@ fn app() -> App {
     app.backups = Some(backups());
     app.keys = Some(keys());
     app.list = Some(list());
+    app.queries = Some(queries());
     app.connected = true;
     app
 }
@@ -241,7 +277,7 @@ fn every_tab_is_named_on_screen_and_holds_its_own_answer() {
     // each one really does hold its own answer rather than being a label.
     let mut app = app();
     let strip = screen(&mut app, 120, 40);
-    for name in ["databases", "service", "backups", "keys"] {
+    for name in ["databases", "service", "backups", "keys", "queries"] {
         assert!(
             strip.contains(name),
             "the tab strip does not name the {name:?} tab:\n{strip}"
@@ -332,7 +368,7 @@ fn every_tab_is_reachable_from_the_keyboard() {
     // Backwards from the first tab wraps to the last, so neither direction
     // can strand the operator.
     app.on_key(key(KeyCode::BackTab));
-    assert_eq!(app.focus, dg::tui::Focus::Keys, "shift-tab did not wrap");
+    assert_eq!(app.focus, dg::tui::Focus::Queries, "shift-tab did not wrap");
 }
 
 #[test]
@@ -767,5 +803,34 @@ fn a_host_that_publishes_no_restore_points_says_so() {
     assert!(
         text.contains("this host publishes no restore result"),
         "the backups tab does not say the host publishes no restore result:\n{text}"
+    );
+}
+
+#[test]
+fn the_queries_tab_says_which_statement_is_the_expensive_one() {
+    // "Which query is heavy?" is a question only the service can answer:
+    // every statement passes through the gateway on its way to SQLite.
+    // What it shows is the shape -- the SQL with its literals replaced --
+    // so the row names a statement without quoting the data it carried.
+    let mut app = app();
+    open_tab(&mut app, '5');
+    let text = screen(&mut app, 191, 50);
+    assert!(
+        text.contains("queries"),
+        "the queries tab is not named on screen:\n{text}"
+    );
+    assert!(
+        text.contains("SELECT id, name FROM users WHERE id = ?"),
+        "the queries tab does not show the statement shape:\n{text}"
+    );
+    assert!(
+        text.contains("480"),
+        "the queries tab does not show how many rows it read:\n{text}"
+    );
+    // And which credential ran it: that is the half a hosted provider
+    // structurally cannot give.
+    assert!(
+        text.contains("robot"),
+        "the queries tab does not say which credential ran the statement:\n{text}"
     );
 }

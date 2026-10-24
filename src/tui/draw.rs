@@ -325,6 +325,7 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
         Focus::Service => service_tab(frame, rows[1], app),
         Focus::Backups => backups_tab(frame, rows[1], app),
         Focus::Keys => keys_tab(frame, rows[1], app),
+        Focus::Queries => queries_tab(frame, rows[1], app),
     }
     if let Some(outcome) = &app.outcome {
         outcome_pane(frame, rows[2], outcome);
@@ -343,6 +344,7 @@ fn tabs(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Focus, u16, u16)> {
         Focus::Service,
         Focus::Backups,
         Focus::Keys,
+        Focus::Queries,
     ];
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut cells: Vec<(Focus, u16, u16)> = Vec::new();
@@ -354,6 +356,7 @@ fn tabs(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Focus, u16, u16)> {
         let count = match focus {
             Focus::Databases => app.databases().map(|table| table.rows().len()),
             Focus::Keys => app.keys_table().map(|table| table.rows().len()),
+            Focus::Queries => app.query_table().map(|table| table.rows().len()),
             Focus::Service | Focus::Backups => None,
         };
         let label = match count {
@@ -627,6 +630,28 @@ fn keys_tab(frame: &mut Frame, area: Rect, app: &App) {
         }
         None => {
             let block = pane(app.focus == Focus::Keys);
+            frame.render_widget(Paragraph::new("no answer yet").block(block), area);
+        }
+    }
+}
+
+/// The statement shapes the service has run, and what each one cost.
+///
+/// The tab answers "which query is heavy", which is a question only
+/// the service itself can answer: every statement passes through the
+/// gateway on its way to SQLite. What is shown is the SHAPE of a
+/// statement -- its SQL with every literal replaced by a placeholder --
+/// so a row names a statement without quoting the data it carried.
+fn queries_tab(frame: &mut Frame, area: Rect, app: &App) {
+    match &app.queries {
+        Some(payload) => {
+            let table = views::query_table(payload);
+            let block = pane(app.focus == Focus::Queries);
+            let mut state = TableState::default().with_offset(app.scroll.queries as usize);
+            framed_table(frame, area, block, &table, usize::MAX, &mut state);
+        }
+        None => {
+            let block = pane(app.focus == Focus::Queries);
             frame.render_widget(Paragraph::new("no answer yet").block(block), area);
         }
     }
