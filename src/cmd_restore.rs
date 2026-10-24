@@ -10,7 +10,7 @@ use super::{Request, table_json};
 use dg::ServerError::Application;
 use dg::render::Theme;
 use reqwest::Method;
-use std::io::{IsTerminal, Write};
+use std::io::IsTerminal;
 use std::path::PathBuf;
 
 /// The theme for a command that is drawing to the terminal.

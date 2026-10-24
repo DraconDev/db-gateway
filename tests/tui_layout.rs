@@ -134,6 +134,38 @@ fn backups() -> Value {
             "outcome": "ok",
             "databases": 2,
             "detail": "restored and verified against the live gateway"
+        },
+        "restore_points": {
+            "published_at": 1_700_000_200,
+            "window_start": "2026-10-15T14:16:08Z",
+            "window_end": "2026-10-20T09:30:41Z",
+            "sidecar": "active",
+            "databases": {
+                "demo": {
+                    "oldest": "2026-10-15T14:16:08Z",
+                    "newest": "2026-10-16T07:30:03Z",
+                    "files": 3,
+                    "bytes": 1200
+                },
+                "other": {
+                    "oldest": "2026-10-15T14:16:08Z",
+                    "newest": "2026-10-16T07:30:03Z",
+                    "files": 3,
+                    "bytes": 1200
+                }
+            }
+        },
+        "last_restore": {
+            "restored_at": 1_700_000_300,
+            "database": "demo",
+            "timestamp": "2026-10-16T00:00:00Z",
+            "outcome": "ok",
+            "detail": "restored and verified",
+            "tables": 3,
+            "rows": 120,
+            "size_bytes": 40960,
+            "integrity": "ok",
+            "path": "/var/lib/dg-restores/20261016000000/demo.sqlite"
         }
     })
 }
