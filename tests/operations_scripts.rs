@@ -676,7 +676,7 @@ fn the_published_replica_status_never_carries_a_credential() {
             ),
             ("DG_DATA_DIR", data.to_str().unwrap()),
             ("LITESTREAM_CONFIG", config.to_str().unwrap()),
-            ("LITESTREAM_ENV_FILE", env_file.as_str()),
+            ("LITESTREAM_ENV_FILE", env_file.to_str().unwrap()),
             ("DG_BACKUP_ROOT", backups.to_str().unwrap()),
         ],
     );
@@ -1021,7 +1021,7 @@ fn the_published_restore_facts_never_carry_a_credential() {
         &[
             ("LITESTREAM_BIN", litestream.to_str().unwrap()),
             ("LITESTREAM_CONFIG", config.to_str().unwrap()),
-            ("LITESTREAM_ENV_FILE", env_file.as_str()),
+            ("LITESTREAM_ENV_FILE", env_file.to_str().unwrap()),
             ("DG_DATA_DIR", data.to_str().unwrap()),
             ("DG_BACKUP_ROOT", backups.to_str().unwrap()),
             ("RESTORE_ROOT", restores.to_str().unwrap()),
