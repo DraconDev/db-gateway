@@ -10,8 +10,18 @@ use dg::{
     store::{KeyRequest, Store},
 };
 use serde_json::{Value, json};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tower::ServiceExt;
+
+/// The placement a test gateway reports: a loopback address and a host
+/// name, so a test can assert on them.
+fn test_deployment() -> api::Deployment {
+    api::Deployment {
+        listen: SocketAddr::from(([127, 0, 0, 1], 7432)),
+        host: Some("test-host".to_string()),
+    }
+}
 
 async fn call(
     app: &Router,
