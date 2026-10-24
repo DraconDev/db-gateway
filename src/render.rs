@@ -954,6 +954,31 @@ pub fn human_set_stamp(stamp: &str) -> String {
     format!("{year}-{month}-{day} {hour}:{minute}")
 }
 
+/// An ISO 8601 instant as an operator reads it.
+///
+/// The replica's restore window is published in ISO 8601, which is what
+/// every tool that has to exchange a moment speaks. `human_set_stamp`
+/// reads the compact form the backup sets use; this reads the other
+/// one. An unrecognised string is returned unchanged rather than
+/// mangled: a timestamp this does not understand is still a timestamp,
+/// and showing it verbatim is more useful than showing it wrongly.
+pub fn human_instant(instant: &str) -> String {
+    let bytes = instant.as_bytes();
+    // YYYY-MM-DDTHH:MM:SS with a trailing zone marker.
+    if bytes.len() < 19 || bytes[4] != b'-' || bytes[7] != b'-' || bytes[10] != b'T' {
+        return instant.to_string();
+    }
+    let digits = |range: std::ops::Range<usize>| bytes[range].iter().all(u8::is_ascii_digit);
+    if !digits(0..4) || !digits(5..7) || !digits(8..10) || !digits(11..13) || !digits(14..16) {
+        return instant.to_string();
+    }
+    // The slices are now known to be on character boundaries.
+    let date = &instant[0..10];
+    let hour = &instant[11..13];
+    let minute = &instant[14..16];
+    format!("{date} {hour}:{minute} UTC")
+}
+
 /// The civil date for a count of days since the Unix epoch. This is
 /// Howard Hinnant's `civil_from_days`, which is exact for the whole
 /// range of a 64-bit day count and needs no calendar dependency.
@@ -1175,6 +1200,26 @@ mod tests {
         // Anything that is not a stamp is passed through untouched.
         assert_eq!(human_set_stamp("latest"), "latest");
         assert_eq!(human_set_stamp("2026-10-19"), "2026-10-19");
+    }
+
+    #[test]
+    fn iso_instants_are_human_readable() {
+        assert_eq!(
+            human_instant("2026-10-20T09:30:41Z"),
+            "2026-10-20 09:30 UTC"
+        );
+        // An offset form is read the same way: the moment is the moment.
+        assert_eq!(
+            human_instant("2026-10-20T09:30:41+00:00"),
+            "2026-10-20 09:30 UTC"
+        );
+        // Anything that is not an instant is passed through untouched,
+        // and never interpreted.
+        assert_eq!(human_instant("latest"), "latest");
+        assert_eq!(human_instant("2026-10-20"), "2026-10-20");
+        assert_eq!(human_instant("aaaaTaa:aa:aa"), "aaaaTaa:aa:aa");
+        // A multi-byte character must not be sliced into.
+        assert_eq!(human_instant("日本abT12:34:56"), "日本abT12:34:56");
     }
 
     #[test]
