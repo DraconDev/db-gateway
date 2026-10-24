@@ -100,6 +100,15 @@ pub struct BackupHealth {
     pub last_attempt: Option<AttemptRecord>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_failure: Option<AttemptRecord>,
+    /// What the newest published set carries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<Coverage>,
+    /// Where the off-host copy is, as the host reports it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replica: Option<ReplicaFacts>,
+    /// The last off-host restore drill.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drill: Option<DrillFacts>,
 }
 
 impl BackupHealth {
