@@ -432,3 +432,77 @@ fn the_shell_speaks_json_when_asked() {
     );
     let _ = base;
 }
+
+#[test]
+fn the_restore_view_shows_the_window_the_replica_offers() {
+    // The window is the answer to "can I get my data back from last
+    // Tuesday?". It is the host's fact, published into the backup root
+    // the gateway reads, and this command is how an operator asks for it.
+    let fleet = Fleet::boot();
+    let backup_root = fleet
+        .data_dir
+        .parent()
+        .expect("data dir has a parent")
+        .join("dg-backups");
+    std::fs::create_dir_all(&backup_root).unwrap();
+    std::fs::write(
+        backup_root.join("restore-points.json"),
+        serde_json::json!({
+            "published_at": 1_700_000_100u64,
+            "window_start": "2026-10-15T14:16:08Z",
+            "window_end": "2026-10-20T09:30:41Z",
+            "sidecar": "active",
+            "databases": {
+                "pretty_restore": {
+                    "oldest": "2026-10-15T14:16:08Z",
+                    "newest": "2026-10-20T09:30:41Z",
+                    "files": 3,
+                    "bytes": 2048
+                }
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        backup_root.join("restore-results.json"),
+        serde_json::json!({
+            "restored_at": 1_700_000_200u64,
+            "database": "pretty_restore",
+            "timestamp": "2026-10-16T00:00:00Z",
+            "outcome": "ok",
+            "detail": "restored and verified",
+            "tables": 2,
+            "rows": 40,
+            "size_bytes": 40960,
+            "integrity": "ok",
+            "path": "/var/lib/dg-restores/20261016000000/pretty_restore.sqlite"
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let base = format!(
+        "{} --server {} --key-file {}",
+        env!("CARGO_BIN_EXE_dg"),
+        fleet.cli.server,
+        fleet.cli.key_file.to_str().unwrap(),
+    );
+    let screen = pty(&base, "restore list");
+    assert!(
+        screen.contains("restore points"),
+        "the restore view does not name the restore points: {screen:?}"
+    );
+    assert!(
+        screen.contains("2026-10-15 14:16 UTC to 2026-10-20 09:30 UTC"),
+        "the restore view does not show the window: {screen:?}"
+    );
+    assert!(
+        screen.contains("pretty_restore"),
+        "the restore view does not name the database: {screen:?}"
+    );
+    assert!(
+        screen.contains("last restore") && screen.contains("ok"),
+        "the restore view does not show the last restore: {screen:?}"
+    );
+}

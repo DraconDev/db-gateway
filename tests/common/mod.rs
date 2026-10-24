@@ -15,6 +15,10 @@ use serde_json::Value;
 
 pub struct Fleet {
     pub cli: Cli,
+    /// The gateway's data directory. The backup root is derived from it
+    /// (`<data-dir>/../dg-backups`), so a test that publishes a fact the
+    /// gateway reads needs this path.
+    pub data_dir: std::path::PathBuf,
     child: Option<Child>,
     _dir: tempfile::TempDir,
 }
@@ -131,6 +135,7 @@ impl Fleet {
 
         Fleet {
             cli: Cli { server, key_file },
+            data_dir,
             child: Some(child),
             _dir: dir,
         }
