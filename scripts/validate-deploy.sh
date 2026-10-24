@@ -87,6 +87,19 @@ log "checking credential hygiene"
 grep -qE '^(Environment|EnvironmentFile)=' "$UNIT" && fail "unit must not carry secrets via Environment"
 grep -q 'Password\|Secret\|Token' "$UNIT" && fail "unit must not name secrets"
 
+log "checking the service unit can publish a backup set on demand"
+# `dg backup run` publishes a set into the backup root from inside the
+# gateway, and ProtectSystem=strict makes every path outside
+# ReadWritePaths read-only to the process. A unit that leaves the backup
+# root out fails every on-demand run with an internal error, which reads
+# like a bug in the command rather than a missing path in the unit.
+for expected in \
+    '--backup-root {{DG_BACKUP_ROOT}}' \
+    'ReadWritePaths={{DG_DATA_DIR}} {{DG_BACKUP_ROOT}}'; do
+    grep -F -- "$expected" "$UNIT" >/dev/null \
+        || fail "dg.service must carry $expected"
+done
+
 log "checking the backup unit drives the producer with the templated paths"
 # The producer's compiled-in defaults are the reference layout. A host
 # that renders this template with any other layout would otherwise
@@ -395,7 +408,7 @@ if command -v systemd-analyze >/dev/null 2>&1; then
     log "running systemd-analyze verify on substituted copy"
     tmp="$(mktemp -d "${TMPDIR:-/tmp}/dg-unit-XXXXXX")"
     trap 'rm -rf "$tmp"' EXIT
-    mkdir -p "$tmp/data"
+    mkdir -p "$tmp/data" "$tmp/backups"
     # Every unit is rendered through scripts/unit-render.sh, which
     # refuses to emit a unit that still carries a placeholder. A
     # template that gains one therefore fails this gate loudly instead
@@ -404,6 +417,7 @@ if command -v systemd-analyze >/dev/null 2>&1; then
         "DG_USER=$(id -un)" \
         "DG_BINARY=$TARGET_DIR/debug/dg" \
         "DG_DATA_DIR=$tmp/data" \
+        "DG_BACKUP_ROOT=$tmp/backups" \
         "DG_LISTEN=127.0.0.1:7432" >"$tmp/dg.service"
     # The litestream-sync units name the host path /usr/local/bin/
     # litestream-sync.sh; point the verification copy at the repo script

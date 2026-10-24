@@ -168,6 +168,7 @@ install_from_bundle() {
     sed -e "s|{{DG_USER}}|$SERVICE_USER|g" \
         -e "s|{{DG_BINARY}}|$BINARY|g" \
         -e "s|{{DG_DATA_DIR}}|$DATA_DIR|g" \
+        -e "s|{{DG_BACKUP_ROOT}}|$BACKUP_ROOT|g" \
         -e "s|{{DG_LISTEN}}|$LISTEN|g" \
         "$BUNDLE/deploy/dg.service" >"$UNIT" || fail "cannot render the service template"
     # The rendered unit is a system configuration file: mode 0644, owned by

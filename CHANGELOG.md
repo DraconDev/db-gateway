@@ -236,6 +236,14 @@ fixes; 1.0.0 waits for production acceptance.
   the user-table content of every database before and after: identical.
   The deployed binary now reports `0.3.0`, which is the tag `v0.3.0`, so
   the deployed bundle traces to exactly one tagged state again.
+- **The service unit makes the backup root writable.** `dg backup run`
+  publishes a set from inside the gateway, and `ProtectSystem=strict`
+  makes every path outside `ReadWritePaths` read-only to the process.
+  The unit now names the backup root in `ReadWritePaths` and passes it
+  with `--backup-root`, so the gateway publishes where the operator
+  expects. Without it, every on-demand run failed with an internal
+  error — a confusing way to learn that the unit, not the command, was
+  the problem.
 - **The connection order now has a context in it.** `--server` and
   `--key-file` are read by the CLI rather than by the argument parser, so
   that a named context can sit between the flag and the environment: the

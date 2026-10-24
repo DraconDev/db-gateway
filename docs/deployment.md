@@ -166,9 +166,13 @@ failure (`docs/observability-contract.md` §3a-0).
   configuration.
 - **Dedicated unprivileged execution**: `User=`/`Group=` plus
   `NoNewPrivileges=true`, `ProtectSystem=strict`, `ProtectHome=true`.
-- **Persistent data ownership**: the data dir is the working directory and
-  the only writable path (`ReadWritePaths`); it must be owner-persistent
-  across restarts and upgrades.
+- **Persistent data ownership**: the data dir is the working directory, and
+  the data dir and the backup root are the writable paths
+  (`ReadWritePaths`); both must be owner-persistent across restarts and
+  upgrades. The backup root is writable because `dg backup run` publishes
+  a set there on demand — `ProtectSystem=strict` makes everything
+  outside `ReadWritePaths` read-only to the process, so a unit that
+  leaves the backup root out fails every on-demand run.
 - **Restart policy**: `Restart=on-failure` with a 5 s backoff; clean exits
   (e.g. operator `systemctl stop`) are not restarted.
 - **Secure credential handling**: no secrets in the unit, environment, or

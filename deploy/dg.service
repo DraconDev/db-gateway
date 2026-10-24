@@ -13,18 +13,25 @@ After=network.target
 Type=simple
 User={{DG_USER}}
 Group={{DG_USER}}
-ExecStart={{DG_BINARY}} serve --listen {{DG_LISTEN}} --data-dir {{DG_DATA_DIR}}
+ExecStart={{DG_BINARY}} serve --listen {{DG_LISTEN}} --data-dir {{DG_DATA_DIR}} --backup-root {{DG_BACKUP_ROOT}}
 WorkingDirectory={{DG_DATA_DIR}}
 Restart=on-failure
 RestartSec=5s
 
-# Data directory stays writable and owned by the service user; everything
-# else is read-only to the process.
+# Data directory and backup root stay writable and owned by the service
+# user; everything else is read-only to the process.
+#
+# The backup root is writable because `dg backup run` publishes a set
+# there on demand: it stages the set, validates every file, and renames
+# it into place. Without the path here, ProtectSystem=strict makes the
+# whole backup root read-only to the gateway and the run fails with an
+# internal error — which is a confusing way to learn that the unit, not
+# the command, was the problem.
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 NoNewPrivileges=true
-ReadWritePaths={{DG_DATA_DIR}}
+ReadWritePaths={{DG_DATA_DIR}} {{DG_BACKUP_ROOT}}
 
 # Credentials never appear here: the owner credential is created once with
 # `dg init` (output redirected to a 0600 file), and client keys travel in
