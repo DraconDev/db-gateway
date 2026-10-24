@@ -250,7 +250,7 @@ pub fn normalise(sql: &str) -> String {
                 }
                 space = false;
                 out.push(c);
-                for inner in chars.by_ref() {
+                while let Some(inner) = chars.next() {
                     out.push(inner);
                     if inner == c {
                         break;
