@@ -283,10 +283,23 @@ function isDatabaseUsage(v: unknown): v is DatabaseUsage {
   return object(v) && isNonNegativeInt(v.rows_read) && isNonNegativeInt(v.rows_written) &&
     isNonNegativeInt(v.queue_waits) && isNonNegativeInt(v.queue_wait_ms) && isNonNegativeInt(v.queue_timeouts);
 }
+function isDatabaseLocation(v: unknown): v is DatabaseLocation {
+  return object(v) && typeof v.file === 'string' && typeof v.exists === 'boolean' &&
+    isNonNegativeInt(v.size_bytes) && typeof v.tombstoned === 'boolean';
+}
+function isDeployment(v: unknown): v is Deployment {
+  if (!object(v) || typeof v.listen !== 'string' || typeof v.data_dir !== 'string') return false;
+  if (v.host !== undefined && v.host !== null && typeof v.host !== 'string') return false;
+  if (v.backup_root !== undefined && v.backup_root !== null && typeof v.backup_root !== 'string') return false;
+  if (v.databases !== undefined &&
+      (!object(v.databases) || !Object.values(v.databases).every(isDatabaseLocation))) return false;
+  return true;
+}
 function isStatusResponse(v: unknown): v is StatusResponse {
   if (!object(v) || typeof v.version !== 'string' || !isNonNegativeInt(v.uptime_secs) ||
       !object(v.admission) || !object(v.requests)) return false;
   if (v.databases !== undefined && (!object(v.databases) || !Object.values(v.databases).every(isDatabaseUsage))) return false;
+  if (v.deployment !== undefined && !isDeployment(v.deployment)) return false;
   const admission = v.admission, requests = v.requests;
   return isNonNegativeInt(admission.acquire_timeout_ms) && isNonNegativeInt(admission.read_permits) &&
     isNonNegativeInt(admission.write_permits) && isNonNegativeInt(requests.total) &&
