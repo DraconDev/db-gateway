@@ -1,0 +1,33 @@
+# Periodic publisher of the restore window (non-installing template).
+#
+# Copy to /etc/systemd/system/dg-restore-points.service on the target
+# host, replace every braced placeholder, then
+#   systemctl daemon-reload
+# Nothing in this repository installs, enables, or starts this unit.
+#
+# Runs scripts/restore-point.sh --list (installed on the host as
+# {{DG_RESTORE_POINT_SCRIPT}}): asks litestream which files the
+# off-host replica holds, and publishes the window of moments the data
+# can be restored to into the backup root. The gateway reads that
+# window and reports it, so an operator can ask "can I get my data back
+# from last Tuesday?" and get the host's own answer instead of a
+# promise. Runs as the dg user: the bucket credentials are read from
+# their existing 0600 file, never from this unit.
+#
+# This unit publishes facts; it restores nothing. Taking a restore is
+# a deliberate operator action and is done through
+# scripts/restore-point.sh --apply.
+
+[Unit]
+Description=DB Gateway off-host restore window publisher
+After=dg-litestream.service
+
+[Service]
+Type=oneshot
+User={{DG_USER}}
+Group={{DG_USER}}
+Environment=DG_DATA_DIR={{DG_DATA_DIR}}
+Environment=DG_BACKUP_ROOT={{DG_BACKUP_ROOT}}
+Environment=RESTORE_ROOT={{DG_RESTORE_ROOT}}
+ExecStart={{DG_RESTORE_POINT_SCRIPT}} --list
+NoNewPrivileges=true
