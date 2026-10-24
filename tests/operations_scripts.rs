@@ -804,8 +804,8 @@ fn the_restore_drill_publishes_whether_the_copies_restored() {
     );
     let record: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&published).unwrap()).unwrap();
-    assert_eq!(record["outcome"], json!("ok"), "the drill did not pass: {record}");
-    assert_eq!(record["databases"], json!(1), "the drill checked no database: {record}");
+    assert_eq!(record["outcome"].as_str(), Some("ok"), "the drill did not pass: {record}");
+    assert_eq!(record["databases"].as_u64(), Some(1), "the drill checked no database: {record}");
     assert!(
         record["drilled_at"].as_u64().unwrap_or(0) > 0,
         "the published result has no timestamp: {record}"
