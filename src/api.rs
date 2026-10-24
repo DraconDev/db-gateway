@@ -437,7 +437,7 @@ async fn backups(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<
             "coverage": coverage,
             "replica": replica,
             "drill": drill,
-            "restore_points": restore_points,
+            "restore_points": null,
             "last_restore": last_restore,
         })))
     })
