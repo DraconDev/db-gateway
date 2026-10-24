@@ -867,7 +867,7 @@ async fn execute(
         if let Ok(outcome) = result.as_ref() {
             let (rows_read, rows_written) = execution_usage(&outcome.value);
             s.metrics.record_usage(&name, rows_read, rows_written);
-            record_statements(s, &name, &p, statements, outcome);
+            record_statements(s, &name, &p, &statements, outcome);
         }
         result.map(|outcome| Json(outcome.value))
     })

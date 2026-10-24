@@ -579,6 +579,17 @@ async fn call_response(gateway: &Gateway, id: Value, params: Option<&Value>) -> 
             );
         }
     };
+    // A name the catalogue does not carry is a bad request, not a
+    // failed call: the client asked for something that was never on
+    // offer, and the answer says so in the code MCP reserves for it.
+    if !known_tool(name) {
+        return error_response(
+            id,
+            INVALID_PARAMS,
+            &format!("unknown tool: {name}"),
+            Some(json!({"code": "unknown_tool"})),
+        );
+    }
     match call_tool(gateway, name, &arguments).await {
         Ok(payload) => {
             let text = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
@@ -632,11 +643,25 @@ async fn call_tool(
             Ok(bound(api_value(response)?))
         }
         "dg_query" => query(gateway, arguments).await,
+        // Unreachable in practice: the name is checked against the
+        // catalogue before dispatch. It stays because a match that could
+        // fall through to a write would be a bug waiting to happen.
         other => Err(ToolFailure::new(
             "unknown_tool",
             &format!("unknown tool: {other}"),
         )),
     }
+}
+
+/// Whether the catalogue offers a tool by this name.
+///
+/// The catalogue is the single list of what this server can do, and the
+/// dispatch and this check both read it: a tool cannot be callable
+/// without being listed, and a listed tool cannot be uncallable.
+fn known_tool(name: &str) -> bool {
+    catalogue()
+        .iter()
+        .any(|tool| tool.get("name").and_then(Value::as_str) == Some(name))
 }
 
 /// The database a tool was asked about.
