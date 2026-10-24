@@ -30,6 +30,10 @@
 #      needed so S3 restores get credentials the same way the sidecar
 #      does; values are never echoed),
 #      DG_DRILL_SCRATCH_PARENT (/var/tmp), KEEP=1 keeps the scratch dir.
+#      DG_BACKUP_ROOT (/var/lib/dg-backups), where the result is published
+#      so the gateway can report it: a backup that was never restored is
+#      an assumption, and the operator should not have to read the
+#      journal to learn whether it ever was.
 
 set -euo pipefail
 SELF="bucket-restore-drill"
@@ -43,6 +47,41 @@ LITESTREAM_BIN="${LITESTREAM_BIN:-/usr/local/bin/litestream}"
 LITESTREAM_CONFIG="${LITESTREAM_CONFIG:-/etc/litestream.yml}"
 ENV_FILE="${LITESTREAM_ENV_FILE:-/etc/dg/litestream.env}"
 SCRATCH_PARENT="${DG_DRILL_SCRATCH_PARENT:-/var/tmp}"
+BACKUP_ROOT="${DG_BACKUP_ROOT:-/var/lib/dg-backups}"
+
+# What the drill proved, published when it finishes -- or fails, or is
+# cut short. `incomplete` is the honest answer when the drill could not
+# finish: the copies were not shown to be good, and nobody should read
+# that as "they are bad".
+DRILL_STATE="incomplete"
+DRILL_DETAIL=""
+DRILL_DATABASES=0
+DRILLED_AT="$(date -u +%s)"
+
+publish_drill() {
+    [ -d "$BACKUP_ROOT" ] || return 0
+    python3 - "$BACKUP_ROOT/restore-drill.json" "$DRILLED_AT" "$DRILL_STATE" "$DRILL_DETAIL" "$DRILL_DATABASES" <<'PY'
+import json
+import os
+import sys
+
+(path, drilled_at, outcome, detail, databases) = sys.argv[1:]
+record = {
+    "drilled_at": int(drilled_at),
+    "outcome": outcome,
+    "detail": detail or None,
+    "databases": int(databases or 0),
+}
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as stream:
+    json.dump(record, stream, sort_keys=True)
+    stream.write("\n")
+    stream.flush()
+    os.fsync(stream.fileno())
+os.chmod(tmp, 0o644)
+os.replace(tmp, path)
+PY
+}
 
 [ -x "$DG_BIN" ] || fail "dg binary not executable: $DG_BIN"
 [ -x "$LITESTREAM_BIN" ] || fail "litestream binary not executable: $LITESTREAM_BIN"
@@ -55,7 +94,10 @@ if [ -r "$ENV_FILE" ]; then set -a; . "$ENV_FILE"; set +a; fi
 SCRATCH="$(mktemp -d "$SCRATCH_PARENT/dg-restore-drill-XXXXXX")" || fail "cannot create scratch dir under $SCRATCH_PARENT"
 chmod 0700 "$SCRATCH"
 cleanup() { [ "${KEEP:-0}" = "1" ] && log "scratch kept at $SCRATCH" || rm -rf "$SCRATCH"; }
-trap cleanup EXIT
+# The result is published whether the drill passed, failed, or was cut
+# short -- an unpublished result is the same as no result, and the point
+# of the drill is the answer, not the run.
+trap 'cleanup; publish_drill' EXIT
 
 dg() {
     local args=("$DG_BIN")
