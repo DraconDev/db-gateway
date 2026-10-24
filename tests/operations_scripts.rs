@@ -1001,7 +1001,6 @@ fn the_published_restore_facts_never_carry_a_credential() {
     let litestream = fake_litestream(dir.path());
     let config = litestream_config(dir.path(), &data, &["alpha"]);
     let env_file = dir.path().join("litestream.env");
-    let absent_env = dir.path().join("absent.env");
     fs::write(
         &env_file,
         "LITESTREAM_S3_ACCESS_KEY_ID=[DRACON_SECRET:REDACTED]KEY\n\
