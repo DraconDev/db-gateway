@@ -133,7 +133,62 @@ fn database_size_bytes(path: &Path) -> u64 {
         .sum()
 }
 
+/// Where one registered database lives on disk.
+///
+/// The path is the file the gateway would open for that name, so it is the
+/// answer to "where is this database" rather than a directory the database
+/// might be in. `exists` is separate from `size_bytes` on purpose: a
+/// registry row whose file is gone is a fault, and a fault must not be
+/// drawn as a database of zero bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Location {
+    /// The database name.
+    pub name: String,
+    /// The file the gateway keeps that database in.
+    pub file: PathBuf,
+    /// Whether that file is there right now.
+    pub exists: bool,
+    /// The main file plus its WAL sidecars.
+    pub size_bytes: u64,
+    /// Whether the name is tombstoned: deleted, but still on disk until
+    /// the retention window purges it.
+    pub tombstoned: bool,
+}
+
 impl Store {
+    /// Where every registered database lives, live and tombstoned.
+    ///
+    /// Both kinds are listed, because "is everything live" is exactly the
+    /// question that a list of only the live names cannot answer: a
+    /// tombstoned database is still occupying its file and its name, and an
+    /// operator watching the deployment needs to see it.
+    pub fn locations(&self) -> Result<Vec<Location>> {
+        let conn = self.meta()?;
+        // A registry that has never been initialised has no table yet.
+        // A reader must not create it, so it reports no databases rather
+        // than failing on a schema it is not allowed to write.
+        if !table_exists(&conn, "databases")? {
+            return Ok(Vec::new());
+        }
+        let mut stmt = conn.prepare("SELECT name, deleted_at FROM databases ORDER BY name")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?))
+        })?;
+        let mut locations = Vec::new();
+        for row in rows {
+            let (name, deleted_at) = row?;
+            let file = self.root.join(format!("{name}.sqlite"));
+            locations.push(Location {
+                exists: file.is_file(),
+                size_bytes: database_size_bytes(&file),
+                file,
+                name,
+                tombstoned: deleted_at.is_some(),
+            });
+        }
+        Ok(locations)
+    }
+
     pub fn list(&self, principal: &Principal) -> Result<Vec<String>> {
         let conn = self.meta()?;
         let mut stmt = conn.prepare(

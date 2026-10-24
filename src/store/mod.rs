@@ -32,7 +32,7 @@ pub use self::admission::{
 pub use self::auth::{KeyRequest, Principal, hash, unauthorized};
 pub use self::backup_sets::BackupSet;
 pub(crate) use self::backup_sets::{is_set_dir, read_manifest_capped};
-pub use self::lifecycle::validate_name;
+pub use self::lifecycle::{Location, validate_name};
 pub use self::metrics::{DbUsage, Metrics, MetricsSnapshot};
 pub use self::transfers::{
     MAX_CHUNK, MAX_TRANSFER_SIZE, MAX_TRANSFERS, SnapshotInfo, Staging, TRANSFER_TTL, UploadInfo,
@@ -163,6 +163,15 @@ impl Store {
             transfer_ttl,
         };
         Ok(store)
+    }
+
+    /// The directory the gateway keeps its databases in.
+    ///
+    /// This is the path the gateway was started with, not a resolved one:
+    /// it is the path the operator put in the unit file, so it is the
+    /// path they can paste into another tool.
+    pub fn root(&self) -> &Path {
+        &self.root
     }
 
     fn meta(&self) -> Result<Connection> {
