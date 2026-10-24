@@ -25,6 +25,34 @@ maps each Turso CLI verb to its `dg` equivalent.
 | — | `dg execute <name> <file.sql>` | Runs a SQL FILE, reporting each statement. The file is split by SQLite's own `sqlite3_complete`, so a semicolon inside a string, a comment, or a trigger body is not a statement boundary. The statements run as one atomic batch. A file of more than 32 statements is refused before it is sent, with the count, the cap and the fact that nothing was sent — a longer file is not split, because that would give up the atomicity. |
 | — | `dg batch <name> <file>` | Atomic JSON batch from file. No Turso equivalent; kept. |
 
+## Seeing what the service did
+
+| Turso | dg | Notes |
+|---|---|---|
+| dashboard "Top Queries" | `dg queries` | The statement shapes the service has run, per database: how often, the rows read and written, the total and the slowest time, and the credentials that ran it. A statement is kept as its SHAPE — its SQL with every literal replaced by a placeholder — so the answer never quotes the data. Turso shows this per tenant because it has to; here the gateway is the only thing between the operator and SQLite, so it can. |
+| dashboard "Top Queries" | `dg queries --database <name>` | The same answer for one database. |
+| dashboard "Audit Logs" | `dg audit` | Which credential ran which action, and when: statements, key issuance and revocation, creates, clones, imports, deletes. Actions and shapes, never values and never a key. |
+| dashboard "Audit Logs" | `dg audit --principal <name> --since <epoch>` | One credential's actions, or what happened after a moment. |
+| — | `dg diff <a> <b>` | What differs between two databases, compared on the gateway so no table data travels to answer a question about the data. Exits nonzero when they differ. No Turso equivalent; kept. |
+
+## Forks, copies and maintenance
+
+| Turso | dg | Notes |
+|---|---|---|
+| dashboard "Branches" (Create From Now) | `dg branch create <parent> <name>` | A fork that can diverge from the database it came from. The copy is a real, writable database in the store, and the parent and the moment are recorded durably. |
+| dashboard "Branches" (Create From Point-in-Time) | `dg branch create <parent> <name> --from <ISO8601>` | The same, at a moment inside the backup window. A moment before the oldest set is refused, and the window that IS available is named. |
+| dashboard "Branches" | `dg branch list`, `dg branch show <name>`, `dg branch delete <name> --confirm <name>` | The forks, where each came from, and their removal. |
+| dashboard "Overview" | `dg integrity <name>` | SQLite's own integrity check and foreign-key check, on a read-only connection, reported verbatim. It never repairs anything. |
+| — | `dg vacuum <name>` | Reclaims the space a file is wasting, under the same write fence every other writer takes, and reports the bytes it actually reclaimed. |
+| — | `dg explain <name> "<sql>"` | What SQLite would do with a statement: its query plan, in plain words, with no invented cost model. |
+
+## Where the gateway is
+
+| Turso | dg | Notes |
+|---|---|---|
+| `turso auth login/logout/token` | `dg config set <name> --server <url> --key-file <path>` | Named contexts: a name for a server and a credential FILE, kept in `$HOME/.config/dg/config.toml` (0600). The file holds paths, never a key. `dg --context <name> list` talks to that one now. |
+| — | `dg mcp` | The gateway's read views to an MCP client over stdio: the same facts an agent would otherwise have to scrape, and only the read ones. |
+
 ## Tokens / credentials
 
 | Turso | dg | Notes |
