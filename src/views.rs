@@ -209,7 +209,7 @@ pub fn deployment(status: &Value) -> Section {
     // disk blocks safe writes, imports and staging.
     section.field(
         "disk free",
-        match deployment["disk"].as_object() {
+        match deployment.get("disk").and_then(Value::as_object) {
             Some(disk) => {
                 let free = disk["free_bytes"].as_u64().unwrap_or(0);
                 let total = disk["total_bytes"].as_u64().unwrap_or(0);
@@ -226,7 +226,7 @@ pub fn deployment(status: &Value) -> Section {
     // How much the database files themselves occupy.
     section.field(
         "databases",
-        match deployment["databases_bytes"].as_u64() {
+        match deployment.get("databases_bytes").and_then(Value::as_u64) {
             Some(bytes) => Cell::text(human_bytes(bytes)),
             None => Cell::text("unknown"),
         },
@@ -234,7 +234,7 @@ pub fn deployment(status: &Value) -> Section {
     // How long a deleted name is held before it is purged.
     section.field(
         "retention",
-        match deployment["retention_secs"].as_i64() {
+        match deployment.get("retention_secs").and_then(Value::as_i64) {
             Some(seconds) if seconds >= 0 => Cell::text(human_duration(seconds as u64)),
             _ => Cell::text("unknown"),
         },
@@ -574,7 +574,7 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
                     },
                 ),
             );
-            let registry = coverage["registry"].as_bool() == Some(true);
+            let registry = coverage.get("registry").and_then(Value::as_bool) == Some(true);
             section.field(
                 "registry",
                 Cell::styled(
@@ -596,16 +596,22 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
             // The bucket when the copy is an object store, and the target
             // itself when it is not: "where the copy is" is one fact, and
             // the object-store case names it by its bucket.
-            let where_copy_lives = replica["bucket"]
-                .as_str()
+            let where_copy_lives = replica
+                .get("bucket")
+                .and_then(Value::as_str)
                 .map(str::to_string)
-                .or_else(|| replica["target"].as_str().map(str::to_string))
+                .or_else(|| replica.get("target").and_then(Value::as_str).map(str::to_string))
                 .unwrap_or_else(|| "unknown".to_string());
             section.field("bucket", Cell::styled(where_copy_lives, Style::Cyan));
             for (key, label) in [("endpoint", "endpoint"), ("region", "region")] {
                 section.field(
                     label,
-                    Cell::text(replica[key].as_str().unwrap_or("unknown")),
+                    Cell::text(
+                        replica
+                            .get(key)
+                            .and_then(Value::as_str)
+                            .unwrap_or("unknown"),
+                    ),
                 );
             }
             section.field(
@@ -615,8 +621,9 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
             section.field(
                 "snapshot",
                 Cell::text(
-                    replica["snapshot_interval"]
-                        .as_str()
+                    replica
+                        .get("snapshot_interval")
+                        .and_then(Value::as_str)
                         .unwrap_or("unknown"),
                 ),
             );
@@ -638,7 +645,7 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
                     databases.join(", ")
                 }),
             );
-            let registry = replica["registry"].as_bool() == Some(true);
+            let registry = replica.get("registry").and_then(Value::as_bool) == Some(true);
             section.field(
                 "registry",
                 Cell::styled(
@@ -649,7 +656,10 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
             // Whether the thing that does the copying is running. A
             // configured replica that is not replicating is the failure
             // that looks most like success from a distance.
-            let sidecar = replica["sidecar"].as_str().unwrap_or("unknown");
+            let sidecar = replica
+                .get("sidecar")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
             section.field(
                 "sidecar",
                 Cell::styled(sidecar.to_string(), sidecar_style(sidecar)),
@@ -657,8 +667,9 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
             section.field(
                 "published",
                 Cell::text(
-                    replica["published_at"]
-                        .as_u64()
+                    replica
+                        .get("published_at")
+                        .and_then(Value::as_u64)
                         .map(human_epoch_ago)
                         .unwrap_or_else(|| "unknown".to_string()),
                 ),
