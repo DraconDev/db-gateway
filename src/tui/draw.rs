@@ -480,11 +480,9 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &App) {
             lines.push(heading(section.title()));
             lines.extend(section_lines(section));
         }
-        if let Some(found) = section_table(section) {
-            // The table's title comes from the section that owns it. It used
-            // to be hardcoded to "per-database", so the *published sets*
-            // table was labelled per-database -- a title that names the wrong
-            // thing is worse than no title.
+        if tables.is_empty()
+            && let Some(found) = section_table(section)
+        {
             tables.push((section.title().to_string(), found.clone()));
         }
     }
