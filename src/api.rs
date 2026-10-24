@@ -25,7 +25,24 @@ const MAX_EXPORT: usize = 8 * 1024 * 1024;
 /// Chunked-transfer envelope: one 1 MiB chunk base64-encoded plus JSON.
 const MAX_CHUNK_BODY: usize = 2 * 1024 * 1024;
 
-pub fn router(store: Arc<Store>) -> Router {
+/// Where this gateway is running.
+///
+/// The facts a client cannot work out for itself. A gateway is often
+/// reached through a tunnel, so the client sees a loopback port and
+/// nothing about the machine on the other end -- and that machine is the
+/// one holding the data. The gateway is therefore the only place that can
+/// answer "which host is this" and "which directory is it using".
+#[derive(Clone, Debug)]
+pub struct Deployment {
+    /// The address the listener actually bound, which is not always the
+    /// one that was asked for: `--listen 127.0.0.1:0` binds an ephemeral
+    /// port, and a report of the requested address would be a lie.
+    pub listen: SocketAddr,
+    /// The machine's hostname, when the platform reports one.
+    pub host: Option<String>,
+}
+
+pub fn router(store: Arc<Store>, deployment: Deployment) -> Router {
     Router::new()
         .route("/v1/databases", get(list).post(create))
         .route("/v1/databases/{name}", get(info).delete(remove))
@@ -55,6 +72,10 @@ pub fn router(store: Arc<Store>) -> Router {
         .route("/v1/databases/{name}/query", post(query))
         .route("/v1/databases/{name}/batch", post(batch))
         .layer(DefaultBodyLimit::max(65536))
+        // The placement of this gateway is a property of the process, not
+        // of the store, so it travels as an extension rather than inside
+        // the shared state every handler already takes.
+        .layer(Extension(deployment))
         .with_state(store)
 }
 fn json_body<T>(body: std::result::Result<Json<T>, JsonRejection>) -> Result<T> {
@@ -149,7 +170,11 @@ pub use crate::backup_health::STALE_AFTER_SECS;
 /// Owner-only service status: version, uptime, admission config, and
 /// request-pressure counters. The machine-readable counterpart to the
 /// human `dg status`; AI operators poll this, not log files.
-async fn status(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<Json<Value>> {
+async fn status(
+    State(store): State<Arc<Store>>,
+    Extension(deployment): Extension<Deployment>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
     work_read(store, headers, |s, p| {
         p.owner()?;
         let m = s.metrics.snapshot();
