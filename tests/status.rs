@@ -459,6 +459,88 @@ fn delete(address: &str, path: &str, cred: &str) -> (u16, Value) {
 }
 
 #[test]
+fn status_reports_where_the_gateway_and_its_databases_are() {
+    // "Where is the server, and are the databases really there" is a
+    // question only the gateway can answer: from outside it is a
+    // loopback port, and the machine on the other end of a tunnel is the
+    // one holding the files.
+    let dir = tempfile::tempdir().unwrap();
+    let owner = init(dir.path());
+    let server = start(dir.path(), &[]);
+    let (status, _) = post(
+        &server.address,
+        "/v1/databases",
+        &owner,
+        &json!({"name": "pdb"}),
+    );
+    assert_eq!(status, 200);
+    let (status, body) = get(&server.address, "/v1/status", Some(&owner));
+    assert_eq!(status, 200);
+    let deployment = &body["deployment"];
+    // The address the listener actually bound. The server was asked for
+    // port 0, so the reported address cannot be the requested one -- a
+    // report of the requested address would be a lie.
+    assert_eq!(deployment["listen"], json!(server.address));
+    assert_eq!(
+        deployment["data_dir"],
+        json!(dir.path().to_str().unwrap()),
+        "the gateway does not say which directory it uses: {body}"
+    );
+    assert!(
+        deployment["host"].is_string(),
+        "the gateway does not say which host it is: {body}"
+    );
+    // Every database is placed: the file, whether it is there, its size
+    // and whether it is tombstoned.
+    let placed = &deployment["databases"]["pdb"];
+    assert_eq!(
+        placed["file"],
+        json!(dir.path().join("pdb.sqlite").to_str().unwrap()),
+        "the database is not placed: {body}"
+    );
+    assert_eq!(placed["exists"], json!(true), "the file is not there: {body}");
+    assert_eq!(placed["tombstoned"], json!(false));
+    let (status, _) = post(
+        &server.address,
+        "/v1/databases/pdb/query",
+        &owner,
+        &json!({"sql": "CREATE TABLE t (v INTEGER)", "args": []}),
+    );
+    assert_eq!(status, 200);
+    let (status, body) = get(&server.address, "/v1/status", Some(&owner));
+    assert_eq!(status, 200);
+    assert!(
+        body["deployment"]["databases"]["pdb"]["size_bytes"]
+            .as_u64()
+            .unwrap_or(0)
+            > 0,
+        "a database that has been written to has no size: {body}"
+    );
+    // A file that has gone missing is reported as missing, not as a
+    // database of zero bytes: the registry row is still there, and the
+    // operator has to be able to see that the file is not.
+    fs::remove_file(dir.path().join("pdb.sqlite")).unwrap();
+    let (status, body) = get(&server.address, "/v1/status", Some(&owner));
+    assert_eq!(status, 200);
+    assert_eq!(
+        body["deployment"]["databases"]["pdb"]["exists"],
+        json!(false),
+        "a database whose file is gone is not reported as missing: {body}"
+    );
+    // A tombstone keeps its place in the answer until the file is purged:
+    // the name is still held, and "is everything live" needs to see it.
+    let (status, _) = delete(&server.address, "/v1/databases/pdb", &owner);
+    assert_eq!(status, 200);
+    let (status, body) = get(&server.address, "/v1/status", Some(&owner));
+    assert_eq!(status, 200);
+    assert_eq!(
+        body["deployment"]["databases"]["pdb"]["tombstoned"],
+        json!(true),
+        "a tombstoned database is not reported as tombstoned: {body}"
+    );
+}
+
+#[test]
 fn failed_owner_writes_pin_no_phantom_status_rows() {
     let dir = tempfile::tempdir().unwrap();
     let owner = init(dir.path());

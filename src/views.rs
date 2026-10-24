@@ -975,4 +975,130 @@ mod tests {
             "the second result is missing: {text}"
         );
     }
+
+    /// A section as plain text, so a test can read what an operator reads.
+    fn render_section(section: &Section) -> String {
+        let mut out = Vec::new();
+        section
+            .write(&mut out, &render::Theme::fixed(false, true))
+            .expect("a section renders");
+        String::from_utf8(out).expect("a section is text")
+    }
+
+    /// A gateway that reports where it is and where its databases are.
+    fn placed() -> serde_json::Value {
+        serde_json::json!({
+            "version": "0.2.0",
+            "deployment": {
+                "host": "micro2",
+                "listen": "127.0.0.1:7432",
+                "data_dir": "/var/lib/dg",
+                "backup_root": "/var/lib/dg-backups",
+                "databases": {
+                    "alpha": {
+                        "file": "/var/lib/dg/alpha.sqlite",
+                        "exists": true,
+                        "size_bytes": 40960,
+                        "tombstoned": false
+                    },
+                    "beta": {
+                        "file": "/var/lib/dg/beta.sqlite",
+                        "exists": false,
+                        "size_bytes": 0,
+                        "tombstoned": false
+                    },
+                    "gone": {
+                        "file": "/var/lib/dg/gone.sqlite",
+                        "exists": true,
+                        "size_bytes": 8192,
+                        "tombstoned": true
+                    }
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn the_placement_says_where_the_gateway_and_its_files_are() {
+        // The client cannot work this out for itself: a gateway reached
+        // through a tunnel is a loopback port from the outside, and the
+        // machine on the other end is the one holding the data.
+        let text = render_section(&deployment(&placed()));
+        for fact in [
+            "micro2",
+            "127.0.0.1:7432",
+            "/var/lib/dg",
+            "/var/lib/dg-backups",
+        ] {
+            assert!(
+                text.contains(fact),
+                "the placement does not say {fact:?}: {text}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_gateway_that_reports_no_placement_says_so_once() {
+        // An older gateway has no placement to report. Drawing four
+        // "unknown" lines would read like a gateway that has lost its
+        // files; saying so once says what is actually true.
+        let text = render_section(&deployment(&serde_json::json!({"version": "0.1.0"})));
+        assert!(
+            text.contains("not reported by this gateway"),
+            "the placement does not say the gateway does not report it: {text}"
+        );
+        assert!(
+            !text.contains("unknown"),
+            "an unreported placement is drawn as unknown facts: {text}"
+        );
+    }
+
+    #[test]
+    fn each_database_is_placed_with_its_file_and_whether_it_is_there() {
+        let table = locations(&placed()).expect("the gateway places its databases");
+        let text = render_table(&table);
+        for fact in [
+            "/var/lib/dg/alpha.sqlite",
+            "/var/lib/dg/beta.sqlite",
+            "/var/lib/dg/gone.sqlite",
+            "live",
+            "missing",
+            "tombstoned",
+        ] {
+            assert!(
+                text.contains(fact),
+                "the locations do not show {fact:?}: {text}"
+            );
+        }
+        // The state belongs to the database it is about: a live file and a
+        // tombstone are different things, and a state on another row would
+        // be a different claim.
+        let rows: Vec<&str> = text
+            .lines()
+            .filter(|line| line.contains(".sqlite"))
+            .collect();
+        assert_eq!(rows.len(), 3, "the table does not hold one row per database");
+        assert!(
+            rows[0].contains("alpha") && rows[0].contains("live"),
+            "alpha is not live on its own row: {}",
+            rows[0]
+        );
+        assert!(
+            rows[1].contains("beta") && rows[1].contains("missing"),
+            "beta is not missing on its own row: {}",
+            rows[1]
+        );
+        assert!(
+            rows[2].contains("gone") && rows[2].contains("tombstoned"),
+            "the tombstone is not on its own row: {}",
+            rows[2]
+        );
+    }
+
+    #[test]
+    fn a_gateway_that_places_nothing_yields_no_table_rather_than_an_empty_one() {
+        // An empty table is a different claim -- a gateway with no
+        // databases -- and the two must not look alike.
+        assert!(locations(&serde_json::json!({"version": "0.1.0"})).is_none());
+    }
 }
