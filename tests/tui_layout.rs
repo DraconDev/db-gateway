@@ -277,7 +277,14 @@ fn every_tab_is_named_on_screen_and_holds_its_own_answer() {
     // each one really does hold its own answer rather than being a label.
     let mut app = app();
     let strip = screen(&mut app, 120, 40);
-    for name in ["databases", "service", "backups", "keys", "queries"] {
+    for name in [
+        "databases",
+        "service",
+        "backups",
+        "keys",
+        "queries",
+        "locations",
+    ] {
         assert!(
             strip.contains(name),
             "the tab strip does not name the {name:?} tab:\n{strip}"
@@ -336,12 +343,131 @@ fn every_tab_is_named_on_screen_and_holds_its_own_answer() {
         "the keys tab does not show the credentials:\n{keys}"
     );
 
+    let mut app_locations = app_state();
+    open_tab(&mut app_locations, '6');
+    let locations = screen(&mut app_locations, 120, 40);
+    assert!(
+        locations.contains("/var/lib/dg/demo.sqlite"),
+        "the locations tab does not show where the databases are:\n{locations}"
+    );
+
     // And the body gives its width to one answer instead of splitting it, so
     // the database table is wider than it was in the tiled layout.
     assert!(
         !screen(&mut app, 120, 40).contains("robot"),
         "the keys tab is drawn at the same time as the databases tab"
     );
+}
+
+/// The rule the tabs are built on: one question per tab, one answer per tab.
+///
+/// This is the audit made into a gate. The placement used to be a second box
+/// under the databases tab's traffic table, which split the body in two and
+/// squeezed both answers: the tiling problem in a smaller frame. A tab that
+/// shows another tab's answer is the same defect wearing a different hat, and
+/// it is invisible in a screenshot unless you know what to look for.
+#[test]
+fn every_tab_answers_its_own_question_and_only_its_own() {
+    let mut app = app();
+
+    // The databases tab: what the databases did.
+    let databases = screen(&mut app, 191, 40);
+    assert!(
+        databases.contains("rows read"),
+        "the databases tab does not show the traffic:\n{databases}"
+    );
+    assert!(
+        !databases.contains("/var/lib/dg/demo.sqlite"),
+        "the databases tab is answering the locations tab's question:\n{databases}"
+    );
+
+    // The locations tab: where the files are.
+    let mut locations_app = app_state();
+    open_tab(&mut locations_app, '6');
+    let locations = screen(&mut locations_app, 191, 40);
+    assert!(
+        locations.contains("/var/lib/dg/demo.sqlite"),
+        "the locations tab does not show the files:\n{locations}"
+    );
+    assert!(
+        !locations.contains("rows read"),
+        "the locations tab is answering the databases tab's question:\n{locations}"
+    );
+
+    // The service tab: the gateway's own facts.
+    let mut service_app = app_state();
+    open_tab(&mut service_app, '2');
+    let service = screen(&mut service_app, 191, 40);
+    assert!(
+        service.contains("requests"),
+        "the service tab does not show the dashboard:\n{service}"
+    );
+    assert!(
+        !service.contains("rows read"),
+        "the service tab repeats the databases tab's traffic:\n{service}"
+    );
+
+    // The keys tab: the credentials.
+    let mut keys_app = app_state();
+    open_tab(&mut keys_app, '4');
+    let keys = screen(&mut keys_app, 191, 40);
+    assert!(keys.contains("robot"), "the keys tab is empty:\n{keys}");
+    assert!(
+        !keys.contains("rows read"),
+        "the keys tab repeats the databases tab's traffic:\n{keys}"
+    );
+}
+
+/// The tabs are written down once, and the six places that used to write them
+/// down are all built from that one list.
+///
+/// The drift is not hypothetical: the command bar said "1-4" while a fifth
+/// tab was on the screen, because the range was written by hand and only the
+/// strip was updated. These assertions are what stop the list from growing
+/// apart from itself again.
+#[test]
+fn the_tabs_are_written_down_once_and_everything_is_built_from_that_list() {
+    use dg::tui::Focus;
+
+    // Every tab is in the list, in the order the strip shows them.
+    let all = Focus::ALL;
+    assert_eq!(
+        all.len(),
+        6,
+        "the list of tabs is not the list the strip draws"
+    );
+    assert_eq!(all[0], Focus::Databases);
+    assert_eq!(all[1], Focus::Service);
+    assert_eq!(all[2], Focus::Backups);
+    assert_eq!(all[3], Focus::Keys);
+    assert_eq!(all[4], Focus::Queries);
+    assert_eq!(all[5], Focus::Locations);
+
+    // A tab's number is its place in that list, so the number the strip
+    // prints is the number the key opens.
+    for (index, focus) in all.iter().enumerate() {
+        assert_eq!(focus.index(), index, "{focus:?} is in the wrong place");
+        assert_eq!(
+            Focus::from_number(index + 1),
+            Some(*focus),
+            "{focus:?} is not reachable by its own number"
+        );
+    }
+    assert_eq!(Focus::from_number(0), None, "there is no zeroth tab");
+    assert_eq!(
+        Focus::from_number(all.len() + 1),
+        None,
+        "a number past the last tab opens nothing"
+    );
+
+    // The cycle wraps in both directions, so neither can strand the operator.
+    let last = *all.last().expect("there is a last tab");
+    assert_eq!(last.next(), Focus::Databases, "the cycle does not wrap");
+    assert_eq!(Focus::Databases.previous(), last, "shift-tab does not wrap");
+    for (index, focus) in all.iter().enumerate() {
+        assert_eq!(focus.next(), all[(index + 1) % all.len()]);
+        assert_eq!(focus.previous(), all[(index + all.len() - 1) % all.len()]);
+    }
 }
 
 #[test]
@@ -368,7 +494,15 @@ fn every_tab_is_reachable_from_the_keyboard() {
     // Backwards from the first tab wraps to the last, so neither direction
     // can strand the operator.
     app.on_key(key(KeyCode::BackTab));
-    assert_eq!(app.focus, dg::tui::Focus::Queries, "shift-tab did not wrap");
+    assert_eq!(
+        app.focus,
+        dg::tui::Focus::Locations,
+        "shift-tab did not wrap"
+    );
+    // And the last tab is reachable by its own number, which is the number
+    // the strip prints for it.
+    open_tab(&mut app, '6');
+    assert_eq!(app.focus, dg::tui::Focus::Locations);
 }
 
 #[test]
@@ -523,16 +657,20 @@ fn a_deletion_asks_for_the_name_twice_and_runs_only_then() {
 }
 
 #[test]
-fn the_databases_tab_says_where_each_database_is_and_whether_it_is_there() {
+fn the_locations_tab_says_where_each_database_is_and_whether_it_is_there() {
     // "Is everything live and working" needs the file, not only the
-    // counters: a live registry row whose file is gone does no work at
-    // all, and its counters would say nothing about that. The traffic
+    // counters: a live registry row whose file is gone does no work
+    // at all, and the counters would say nothing about that. The traffic
     // table says what a database did; this says where it is.
-    let mut app = app();
-    let text = screen(&mut app, 191, 40);
+    //
+    // It has its own tab, because a second box under the traffic table
+    // split the body in two and squeezed both answers.
+    let mut locations_app = app();
+    open_tab(&mut locations_app, '6');
+    let text = screen(&mut locations_app, 191, 40);
     assert!(
         text.contains("locations"),
-        "the databases tab does not show where the databases are:\n{text}"
+        "the locations tab does not name itself:\n{text}"
     );
     for file in [
         "/var/lib/dg/demo.sqlite",
@@ -541,7 +679,7 @@ fn the_databases_tab_says_where_each_database_is_and_whether_it_is_there() {
     ] {
         assert!(
             text.contains(file),
-            "the databases tab does not show {file:?}:\n{text}"
+            "the locations tab does not show {file:?}:\n{text}"
         );
     }
     // The state belongs to the database it is about. "live" and
@@ -555,9 +693,16 @@ fn the_databases_tab_says_where_each_database_is_and_whether_it_is_there() {
         assert!(
             text.lines()
                 .any(|line| line.contains(database) && line.contains(state)),
-            "the databases tab does not show {database:?} as {state:?}:\n{text}"
+            "the locations tab does not show {database:?} as {state:?}:\n{text}"
         );
     }
+    // And the databases tab does not answer this tab's question as well.
+    let mut databases_app = app();
+    let databases = screen(&mut databases_app, 191, 40);
+    assert!(
+        !databases.contains("/var/lib/dg/demo.sqlite"),
+        "the databases tab still draws the placement table:\n{databases}"
+    );
 }
 
 #[test]
@@ -586,21 +731,23 @@ fn a_gateway_that_reports_no_placement_says_so_rather_than_looking_empty() {
     // An older gateway has no placement to report. Drawing an empty
     // table would read as "there is nowhere they are", which is a
     // different and much worse claim than "this gateway does not say".
-    let mut databases_app = app();
-    databases_app.status = Some(json!({
+    // The claim lives on the tab that answers it.
+    let mut locations_app = app();
+    locations_app.status = Some(json!({
         "version": "0.1.0",
         "uptime_secs": 60,
         "database_counts": {"live": 1, "tombstoned": 0},
         "databases": {}
     }));
-    let databases = screen(&mut databases_app, 191, 40);
+    open_tab(&mut locations_app, '6');
+    let locations = screen(&mut locations_app, 191, 40);
     assert!(
-        databases.contains("does not report where its databases live"),
-        "the databases tab does not say the gateway does not report its placement:\n{databases}"
+        locations.contains("does not report where its databases live"),
+        "the locations tab does not say the gateway does not report its placement:\n{locations}"
     );
     assert!(
-        !databases.contains("locations"),
-        "an unreported placement is drawn as an empty locations table:\n{databases}"
+        !locations.contains("/var/lib/dg/demo.sqlite"),
+        "an unreported placement is drawn as a table of files:\n{locations}"
     );
 
     let mut service_app = app();
@@ -617,14 +764,15 @@ fn a_gateway_that_reports_no_placement_says_so_rather_than_looking_empty() {
     // nobody has answered yet is its own kind of wrong.
     let mut unanswered = app();
     unanswered.status = None;
-    let databases = screen(&mut unanswered, 191, 40);
+    open_tab(&mut unanswered, '6');
+    let locations = screen(&mut unanswered, 191, 40);
     assert!(
-        databases.contains("no answer yet"),
-        "the databases tab does not say the placement has not arrived:\n{databases}"
+        locations.contains("no answer yet"),
+        "the locations tab does not say the placement has not arrived:\n{locations}"
     );
     assert!(
-        !databases.contains("does not report where its databases live"),
-        "a question nobody has answered yet is blamed on the gateway:\n{databases}"
+        !locations.contains("does not report where its databases live"),
+        "a question nobody has answered yet is blamed on the gateway:\n{locations}"
     );
 }
 

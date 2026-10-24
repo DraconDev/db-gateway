@@ -30,11 +30,12 @@ A tab strip, and the body of the tab that is showing.
 
 | Tab | Key | What it answers |
 |---|---|---|
-| Databases | `1` | Every database the gateway lists, with the rows it has read and written, its own wait p95 and its worst wait, and when it was last written — and, under that, where each database's file is and whether it is actually there |
+| Databases | `1` | Every database the gateway lists, with the rows it has read and written, its own wait p95 and its worst wait, and when it was last written |
 | Service | `2` | The service dashboard — version, uptime, request totals and rate, error counts, admission permits, the wait percentiles, the recent request-rate sparkline — and where the gateway is running: the host, the address it bound, the data directory, the backup root, the room left on the disk and the retention it holds a deleted name for |
 | Backups | `3` | Whether the copies can be trusted: the backup root, the freshness objective, the last run, what the newest set carries, where the off-host copy is and whether it is running, the last restore drill, the window of moments the copy can be taken back to, the last restore that was taken, the published sets, and each database's freshness state |
 | Keys | `4` | Every outstanding credential, its role, and the databases it may reach |
 | Queries | `5` | Which statement is the expensive one — the statement shapes the service has run, how often each ran, the rows it read and wrote, how long it took, and which credentials ran it |
+| Locations | `6` | Where each database's file is on disk, how big it is, and whether it is there — a live registry row whose file is gone does no work at all, and no counter would say so |
 
 The tabs are also reached with `tab` and `shift-tab`. Each tab carries its
 number and, where it has one, its count: the strip is a summary, not just a
@@ -43,13 +44,34 @@ switchboard, so an operator can see how much is in a tab without opening it.
 The view shows **one tab at a time** rather than tiling every answer. Tiling
 forces each answer into a fraction of the width, which squeezes a wide table
 and cuts a long list; a tab gives the whole body to the thing being read. The
-cost — five answers are off screen — is paid by the strip, which always names
+cost — six answers are off screen — is paid by the strip, which always names
 every tab.
 
-Each tab answers one question and shows one answer. The per-database traffic
-breakdown is the databases tab's, and it is not repeated on the service tab:
-the same rows under a second heading, on a second tab, is the tiling problem
-returning in a new shape.
+### One question per tab
+
+Each tab answers one question and shows one answer. The answer may be
+several facets of that one answer — the backups tab's freshness table
+and its list of published sets are both about whether the copies can be
+trusted — but no tab answers another tab's question.
+
+The per-database traffic breakdown is the databases tab's, and it is not
+repeated on the service tab: the same rows under a second heading, on a
+second tab, is the tiling problem returning in a new shape.
+
+**Where the databases live is a question of its own**, and it used to be
+answered inside the databases tab, as a second box under the traffic table.
+That is the tiling problem in a smaller frame: the body was split in two,
+the placement table took whatever the traffic table left, and on a screen
+with enough databases the placement table was squeezed to a header and a row.
+Placement is the sixth tab now, and each of the six answers has the whole
+body to itself.
+
+The tabs are written down in one place — `Focus::ALL` in `src/tui/mod.rs` —
+and the strip, the number keys, the `tab` / `shift-tab` cycle and the
+command bar's range are all built from it. They used to be written down in
+six places, and they drifted: the command bar said `1-4` while a fifth tab
+was on the screen, because only one of the six lists had been updated. A
+list written once cannot drift.
 
 ## Which query is heavy
 
@@ -86,7 +108,7 @@ present-tense question, and the trail that has to outlive a restart is
 
 The service tab says where the gateway is running — the host, the address it
 actually bound, the directory it keeps its databases in, and the backup root
-it watches — and the databases tab says where each database's file is and
+it watches — and the locations tab says where each database's file is and
 whether that file is there. The counters say what a database did; only the
 file says whether it could.
 

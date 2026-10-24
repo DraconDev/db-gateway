@@ -77,42 +77,59 @@ pub enum Focus {
     Keys,
     /// The statement shapes the service has run.
     Queries,
+    /// Where each database lives on disk, and whether it is there.
+    Locations,
 }
 
 impl Focus {
     /// Every tab, in the order the strip shows them.
     ///
-    /// The strip, the number keys and the command bar all have to agree
-    /// on how many tabs there are, and a list they can all be built from
-    /// is what keeps them from drifting apart.
-    pub const ALL: [Focus; 5] = [
+    /// This list is the ONLY place the tabs are written down. The strip,
+    /// the number keys, the tab/shift-tab cycle and the command bar's
+    /// range are all built from it, so they cannot disagree about how
+    /// many tabs there are or which key opens which one.
+    ///
+    /// It used to be written down in six places, and they drifted: the
+    /// command bar still said "1-4" after a fifth tab existed, because
+    /// only one of the six lists had been updated. A list that is
+    /// written once cannot drift.
+    pub const ALL: [Focus; 6] = [
         Focus::Databases,
         Focus::Service,
         Focus::Backups,
         Focus::Keys,
         Focus::Queries,
+        Focus::Locations,
     ];
+
+    /// The tab's place in the strip, counted from zero.
+    ///
+    /// The position is the tab's NUMBER on screen, so the number a
+    /// key opens and the place in the strip are the same fact.
+    pub fn index(self) -> usize {
+        Self::ALL.iter().position(|tab| *tab == self).unwrap_or(0)
+    }
+
+    /// The tab a number opens, counting from one.
+    ///
+    /// `None` for a number no tab answers, so a key that names no tab
+    /// opens nothing rather than opening the wrong one.
+    pub fn from_number(number: usize) -> Option<Self> {
+        number
+            .checked_sub(1)
+            .and_then(|index| Self::ALL.get(index).copied())
+    }
 
     /// The next tab.
     pub fn next(self) -> Self {
-        match self {
-            Self::Databases => Self::Service,
-            Self::Service => Self::Backups,
-            Self::Backups => Self::Keys,
-            Self::Keys => Self::Queries,
-            Self::Queries => Self::Databases,
-        }
+        let index = self.index();
+        Self::ALL[(index + 1) % Self::ALL.len()]
     }
 
     /// The previous tab, so `shift-tab` goes back the way it came.
     pub fn previous(self) -> Self {
-        match self {
-            Self::Databases => Self::Queries,
-            Self::Service => Self::Databases,
-            Self::Backups => Self::Service,
-            Self::Keys => Self::Backups,
-            Self::Queries => Self::Keys,
-        }
+        let index = self.index();
+        Self::ALL[(index + Self::ALL.len() - 1) % Self::ALL.len()]
     }
 
     /// What the tab is called.
@@ -123,6 +140,7 @@ impl Focus {
             Self::Backups => "backups",
             Self::Keys => "keys",
             Self::Queries => "queries",
+            Self::Locations => "locations",
         }
     }
 }
@@ -157,6 +175,8 @@ pub struct Scroll {
     pub keys: u16,
     /// The statement shapes.
     pub queries: u16,
+    /// Where the databases live on disk.
+    pub locations: u16,
 }
 
 impl Scroll {
@@ -168,6 +188,7 @@ impl Scroll {
             Focus::Backups => &mut self.backups,
             Focus::Keys => &mut self.keys,
             Focus::Queries => &mut self.queries,
+            Focus::Locations => &mut self.locations,
         }
     }
 }
@@ -352,16 +373,15 @@ impl App {
             KeyCode::BackTab => self.focus = self.focus.previous(),
             // The tab strip prints these numbers, so they have to work.
             // A numbered hint that does not do anything is worse than no
-            // hint: it teaches the operator a key that fails.
-            KeyCode::Char(digit @ '1'..='5') => {
-                let index = digit as usize - '1' as usize;
-                self.focus = [
-                    Focus::Databases,
-                    Focus::Service,
-                    Focus::Backups,
-                    Focus::Keys,
-                    Focus::Queries,
-                ][index];
+            // hint: it teaches the operator a key that fails. The range
+            // and the tab it opens are both read from the one list of
+            // tabs, so a tab that exists is always reachable by its
+            // number.
+            KeyCode::Char(digit @ '1'..='9') => {
+                let number = digit as usize - '1' as usize + 1;
+                if let Some(focus) = Focus::from_number(number) {
+                    self.focus = focus;
+                }
             }
             KeyCode::Up => self.scroll_by(-1),
             KeyCode::Down => self.scroll_by(1),

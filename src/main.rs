@@ -597,14 +597,16 @@ enum Command {
     Mcp,
     /// Open the terminal operator view.
     ///
-    /// Five tabs — databases, service, backups, keys and queries — reached
-    /// with the number keys 1-5 or with tab and shift-tab, each given the
-    /// whole body of the screen so a wide table is not squeezed into a
-    /// fraction of the width. The strip names every tab whether or not
-    /// it is showing, with its count where it has one, so nothing is
-    /// hidden just because it is closed. The mouse reaches the same
-    /// places: click a tab's label to open it, wheel over the body to
-    /// scroll.
+    /// Six tabs — databases, service, backups, keys, queries and
+    /// locations — reached with the number keys 1-6 or with tab and
+    /// shift-tab, each given the whole body of the screen so a wide
+    /// table is not squeezed into a fraction of the width. Each tab
+    /// answers one question and shows one answer: where the databases
+    /// live on disk is its own tab, not a second box under the traffic
+    /// table. The strip names every tab whether or not it is showing,
+    /// with its count where it has one, so nothing is hidden just
+    /// because it is closed. The mouse reaches the same places: click a
+    /// tab's label to open it, wheel over the body to scroll.
     ///
     /// The view acts on what it shows: create, delete, clone, export
     /// and import a database, issue, revoke and rotate a key, and run a

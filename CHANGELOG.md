@@ -17,6 +17,46 @@ tagged state. Deployments and rollbacks follow
 (0.x), minor versions mark feature growth and patch versions mark
 fixes; 1.0.0 waits for production acceptance.
 
+## [0.4.0] — 2026-10-24
+
+### Added
+
+- **Where the databases live is its own tab.** The placement table was a
+  second box under the databases tab's traffic table, which split the body
+  in two and squeezed both answers: the placement table took whatever the
+  traffic table left, and on a screen with enough databases it was down to
+  a header and a row. Placement is the sixth tab now (`6`), and each tab
+  answers one question and shows one answer — which is the rule the view's
+  own guide already states and the code did not keep. The tab answers "is
+  everything live and working": a live registry row whose file is gone does
+  no work at all, and no counter would say so.
+
+### Changed
+
+- **The tabs are written down once.** The list of tabs was written in six
+  places — the strip, the number keys, the `tab`/`shift-tab` cycle, the
+  command bar's range, the scroll offsets and the draw dispatch — and they
+  drifted. The command bar said `1-4` while a fifth tab was on the screen,
+  because only one of the six lists had been updated. Everything is now
+  built from `Focus::ALL`, and the range in the bar is counted from it, so
+  a list that is written once cannot drift from itself.
+- `dg tui --help` names the six tabs and the `1-6` keys that reach them.
+- `docs/tui.md` states the one-question-per-tab contract, says which
+  question each tab answers, and records that the tab list lives in one
+  place.
+
+### Tests
+
+- The placement assertions moved to the locations tab, and the
+  "no placement reported" wording moved with them: a claim is made on the
+  tab that answers the question it is about.
+- New: `every_tab_answers_its_own_question_and_only_its_own` — a tab that
+  shows another tab's answer is the tiling problem wearing a different hat,
+  and it is invisible in a screenshot unless you know what to look for.
+- New: `the_tabs_are_written_down_once_and_everything_is_built_from_that_list`
+  — every tab is in the list, in the strip's order, and its number is its
+  place in that list.
+
 ## [0.3.1] — 2026-10-24
 
 ### Fixed

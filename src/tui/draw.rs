@@ -326,6 +326,7 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
         Focus::Backups => backups_tab(frame, rows[1], app),
         Focus::Keys => keys_tab(frame, rows[1], app),
         Focus::Queries => queries_tab(frame, rows[1], app),
+        Focus::Locations => locations_tab(frame, rows[1], app),
     }
     if let Some(outcome) = &app.outcome {
         outcome_pane(frame, rows[2], outcome);
@@ -339,13 +340,11 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
 /// as well as its name, because the number is what the keyboard shortcut
 /// uses, and a hint that names a key nobody can discover is not a hint.
 fn tabs(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Focus, u16, u16)> {
-    let all = [
-        Focus::Databases,
-        Focus::Service,
-        Focus::Backups,
-        Focus::Keys,
-        Focus::Queries,
-    ];
+    // The one list of tabs. The strip, the number keys and the command
+    // bar's range are all built from it, so they cannot drift apart --
+    // and they did drift, when the bar said "1-4" with five tabs on the
+    // screen.
+    let all = Focus::ALL;
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut cells: Vec<(Focus, u16, u16)> = Vec::new();
     let mut used: u16 = 0;
@@ -357,6 +356,7 @@ fn tabs(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Focus, u16, u16)> {
             Focus::Databases => app.databases().map(|table| table.rows().len()),
             Focus::Keys => app.keys_table().map(|table| table.rows().len()),
             Focus::Queries => app.query_table().map(|table| table.rows().len()),
+            Focus::Locations => app.locations().map(|table| table.rows().len()),
             Focus::Service | Focus::Backups => None,
         };
         let label = match count {
@@ -399,12 +399,13 @@ fn tabs(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Focus, u16, u16)> {
 /// cuts itself is a visibility lie, and the count is what tells the
 /// operator to scroll.
 ///
-/// Under the traffic table it also shows where each database is on disk
-/// and whether it is there, because "is everything live and working"
-/// needs the file, not only the counters: a live registry row whose file
-/// is gone does no work at all, and its counters would say nothing about
-/// that. The traffic table keeps the tab's own frame -- it is the tab's
-/// answer -- and the locations table is a named box under it.
+/// This tab answers ONE question -- what the databases have done -- and
+/// it gives the whole body to it. Where the files are used to be a
+/// second box under this one, which split the body in two and made both
+/// answers smaller: the placement table took what the traffic table
+/// left, and on a screen with enough databases the placement table was
+/// squeezed to a header and a row. Placement is its own tab now, and
+/// each tab answers one question.
 fn databases_tab(frame: &mut Frame, area: Rect, app: &App) {
     let focused = app.focus == Focus::Databases;
     let Some(traffic) = app.databases() else {
@@ -412,66 +413,42 @@ fn databases_tab(frame: &mut Frame, area: Rect, app: &App) {
         frame.render_widget(Paragraph::new("no answer yet").block(block), area);
         return;
     };
+    let mut state = TableState::default().with_offset(app.scroll.databases as usize);
+    framed_table(frame, area, pane(focused), &traffic, usize::MAX, &mut state);
+}
+
+/// Where each database lives on disk, and whether it is there.
+///
+/// "Is everything live and working" needs the file, not only the
+/// counters: a live registry row whose file is gone does no work at all,
+/// and the counters would say nothing about that. So the placement has
+/// its own tab, where it is the only answer and gets the whole body.
+///
+/// A gateway that does not report its placement says so in words. An
+/// empty table would read as "there is nowhere they are", which is a
+/// different and much worse claim. A status answer that has not
+/// arrived is a different thing again, and is named as such: blaming
+/// the gateway for a question nobody has answered yet is its own kind
+/// of wrong.
+fn locations_tab(frame: &mut Frame, area: Rect, app: &App) {
+    let block = pane(app.focus == Focus::Locations);
     let Some(locations) = app.locations() else {
-        // The gateway does not say where its databases are. Say that, in
-        // words: a missing box reads as "there is nowhere they are",
-        // which is a different and much worse claim. A status answer that
-        // has not arrived is a different thing again, and is named as
-        // such: blaming the gateway for a question nobody has answered
-        // yet is its own kind of wrong.
         let note = if app.status.is_none() {
             "no answer yet"
         } else {
             "this gateway does not report where its databases live"
         };
-        let rows = Layout::vertical([Constraint::Min(4), Constraint::Length(1)]).split(area);
-        let mut state = TableState::default().with_offset(app.scroll.databases as usize);
-        framed_table(
-            frame,
-            rows[0],
-            pane(focused),
-            &traffic,
-            usize::MAX,
-            &mut state,
-        );
-        frame.render_widget(
-            Paragraph::new(Span::styled(note, crate::tui::theme::status())),
-            rows[1],
-        );
+        frame.render_widget(Paragraph::new(note).block(block), area);
         return;
     };
-    // The traffic table carries a caption under its rows, so it needs one
-    // more line than the locations table, which has none.
-    let traffic_height = traffic.rows().len() as u16 + 4;
-    let locations_height = locations.rows().len() as u16 + 3;
-    let constraints = if traffic_height + locations_height <= area.height {
-        vec![
-            Constraint::Length(traffic_height),
-            Constraint::Length(locations_height),
-        ]
-    } else {
-        // They do not all fit: each keeps its header and the rest of the
-        // pane is shared, so neither table is cut without saying so.
-        vec![Constraint::Min(4), Constraint::Min(3)]
-    };
-    let rows = Layout::vertical(constraints).split(area);
-    let mut traffic_state = TableState::default().with_offset(app.scroll.databases as usize);
+    let mut state = TableState::default().with_offset(app.scroll.locations as usize);
     framed_table(
         frame,
-        rows[0],
-        pane(focused),
-        &traffic,
-        usize::MAX,
-        &mut traffic_state,
-    );
-    let mut locations_state = TableState::default().with_offset(app.scroll.databases as usize);
-    framed_table(
-        frame,
-        rows[1],
+        area,
         pane_titled("locations"),
         &locations,
         usize::MAX,
-        &mut locations_state,
+        &mut state,
     );
 }
 
@@ -746,20 +723,26 @@ fn outcome_pane(frame: &mut Frame, area: Rect, outcome: &Outcome) {
 /// ones an operator needs on every screen; everything else is one `:` away,
 /// and the bar says so.
 fn status_line(frame: &mut Frame, area: Rect, app: &App) {
+    // The tab range is counted from the one list of tabs, so it cannot
+    // fall behind the strip. It DID fall behind it: the bar said "1-4"
+    // while a fifth tab was on the screen, because the range was written
+    // down by hand and only the strip was updated.
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    spans.push(Span::styled(
+        format!("1-{}", Focus::ALL.len()),
+        crate::tui::theme::key(),
+    ));
+    spans.push(Span::styled(" tabs", crate::tui::theme::key_label()));
     // Key, then what it does. Ordered by how often it is reached for.
-    const HINTS: [(&str, &str); 6] = [
-        ("1-5", "tabs"),
+    const HINTS: [(&str, &str); 5] = [
         ("tab", "next tab"),
         ("↑↓", "scroll"),
         (":", "commands"),
         ("r", "refresh"),
         ("q", "quit"),
     ];
-    let mut spans: Vec<Span<'static>> = Vec::new();
-    for (index, (key, label)) in HINTS.iter().enumerate() {
-        if index > 0 {
-            spans.push(Span::styled("  ", crate::tui::theme::status()));
-        }
+    for (key, label) in HINTS.iter() {
+        spans.push(Span::styled("  ", crate::tui::theme::status()));
         spans.push(Span::styled(*key, crate::tui::theme::key()));
         spans.push(Span::styled(
             format!(" {label}"),
