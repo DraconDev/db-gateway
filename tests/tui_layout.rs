@@ -26,6 +26,32 @@ fn status() -> Value {
             "wait_samples": 4
         },
         "database_counts": {"live": 2, "tombstoned": 0},
+        "deployment": {
+            "host": "micro2",
+            "listen": "127.0.0.1:7432",
+            "data_dir": "/var/lib/dg",
+            "backup_root": "/var/lib/dg-backups",
+            "databases": {
+                "demo": {
+                    "file": "/var/lib/dg/demo.sqlite",
+                    "exists": true,
+                    "size_bytes": 40960,
+                    "tombstoned": false
+                },
+                "other": {
+                    "file": "/var/lib/dg/other.sqlite",
+                    "exists": true,
+                    "size_bytes": 12288,
+                    "tombstoned": false
+                },
+                "old_one": {
+                    "file": "/var/lib/dg/old_one.sqlite",
+                    "exists": false,
+                    "size_bytes": 0,
+                    "tombstoned": true
+                }
+            }
+        },
         "databases": {
             "demo": {
                 "rows_read": 10,
@@ -379,6 +405,92 @@ fn a_deletion_asks_for_the_name_twice_and_runs_only_then() {
             name: "demo".to_string()
         },
         "the view armed something other than the deletion"
+    );
+}
+
+#[test]
+fn the_databases_tab_says_where_each_database_is_and_whether_it_is_there() {
+    // "Is everything live and working" needs the file, not only the
+    // counters: a live registry row whose file is gone does no work at
+    // all, and its counters would say nothing about that. The traffic
+    // table says what a database did; this says where it is.
+    let mut app = app();
+    let text = screen(&mut app, 191, 40);
+    assert!(
+        text.contains("locations"),
+        "the databases tab does not show where the databases are:\n{text}"
+    );
+    for file in [
+        "/var/lib/dg/demo.sqlite",
+        "/var/lib/dg/other.sqlite",
+        "/var/lib/dg/old_one.sqlite",
+    ] {
+        assert!(
+            text.contains(file),
+            "the databases tab does not show {file:?}:\n{text}"
+        );
+    }
+    // The state belongs to the database it is about. "live" and
+    // "tombstoned" are checked against their own rows, because the
+    // command bar and the other tables carry those words too.
+    for (database, state) in [("demo", "live"), ("other", "live"), ("old_one", "tombstoned")] {
+        assert!(
+            text.lines().any(|line| line.contains(database) && line.contains(state)),
+            "the databases tab does not show {database:?} as {state:?}:\n{text}"
+        );
+    }
+}
+
+#[test]
+fn the_service_tab_says_where_the_gateway_is() {
+    // The client cannot work this out for itself: a gateway reached
+    // through a tunnel is a loopback port from the outside, and the
+    // machine on the other end is the one holding the data.
+    let mut app = app();
+    open_tab(&mut app, '2');
+    let text = screen(&mut app, 191, 40);
+    for fact in [
+        "micro2",
+        "127.0.0.1:7432",
+        "/var/lib/dg",
+        "/var/lib/dg-backups",
+    ] {
+        assert!(
+            text.contains(fact),
+            "the service tab does not say {fact:?}:\n{text}"
+        );
+    }
+}
+
+#[test]
+fn a_gateway_that_reports_no_placement_says_so_rather_than_looking_empty() {
+    // An older gateway has no placement to report. Drawing an empty
+    // table would read as "there is nowhere they are", which is a
+    // different and much worse claim than "this gateway does not say".
+    let mut app = app();
+    app.status = Some(json!({
+        "version": "0.1.0",
+        "uptime_secs": 60,
+        "database_counts": {"live": 1, "tombstoned": 0},
+        "databases": {}
+    }));
+    let databases = screen(&mut app, 191, 40);
+    assert!(
+        databases.contains("does not report where its databases live"),
+        "the databases tab does not say the gateway does not report its placement:\n{databases}"
+    );
+    assert!(
+        !databases.contains("locations"),
+        "an unreported placement is drawn as an empty locations table:\n{databases}"
+    );
+
+    let mut app = app();
+    app.status = Some(json!({"version": "0.1.0", "uptime_secs": 60}));
+    open_tab(&mut app, '2');
+    let service = screen(&mut app, 191, 40);
+    assert!(
+        service.contains("not reported by this gateway"),
+        "the service tab does not say the gateway does not report its placement:\n{service}"
     );
 }
 
