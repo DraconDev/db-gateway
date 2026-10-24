@@ -21,6 +21,22 @@ fixes; 1.0.0 waits for production acceptance.
 
 ### Added
 
+- **The data can be taken back to a moment, not only to the last
+  snapshot.** The off-host replica keeps seven days of write-ahead log,
+  so the copy can be restored to any point inside that window — the
+  difference between "there is a backup" and "you can go back to last
+  Tuesday". `scripts/restore-point.sh` is the host-side interface: `--list`
+  publishes the window the replica offers, `--plan` prints what a restore
+  to a moment would fetch, and `--apply` restores one database into a
+  *fresh* directory, verifies the copy (integrity, tables, rows) and
+  publishes what it produced. It never writes over a live database: a
+  restore is a copy you compare and then import, not a silent
+  replacement. The host publishes the window and the result; the gateway
+  reports them — `GET /v1/backups` carries `restore_points` and
+  `last_restore`, the backups tab shows the window beside the last
+  restore, and `dg restore list` prints them. The bucket's credentials
+  never leave `/etc/dg/litestream.env`, and the published facts are a
+  whitelist, so what is published names a place without opening it.
 - **The view now says whether your copies can be trusted.** The backups tab
   answers the question that comes after "where is it": the last backup run
   and whether it worked, what the newest published set carries (and whether
