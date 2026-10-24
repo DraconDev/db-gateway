@@ -1,7 +1,10 @@
 use crate::{
     error::{Error, Result},
     execution::{Batch, Statement},
-    store::{ACQUIRE_TIMEOUT, KeyRequest, Principal, Store, unauthorized, validate_name},
+    store::{
+        ACQUIRE_TIMEOUT, KeyRequest, Principal, QueryShape, StatementRun, Store, unauthorized,
+        validate_name,
+    },
 };
 use axum::{
     Json, Router,
@@ -69,6 +72,7 @@ pub fn router(store: Arc<Store>, deployment: Deployment) -> Router {
         .route("/v1/keys/{name}", delete(revoke))
         .route("/v1/status", get(status))
         .route("/v1/backups", get(backups))
+        .route("/v1/queries", get(queries))
         .route("/v1/databases/{name}/query", post(query))
         .route("/v1/databases/{name}/batch", post(batch))
         .layer(DefaultBodyLimit::max(65536))
@@ -863,6 +867,7 @@ async fn execute(
         if let Ok(outcome) = result.as_ref() {
             let (rows_read, rows_written) = execution_usage(&outcome.value);
             s.metrics.record_usage(&name, rows_read, rows_written);
+            record_statements(s, &name, &p, statements, outcome);
         }
         result.map(|outcome| Json(outcome.value))
     })
@@ -891,6 +896,98 @@ fn execution_usage(value: &Value) -> (u64, u64) {
         None => one(value),
     }
 }
+/// The rows one statement's result carried.
+fn statement_usage(result: &Value) -> (u64, u64) {
+    let read = result["rows"]
+        .as_array()
+        .map(|rows| rows.len() as u64)
+        .unwrap_or(0);
+    let written = result["rows_affected"].as_u64().unwrap_or(0);
+    (read, written)
+}
+
+/// Record what a request's statements cost, so the operator can ask
+/// which one is the expensive one.
+///
+/// The shape is what is kept -- the SQL with its literals replaced -- so
+/// the log answers "how much does this statement cost" without
+/// becoming a second copy of the data.
+fn record_statements(
+    store: &Store,
+    name: &str,
+    principal: &Principal,
+    statements: &[Statement],
+    outcome: &crate::execution::ExecuteOutcome,
+) {
+    let usage: Vec<(u64, u64)> = match outcome.value["results"].as_array() {
+        Some(results) => results.iter().map(statement_usage).collect(),
+        None => vec![statement_usage(&outcome.value)],
+    };
+    let runs: Vec<StatementRun> = statements
+        .iter()
+        .enumerate()
+        .map(|(index, statement)| {
+            let (rows_read, rows_written) = usage.get(index).copied().unwrap_or((0, 0));
+            StatementRun {
+                sql: statement.sql.clone(),
+                rows_read,
+                rows_written,
+                micros: outcome.statement_micros.get(index).copied().unwrap_or(0),
+            }
+        })
+        .collect();
+    store
+        .metrics
+        .queries
+        .record(name, &principal.name, &runs);
+}
+
+/// One statement shape, as the API reports it.
+fn shape_json(shape: &QueryShape) -> Value {
+    let mut principals: Vec<(String, u64)> = shape
+        .principals
+        .iter()
+        .map(|(name, count)| (name.clone(), *count))
+        .collect();
+    principals.sort();
+    json!({
+        "shape": shape.shape,
+        "count": shape.count,
+        "rows_read": shape.rows_read,
+        "rows_written": shape.rows_written,
+        "total_micros": shape.total_micros,
+        "max_micros": shape.max_micros,
+        "first_seen": shape.first_seen,
+        "last_seen": shape.last_seen,
+        "principals": principals.into_iter().collect::<std::collections::BTreeMap<_, _>>(),
+    })
+}
+
+/// The statement shapes the service has run, per database.
+///
+/// Owner-only: the log holds the SQL every credential ran, including
+/// the keys an application holds, so it is the owner's view of their
+/// own service and nobody else's.
+async fn queries(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<Json<Value>> {
+    work_read(store, headers, |s, p| {
+        p.owner()?;
+        let databases: Vec<Value> = s
+            .metrics
+            .queries
+            .all()
+            .into_iter()
+            .map(|(database, shapes)| {
+                json!({
+                    "database": database,
+                    "shapes": shapes.iter().map(shape_json).collect::<Vec<_>>(),
+                })
+            })
+            .collect();
+        Ok(Json(json!({ "databases": databases })))
+    })
+    .await
+}
+
 async fn query(
     State(store): State<Arc<Store>>,
     Path(name): Path<String>,
