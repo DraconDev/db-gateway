@@ -213,6 +213,23 @@ async fn status(
                 )
             })
             .collect::<serde_json::Map<String, Value>>();
+        // Where this gateway is, and where each of its databases is. The
+        // answer comes from the server because the client cannot know it:
+        // a gateway reached through a tunnel looks like a loopback port
+        // from the outside, and the machine on the other end is the one
+        // holding the files.
+        let mut locations = serde_json::Map::new();
+        for location in s.locations()? {
+            locations.insert(
+                location.name.clone(),
+                json!({
+                    "file": location.file.to_string_lossy().into_owned(),
+                    "exists": location.exists,
+                    "size_bytes": location.size_bytes,
+                    "tombstoned": location.tombstoned,
+                }),
+            );
+        }
         Ok(Json(json!({
             "version": env!("CARGO_PKG_VERSION"),
             "uptime_secs": m.uptime_secs,
@@ -239,6 +256,13 @@ async fn status(
             "database_counts": {
                 "live": live_databases,
                 "tombstoned": tombstoned_databases,
+            },
+            "deployment": {
+                "host": deployment.host,
+                "listen": deployment.listen.to_string(),
+                "data_dir": s.root().display().to_string(),
+                "backup_root": s.backup_root().map(|root| root.to_string_lossy().into_owned()),
+                "databases": locations,
             },
         })))
     })
