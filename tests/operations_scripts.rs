@@ -767,7 +767,7 @@ fn the_restore_drill_publishes_whether_the_copies_restored() {
          cmd=\"$1\"; shift\n\
          case \"$cmd\" in\n\
            list) echo '{\"databases\":[\"alpha\"]}';;\n\
-           query) case \"$3\" in *sqlite_master*) echo '{\"rows\":[[\"t\"]]}';; *) echo '{\"rows\":[[3]]}';; esac;;\n\
+           query) case \"$2\" in *sqlite_master*) echo '{\"rows\":[[\"t\"]]}';; *) echo '{\"rows\":[[3]]}';; esac;;\n\
            *) echo '{}';;\n\
          esac\n",
     )
