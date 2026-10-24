@@ -92,6 +92,48 @@ fn backups() -> Value {
         "per_database": {
             "demo": {"state": "fresh", "newest_set": "20261021T070000Z", "age_secs": 3600},
             "other": {"state": "stale", "newest_set": "20261001T070000Z", "age_secs": 1728000}
+        },
+        "last_attempt": {
+            "ts": "20261021T070000Z",
+            "started_at": 1_700_000_000,
+            "completed_at": 1_700_000_100,
+            "outcome": "ok",
+            "set": "20261021T070000Z",
+            "databases": 2,
+            "step": "publish"
+        },
+        "last_failure": {
+            "ts": "20261020T070000Z",
+            "started_at": 1_699_000_000,
+            "completed_at": 1_699_000_100,
+            "outcome": "error",
+            "set": null,
+            "databases": 0,
+            "step": "export"
+        },
+        "coverage": {
+            "live": 2,
+            "in_newest_set": 1,
+            "missing": ["other"],
+            "registry": true
+        },
+        "replica": {
+            "target": "s3://dg-sandbox",
+            "bucket": "dg-sandbox",
+            "endpoint": "s3.example.invalid",
+            "region": "gra",
+            "retention": "168h",
+            "snapshot_interval": "24h",
+            "databases": ["demo", "other"],
+            "registry": true,
+            "sidecar": "active",
+            "published_at": 1_700_000_100
+        },
+        "drill": {
+            "drilled_at": 1_699_000_000,
+            "outcome": "ok",
+            "databases": 2,
+            "detail": "restored and verified against the live gateway"
         }
     })
 }
