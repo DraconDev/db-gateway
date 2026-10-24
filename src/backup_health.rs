@@ -256,7 +256,11 @@ impl BackupHealth {
 pub fn snapshot(store: &Store) -> Result<BackupHealth, crate::error::Error> {
     let now = SystemTime::now();
     let sets = store.backup_sets();
-    let mut names: Vec<String> = store.list_all()?;
+    // The live names are kept apart from the wider list below, which also
+    // carries databases that only exist in a set. Coverage is a claim
+    // about the live deployment, so it is counted from the live names.
+    let live_names: Vec<String> = store.list_all()?;
+    let mut names: Vec<String> = live_names.clone();
     if let Some(ref sets) = sets {
         for set in sets {
             for db in &set.databases {
@@ -333,14 +337,14 @@ pub fn snapshot(store: &Store) -> Result<BackupHealth, crate::error::Error> {
     // does not publish them, and absent is reported as absent.
     let coverage = sets.as_ref().and_then(|sets| {
         let newest = sets.first()?;
-        let missing: Vec<String> = names
+        let missing: Vec<String> = live_names
             .iter()
             .filter(|name| !newest.databases.contains(name))
             .cloned()
             .collect();
         Some(Coverage {
-            live: names.len(),
-            in_newest_set: names.len() - missing.len(),
+            live: live_names.len(),
+            in_newest_set: live_names.len() - missing.len(),
             missing,
             registry: newest.has_registry,
         })
