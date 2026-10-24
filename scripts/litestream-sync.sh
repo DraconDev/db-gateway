@@ -219,6 +219,14 @@ if [ -z "${DG_REPLICA_URL_TEMPLATE:-}" ]; then
     [ -n "$KID" ] || fail "LITESTREAM_S3_ACCESS_KEY_ID missing/empty in $ENV_FILE"
     [ -n "$SEC" ] || fail "LITESTREAM_S3_SECRET_ACCESS_KEY missing/empty in $ENV_FILE"
     unset KID SEC
+    BUCKET="$BUC"
+    ENDPOINT="$END"
+    REGION="$REG"
+    TARGET="s3://${BUC}"
+else
+    # A file replica has no bucket: the template names the target, and
+    # saying "no bucket" is truer than naming an empty one.
+    TARGET="${DG_REPLICA_URL_TEMPLATE:-}"
 fi
 
 DESIRED="$(render)"
