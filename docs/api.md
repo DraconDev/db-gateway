@@ -92,7 +92,7 @@ and exactly-once resubmission is the caller's explicit keyed replay.
 | `DELETE /v1/uploads/{id}` | owner | — | `{"aborted":true}` |
 | `DELETE /v1/databases/{name}` | owner | — | `{"deleted":true,"purge_after_seconds":86400}` |
 | `GET /v1/status` | owner | — | `{"version":"…","uptime_secs":n,"admission":{"acquire_timeout_ms":500,"read_permits":8,"write_permits":4},"requests":{"total":n,"capacity_exceeded":n,"query_deadline_exceeded":n,"internal_error":n},"databases":{"db":{"rows_read":n,"rows_written":n,"queue_waits":n,"queue_wait_ms":n,"queue_timeouts":n}},"deployment":{"host":"…"/null,"listen":"…","data_dir":"…","backup_root":"…"/null,"databases":{"db":{"file":"…","exists":bool,"size_bytes":n,"tombstoned":bool}}}}` |
-| `GET /v1/backups` | owner | — | `{"backup_root":"…"/null,"stale_after_secs":300,"sets":[{"timestamp":"…","databases":[…],"has_registry":bool,"coverage_start":n/null,"coverage_end":n/null}],"per_database":{"game_a":{"state":"fresh"/"stale"/"unknown","newest_set":"…"/null,"age_secs":n/null}}}` |
+| `GET /v1/backups` | owner | — | `{"backup_root":"…"/null,"stale_after_secs":300,"sets":[{"timestamp":"…","databases":[…],"has_registry":bool,"coverage_start":n/null,"coverage_end":n/null}],"per_database":{"game_a":{"state":"fresh"/"stale"/"unknown","newest_set":"…"/null,"age_secs":n/null}},"last_attempt":{…}/null,"last_failure":{…}/null,"coverage":{…}/null,"replica":{…}/null,"drill":{…}/null}` |
 
 Names: `[a-z0-9_]+`, not starting with `_`, max 64 chars. Queries never create databases — a missing database is `404 database_not_found`.
 
@@ -111,6 +111,9 @@ meaning.
 | `deployment.listen` | The address the listener **actually bound**, not the one that was requested: `dg serve --listen 127.0.0.1:0` binds an ephemeral port, and a report of the requested address would be a lie. |
 | `deployment.data_dir` | The directory the gateway keeps its databases in — the path it was started with, so it is the path in the unit file. |
 | `deployment.backup_root` | The backup root the gateway watches, or `null` when none is configured. This is the path, not a claim that anything is backed up; freshness is `GET /v1/backups`. |
+| `deployment.disk` | Free and total space of the filesystem the data directory lives on, with the inode counts: `{total_bytes, free_bytes, used_bytes, used_percent, total_inodes, free_inodes}`, or `null` when the platform cannot say. `free_bytes` is the space an unprivileged writer may still use, not the space free of system reservations. |
+| `deployment.databases_bytes` | The total the database files occupy. The directory also holds the registry and staging, so this is the databases' own size, not the directory's. |
+| `deployment.retention_secs` | How long a deleted name is held before it is purged (86400). |
 | `deployment.databases.<db>.file` | The file that database lives in, absolute. |
 | `deployment.databases.<db>.exists` | Whether that file is there now. A registry row whose file is gone is a fault, and is reported as missing rather than as a database of zero bytes. |
 | `deployment.databases.<db>.size_bytes` | The main file plus its WAL sidecars. |
