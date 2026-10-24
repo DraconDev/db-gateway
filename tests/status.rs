@@ -579,3 +579,154 @@ fn failed_owner_writes_pin_no_phantom_status_rows() {
         );
     }
 }
+
+#[test]
+fn backups_report_the_last_run_the_coverage_the_replica_and_the_drill() {
+    // The four questions an operator asks when they want to trust the
+    // copies: did the last run work, what does the newest set carry,
+    // where is the off-host copy, and has that copy ever been restored.
+    let dir = tempfile::tempdir().unwrap();
+    let owner = init(dir.path());
+    let backup_root = dir.path().join("sets");
+    fs::create_dir_all(&backup_root).unwrap();
+    let server = start(
+        dir.path(),
+        &["--backup-root", backup_root.to_str().unwrap()],
+    );
+    let (status, _) = post(
+        &server.address,
+        "/v1/databases",
+        &owner,
+        &json!({"name": "bdb"}),
+    );
+    assert_eq!(status, 200);
+    craft_set(&backup_root, "20260922T223715Z", &["bdb"], None);
+
+    // The backup job's ledger: one good run, and an earlier failure.
+    fs::write(
+        backup_root.join("attempts.jsonl"),
+        "{\"ts\":\"20260922T210000Z\",\"started_at\":1,\"completed_at\":2,\"outcome\":\"error\",\"set\":null,\"databases\":0,\"step\":\"export\"}\n\
+         {\"ts\":\"20260922T223715Z\",\"started_at\":3,\"completed_at\":4,\"outcome\":\"ok\",\"set\":\"20260922T223715Z\",\"databases\":1,\"step\":\"publish\"}\n",
+    )
+    .unwrap();
+    // What the host knows about the off-host copy.
+    fs::write(
+        backup_root.join("replica.json"),
+        json!({
+            "published_at": 1_700_000_000u64,
+            "target": "s3://dg-sandbox",
+            "bucket": "dg-sandbox",
+            "endpoint": "s3.example.invalid",
+            "region": "gra",
+            "retention": "168h",
+            "snapshot_interval": "24h",
+            "databases": ["bdb"],
+            "registry": true,
+            "sidecar": "active"
+        })
+        .to_string(),
+    )
+    .unwrap();
+    // What the last restore drill proved.
+    fs::write(
+        backup_root.join("restore-drill.json"),
+        json!({
+            "drilled_at": 1_700_000_000u64,
+            "outcome": "ok",
+            "databases": 1,
+            "detail": "restored from the replicas and verified against the live gateway"
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let (status, body) = get(&server.address, "/v1/backups", Some(&owner));
+    assert_eq!(status, 200);
+    // The last run, and the failure that came before it.
+    assert_eq!(body["last_attempt"]["outcome"], json!("ok"));
+    assert_eq!(body["last_attempt"]["step"], json!("publish"));
+    assert_eq!(body["last_attempt"]["databases"], json!(1));
+    assert_eq!(body["last_failure"]["outcome"], json!("error"));
+    assert_eq!(body["last_failure"]["step"], json!("export"));
+    // What the newest set carries.
+    assert_eq!(body["coverage"]["live"], json!(1));
+    assert_eq!(body["coverage"]["in_newest_set"], json!(1));
+    assert_eq!(body["coverage"]["missing"], json!([]));
+    assert_eq!(body["coverage"]["registry"], json!(true));
+    // Where the off-host copy is.
+    assert_eq!(body["replica"]["bucket"], json!("dg-sandbox"));
+    assert_eq!(body["replica"]["endpoint"], json!("s3.example.invalid"));
+    assert_eq!(body["replica"]["region"], json!("gra"));
+    assert_eq!(body["replica"]["retention"], json!("168h"));
+    assert_eq!(body["replica"]["sidecar"], json!("active"));
+    assert_eq!(body["replica"]["registry"], json!(true));
+    assert_eq!(body["replica"]["databases"], json!(["bdb"]));
+    // And whether it has ever been restored.
+    assert_eq!(body["drill"]["outcome"], json!("ok"));
+    assert_eq!(body["drill"]["databases"], json!(1));
+}
+
+#[test]
+fn a_host_that_publishes_nothing_reports_nothing_rather_than_nothing_being_true() {
+    // The absence of a published file is a fact of its own: the host
+    // does not report its replica or its drill. It must not be drawn as
+    // "there is no replica" or, worse, as a hole where a fact should be.
+    let dir = tempfile::tempdir().unwrap();
+    let owner = init(dir.path());
+    let backup_root = dir.path().join("sets");
+    fs::create_dir_all(&backup_root).unwrap();
+    let server = start(
+        dir.path(),
+        &["--backup-root", backup_root.to_str().unwrap()],
+    );
+    let (status, body) = get(&server.address, "/v1/backups", Some(&owner));
+    assert_eq!(status, 200);
+    assert!(
+        body.get("replica").is_none(),
+        "a host that published no replica status still reports one: {body}"
+    );
+    assert!(
+        body.get("drill").is_none(),
+        "a host that published no drill result still reports one: {body}"
+    );
+    assert!(
+        body.get("last_attempt").is_none(),
+        "an attempt was invented where none was recorded: {body}"
+    );
+}
+
+#[test]
+fn status_reports_the_disk_headroom_and_the_settings() {
+    // The room left on the filesystem the data lives on, and the
+    // settings an operator should not have to remember.
+    let dir = tempfile::tempdir().unwrap();
+    let owner = init(dir.path());
+    let server = start(dir.path(), &[]);
+    let (status, _) = post(
+        &server.address,
+        "/v1/databases",
+        &owner,
+        &json!({"name": "ddb"}),
+    );
+    assert_eq!(status, 200);
+    let (status, body) = get(&server.address, "/v1/status", Some(&owner));
+    assert_eq!(status, 200);
+    let disk = &body["deployment"]["disk"];
+    assert!(
+        disk["total_bytes"].as_u64().unwrap_or(0) > 0,
+        "the gateway does not report the size of the filesystem: {body}"
+    );
+    assert!(
+        disk["free_bytes"].as_u64().unwrap_or(0) > 0,
+        "the gateway does not report the free space: {body}"
+    );
+    assert!(
+        body["deployment"]["databases_bytes"].as_u64().unwrap_or(0) > 0,
+        "the gateway does not report the size of its databases: {body}"
+    );
+    assert_eq!(
+        body["deployment"]["retention_secs"],
+        json!(24 * 3600),
+        "the gateway does not report how long a deleted name is held: {body}"
+    );
+}
