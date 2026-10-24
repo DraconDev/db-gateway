@@ -819,3 +819,280 @@ fn the_restore_drill_publishes_whether_the_copies_restored() {
         "the published result has no timestamp: {record}"
     );
 }
+
+/// A litestream stub that answers the two commands the restore-point
+/// script makes: `ltx` (what the replica holds) and `restore` (write a
+/// copy out).
+fn fake_litestream(dir: &Path) -> std::path::PathBuf {
+    let path = dir.join("litestream");
+    fs::write(
+        &path,
+        "#!/bin/sh\n\
+         case \"$1\" in\n\
+         ltx)\n\
+         echo 'level  min_txid          max_txid          size  created'\n\
+         echo '9      0000000000000001  0000000000000001  893   2026-09-15T14:16:08Z'\n\
+         exit 0;;\n\
+         restore)\n\
+         out=\"\"\n\
+         while [ $# -gt 0 ]; do\n\
+         case \"$1\" in\n\
+         -o) out=\"$2\"; shift 2;;\n\
+         *) shift;;\n\
+         esac\n\
+         done\n\
+         [ -n \"$out\" ] || exit 2\n\
+         python3 -c \"import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('create table t(id integer, name text)'); c.execute(\\\"insert into t values (1,'row-1')\\\"); c.commit(); c.close()\" \"$out\"\n\
+         exit 0;;\n\
+         esac\n\
+         exit 1\n",
+    )
+    .unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+/// Run the restore-point script against the stubs.
+fn run_restore_point(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> std::process::Output {
+    let mut command = Command::new("bash");
+    command.arg("scripts/restore-point.sh");
+    command.env_clear();
+    command.env("PATH", std::env::var("PATH").unwrap_or_default());
+    command.env("HOME", dir);
+    command.args(args);
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    command.output().expect("run restore-point.sh")
+}
+
+/// The litestream config the script reads the database list from.
+fn litestream_config(dir: &Path, data: &Path, names: &[&str]) -> std::path::PathBuf {
+    let config = dir.join("litestream.yml");
+    let mut text = String::from("dbs:\n");
+    for name in names {
+        text.push_str(&format!("  - path: {}/{name}.sqlite\n", data.display()));
+        text.push_str(&format!(
+            "    replicas:\n      - url: s3://dg-sandbox/{name}\n        access-key-id: ${{LITESTREAM_S3_ACCESS_KEY_ID}}\n        secret-access-key: ${{LITESTREAM_S3_SECRET_ACCESS_KEY}}\n"
+        ));
+    }
+    fs::write(&config, text).unwrap();
+    config
+}
+
+#[test]
+fn the_restore_point_script_publishes_the_window_the_replica_offers() {
+    // "There is a backup" is a claim; "you can go back to any moment
+    // between these two" is the useful one. Only the host knows the
+    // window, so the host publishes it and the gateway reports it.
+    let dir = tempdir();
+    let data = dir.path().join("data");
+    let backups = dir.path().join("backups");
+    let restores = dir.path().join("restores");
+    fs::create_dir_all(&data).unwrap();
+    fs::create_dir_all(&backups).unwrap();
+    fs::write(data.join("alpha.sqlite"), b"sqlite").unwrap();
+    let litestream = fake_litestream(dir.path());
+    let config = litestream_config(dir.path(), &data, &["alpha"]);
+
+    let output = run_restore_point(
+        dir.path(),
+        &["--list"],
+        &[
+            ("LITESTREAM_BIN", litestream.to_str().unwrap()),
+            ("LITESTREAM_CONFIG", config.to_str().unwrap()),
+            (
+                "LITESTREAM_ENV_FILE",
+                dir.path().join("absent.env").to_str().unwrap(),
+            ),
+            ("DG_DATA_DIR", data.to_str().unwrap()),
+            ("DG_BACKUP_ROOT", backups.to_str().unwrap()),
+            ("RESTORE_ROOT", restores.to_str().unwrap()),
+            ("DG_LITESTREAM_STATUS_CMD", "echo active"),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "the script failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let published: Value =
+        serde_json::from_str(&fs::read_to_string(backups.join("restore-points.json")).unwrap())
+            .unwrap();
+    assert_eq!(published["window_start"], json!("2026-09-15T14:16:08Z"));
+    assert_eq!(published["window_end"], json!("2026-09-15T14:16:08Z"));
+    assert_eq!(published["sidecar"], json!("active"));
+    assert_eq!(published["databases"]["alpha"]["files"], json!(1));
+    assert_eq!(published["databases"]["alpha"]["bytes"], json!(893));
+}
+
+#[test]
+fn the_restore_point_script_publishes_what_a_restore_produced() {
+    // A window nobody has ever exercised is a promise. A restore that
+    // was taken, verified and published is evidence.
+    let dir = tempdir();
+    let data = dir.path().join("data");
+    let backups = dir.path().join("backups");
+    let restores = dir.path().join("restores");
+    fs::create_dir_all(&data).unwrap();
+    fs::create_dir_all(&backups).unwrap();
+    fs::write(data.join("alpha.sqlite"), b"sqlite").unwrap();
+    let litestream = fake_litestream(dir.path());
+    let config = litestream_config(dir.path(), &data, &["alpha"]);
+
+    let output = run_restore_point(
+        dir.path(),
+        &[
+            "--apply",
+            "--to",
+            "2026-09-20T00:00:00Z",
+            "--database",
+            "alpha",
+        ],
+        &[
+            ("LITESTREAM_BIN", litestream.to_str().unwrap()),
+            ("LITESTREAM_CONFIG", config.to_str().unwrap()),
+            (
+                "LITESTREAM_ENV_FILE",
+                dir.path().join("absent.env").to_str().unwrap(),
+            ),
+            ("DG_DATA_DIR", data.to_str().unwrap()),
+            ("DG_BACKUP_ROOT", backups.to_str().unwrap()),
+            ("RESTORE_ROOT", restores.to_str().unwrap()),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "the script failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let published: Value =
+        serde_json::from_str(&fs::read_to_string(backups.join("restore-results.json")).unwrap())
+            .unwrap();
+    assert_eq!(published["outcome"], json!("ok"));
+    assert_eq!(published["database"], json!("alpha"));
+    assert_eq!(published["timestamp"], json!("2026-09-20T00:00:00Z"));
+    assert_eq!(published["integrity"], json!("ok"));
+    assert_eq!(published["tables"], json!(1));
+    assert_eq!(published["rows"], json!(1));
+    // The restored copy exists, and it is not over a live database.
+    let path = published["path"].as_str().unwrap();
+    assert!(
+        Path::new(path).is_file(),
+        "the restored copy is not where the result says it is: {path}"
+    );
+    assert!(
+        !path.starts_with(data.to_str().unwrap()),
+        "a restore wrote over the live data directory: {path}"
+    );
+}
+
+#[test]
+fn the_published_restore_facts_never_carry_a_credential() {
+    // The bucket's credentials live in one file on the host and are
+    // never published: what is published names a place, it does not open
+    // one.
+    let dir = tempdir();
+    let data = dir.path().join("data");
+    let backups = dir.path().join("backups");
+    let restores = dir.path().join("restores");
+    fs::create_dir_all(&data).unwrap();
+    fs::create_dir_all(&backups).unwrap();
+    fs::write(data.join("alpha.sqlite"), b"sqlite").unwrap();
+    let litestream = fake_litestream(dir.path());
+    let config = litestream_config(dir.path(), &data, &["alpha"]);
+    let env_file = dir.path().join("litestream.env");
+    fs::write(
+        &env_file,
+        "LITESTREAM_S3_ACCESS_KEY_ID=[DRACON_SECRET:REDACTED]KEY\n\
+         LITESTREAM_S3_SECRET_ACCESS_KEY=super-secret-value-that-must-never-be-published\n",
+    )
+    .unwrap();
+
+    let output = run_restore_point(
+        dir.path(),
+        &["--list"],
+        &[
+            ("LITESTREAM_BIN", litestream.to_str().unwrap()),
+            ("LITESTREAM_CONFIG", config.to_str().unwrap()),
+            ("LITESTREAM_ENV_FILE", env_file.to_str().unwrap()),
+            ("DG_DATA_DIR", data.to_str().unwrap()),
+            ("DG_BACKUP_ROOT", backups.to_str().unwrap()),
+            ("RESTORE_ROOT", restores.to_str().unwrap()),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "the script failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let published = fs::read_to_string(backups.join("restore-points.json")).unwrap();
+    assert!(
+        !published.contains("[DRACON_SECRET:REDACTED]KEY"),
+        "the published window carries the access key: {published}"
+    );
+    assert!(
+        !published.contains("super-secret-value"),
+        "the published window carries the secret key: {published}"
+    );
+}
+
+#[test]
+fn the_restore_point_script_refuses_a_moment_it_cannot_restore() {
+    // A timestamp that is not a moment is refused before the bucket is
+    // touched, and a name that is not a database name is refused before
+    // it is used to build a path.
+    let dir = tempdir();
+    let data = dir.path().join("data");
+    let backups = dir.path().join("backups");
+    let restores = dir.path().join("restores");
+    fs::create_dir_all(&data).unwrap();
+    fs::create_dir_all(&backups).unwrap();
+    fs::write(data.join("alpha.sqlite"), b"sqlite").unwrap();
+    let litestream = fake_litestream(dir.path());
+    let config = litestream_config(dir.path(), &data, &["alpha"]);
+    let env = [
+        ("LITESTREAM_BIN", litestream.to_str().unwrap()),
+        ("LITESTREAM_CONFIG", config.to_str().unwrap()),
+        (
+            "LITESTREAM_ENV_FILE",
+            dir.path().join("absent.env").to_str().unwrap(),
+        ),
+        ("DG_DATA_DIR", data.to_str().unwrap()),
+        ("DG_BACKUP_ROOT", backups.to_str().unwrap()),
+        ("RESTORE_ROOT", restores.to_str().unwrap()),
+    ];
+
+    let bad_moment = run_restore_point(
+        dir.path(),
+        &["--apply", "--to", "yesterday", "--database", "alpha"],
+        &env,
+    );
+    assert!(
+        !bad_moment.status.success(),
+        "a timestamp that is not a moment was accepted"
+    );
+
+    let bad_name = run_restore_point(
+        dir.path(),
+        &[
+            "--apply",
+            "--to",
+            "2026-09-20T00:00:00Z",
+            "--database",
+            "../../etc/passwd",
+        ],
+        &env,
+    );
+    assert!(
+        !bad_name.status.success(),
+        "a path in a database name was accepted"
+    );
+    // Nothing was published, because nothing was attempted.
+    assert!(
+        !backups.join("restore-results.json").exists(),
+        "a refused restore published a result anyway"
+    );
+}
