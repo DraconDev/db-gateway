@@ -365,6 +365,7 @@ async fn backups(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<
         });
         let replica = health.replica.as_ref().map(|replica| {
             json!({
+                "target": replica.target,
                 "bucket": replica.bucket,
                 "endpoint": replica.endpoint,
                 "region": replica.region,

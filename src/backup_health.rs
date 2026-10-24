@@ -127,8 +127,11 @@ pub struct Coverage {
 pub struct ReplicaFacts {
     /// When the host published this.
     pub published_at: u64,
-    /// The bucket the copies are in.
-    pub bucket: String,
+    /// Where the copy is: a bucket name, a URL template, a file path.
+    pub target: String,
+    /// The bucket, when the replica is an object store.
+    #[serde(default)]
+    pub bucket: Option<String>,
     /// The endpoint the bucket is reached through.
     #[serde(default)]
     pub endpoint: Option<String>,
