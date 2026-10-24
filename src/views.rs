@@ -204,6 +204,41 @@ pub fn deployment(status: &Value) -> Section {
         None => "none configured".to_string(),
     };
     section.field("backup root", Cell::styled(backup_root, Style::Cyan));
+    // The room left on the filesystem the data lives on. The
+    // observability contract names this as the disk-pressure signal: low
+    // disk blocks safe writes, imports and staging.
+    section.field(
+        "disk free",
+        match deployment["disk"].as_object() {
+            Some(disk) => {
+                let free = disk["free_bytes"].as_u64().unwrap_or(0);
+                let total = disk["total_bytes"].as_u64().unwrap_or(0);
+                let percent = disk["used_percent"].as_u64().unwrap_or(0);
+                Cell::text(format!(
+                    "{} of {} ({percent}% used)",
+                    human_bytes(free),
+                    human_bytes(total)
+                ))
+            }
+            None => Cell::text("unknown"),
+        },
+    );
+    // How much the database files themselves occupy.
+    section.field(
+        "databases",
+        match deployment["databases_bytes"].as_u64() {
+            Some(bytes) => Cell::text(human_bytes(bytes)),
+            None => Cell::text("unknown"),
+        },
+    );
+    // How long a deleted name is held before it is purged.
+    section.field(
+        "retention",
+        match deployment["retention_secs"].as_i64() {
+            Some(seconds) if seconds >= 0 => Cell::text(human_duration(seconds as u64)),
+            _ => Cell::text("unknown"),
+        },
+    );
     section
 }
 
@@ -423,7 +458,268 @@ pub fn backups(backups: &Value) -> Vec<Section> {
             sections.push(freshness);
         }
     }
+
+    sections.extend(copy_sections(backups));
     sections
+}
+
+/// The sections that answer "are my copies any good, and where are they".
+///
+/// Four questions, each with its own section, because they are four
+/// different claims and a section that merged them would hide which one
+/// was missing:
+///
+/// - the last run: when a backup last happened and whether it worked,
+/// - coverage: what the newest set actually carries,
+/// - the replica: where the off-host copy is,
+/// - the drill: whether that copy was ever restored and verified.
+///
+/// A fact the host does not report is named as unreported. A missing
+/// section would be read as "there is nothing to say", which is a
+/// different and much worse claim.
+fn copy_sections(backups: &Value) -> Vec<Section> {
+    let mut sections = Vec::new();
+
+    // The last attempt, and the last failure when it is not the same
+    // record: a failure that has been followed by a success is history,
+    // and history is worth seeing, but it must not be drawn twice.
+    if let Some(attempt) = backups["last_attempt"].as_object() {
+        let mut section = Section::new("last run");
+        let outcome = attempt["outcome"].as_str().unwrap_or("unknown");
+        section.field(
+            "outcome",
+            Cell::styled(outcome.to_string(), attempt_outcome_style(outcome)),
+        );
+        section.field(
+            "finished",
+            Cell::text(
+                attempt["completed_at"]
+                    .as_u64()
+                    .map(human_epoch_ago)
+                    .unwrap_or_else(|| "unknown".to_string()),
+            ),
+        );
+        section.field(
+            "set",
+            Cell::text(
+                attempt["set"]
+                    .as_str()
+                    .map(human_set_stamp)
+                    .unwrap_or_else(|| "none published".to_string()),
+            ),
+        );
+        section.field(
+            "databases",
+            Cell::number(attempt["databases"].as_u64().unwrap_or(0)),
+        );
+        section.field(
+            "step",
+            Cell::text(attempt["step"].as_str().unwrap_or("unknown")),
+        );
+        sections.push(section);
+    }
+    if let Some(failure) = backups["last_failure"].as_object()
+        && backups["last_attempt"]["ts"] != failure["ts"]
+    {
+        let mut section = Section::new("last failure");
+        section.field(
+            "when",
+            Cell::text(
+                failure["completed_at"]
+                    .as_u64()
+                    .map(human_epoch_ago)
+                    .unwrap_or_else(|| "unknown".to_string()),
+            ),
+        );
+        section.field(
+            "step",
+            Cell::text(failure["step"].as_str().unwrap_or("unknown")),
+        );
+        sections.push(section);
+    }
+
+    // What the newest set carries. The registry matters as much as the
+    // data: without it the copy holds files that no key can open.
+    match backups["coverage"].as_object() {
+        Some(coverage) => {
+            let mut section = Section::new("coverage");
+            let live = coverage["live"].as_u64().unwrap_or(0);
+            let carried = coverage["in_newest_set"].as_u64().unwrap_or(0);
+            section.field(
+                "newest set",
+                Cell::text(format!("{carried} of {live} live databases")),
+            );
+            let missing: Vec<String> = coverage["missing"]
+                .as_array()
+                .map(|names| {
+                    names
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+            section.field(
+                "missing",
+                Cell::styled(
+                    if missing.is_empty() {
+                        "none".to_string()
+                    } else {
+                        missing.join(", ")
+                    },
+                    if missing.is_empty() {
+                        Style::Green
+                    } else {
+                        Style::Yellow
+                    },
+                ),
+            );
+            let registry = coverage["registry"].as_bool() == Some(true);
+            section.field(
+                "registry",
+                Cell::styled(
+                    if registry { "yes" } else { "no" }.to_string(),
+                    if registry { Style::Green } else { Style::Yellow },
+                ),
+            );
+            sections.push(section);
+        }
+        None => sections.push(unreported("coverage", "the gateway reports no coverage")),
+    }
+
+    // Where the off-host copy is. The gateway does not know this by
+    // itself; the host publishes it, and the answer says so when there
+    // is none.
+    match backups["replica"].as_object() {
+        Some(replica) => {
+            let mut section = Section::new("replica");
+            section.field(
+                "bucket",
+                Cell::styled(
+                    replica["bucket"].as_str().unwrap_or("unknown").to_string(),
+                    Style::Cyan,
+                ),
+            );
+            for (key, label) in [("endpoint", "endpoint"), ("region", "region")] {
+                section.field(
+                    label,
+                    Cell::text(replica[key].as_str().unwrap_or("unknown")),
+                );
+            }
+            section.field(
+                "retention",
+                Cell::text(replica["retention"].as_str().unwrap_or("unknown")),
+            );
+            section.field(
+                "snapshot",
+                Cell::text(
+                    replica["snapshot_interval"]
+                        .as_str()
+                        .unwrap_or("unknown"),
+                ),
+            );
+            let databases: Vec<String> = replica["databases"]
+                .as_array()
+                .map(|names| {
+                    names
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+            section.field(
+                "databases",
+                Cell::text(if databases.is_empty() {
+                    "none".to_string()
+                } else {
+                    databases.join(", ")
+                }),
+            );
+            let registry = replica["registry"].as_bool() == Some(true);
+            section.field(
+                "registry",
+                Cell::styled(
+                    if registry { "yes" } else { "no" }.to_string(),
+                    if registry { Style::Green } else { Style::Yellow },
+                ),
+            );
+            section.field(
+                "published",
+                Cell::text(
+                    replica["published_at"]
+                        .as_u64()
+                        .map(human_epoch_ago)
+                        .unwrap_or_else(|| "unknown".to_string()),
+                ),
+            );
+            sections.push(section);
+        }
+        None => sections.push(unreported(
+            "replica",
+            "this host publishes no off-host copy status",
+        )),
+    }
+
+    // Whether the off-host copy has ever been restored and verified. A
+    // backup that was never restored is an assumption.
+    match backups["drill"].as_object() {
+        Some(drill) => {
+            let mut section = Section::new("restore drill");
+            let outcome = drill["outcome"].as_str().unwrap_or("unknown");
+            section.field(
+                "outcome",
+                Cell::styled(outcome.to_string(), attempt_outcome_style(outcome)),
+            );
+            section.field(
+                "ran",
+                Cell::text(
+                    drill["drilled_at"]
+                        .as_u64()
+                        .map(human_epoch_ago)
+                        .unwrap_or_else(|| "unknown".to_string()),
+                ),
+            );
+            section.field(
+                "databases",
+                Cell::number(drill["databases"].as_u64().unwrap_or(0)),
+            );
+            if let Some(detail) = drill["detail"].as_str() {
+                section.field("detail", Cell::text(detail));
+            }
+            sections.push(section);
+        }
+        None => sections.push(unreported(
+            "restore drill",
+            "this host publishes no restore drill result",
+        )),
+    }
+
+    sections
+}
+
+/// A section that says a fact is not reported.
+///
+/// The point is that a missing section reads as "there is nothing to
+/// say", which is a different claim from "nobody said". A gateway that
+/// does not report its placement, its replica or its drill is telling
+/// the operator exactly that, in words.
+fn unreported(title: &str, why: &str) -> Section {
+    let mut section = Section::new(title);
+    section.field("reported", Cell::text(why));
+    section
+}
+
+/// The style for a run's outcome.
+///
+/// The word is always spelled out, so the colour is a second rendering of
+/// the same fact rather than the only rendering of it.
+pub fn attempt_outcome_style(outcome: &str) -> Style {
+    match outcome {
+        "ok" => Style::Green,
+        "failed" | "error" => Style::Red,
+        _ => Style::Yellow,
+    }
 }
 
 /// The style for a backup freshness state.
