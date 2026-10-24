@@ -639,6 +639,44 @@ fn backups_report_the_last_run_the_coverage_the_replica_and_the_drill() {
         .to_string(),
     )
     .unwrap();
+    // The moments the off-host copy can be taken back to, and the last
+    // time one was.
+    fs::write(
+        backup_root.join("restore-points.json"),
+        json!({
+            "published_at": 1_700_000_100u64,
+            "window_start": "2026-09-15T14:16:08Z",
+            "window_end": "2026-09-22T09:30:41Z",
+            "sidecar": "active",
+            "databases": {
+                "bdb": {
+                    "oldest": "2026-09-15T14:16:08Z",
+                    "newest": "2026-09-22T09:30:41Z",
+                    "files": 4,
+                    "bytes": 2048
+                }
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    fs::write(
+        backup_root.join("restore-results.json"),
+        json!({
+            "restored_at": 1_700_000_200u64,
+            "database": "bdb",
+            "timestamp": "2026-09-20T00:00:00Z",
+            "outcome": "ok",
+            "detail": "restored and verified",
+            "tables": 2,
+            "rows": 40,
+            "size_bytes": 40960,
+            "integrity": "ok",
+            "path": "/var/lib/dg-restores/20260920000000/bdb.sqlite"
+        })
+        .to_string(),
+    )
+    .unwrap();
 
     let (status, body) = get(&server.address, "/v1/backups", Some(&owner));
     assert_eq!(status, 200);
@@ -664,6 +702,25 @@ fn backups_report_the_last_run_the_coverage_the_replica_and_the_drill() {
     // And whether it has ever been restored.
     assert_eq!(body["drill"]["outcome"], json!("ok"));
     assert_eq!(body["drill"]["databases"], json!(1));
+    // And which moments it can be taken back to, and whether that has
+    // been exercised.
+    assert_eq!(
+        body["restore_points"]["window_start"],
+        json!("2026-09-15T14:16:08Z")
+    );
+    assert_eq!(
+        body["restore_points"]["window_end"],
+        json!("2026-09-22T09:30:41Z")
+    );
+    assert_eq!(body["restore_points"]["sidecar"], json!("active"));
+    assert_eq!(
+        body["restore_points"]["databases"]["bdb"]["files"],
+        json!(4)
+    );
+    assert_eq!(body["last_restore"]["outcome"], json!("ok"));
+    assert_eq!(body["last_restore"]["database"], json!("bdb"));
+    assert_eq!(body["last_restore"]["rows"], json!(40));
+    assert_eq!(body["last_restore"]["integrity"], json!("ok"));
 }
 
 #[test]
@@ -690,6 +747,14 @@ fn a_host_that_publishes_nothing_reports_nothing_rather_than_nothing_being_true(
     assert!(
         body["drill"].is_null(),
         "a host that published no drill result still reports one: {body}"
+    );
+    assert!(
+        body["restore_points"].is_null(),
+        "a host that published no restore points still reports them: {body}"
+    );
+    assert!(
+        body["last_restore"].is_null(),
+        "a host that published no restore result still reports one: {body}"
     );
     assert!(
         body["last_attempt"].is_null(),
