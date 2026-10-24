@@ -551,16 +551,16 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &App) {
             tables.push((section.title().to_string(), found.clone()));
         }
     }
-    // The fields take exactly the lines they need (plus the border): a fixed
-    // four-line allowance cut the freshness fields off the moment a gateway
-    // reported more than the root. Each table then takes its own rows, so a
-    // box hugs its content instead of padding it with blank lines. When they
-    // do not all fit, each table gets a share of the pane and scrolls.
-    let fields_height = lines.len() as u16 + 2;
+    // The fields are the tab's context and the tables are its answer, so
+    // the tables get their rows first and the fields take what is left.
+    // The fields are capped so that a tall list of them can never starve
+    // the freshness table, which is the reason this tab exists.
     let needed: u16 = tables
         .iter()
         .map(|(_, table)| table.rows().len() as u16 + 3)
         .sum();
+    let tables_minimum: u16 = tables.len() as u16 * 3;
+    let fields_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(tables_minimum));
     let mut constraints = vec![Constraint::Length(fields_height)];
     if fields_height + needed <= area.height {
         constraints.extend(
@@ -569,12 +569,25 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &App) {
                 .map(|(_, table)| Constraint::Length(table.rows().len() as u16 + 3)),
         );
     } else {
-        constraints.extend(tables.iter().map(|_| Constraint::Min(1)));
+        constraints.extend(tables.iter().map(|_| Constraint::Min(3)));
     }
     let rows = Layout::vertical(constraints).split(area);
+    // Scrolling moves whatever is cut off: the fields when they are
+    // longer than the pane, the tables when they are. A section below the
+    // fold is still reachable, and the tables still start at their first
+    // row.
+    let offset = app.scroll.backups as usize;
+    let lines: Vec<Line<'static>> = if fields_height < lines.len() as u16 + 2 {
+        lines.into_iter().skip(offset).collect()
+    } else {
+        lines
+    };
     frame.render_widget(Paragraph::new(Text::from(lines)).block(block), rows[0]);
     for (index, (title, table)) in tables.iter().enumerate() {
-        let mut state = TableState::default().with_offset(app.scroll.backups as usize);
+        let mut state = TableState::default();
+        if fields_height >= lines.len() as u16 + 2 {
+            state = TableState::default().with_offset(offset);
+        }
         framed_table(
             frame,
             rows[index + 1],
