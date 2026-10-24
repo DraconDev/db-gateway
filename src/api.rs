@@ -19,7 +19,7 @@ use std::time::UNIX_EPOCH;
 use base64::Engine as _;
 const BASE64_STANDARD: base64::engine::GeneralPurpose = base64::engine::general_purpose::STANDARD;
 /// Owner tombstone retention before physical file purge (24h).
-const RETENTION_SECS: i64 = 24 * 3600;
+pub const RETENTION_SECS: i64 = 24 * 3600;
 /// Bounded inline export/import payload (over HTTP).
 const MAX_EXPORT: usize = 8 * 1024 * 1024;
 /// Chunked-transfer envelope: one 1 MiB chunk base64-encoded plus JSON.
@@ -289,6 +289,9 @@ async fn status(
                 // also holds the registry and staging, so this is the
                 // databases' own size, not the directory's.
                 "databases_bytes": databases_bytes,
+                // How long a deleted name is held before it is purged:
+                // a setting the operator should not have to remember.
+                "retention_secs": RETENTION_SECS,
             },
         })))
     })
