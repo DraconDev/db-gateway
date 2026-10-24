@@ -5,13 +5,14 @@ use crate::{
 };
 use axum::{
     Json, Router,
-    extract::{DefaultBodyLimit, Path, Query, State, rejection::JsonRejection},
+    extract::{DefaultBodyLimit, Extension, Path, Query, State, rejection::JsonRejection},
     http::HeaderMap,
     routing::{delete, get, post},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
