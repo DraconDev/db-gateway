@@ -81,3 +81,47 @@ test('malformed chunked export base64 is a GatewayError', async () => {
     });
   });
 });
+
+test('a status answer with a placement is read, and a malformed one is refused', async () => {
+  const base = {
+    version: '0.2.0',
+    uptime_secs: 10,
+    admission: { acquire_timeout_ms: 500, read_permits: 8, write_permits: 4 },
+    requests: { total: 0, capacity_exceeded: 0, query_deadline_exceeded: 0, internal_error: 0 },
+  };
+  const withBody = body => async (_request, response) => {
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify(body));
+  };
+
+  // The placement is optional: a gateway that does not report it still
+  // validates, because the question is then unanswerable, not answered
+  // with blanks.
+  await withServer(withBody(base), async gateway => {
+    const status = await gateway.status();
+    assert.equal(status.deployment, undefined);
+  });
+
+  await withServer(withBody({
+    ...base,
+    deployment: {
+      host: 'micro2',
+      listen: '127.0.0.1:7432',
+      data_dir: '/var/lib/dg',
+      backup_root: '/var/lib/dg-backups',
+      databases: {
+        alpha: { file: '/var/lib/dg/alpha.sqlite', exists: true, size_bytes: 4096, tombstoned: false },
+      },
+    },
+  }), async gateway => {
+    const status = await gateway.status();
+    assert.equal(status.deployment.host, 'micro2');
+    assert.equal(status.deployment.data_dir, '/var/lib/dg');
+    assert.equal(status.deployment.databases.alpha.exists, true);
+  });
+
+  // A placement that does not make sense is refused, not passed on.
+  await withServer(withBody({ ...base, deployment: { listen: 7432 } }), async gateway => {
+    await assert.rejects(gateway.status(), /Malformed status response/);
+  });
+});
