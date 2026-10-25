@@ -731,17 +731,20 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
         Some(drill) => {
             let mut section = Section::new("restore drill");
             let outcome = drill["outcome"].as_str().unwrap_or("unknown");
+            // The outcome and when it was reached are one thing said
+            // once: "ok, two hours ago" reads better than two lines that
+            // say the same thing in two rows.
             section.field(
                 "outcome",
-                Cell::styled(outcome.to_string(), attempt_outcome_style(outcome)),
-            );
-            section.field(
-                "ran",
-                Cell::text(
-                    drill["drilled_at"]
-                        .as_u64()
-                        .map(human_epoch_ago)
-                        .unwrap_or_else(|| "unknown".to_string()),
+                Cell::styled(
+                    format!(
+                        "{outcome} (ran {})",
+                        drill["drilled_at"]
+                            .as_u64()
+                            .map(human_epoch_ago)
+                            .unwrap_or_else(|| "unknown".to_string())
+                    ),
+                    attempt_outcome_style(outcome),
                 ),
             );
             section.field(
