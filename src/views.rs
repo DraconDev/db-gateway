@@ -399,6 +399,20 @@ pub fn backups(backups: &Value) -> Vec<Section> {
                 .unwrap_or_else(|| "unknown".to_string()),
         ),
     );
+    // The owner-approved snapshot cadence: how long a committed change may
+    // stay unrepresented by a verified copy before it is a finding. It is
+    // shown whether or not one is set, because "not approved" is itself the
+    // answer to "why is my digest red" -- and with no cadence every
+    // unrepresented change is reported, which is the strict reading.
+    root.field(
+        "snapshot cadence",
+        Cell::text(
+            backups["cadence_secs"]
+                .as_u64()
+                .map(human_duration)
+                .unwrap_or_else(|| "not approved".to_string()),
+        ),
+    );
     let sets = backups["sets"].as_array().cloned().unwrap_or_default();
     root.field("sets", Cell::number(sets.len()));
     // How many of the published sets are carrying databases that have
