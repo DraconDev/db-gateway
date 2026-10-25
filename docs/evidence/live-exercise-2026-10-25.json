@@ -1,18 +1,12 @@
 {
   "server": "http://127.0.0.1:7432",
-  "seconds": 5.7,
+  "seconds": 4.1,
   "reuse": true,
   "checks": 42,
-  "passed": 37,
-  "failed": 5,
+  "passed": 42,
+  "failed": 0,
   "skipped": 7,
-  "failures": [
-    "branch create",
-    "branch show",
-    "write into the branch",
-    "diff finds the divergence",
-    "branch delete"
-  ],
+  "failures": [],
   "skips": [
     "issue warehouse",
     "issue checkout",
@@ -142,8 +136,8 @@
     },
     {
       "name": "branch create",
-      "ok": false,
-      "detail": "{\"timestamp\":\"2026-10-25T13:59:30.708812Z\",\"level\":\"ERROR\",\"fields\":{\"message\":\"command failed\",\"code\":\"api_error\",\"detail\":\"api_error: API request failed; see "
+      "ok": true,
+      "detail": ""
     },
     {
       "name": "branch list",
@@ -152,23 +146,23 @@
     },
     {
       "name": "branch show",
-      "ok": false,
-      "detail": "{\"timestamp\":\"2026-10-25T13:59:30.850338Z\",\"level\":\"ERROR\",\"fields\":{\"message\":\"command failed\",\"code\":\"api_error\",\"detail\":\"api_error: API request failed; see "
+      "ok": true,
+      "detail": ""
     },
     {
       "name": "write into the branch",
-      "ok": false,
-      "detail": "{\"timestamp\":\"2026-10-25T13:59:30.945122Z\",\"level\":\"ERROR\",\"fields\":{\"message\":\"command failed\",\"code\":\"api_error\",\"detail\":\"api_error: API request failed; see "
+      "ok": true,
+      "detail": ""
     },
     {
       "name": "diff finds the divergence",
-      "ok": false,
-      "detail": "{\"error\":{\"code\":\"database_not_found\",\"message\":\"database not found\"},\"status\":404}"
+      "ok": true,
+      "detail": "{\"compared_rows\":311,\"identical\":false,\"left\":\"orders\",\"right\":\"branch_probe_1792936872\",\"schema\":{\"changed\":[],\"identical\":true,\"only_left\":[],\"only_right\":[]}"
     },
     {
       "name": "branch delete",
-      "ok": false,
-      "detail": "{\"timestamp\":\"2026-10-25T13:59:31.073264Z\",\"level\":\"ERROR\",\"fields\":{\"message\":\"command failed\",\"code\":\"api_error\",\"detail\":\"api_error: API request failed; see "
+      "ok": true,
+      "detail": ""
     },
     {
       "name": "mcp initialize",
@@ -188,7 +182,7 @@
     {
       "name": "mcp dg_status",
       "ok": true,
-      "detail": "{\"id\": 10, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"admission\\\":{\\\"acquire_timeout_ms\\\":500,\\\"read_permits\\\":8,\\\"write_permits\\\":4},\\\"database_counts\\\":{\\\"live\\\":7,\\\"tombstoned\\\":27},\\\"da"
+      "detail": "{\"id\": 10, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"admission\\\":{\\\"acquire_timeout_ms\\\":500,\\\"read_permits\\\":8,\\\"write_permits\\\":4},\\\"database_counts\\\":{\\\"live\\\":7,\\\"tombstoned\\\":28},\\\"da"
     },
     {
       "name": "mcp dg_list",
@@ -203,7 +197,7 @@
     {
       "name": "mcp dg_inspect",
       "ok": true,
-      "detail": "{\"id\": 13, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"activity\\\":{\\\"last_write\\\":1792936768,\\\"queue_timeouts\\\":0,\\\"queue_wait_max_us\\\":2,\\\"queue_wait_ms\\\":0,\\\"queue_wait_p95_us\\\":1,\\\"queue_"
+      "detail": "{\"id\": 13, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"activity\\\":{\\\"last_write\\\":1792936871,\\\"queue_timeouts\\\":0,\\\"queue_wait_max_us\\\":2,\\\"queue_wait_ms\\\":0,\\\"queue_wait_p95_us\\\":1,\\\"queue_"
     },
     {
       "name": "mcp dg_backups",
