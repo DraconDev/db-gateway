@@ -11,6 +11,7 @@ pub async fn serve(
     listen: SocketAddr,
     data_dir: PathBuf,
     backup_root: Option<PathBuf>,
+    backup_cadence_secs: Option<u64>,
     backup_digest_secs: u64,
     backup_failure_poll_secs: u64,
     backup_notify_webhook: Option<String>,
@@ -76,7 +77,7 @@ pub async fn serve(
             "backup-health notification delivery enabled"
         );
     }
-    dg::serve(listen, data_dir, backup_root, notify, !detach_safe).await
+    dg::serve(listen, data_dir, backup_root, backup_cadence_secs, notify, !detach_safe).await
 }
 
 pub async fn init(data_dir: PathBuf, json: bool) -> Result<(), dg::ServerError> {
