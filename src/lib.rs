@@ -212,6 +212,7 @@ pub async fn serve(
     listen: SocketAddr,
     data_dir: std::path::PathBuf,
     backup_root: Option<std::path::PathBuf>,
+    backup_cadence_secs: Option<u64>,
     backup_notify: BackupNotify,
     die_with_launcher: bool,
 ) -> Result<(), ServerError> {
@@ -238,13 +239,18 @@ pub async fn serve(
     #[cfg(not(target_os = "linux"))]
     let _ = die_with_launcher;
     let store = tokio::task::spawn_blocking(move || {
-        store::Store::open(&data_dir).map(|s| match backup_root {
-            // Flag present: explicit root (aside the convention default).
-            Some(root) => s.with_backup_root(Some(root)),
-            // Flag absent: `<data-dir>/../dg-backups` convention, unknown
-            // when the directory is missing.
-            None => s,
-        })
+        store::Store::open(&data_dir)
+            .map(|s| match backup_root {
+                // Flag present: explicit root (aside the convention default).
+                Some(root) => s.with_backup_root(Some(root)),
+                // Flag absent: `<data-dir>/../dg-backups` convention, unknown
+                // when the directory is missing.
+                None => s,
+            })
+            // The owner-approved snapshot cadence travels with the store, so
+            // the endpoint, the digest and the sink all judge the same
+            // change by the same number.
+            .map(|s| s.with_backup_cadence(backup_cadence_secs))
     })
     .await
     .map_err(|_| ServerError::Application(error::Error::internal()))?
