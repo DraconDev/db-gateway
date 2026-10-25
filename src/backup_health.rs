@@ -312,7 +312,17 @@ pub struct BackupHealth {
     pub backup_root: Option<PathBuf>,
     pub stale_after_secs: u64,
     pub generated_at: u64,
+    /// Per-database freshness, for the LIVE databases.
+    ///
+    /// A database that has been deleted is not in here: it is not stale,
+    /// it is gone. The count of those the published sets still carry is
+    /// in [`BackupHealth::deleted`].
     pub databases: Vec<DatabaseHealth>,
+    /// Databases that were deleted and are still carried by the published
+    /// sets. They are counted rather than listed: a deleted database does
+    /// not need a backup, and listing it beside the live ones would say
+    /// "stale" about something that was deleted on purpose.
+    pub deleted: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_attempt: Option<AttemptRecord>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -453,6 +453,7 @@ async fn backups(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<
             "stale_after_secs": STALE_AFTER_SECS,
             "sets": set_json,
             "per_database": per_database,
+            "deleted": health.deleted,
             "last_attempt": last_attempt,
             "last_failure": last_failure,
             "coverage": coverage,
