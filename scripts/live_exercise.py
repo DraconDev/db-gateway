@@ -530,7 +530,9 @@ def main():
     # answer, not a failure.
     report.add("diff finds the divergence", code != 0 and '"identical":false' in out,
                out.strip()[:160])
-    code, _, err = client.run(["branch", "delete", branch])
+    # A branch is deleted by typing its name again: the confirmation
+    # is not optional, and the exercise does not get to skip it.
+    code, _, err = client.run(["branch", "delete", branch, "--confirm", branch])
     report.add("branch delete", code == 0, err.strip()[:160])
 
     print("== the agent surface ==")
@@ -539,10 +541,15 @@ def main():
     if args.cleanup:
         print("== cleaning up ==")
         for label, _, _ in credentials:
-            client.run(["key", "revoke", label])
+            code, _, err = client.run(["key", "revoke", label])
+            report.add(f"revoke {label}", code == 0, err.strip()[:160])
+        # A database is tombstoned by typing its name again. The exit
+        # code is checked, because a cleanup that quietly did nothing
+        # is worse than one that failed loudly: the operator would
+        # believe the box was clean.
         for name in names:
-            client.run(["delete", name])
-        report.add("cleanup", True, f"{len(names)} databases tombstoned")
+            code, _, err = client.run(["delete", name, "--confirm", name])
+            report.add(f"tombstone {name}", code == 0, err.strip()[:160])
 
     summary = {
         "server": args.server,
