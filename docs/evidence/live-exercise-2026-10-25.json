@@ -1,6 +1,6 @@
 {
   "server": "http://127.0.0.1:7432",
-  "seconds": 5.4,
+  "seconds": 5.3,
   "reuse": true,
   "checks": 42,
   "passed": 42,
@@ -157,7 +157,7 @@
     {
       "name": "diff finds the divergence",
       "ok": true,
-      "detail": "{\"compared_rows\":311,\"identical\":false,\"left\":\"orders\",\"right\":\"branch_probe_1792953418\",\"schema\":{\"changed\":[],\"identical\":true,\"only_left\":[],\"only_right\":[]}"
+      "detail": "{\"compared_rows\":311,\"identical\":false,\"left\":\"orders\",\"right\":\"branch_probe_1792959487\",\"schema\":{\"changed\":[],\"identical\":true,\"only_left\":[],\"only_right\":[]}"
     },
     {
       "name": "branch delete",
@@ -197,7 +197,7 @@
     {
       "name": "mcp dg_inspect",
       "ok": true,
-      "detail": "{\"id\": 13, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"activity\\\":{\\\"last_write\\\":1792953416,\\\"queue_timeouts\\\":0,\\\"queue_wait_max_us\\\":1,\\\"queue_wait_ms\\\":0,\\\"queue_wait_p95_us\\\":1,\\\"queue_"
+      "detail": "{\"id\": 13, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"activity\\\":{\\\"last_write\\\":1792959485,\\\"queue_timeouts\\\":0,\\\"queue_wait_max_us\\\":3,\\\"queue_wait_ms\\\":0,\\\"queue_wait_p95_us\\\":3,\\\"queue_"
     },
     {
       "name": "mcp dg_backups",
