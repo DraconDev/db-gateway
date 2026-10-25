@@ -639,7 +639,19 @@ async fn remove(
             .get(&name)
             .ok_or_else(|| Error::new(404, "branch_not_found", "branch not found"))?;
         let _guard = s.acquire_queue(&name, true)?;
-        s.fenced_write(&name, |s| s.delete(&name, crate::api::RETENTION_SECS))?;
+        // The database is tombstoned first, and a database that was
+        // ALREADY tombstoned -- by `dg delete`, say -- answers that with
+        // 409. The branch is gone either way: its database is not
+        // there to reach. So the record is forgotten even then, because
+        // a registry entry that names a database nobody can reach is a
+        // branch the operator can neither use nor list away.
+        let already_gone = match s.fenced_write(&name, |s| {
+            s.delete(&name, crate::api::RETENTION_SECS)
+        }) {
+            Ok(()) => false,
+            Err(error) if error.code == "already_deleted" => true,
+            Err(error) => return Err(error),
+        };
         s.branches.forget(&name);
         if let Err(error) = s.branches.persist(s.root()) {
             tracing::error!(
@@ -659,6 +671,7 @@ async fn remove(
             "deleted": true,
             "name": name,
             "parent": record.parent,
+            "already_deleted": already_gone,
             "purge_after_seconds": crate::api::RETENTION_SECS,
         })))
     })
