@@ -1019,10 +1019,30 @@ fn the_restore_point_script_publishes_the_window_the_replica_offers() {
         serde_json::from_str(&fs::read_to_string(backups.join("restore-points.json")).unwrap())
             .unwrap();
     assert_eq!(published["window_start"], json!("2026-09-15T14:16:08Z"));
-    assert_eq!(published["window_end"], json!("2026-09-15T14:16:08Z"));
     assert_eq!(published["sidecar"], json!("active"));
     assert_eq!(published["databases"]["alpha"]["files"], json!(1));
     assert_eq!(published["databases"]["alpha"]["bytes"], json!(893));
+    // The window ends at the moment the replica is CURRENT to, not at the
+    // last file it happened to write. A database that has not changed
+    // since its snapshot can still be restored to any later moment:
+    // litestream restores the snapshot, and the bytes are the same ones
+    // the replica holds now.
+    let end = published["window_end"]
+        .as_str()
+        .expect("the window has an end");
+    assert!(
+        end > "2026-09-15T14:16:08Z",
+        "the window still ends at the last file it wrote: {published}"
+    );
+    assert!(
+        end.len() == 20 && end.ends_with('Z'),
+        "the window end is not an instant: {published}"
+    );
+    assert_eq!(
+        published["databases"]["alpha"]["newest"].as_str(),
+        Some(end),
+        "the database and the window disagree about the end: {published}"
+    );
 }
 
 #[test]
