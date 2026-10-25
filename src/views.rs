@@ -543,22 +543,28 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
         );
         sections.push(section);
     }
+    // The last failure, when it is not the same record as the last
+    // attempt: a failure that has been followed by a success is history,
+    // and history is worth seeing. It is a field of the last run rather
+    // than a section of its own, because it IS about the last run -- and
+    // a heading of its own spent a line of the screen on a thing the
+    // operator reads once.
     if let Some(failure) = backups["last_failure"].as_object()
         && backups["last_attempt"]["ts"] != failure["ts"]
     {
-        let mut section = Section::new("last failure");
-        section.field(
-            "when",
-            Cell::text(format!(
-                "{} (step {})",
-                failure["completed_at"]
-                    .as_u64()
-                    .map(human_epoch_ago)
-                    .unwrap_or_else(|| "unknown".to_string()),
-                failure["step"].as_str().unwrap_or("unknown"),
-            )),
-        );
-        sections.push(section);
+        if let Some(section) = sections.last_mut() {
+            section.field(
+                "last failure",
+                Cell::text(format!(
+                    "{} (step {})",
+                    failure["completed_at"]
+                        .as_u64()
+                        .map(human_epoch_ago)
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    failure["step"].as_str().unwrap_or("unknown"),
+                )),
+            );
+        }
     }
 
     // What the newest set carries. The registry matters as much as the
