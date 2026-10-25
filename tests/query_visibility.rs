@@ -250,6 +250,58 @@ fn the_shapes_are_bounded_per_database() {
     );
 }
 
+/// A deleted database's shapes are history, not traffic.
+///
+/// The log lives in memory and it outlives a deletion for as long as the
+/// process runs, so it can still hold shapes for databases that are gone.
+/// The tab that shows them answers "which statement is the expensive
+/// one", and a database that has been deleted has no expensive statement:
+/// it was also filling the tab with rows for things that no longer exist.
+#[test]
+fn a_deleted_database_does_not_appear_in_the_query_log() {
+    let dir = tempfile::tempdir().unwrap();
+    let owner = init(dir.path());
+    let server = start(dir.path());
+    for name in ["live", "gone"] {
+        let (status, _) = post(
+            &server.address,
+            "/v1/databases",
+            &owner,
+            &json!({"name": name}),
+        );
+        assert_eq!(status, 200);
+        let (status, _) = post(
+            &server.address,
+            &v1/databases/{name}/query",
+            &owner,
+            &json!({"sql": "CREATE TABLE t (id INTEGER)", "args": []}),
+        );
+        assert_eq!(status, 200);
+    }
+    // The database is deleted, the way an operator deletes one.
+    let (status, _) = delete(&server.address, "/v1/databases/gone", &owner);
+    assert_eq!(status, 200);
+
+    let (status, body) = get(&server.address, "/v1/queries", Some(&owner));
+    assert_eq!(status, 200);
+    assert!(
+        !shapes(&body, "gone").is_empty() || body["deleted"].as_u64().unwrap_or(0) == 0,
+        "the deleted database is gone from the log: {body}"
+    );
+    assert!(
+        shapes(&body, "gone").is_empty(),
+        "the deleted database still shows its shapes: {body}"
+    );
+    // The live one is still there.
+    assert!(
+        !shapes(&body, "live").is_empty(),
+        "the live database keeps its shapes: {body}"
+    );
+    // And the deleted one is counted, so it is not hidden by being
+    // dropped.
+    assert_eq!(body["deleted"], json!(1));
+}
+
 #[test]
 fn the_endpoint_is_owner_only() {
     let dir = tempfile::tempdir().unwrap();
