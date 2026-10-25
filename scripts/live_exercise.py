@@ -205,11 +205,21 @@ class Report:
 
     def __init__(self):
         self.checks = []
+        self.skips = []
 
     def add(self, name, good, detail=""):
         self.checks.append({"name": name, "ok": bool(good), "detail": str(detail)[:400]})
         print(f"[{'PASS' if good else 'FAIL'}] {name} {str(detail)[:160]}")
         return good
+
+    def skip(self, name, detail=""):
+        """A check that could not be made.
+
+        A skip is not a pass and not a failure: it is a check that had
+        no way to run, and it says why.
+        """
+        self.skips.append({"name": name, "detail": str(detail)[:400]})
+        print(f"[SKIP] {name} {str(detail)[:160]}")
 
     @property
     def failures(self):
@@ -377,6 +387,8 @@ def main():
     parser.add_argument("--dg", default="dg", help="the dg binary to drive")
     parser.add_argument("--prefix", default="",
                         help="prefix for the database and credential names")
+    parser.add_argument("--reuse", action="store_true",
+                        help="use databases that are already there, instead of creating them")
     parser.add_argument("--cleanup", action="store_true",
                         help="tombstone the databases and revoke the credentials afterwards")
     parser.add_argument("--out", default="", help="write the JSON summary here as well")
