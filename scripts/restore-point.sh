@@ -249,6 +249,27 @@ stamps = sorted(
     for stamp in (db["oldest"], db["newest"])
     if stamp
 )
+# The end of the window is the moment the replica is CURRENT to, not the
+# last time it happened to write a file. A database that has not changed
+# since its last snapshot is still restorable to any later moment:
+# litestream restores the snapshot, and the bytes are the same ones the
+# replica holds now. When the sidecar is not running the state is frozen
+# at the newest file, so that is the end.
+live = sidecar == "active"
+if live:
+    published_iso = (
+        datetime.datetime.fromtimestamp(published_at, datetime.timezone.utc)
+        .strftime("%Y-%m-%dT%H:%M:%SZ")
+    )
+    for db in databases.values():
+        if db["newest"] is not None:
+            db["newest"] = published_iso
+    stamps = sorted(
+        stamp
+        for db in databases.values()
+        for stamp in (db["oldest"], db["newest"])
+        if stamp
+    )
 record = {
     "published_at": published_at,
     "window_start": stamps[0] if stamps else None,
