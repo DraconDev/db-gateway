@@ -91,6 +91,15 @@ pub struct Store {
     /// unless overridden; absent/unreadable means backup status is unknown,
     /// never healthy.
     backup_root: Option<PathBuf>,
+    /// The owner-approved snapshot cadence: how long a committed change may
+    /// stay unrepresented by a verified copy before it is a finding rather
+    /// than the normal lag of a periodic producer.
+    ///
+    /// It lives beside the backup root because it is the same kind of thing:
+    /// a fact about the deployment's backup, not about the data. `None`
+    /// means the owner has not approved one, and the rule then reports
+    /// every unrepresented change -- the strict reading, never a silent one.
+    backup_cadence_secs: Option<u64>,
     // All server requests hold a read lease until their connections close.
     // Purge takes an exclusive lease before unlinking SQLite files.
     lifecycle: RwLock<()>,
@@ -128,6 +137,24 @@ impl Store {
     pub fn with_backup_root(mut self, root: Option<PathBuf>) -> Self {
         self.backup_root = root;
         self
+    }
+
+    /// Set the owner-approved snapshot cadence (serve `--backup-cadence-secs`).
+    ///
+    /// The producer publishes on its own schedule, and a change is normally
+    /// unrepresented until the next publication -- that is the producer
+    /// working, not a finding. The cadence is how long that wait may be
+    /// before it becomes one. `None` keeps the strict reading: every
+    /// unrepresented change is reported.
+    pub fn with_backup_cadence(mut self, cadence_secs: Option<u64>) -> Self {
+        self.backup_cadence_secs = cadence_secs;
+        self
+    }
+
+    /// The approved snapshot cadence, or `None` when the owner has not set
+    /// one.
+    pub fn backup_cadence_secs(&self) -> Option<u64> {
+        self.backup_cadence_secs
     }
 
     pub fn open_with_ttl(root: &Path, transfer_ttl: Duration) -> Result<Self> {
@@ -172,6 +199,7 @@ impl Store {
             marker_lock: Mutex::new(()),
             marker_db: Mutex::new(metadata),
             backup_root,
+            backup_cadence_secs: None,
             lifecycle: RwLock::new(()),
             transfers: Mutex::new(HashMap::new()),
             transfer_ttl,

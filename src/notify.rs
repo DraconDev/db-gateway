@@ -137,15 +137,29 @@ pub fn failure_note(health: &BackupHealth, attempt: &AttemptRecord) -> Note {
 /// Render the daily digest: every database, its state, its newest verified
 /// set and its age, plus the counts an operator reads first.
 pub fn digest_note(health: &BackupHealth) -> Note {
-    let (fresh, stale, unknown) = health.counts();
+    let (fresh, behind, stale, unknown) = health.counts();
     let attention = health.attention().len();
     let title = if attention == 0 {
-        format!("backup digest: {fresh} database(s) fresh")
+        if behind == 0 {
+            format!("backup digest: {fresh} database(s) fresh")
+        } else {
+            // `behind` is named rather than folded into "fresh": the copy is
+            // not carrying the newest change yet, and the operator should
+            // read that as the producer working, not as a problem to chase.
+            format!("backup digest: {fresh} fresh, {behind} behind")
+        }
     } else {
-        format!("backup digest: {fresh} fresh, {stale} stale, {unknown} unknown")
+        format!("backup digest: {fresh} fresh, {behind} behind, {stale} stale, {unknown} unknown")
     };
     let action = if attention == 0 {
-        "no action; re-verify a set on demand with `dg backup verify`".to_string()
+        match health.cadence_secs {
+            Some(cadence) => format!(
+                "no action: every unrepresented change is within the {}s cadence; \
+                 re-verify a set on demand with `dg backup verify`",
+                cadence
+            ),
+            None => "no action; re-verify a set on demand with `dg backup verify`".to_string(),
+        }
     } else {
         format!(
             "run `dg backup status` for the per-database ages, then \

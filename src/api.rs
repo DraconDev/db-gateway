@@ -357,6 +357,7 @@ async fn backups(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<
                     "state": db.state,
                     "newest_set": db.newest_set,
                     "age_secs": db.age_secs,
+                    "lag_secs": db.lag_secs,
                 }),
             );
         }
@@ -451,6 +452,10 @@ async fn backups(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<
         Ok(Json(json!({
             "backup_root": s.backup_root().map(|p| p.to_string_lossy().into_owned()),
             "stale_after_secs": STALE_AFTER_SECS,
+            // The owner-approved snapshot cadence the states were judged
+            // against. `null` when the owner has not approved one, in which
+            // case every unrepresented change is reported.
+            "cadence_secs": health.cadence_secs,
             "sets": set_json,
             "per_database": per_database,
             "deleted": health.deleted,

@@ -12,6 +12,16 @@
 //! scheduled job. A database with no containing set, no durable write
 //! marker, or no coverage boundary is `unknown` -- never silently `fresh`,
 //! because "unknown" is the state that keeps a scheduled job honest.
+//!
+//! What the module does choose is where the line between "the producer has
+//! not run yet" and "the producer has failed" falls, and that line is the
+//! owner-approved snapshot cadence. Contract §2 asks for an alert when
+//! committed changes are not represented by a verified copy *within* that
+//! cadence; a periodic producer makes every change unrepresented for a
+//! while, so without the cadence every change looked like a failure and the
+//! daily digest was red for an hour after every write. The cadence is the
+//! owner's number, it comes from the deployment, and when it is not set the
+//! strict reading stands.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -26,9 +36,30 @@ use crate::store::Store;
 /// look. An objective, not an accepted RPO.
 pub const STALE_AFTER_SECS: u64 = 300;
 
-/// Per-database freshness. `state` is exactly one of `fresh`, `stale`,
-/// `unknown`, matching `/v1/backups`; the two are the same value computed
-/// once, so an operator cannot be told two different things.
+/// Per-database freshness. `state` is exactly one of `fresh`, `behind`,
+/// `stale`, `unknown`, matching `/v1/backups`; the two are the same value
+/// computed once, so an operator cannot be told two different things.
+///
+/// The four words say four different things, and the difference is the
+/// whole point of this module:
+///
+/// - `fresh` — the newest verified copy provably includes every committed
+///   change.
+/// - `behind` — committed changes exist that this copy does not include, and
+///   they have been waiting no longer than the approved snapshot cadence.
+///   This is what a periodic producer looks like between publications, and
+///   it asks for nothing.
+/// - `stale` — an un-represented change has been waiting longer than the
+///   approved cadence. This asks for attention.
+/// - `unknown` — there is no verified copy to judge, or no marker to judge
+///   it with. It asks for attention, because the absence of evidence is not
+///   evidence of health.
+///
+/// The third state is what stops the daily digest from crying wolf. Before
+/// it existed, any change written after the newest set's boundary made the
+/// whole gateway `backup_unhealthy` — so a producer that runs hourly was
+/// permanently red for an hour after every write, and red was the only
+/// answer the digest had for "a change is waiting for the next publication".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DatabaseHealth {
     pub name: String,
@@ -38,11 +69,20 @@ pub struct DatabaseHealth {
     pub newest_set: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub age_secs: Option<u64>,
+    /// How long the newest committed change has been unrepresented by a
+    /// verified copy. Present only when there is such a change, which is
+    /// exactly when the state is `behind` or `stale`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lag_secs: Option<u64>,
 }
 
 impl DatabaseHealth {
+    /// Whether this database asks the operator for something.
+    ///
+    /// `behind` does not: the approved cadence is being met, and the next
+    /// publication will carry the change.
     pub fn is_attention(&self) -> bool {
-        self.state != "fresh"
+        self.state == "stale" || self.state == "unknown"
     }
 }
 
@@ -311,6 +351,12 @@ pub fn read_restore_result(root: &std::path::Path) -> Option<RestoreResult> {
 pub struct BackupHealth {
     pub backup_root: Option<PathBuf>,
     pub stale_after_secs: u64,
+    /// The owner-approved snapshot cadence, in seconds: how long a
+    /// committed change may stay unrepresented by a verified copy before it
+    /// is a finding. `None` when the owner has not approved one, in which
+    /// case every unrepresented change is reported.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cadence_secs: Option<u64>,
     pub generated_at: u64,
     /// Per-database freshness, for the LIVE databases.
     ///
@@ -355,18 +401,20 @@ impl BackupHealth {
 
     /// Count per state, for a digest header that stays readable when the
     /// database list is long.
-    pub fn counts(&self) -> (usize, usize, usize) {
+    pub fn counts(&self) -> (usize, usize, usize, usize) {
         let mut fresh = 0;
+        let mut behind = 0;
         let mut stale = 0;
         let mut unknown = 0;
         for db in &self.databases {
             match db.state {
                 "fresh" => fresh += 1,
+                "behind" => behind += 1,
                 "stale" => stale += 1,
                 _ => unknown += 1,
             }
         }
-        (fresh, stale, unknown)
+        (fresh, behind, stale, unknown)
     }
 }
 
@@ -402,6 +450,10 @@ pub fn snapshot(store: &Store) -> Result<BackupHealth, crate::error::Error> {
         }
     }
     let names: Vec<String> = live_names.clone();
+    // The owner-approved snapshot cadence. `None` means the owner has not
+    // approved one, and the rule then keeps the strict reading: every
+    // committed change that the newest copy does not include is a finding.
+    let cadence = store.backup_cadence_secs();
     let mut databases = Vec::with_capacity(names.len());
     for name in &names {
         let newest = sets.as_ref().and_then(|sets| {
@@ -426,8 +478,8 @@ pub fn snapshot(store: &Store) -> Result<BackupHealth, crate::error::Error> {
             // `mtime > selected.mtime` guard that could never fire.)
             Some(selected)
         });
-        let (state, newest_set, age_secs) = match newest {
-            None => ("unknown", None, None),
+        let (state, newest_set, age_secs, lag_secs) = match newest {
+            None => ("unknown", None, None, None),
             Some(set) => {
                 let age = now
                     .duration_since(set.mtime)
@@ -438,12 +490,35 @@ pub fn snapshot(store: &Store) -> Result<BackupHealth, crate::error::Error> {
                 // directory is published later. Missing durable boundary or
                 // write marker is unknown, never falsely fresh after restart
                 // or an older script.
-                let state = match (store.last_write(name), set.coverage_start) {
-                    (Some(wrote), Some(started)) if wrote >= started => "stale",
-                    (Some(_), Some(_)) => "fresh",
-                    _ => "unknown",
+                let (state, lag) = match (store.last_write(name), set.coverage_start) {
+                    (Some(wrote), Some(started)) if wrote >= started => {
+                        // The change is not represented by this copy. How
+                        // long it has been waiting is the number the
+                        // objective is judged on: the contract asks for an
+                        // alert when committed changes are not represented
+                        // by a verified copy WITHIN the approved cadence.
+                        //
+                        // Only the most recent write is marked, so this is
+                        // the wait of the newest unrepresented change. An
+                        // older one may have waited longer; the durable
+                        // marker cannot say so.
+                        let lag = now
+                            .duration_since(wrote)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
+                        let state = match cadence {
+                            // Within the approved cadence, the producer is
+                            // simply between publications: the change is
+                            // waiting its turn, and nothing is wrong.
+                            Some(cadence) if lag <= cadence => "behind",
+                            _ => "stale",
+                        };
+                        (state, Some(lag))
+                    }
+                    (Some(_), Some(_)) => ("fresh", None),
+                    _ => ("unknown", None),
                 };
-                (state, Some(set.timestamp.clone()), Some(age))
+                (state, Some(set.timestamp.clone()), Some(age), lag)
             }
         };
         databases.push(DatabaseHealth {
@@ -451,6 +526,7 @@ pub fn snapshot(store: &Store) -> Result<BackupHealth, crate::error::Error> {
             state,
             newest_set,
             age_secs,
+            lag_secs,
         });
     }
     databases.sort_by(|left, right| left.name.cmp(&right.name));
@@ -492,6 +568,7 @@ pub fn snapshot(store: &Store) -> Result<BackupHealth, crate::error::Error> {
     Ok(BackupHealth {
         backup_root: root,
         stale_after_secs: STALE_AFTER_SECS,
+        cadence_secs: cadence,
         generated_at: now
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
