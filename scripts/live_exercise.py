@@ -504,7 +504,9 @@ def main():
         ("key tokens", ["key", "tokens", names[0]]),
         ("integrity", ["integrity", names[0]]),
         ("vacuum", ["vacuum", names[-1]]),
-        ("explain", ["explain", names[0], "SELECT id, name FROM products WHERE stock < ?"]),
+        # The explain takes a statement, not a statement with bind
+        # parameters: it explains the SQL as written.
+        ("explain", ["explain", names[0], "SELECT id, name FROM products WHERE stock < 50"]),
         ("restore plan", ["restore", "plan"]),
         ("restore list", ["restore", "list"]),
         ("backup run", ["backup", "run"]),
