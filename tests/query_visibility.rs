@@ -69,8 +69,7 @@ fn start(data_dir: &std::path::Path) -> Server {
     }
 }
 
-fn get(address: &str, path: &str, cred: Option<&str>) -> (u16, Value) {
-    let client = reqwest::blocking::Client::new();
+fn get(address: &str, path: &str, cred: Option<&str>) -> (u16, Value) {    let client = reqwest::blocking::Client::new();
     let mut req = client.get(format!("http://{address}{path}"));
     if let Some(cred) = cred {
         req = req.bearer_auth(cred);
