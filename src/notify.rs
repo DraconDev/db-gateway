@@ -534,6 +534,7 @@ mod tests {
         BackupHealth {
             backup_root: Some(std::path::PathBuf::from("/var/lib/dg-backups")),
             stale_after_secs: 300,
+            cadence_secs: None,
             generated_at: 1_700_000_000,
             // The notifier only reads the freshness and the attempts; the
             // placement facts the endpoint also reports are not its
@@ -553,18 +554,21 @@ mod tests {
                     state: "fresh",
                     newest_set: Some("20240101T000000Z".into()),
                     age_secs: Some(60),
+                    lag_secs: None,
                 },
                 DatabaseHealth {
                     name: "beta".into(),
                     state: "stale",
                     newest_set: Some("20240101T000000Z".into()),
                     age_secs: Some(9_000),
+                    lag_secs: Some(9_000),
                 },
                 DatabaseHealth {
                     name: "gamma".into(),
                     state: "unknown",
                     newest_set: None,
                     age_secs: None,
+                    lag_secs: None,
                 },
             ],
             last_attempt: None,
