@@ -692,11 +692,13 @@ fn keys_tab(frame: &mut Frame, area: Rect, app: &mut App) {
 /// gateway on its way to SQLite. What is shown is the SHAPE of a
 /// statement -- its SQL with every literal replaced by a placeholder --
 /// so a row names a statement without quoting the data it carried.
-fn queries_tab(frame: &mut Frame, area: Rect, app: &App) {
+fn queries_tab(frame: &mut Frame, area: Rect, app: &mut App) {
     match &app.queries {
         Some(payload) => {
             let table = views::query_table(payload);
             let block = pane(app.focus == Focus::Queries);
+            app.scroll
+                .clamp(Focus::Queries, table.rows().len().saturating_sub(1));
             let mut state = TableState::default().with_offset(app.scroll.queries as usize);
             framed_table(frame, area, block, &table, usize::MAX, &mut state);
         }
