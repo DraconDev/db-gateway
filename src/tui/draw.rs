@@ -602,17 +602,25 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App) {
     // their room FIRST and the tables take what is left. The other way
     // round, a long per-database list pushed the facts about the copy
     // off the screen and left the operator scrolling to find them.
-    let min_table = 3u16;
+    //
+    // A table that has nothing but its header is a table with no answer
+    // in it, so each table is promised room for a header and one row
+    // before the fields are given anything.
+    let min_table = 4u16;
     let fields_height = (lines.len() as u16 + 2)
         .min(area.height.saturating_sub(min_table * tables.len() as u16));
     let remaining = area.height.saturating_sub(fields_height);
     // The per-database table is the one that grows with the deployment:
     // it has a row per database. It takes what is left after the log
-    // table has its minimum, and it scrolls when there is more of it than
+    // table has its promise, and it scrolls when there is more of it than
     // fits.
     let per_database_height = tables
         .first()
-        .map(|(_, table)| (table.rows().len() as u16 + 3).min(remaining.saturating_sub(min_table)))
+        .map(|(_, table)| {
+            (table.rows().len() as u16 + 3)
+                .min(remaining.saturating_sub(min_table))
+                .max(3)
+        })
         .unwrap_or(0);
     let mut constraints = vec![Constraint::Length(fields_height)];
     if let Some((_, table)) = tables.first() {
