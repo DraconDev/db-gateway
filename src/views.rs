@@ -404,15 +404,17 @@ pub fn backups(backups: &Value) -> Vec<Section> {
     // How many of the published sets are carrying databases that have
     // since been deleted. They are not stale -- they are gone -- so they
     // are not in the per-database table, but they are still on disk until
-    // the sets are pruned, and an operator who sees them in the sets
-    // deserves to be told why the per-database table does not list them.
+    // the sets are pruned. It is said only when there are some: a line
+    // saying "none" is a line the screen could spend on something else.
     let deleted = backups["deleted"].as_u64().unwrap_or(0);
-    root.field(
-        "deleted",
-        Cell::text(format!(
-            "{deleted} database(s) in the sets were deleted; their copies are pruned with the sets"
-        )),
-    );
+    if deleted > 0 {
+        root.field(
+            "deleted",
+            Cell::text(format!(
+                "{deleted} database(s) in the sets; their copies are pruned with the sets"
+            )),
+        );
+    }
 
     let mut sections = vec![root];
 
