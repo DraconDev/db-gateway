@@ -457,13 +457,17 @@ fn strip_width(labels: &[(Focus, String)], active: Focus) -> usize {
 /// left, and on a screen with enough databases the placement table was
 /// squeezed to a header and a row. Placement is its own tab now, and
 /// each tab answers one question.
-fn databases_tab(frame: &mut Frame, area: Rect, app: &App) {
+fn databases_tab(frame: &mut Frame, area: Rect, app: &mut App) {
     let focused = app.focus == Focus::Databases;
     let Some(traffic) = app.databases() else {
         let block = pane(focused);
         frame.render_widget(Paragraph::new("no answer yet").block(block), area);
         return;
     };
+    // The scroll cannot run past the last row: a tab that scrolls into
+    // nothing is a tab that says "there is nothing here".
+    app.scroll
+        .clamp(Focus::Databases, traffic.rows().len().saturating_sub(1));
     let mut state = TableState::default().with_offset(app.scroll.databases as usize);
     framed_table(frame, area, pane(focused), &traffic, usize::MAX, &mut state);
 }
