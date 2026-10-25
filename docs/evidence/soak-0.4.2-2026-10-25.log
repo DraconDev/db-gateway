@@ -2,3 +2,4 @@
 {"minute": 2, "rss_kb": 12064, "reqs": 5489, "errs": 0, "p50_ms": 11.25, "p99_ms": 100.82}
 {"minute": 3, "rss_kb": 12248, "reqs": 8086, "errs": 0, "p50_ms": 10.72, "p99_ms": 101.88}
 {"minute": 4, "rss_kb": 12364, "reqs": 10534, "errs": 0, "p50_ms": 11.38, "p99_ms": 101.43}
+{"minute": 5, "rss_kb": 12240, "reqs": 13003, "errs": 0, "p50_ms": 11.56, "p99_ms": 102.59}
