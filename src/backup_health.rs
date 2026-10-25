@@ -401,7 +401,16 @@ pub fn snapshot(store: &Store) -> Result<BackupHealth, crate::error::Error> {
             }
         }
     }
-    let names: Vec<String> = live_names.clone();
+    let mut names: Vec<String> = live_names.clone();
+    if let Some(ref sets) = sets {
+        for set in sets {
+            for db in &set.databases {
+                if !names.contains(db) {
+                    names.push(db.clone());
+                }
+            }
+        }
+    }
     let mut databases = Vec::with_capacity(names.len());
     for name in &names {
         let newest = sets.as_ref().and_then(|sets| {
