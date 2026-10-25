@@ -1021,6 +1021,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 BackupCommand::Digest {
                     data_dir,
                     backup_root,
+                    cadence_secs,
                     json: as_json,
                 },
         } => return cmd_backup::digest(data_dir, backup_root, cadence_secs, as_json).await,
