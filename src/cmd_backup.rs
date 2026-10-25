@@ -94,6 +94,18 @@ pub async fn digest(
             "freshness objective",
             Cell::text(dg::render::human_duration(note.stale_after_secs)),
         );
+        // The cadence the states were judged against. It is shown even when
+        // it is unset, because "not approved" explains the exit code: with
+        // no cadence every unrepresented change is reported, and an
+        // operator who does not know that will read the red as a fault in
+        // the backup rather than in the configuration.
+        root.field(
+            "snapshot cadence",
+            Cell::text(match note.cadence_secs {
+                Some(cadence) => dg::render::human_duration(cadence),
+                None => "not approved".to_string(),
+            }),
+        );
         if let Some(failure) = &health.last_failure {
             root.field(
                 "last failure",
