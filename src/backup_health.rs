@@ -648,6 +648,37 @@ mod tests {
             .with_backup_root(Some(root))
     }
 
+    /// A store whose `alpha` was written `seconds_ago` seconds ago.
+    ///
+    /// The lag the rule reports is the wait since the *write*, so a test has
+    /// to place the write at a chosen moment: a write made during the test
+    /// is always zero seconds old, and every cadence would contain it.
+    fn store_written_ago(dir: &std::path::Path, seconds_ago: u64) -> Store {
+        let data = dir.join("data");
+        let root = dir.join("dg-backups");
+        {
+            let store = Store::open(&data).unwrap().with_backup_root(Some(root.clone()));
+            store.create_and_note("alpha").unwrap();
+        }
+        // The durable marker is what the rule reads after a restart, so
+        // moving it is moving the write.
+        let conn = rusqlite::Connection::open(data.join("metadata.sqlite")).unwrap();
+        let stamp = std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - seconds_ago;
+        conn.execute(
+            "UPDATE write_markers SET written_at = ?1 WHERE name = 'alpha'",
+            rusqlite::params![stamp as i64],
+        )
+        .unwrap();
+        drop(conn);
+        Store::open_shared(&data)
+            .unwrap()
+            .with_backup_root(Some(root))
+    }
+
     /// `coverage_start` of `None` writes a manifest with no usable
     /// `started_at`, which is what a set published by an older script (or by
     /// hand) looks like to the reader.
