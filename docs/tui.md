@@ -285,6 +285,13 @@ The roles are `database_read_only` and `database_read_write`.
 
 ### Destructive actions
 
+The three irreversible actions — **delete database**, **revoke key** and
+**rotate owner key** — are marked with a `!` in the actions list and drawn
+in the colour the theme keeps for a destructive act. Listing them beside
+*refresh* with the same weight would tell the operator that the two are the
+same kind of thing, and they are not. The marker is a character and not only
+a colour, so it survives a monochrome terminal.
+
 Deleting a database and revoking a credential ask for the exact name
 before they do anything, and the owner-key rotation asks for the word
 `rotate`. This is the same rule the CLI's `--confirm` flag enforces
