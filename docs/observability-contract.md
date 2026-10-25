@@ -6,7 +6,7 @@ gateway-native versioned sets; write markers are durable across restart;
 restore drill still separate), and request
 pressure as `GET /v1/status` + `dg status`. **§3 alert 4 is now delivered**
 per §3a below: immediate notice on a failed backup attempt plus a daily
-per-database fresh/stale/unknown digest, off by default and enabled per
+per-database fresh/behind/stale/unknown digest, off by default and enabled per
 gateway by flag. Disk/RSS/alert integrations
 remain future work. This contract defines the signals
 needed to operate DB Gateway and a future backup sidecar. Backup tiers are
@@ -72,6 +72,36 @@ last verified marker rather than declaring a healthy database stale solely
 because wall time advanced. A containing backup set with no durable write
 marker is `unknown`, never `fresh`; before production acceptance the safe
 status remains `unknown`, not `fresh`.
+
+### 2a. The snapshot cadence, and the third state (2026-10-25)
+
+The first implementation read "not represented by a verified copy within the
+owner-approved snapshot cadence" as "not represented at all". On a producer
+that publishes hourly that made every change a finding for up to an hour
+after it was made, so the daily digest exited `backup_unhealthy` whenever
+anything had happened since the last publication — on a live gateway, every
+day. An alarm that is red whenever anything happens carries no information
+about the backup, and an operator who reads it daily learns to skip it.
+
+The cadence is therefore the owner's number and it is applied to the
+measurement, not to the schedule. It is set per deployment
+(`dg serve --backup-cadence-secs`, `dg backup digest --cadence-secs`) and
+published as `cadence_secs`. With it, a per-database state says which of
+three true things is the case:
+
+| State | Meaning | Asks for attention |
+|---|---|---|
+| `fresh` | the newest verified copy provably includes every committed change | no |
+| `behind` | committed changes are not in the copy yet, but have waited no longer than the cadence | no |
+| `stale` | an unrepresented change has waited longer than the cadence | **yes** |
+| `unknown` | there is no verified copy, or no marker to judge it with | **yes** |
+
+`behind` is the producer working between publications, and it is the state
+that stops the digest crying wolf. `lag_secs` reports how long the newest
+unrepresented change has waited, so the row is a measurement rather than a
+verdict. With no cadence approved there is no `behind`: every unrepresented
+change is reported, which is the strict reading and the behaviour a
+deployment has before it has made the decision.
 
 ## 3. Alert boundaries
 
