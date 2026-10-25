@@ -30,24 +30,21 @@ fn the_published_window_covers_the_whole_replica_chain() {
     // current segment at level 0.
     let args_log = dir.path().join("ltx.args");
     let fake = dir.path().join("litestream");
-    fs::write(
-        &fake,
-        format!(
-            "#!/bin/sh\n\
-             if [ \"$1\" = \"ltx\" ]; then\n\
-             \  echo \"$@\" >> {log}\n\
-             \  echo 'level  min_txid          max_txid          size  created'\n\
-             \  echo '0      0000000000000010  0000000000000010  191   2026-10-25T18:36:57Z'\n\
-             \  echo '1      0000000000000001  0000000000000002  6195  2026-10-25T12:38:02Z'\n\
-             \  echo '2      0000000000000003  0000000000000006  1533  2026-10-25T13:22:00Z'\n\
-             \  echo '3      0000000000000007  000000000000000a  1845  2026-10-25T13:58:00Z'\n\
-             \  echo '9      0000000000000001  0000000000000002  6195  2026-10-25T12:38:03Z'\n\
-             fi\n\
-             exit 0\n",
-            log = args_log.display()
-        ),
-    )
-    .unwrap();
+    let rows = [
+        "level  min_txid          max_txid          size  created",
+        "0      0000000000000010  0000000000000010  191   2026-10-25T18:36:57Z",
+        "1      0000000000000001  0000000000000002  6195  2026-10-25T12:38:02Z",
+        "2      0000000000000003  0000000000000006  1533  2026-10-25T13:22:00Z",
+        "3      0000000000000007  000000000000000a  1845  2026-10-25T13:58:00Z",
+        "9      0000000000000001  0000000000000002  6195  2026-10-25T12:38:03Z",
+    ];
+    let mut script = String::from("#!/bin/sh\nif [ \"$1\" = \"ltx\" ]; then\n");
+    script.push_str(&format!("echo \"$@\" >> {}\n", args_log.display()));
+    for row in rows {
+        script.push_str(&format!("echo '{row}'\n"));
+    }
+    script.push_str("fi\nexit 0\n");
+    fs::write(&fake, script).unwrap();
     fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
 
     let config = dir.path().join("litestream.yml");
