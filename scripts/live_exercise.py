@@ -187,7 +187,9 @@ QUERIES = [
 
 MUTATIONS = [
     ("inventory", "UPDATE products SET stock = stock + 5 WHERE category = ?", ["cat-2"]),
-    ("inventory", "INSERT INTO stock_moves (id, product_id, delta, reason, at) VALUES (9999, 1, 7, 'adjustment', '2026-10-25T12:00:00Z')", []),
+    # OR REPLACE, so the write can be run again: a second run against
+    # the same database must not fail on a key that is already there.
+    ("inventory", "INSERT OR REPLACE INTO stock_moves (id, product_id, delta, reason, at) VALUES (9999, 1, 7, 'adjustment', '2026-10-25T12:00:00Z')", []),
     ("ledger", "UPDATE entries SET memo = ? WHERE id = ?", ["reviewed", 3]),
     ("notes", "DELETE FROM tags WHERE id = ?", [2]),
 ]
@@ -470,11 +472,13 @@ def main():
             # A credential whose name is taken cannot be re-read: its
             # raw key was shown once and is not in the registry. So the
             # checks that need it are skipped rather than failed, and
-            # the skip says so.
-            if "exist" in err.lower() or "duplicate" in err.lower():
+            # the skip says so. The answer names the code, so the code
+            # is what is matched: the CLI prints the gateway's JSON on
+            # stdout and its own summary on stderr.
+            if "key_exists" in out or "already exists" in out.lower():
                 report.skip(f"issue {label}", "the name is taken; its key was shown once")
             else:
-                report.add(f"issue {label}", False, err.strip()[:160])
+                report.add(f"issue {label}", False, (out + err).strip()[:160])
             continue
         try:
             raw = json.loads(out.strip().splitlines()[-1])["key"]
