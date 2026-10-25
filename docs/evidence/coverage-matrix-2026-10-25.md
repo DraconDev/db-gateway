@@ -181,7 +181,7 @@ shows a gap on every row, and `dg branch delete` on an
 already-tombstoned branch returns `{"deleted": true, "already_deleted":
 true}` and empties the registry.
 
-## 7. What is still not proven
+## 10. What is still not proven
 
 - **CI never ran.** GitHub Actions fails in ~2 s on an account billing
   gate ("recent account payments have failed or your spending limit
