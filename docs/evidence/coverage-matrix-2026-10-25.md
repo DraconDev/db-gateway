@@ -83,7 +83,61 @@ themselves after the 24-hour retention window; there is no early
 purge, by design — a tombstone holds its name so it cannot be
 recreated with different content behind it.
 
-## 6. What this exercise found and fixed
+## 7. The bucketing, and the window it defines
+
+The replication bucket is **one bucket, one prefix per database**, and
+inside a prefix the whole chain of the write-ahead log:
+
+```
+s3://dg-sandbox/<database>/<compaction level>/<min txid>-<max txid>.ltx
+```
+
+Level 9 is the snapshot; levels 1, 2 and 3 are the compacted log; level
+0 is the current segment. A restore to a moment fetches the chain that
+covers it — so **the oldest file in the chain is how far back that
+database goes**, and that is what the restore window is.
+
+On 2026-10-25 the bucket held 150 objects across 13 prefixes:
+
+| prefix | L0 | L1 | L2 | L3 | L9 | files |
+|---|---|---|---|---|---|---|
+| billing_dev_pilot | 1 | 2 | 1 | 1 | 1 | 6 |
+| inventory | 1 | 8 | 6 | 5 | 1 | 21 |
+| metadata (the registry) | 1 | 30 | 14 | 7 | 1 | 53 |
+| notes | 1 | 7 | 6 | 4 | 1 | 19 |
+| verify_probe | 1 | 2 | 2 | 2 | 1 | 8 |
+
+**The defect this exposed.** The publisher asked litestream for its
+files with `litestream ltx`, and litestream's **default is level 0** —
+one database's newest segment. So the published window was built from
+one file per database and was a single instant:
+
+| database | published before | the bucket actually holds |
+|---|---|---|
+| billing_dev_pilot | Oct 16 07:30:03 → Oct 16 07:30:03 | 6 files, Oct 16 07:30:00 → a snapshot on the 17th |
+| inventory | Oct 25 18:36:57 → Oct 25 18:36:57 | 21 files, Oct 25 12:38:02 → now |
+
+Every moment inside the real window was reported as *"no — the window
+opens later"*. The plan now agrees with litestream, moment by moment:
+
+| moment | litestream | the plan, then | the plan, now |
+|---|---|---|---|
+| billing_dev_pilot @ Oct 16 12:00 | restores | no | **yes** |
+| billing_dev_pilot @ Oct 20 | restores | no | **yes** |
+| inventory @ Oct 25 15:00 | restores | no | **yes** |
+| inventory @ Oct 25 13:00 | restores | no | **yes** |
+| inventory @ Oct 25 12:00 | *"no matching backup files available"* | no | **no** |
+
+And a real restore to a mid-window moment — `billing_dev_pilot` at
+2026-10-16T12:00:00Z — produced a copy with the same tables as the live
+database.
+
+The window also now ends at the moment the replica is **current** to,
+not at the last time it happened to write a file: a database that has
+not changed since its snapshot can still be restored to any later
+moment, because the bytes are the same ones the replica holds now.
+
+## 8. What this exercise found and fixed
 
 | Defect | Fix | Release |
 |---|---|---|
