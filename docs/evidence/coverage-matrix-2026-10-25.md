@@ -83,7 +83,7 @@ themselves after the 24-hour retention window; there is no early
 purge, by design — a tombstone holds its name so it cannot be
 recreated with different content behind it.
 
-## 7. The bucketing, and the window it defines
+## 6. The bucketing, and the window it defines
 
 The replication bucket is **one bucket, one prefix per database**, and
 inside a prefix the whole chain of the write-ahead log:
@@ -137,7 +137,7 @@ not at the last time it happened to write a file: a database that has
 not changed since its snapshot can still be restored to any later
 moment, because the bytes are the same ones the replica holds now.
 
-## 8. What this exercise found and fixed
+## 7. What this exercise found and fixed
 
 | Defect | Fix | Release |
 |---|---|---|
@@ -181,7 +181,7 @@ shows a gap on every row, and `dg branch delete` on an
 already-tombstoned branch returns `{"deleted": true, "already_deleted":
 true}` and empties the registry.
 
-## 10. What is still not proven
+## 8. What is still not proven
 
 - **CI never ran.** GitHub Actions fails in ~2 s on an account billing
   gate ("recent account payments have failed or your spending limit
@@ -195,9 +195,8 @@ true}` and empties the registry.
 - **The query log lives in memory**, so it starts empty when the service
   restarts. That is a deliberate choice, but it means the queries tab
   says nothing until traffic happens.
-- **The queries tab shows tombstoned databases.** The log keeps a
-  tombstoned database's shapes until the service restarts, so the tab
-  can show a database the databases tab no longer lists.
+- **A deleted database's shapes were in the query log** — fixed in
+  0.7.0; the log now leaves them out and counts them.
 - **No TLS.** Remote use rides an SSH tunnel to the loopback listener,
   and clients refuse plaintext non-loopback endpoints. Nothing here
   tests a TLS-terminated edge.
