@@ -512,6 +512,10 @@ mod tests {
             drill: None,
             restore_points: None,
             last_restore: None,
+            // The notifier does not report deleted databases either: it
+            // alerts on what needs a backup, and a deleted database does
+            // not.
+            deleted: 0,
             databases: vec![
                 DatabaseHealth {
                     name: "alpha".into(),
