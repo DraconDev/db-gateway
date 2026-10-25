@@ -337,6 +337,10 @@ fn traffic_table(names: &[String], status: &Value) -> Table {
     table.column("wait p95", Align::Right);
     table.column("wait max", Align::Right);
     table.column("last write", Align::Left);
+    // How big the file is. The traffic columns say what the database has
+    // been doing; this says what it costs to keep. A hosted console puts
+    // the two side by side, and an operator watching disk wants both.
+    table.column("size", Align::Right);
     for name in names {
         let entry = &status["databases"][name.as_str()];
         let waits = entry["queue_waits"].as_u64().unwrap_or(0);
@@ -348,6 +352,10 @@ fn traffic_table(names: &[String], status: &Value) -> Table {
             Some(epoch) => Cell::text(human_epoch_ago(epoch)),
             None => Cell::text("never"),
         };
+        let size = match status["deployment"]["databases"][name.as_str()]["size_bytes"].as_u64() {
+            Some(bytes) => Cell::text(render::human_bytes(bytes)),
+            None => Cell::text("—"),
+        };
         table.row(vec![
             Cell::styled(name.clone(), Style::Cyan),
             Cell::number(entry["rows_read"].as_u64().unwrap_or(0)),
@@ -356,6 +364,7 @@ fn traffic_table(names: &[String], status: &Value) -> Table {
             figures_cells.p95,
             figures_cells.max,
             last_write,
+            size,
         ]);
     }
     table.footer("wait p95 is this database's own recent waits; wait max is its worst single wait");
