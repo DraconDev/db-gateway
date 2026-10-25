@@ -645,13 +645,12 @@ async fn remove(
         // there to reach. So the record is forgotten even then, because
         // a registry entry that names a database nobody can reach is a
         // branch the operator can neither use nor list away.
-        let already_gone = match s.fenced_write(&name, |s| {
-            s.delete(&name, crate::api::RETENTION_SECS)
-        }) {
-            Ok(()) => false,
-            Err(error) if error.code == "already_deleted" => true,
-            Err(error) => return Err(error),
-        };
+        let already_gone =
+            match s.fenced_write(&name, |s| s.delete(&name, crate::api::RETENTION_SECS)) {
+                Ok(()) => false,
+                Err(error) if error.code == "already_deleted" => true,
+                Err(error) => return Err(error),
+            };
         s.branches.forget(&name);
         if let Err(error) = s.branches.persist(s.root()) {
             tracing::error!(
