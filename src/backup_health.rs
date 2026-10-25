@@ -372,16 +372,26 @@ pub fn snapshot(store: &Store) -> Result<BackupHealth, crate::error::Error> {
     // carries databases that only exist in a set. Coverage is a claim
     // about the live deployment, so it is counted from the live names.
     let live_names: Vec<String> = store.list_all()?;
-    let mut names: Vec<String> = live_names.clone();
+    // A database that has been DELETED is not a database whose copies are
+    // stale: it is gone, and the older sets still carry it until they are
+    // pruned. Reporting those as `stale` made the daily digest exit
+    // `backup_unhealthy` over databases that had been deleted on purpose,
+    // and it pushed the live per-database rows off the operator's screen
+    // behind rows for things that no longer exist. The freshness claim is
+    // about the live deployment, so it is computed from the live names;
+    // how many deleted ones the sets still carry is counted and published,
+    // so nothing is hidden by being dropped.
+    let mut deleted: Vec<String> = Vec::new();
     if let Some(ref sets) = sets {
         for set in sets {
             for db in &set.databases {
-                if !names.contains(db) {
-                    names.push(db.clone());
+                if !live_names.contains(db) && !deleted.contains(db) {
+                    deleted.push(db.clone());
                 }
             }
         }
     }
+    let names: Vec<String> = live_names.clone();
     let mut databases = Vec::with_capacity(names.len());
     for name in &names {
         let newest = sets.as_ref().and_then(|sets| {
@@ -477,6 +487,7 @@ pub fn snapshot(store: &Store) -> Result<BackupHealth, crate::error::Error> {
             .map(|d| d.as_secs())
             .unwrap_or(0),
         databases,
+        deleted: deleted.len(),
         last_attempt,
         last_failure,
         coverage,
