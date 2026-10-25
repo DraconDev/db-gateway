@@ -191,6 +191,19 @@ impl Scroll {
             Focus::Locations => &mut self.locations,
         }
     }
+
+    /// Keep the scroll inside what the tab holds.
+    ///
+    /// A tab that scrolls past its last row shows nothing, and an empty
+    /// tab reads as "there is nothing here" -- a different and much worse
+    /// claim than "you have reached the end". The offset also ran away
+    /// without this: ten presses down on a two-row table needed ten
+    /// presses up to come back, though only one press had moved
+    /// anything.
+    pub fn clamp(&mut self, focus: Focus, max: usize) {
+        let offset = self.of(focus);
+        *offset = (*offset as usize).min(max) as u16;
+    }
 }
 
 /// The view's state.
