@@ -142,7 +142,10 @@ scripts/live_exercise.py --server http://127.0.0.1:7432 --key-file ~/.config/dg/
 ```
 
 It refuses to run against database names that already exist, and `--cleanup`
-tombstones what it created afterwards.
+tombstones what it created afterwards. `--reuse` does the opposite: it uses
+the databases that are already there, which is what to run when the goal is
+to give a running gateway some work and to fill the query log with the names
+the operator actually has.
 
 `Cargo.lock` is tracked to fix dependency resolution. CI runs the Rust checks, the TypeScript client suite, deploy-template validation, and a RustSec advisory scan (`cargo audit` equivalent) on stable Rust.
 

@@ -17,6 +17,33 @@ tagged state. Deployments and rollbacks follow
 (0.x), minor versions mark feature growth and patch versions mark
 fixes; 1.0.0 waits for production acceptance.
 
+## [0.6.0] — 2026-10-25
+
+### Added
+
+- **The live exercise can work against databases that are already there.**
+  `--reuse` skips the creation and the schema and the rows, and gives the
+  databases that are on the box the same spread of statements and the same
+  walk of the surfaces. The reason it matters: the query log lives in
+  memory, so it starts empty when the service restarts — and the first
+  thing an operator wants from it is the names of the databases they
+  actually have, not the names of a test set.
+
+### Fixed
+
+- **The live exercise could only be run once against a box.** A tombstone
+  holds its name until it is purged, so the branch the exercise forked had
+  to be named differently every time — the second run against the same
+  gateway failed at "branch create" and took the rest of the branch
+  lifecycle with it. The name is unique per run now.
+- **A write in the live exercise could not be repeated.** The row it
+  inserted had a fixed key, so a second run failed on a key that was
+  already there. It replaces the row instead.
+- **A credential the exercise could not issue was reported as a failure.**
+  A credential whose name is taken cannot be re-read — its raw key was
+  shown once and is not in the registry — so the checks that need it are
+  now skipped, with the reason, rather than counted as failures.
+
 ## [0.5.0] — 2026-10-25
 
 ### Added
