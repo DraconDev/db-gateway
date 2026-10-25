@@ -881,6 +881,18 @@ fn palette(frame: &mut Frame, area: Rect, app: &App) {
     let height = (actions.len() as u16 + 4).clamp(5, area.height.saturating_sub(2));
     let width = area.width.saturating_sub(6).clamp(30, 100);
     let popup = centered(area, width, height);
+    // The title column is MEASURED, not assumed. It used to be a fixed
+    // sixteen characters, and "rotate owner key" is exactly sixteen, so
+    // that row ran its hint straight into its title with no gap between
+    // them. Measuring the widest title that is actually on screen and
+    // adding a separator means a longer action added later cannot
+    // reintroduce the collision.
+    let title_width = actions
+        .iter()
+        .map(|action| action.title.chars().count())
+        .max()
+        .unwrap_or(0)
+        + 1;
     let mut lines = Vec::new();
     for (index, action) in actions.iter().enumerate() {
         let selected = index == app.highlighted;
@@ -900,7 +912,10 @@ fn palette(frame: &mut Frame, area: Rect, app: &App) {
         lines.push(Line::from(vec![
             Span::styled(if selected { "▸ " } else { "  " }, style),
             Span::styled(if action.destructive { "! " } else { "  " }, marked),
-            Span::styled(format!("{:<16}", action.title), marked),
+            Span::styled(
+                format!("{:<width$}", action.title, width = title_width),
+                marked,
+            ),
             Span::raw(action.hint.to_string()),
         ]));
     }

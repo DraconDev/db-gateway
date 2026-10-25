@@ -1054,6 +1054,44 @@ fn the_palette_marks_the_actions_that_cannot_be_taken_back() {
     );
 }
 
+/// The palette keeps a gap between a title and its hint.
+///
+/// The title column was a fixed sixteen characters, and "rotate owner
+/// key" is exactly sixteen, so that row ran its hint straight into its
+/// title: "rotate owner keythe old owner key dies...". A collision like
+/// that turns two pieces of text into one unreadable word, and the
+/// widest title on screen is the one that collides.
+#[test]
+fn the_palette_keeps_a_gap_between_a_title_and_its_hint() {
+    let mut app = app();
+    app.on_key(key(ratatui::crossterm::event::KeyCode::Char(':')));
+    let text = screen(&mut app, 120, 40);
+
+    for action in dg::tui::actions::CATALOG {
+        let needle = action.hint;
+        let line = text
+            .lines()
+            .find(|line| line.contains(needle))
+            .unwrap_or_else(|| panic!("the palette does not show {needle:?}:\n{text}"));
+        let index = line.find(needle).expect("the hint is on the line");
+        let before = &line[..index];
+        // The title ends the title column, and a space separates it
+        // from the hint. Without the space the two words are one word.
+        assert!(
+            before.ends_with(' '),
+            "the palette runs {:?} into its hint without a gap: {line:?}",
+            action.title
+        );
+        // And the title is whole: the hint did not start in the middle
+        // of it.
+        assert!(
+            before.contains(action.title),
+            "the palette does not show the whole title {:?}: {line:?}",
+            action.title
+        );
+    }
+}
+
 /// A tab cannot be scrolled into nothing.
 ///
 /// Scrolling past the last row used to leave the offset running: ten
