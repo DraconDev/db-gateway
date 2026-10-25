@@ -42,7 +42,7 @@ async fn read(State(state): State<Arc<Partial>>, request: Request<axum::body::Bo
     // the peak says nothing.
     tokio::time::sleep(Duration::from_millis(150)).await;
     state.in_flight.fetch_sub(1, Ordering::SeqCst);
-    if state.answer.iter().any(|answer| *answer == path) {
+    if state.answer.contains(&path) {
         (StatusCode::OK, axum::Json(json!({"version": "0.4.1"}))).into_response()
     } else {
         (
