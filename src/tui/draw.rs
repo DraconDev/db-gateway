@@ -912,10 +912,7 @@ fn palette(frame: &mut Frame, area: Rect, app: &App) {
         lines.push(Line::from(vec![
             Span::styled(if selected { "▸ " } else { "  " }, style),
             Span::styled(if action.destructive { "! " } else { "  " }, marked),
-            Span::styled(
-                format!("{:<width$}", action.title, width = title_width),
-                marked,
-            ),
+            Span::styled(format!("{:<16}", action.title), marked),
             Span::raw(action.hint.to_string()),
         ]));
     }
