@@ -629,8 +629,19 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &App) {
     // Scrolling moves whatever is cut off: the fields when they are
     // longer than the pane, the log table when it is. A section below the
     // fold is still reachable.
-    let offset = app.scroll.backups as usize;
     let fields_clipped = fields_height < lines.len() as u16 + 2;
+    // The scroll cannot run past the end of whatever it is scrolling. A
+    // tab scrolled into nothing reads as a service with nothing to say.
+    let limit = if fields_clipped {
+        lines.len().saturating_sub(1)
+    } else {
+        tables
+            .last()
+            .map(|(_, table)| table.rows().len().saturating_sub(1))
+            .unwrap_or(0)
+    };
+    app.scroll.clamp(Focus::Backups, limit);
+    let offset = app.scroll.backups as usize;
     let lines: Vec<Line<'static>> = if fields_clipped {
         lines.into_iter().skip(offset).collect()
     } else {
