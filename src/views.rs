@@ -428,6 +428,11 @@ pub fn backups(backups: &Value) -> Vec<Section> {
             table.column("state", Align::Left);
             table.column("newest set", Align::Left);
             table.column("age", Align::Right);
+            // How long the newest change has gone without a copy. It is the
+            // number the cadence is judged on, so a row that says `behind`
+            // is only readable next to it: without it, `behind` looks like a
+            // state rather than a measurement.
+            table.column("lag", Align::Right);
             for name in names {
                 let fresh = &per_database[name.as_str()];
                 let state = fresh["state"].as_str().unwrap_or("unknown");
@@ -445,6 +450,12 @@ pub fn backups(backups: &Value) -> Vec<Section> {
                             .as_u64()
                             .map(human_duration)
                             .unwrap_or_else(|| "unknown".to_string()),
+                    ),
+                    Cell::text(
+                        fresh["lag_secs"]
+                            .as_u64()
+                            .map(human_duration)
+                            .unwrap_or_else(|| "—".to_string()),
                     ),
                 ]);
             }
