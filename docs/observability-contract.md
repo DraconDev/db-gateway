@@ -168,8 +168,9 @@ decision called the floor, because no alert stack exists in the project.
 | Failure signal | `$BACKUP_ROOT/attempts.jsonl`, appended by `scripts/micro2-backup.sh`: outcome, step reached, set | `read_attempts` (src/backup_health.rs) |
 | Notice scope | the newest failed attempt not yet reported, once. Two failures inside one poll window produce one notice naming the newer; the complete history stays in `attempts.jsonl` and the next failure always alerts again | `DeliveryState` (src/notify.rs) |
 | Freshness rule | §2, computed once and shared by `/v1/backups`, `dg backup status`, `dg backup digest` and the digest sink | `snapshot` (src/backup_health.rs) |
-| On demand | `dg backup digest [--json]`, reads the data directory directly, so it works with the gateway stopped; exits nonzero when any database is stale or unknown | owner-only equivalent of the delivered digest |
+| On demand | `dg backup digest [--json]`, reads the data directory directly, so it works with the gateway stopped; exits nonzero when any database is stale beyond the cadence or unknown | owner-only equivalent of the delivered digest |
 | Deleted databases | a database that has been deleted is not stale, it is gone: it is counted in `deleted` and never asks for attention | the digest must not cry wolf about a backup that is fine |
+| Snapshot cadence | the owner-approved snapshot cadence, in seconds, set per deployment with `dg serve --backup-cadence-secs` / `dg backup digest --cadence-secs` and published as `cadence_secs`; with none approved every unrepresented change is reported | §2a: a change waiting for the producer's next publication is not a finding |
 | Delivery is opt-in | no flag, no notification anywhere: both cadences default to 0 | the decision was delivery, not a new default behaviour for every gateway |
 
 The owner's daily-digest decision is therefore this one flag set, with the
