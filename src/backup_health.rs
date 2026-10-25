@@ -641,6 +641,46 @@ mod tests {
         assert!(health.attention().is_empty());
     }
 
+    /// A deleted database is not a stale database.
+    ///
+    /// The health used to judge every database that appeared in a published
+    /// set, including the ones that had been deleted. Those were counted
+    /// as `stale`, which made the daily digest exit `backup_unhealthy` over
+    /// databases that had been deleted on purpose, and it pushed the live
+    /// rows off the operator's screen behind rows for things that no longer
+    /// exist. A deleted database is gone, not stale.
+    #[test]
+    fn a_deleted_database_is_not_reported_as_stale() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_with_backup_root(dir.path());
+        store.create_and_note("alpha").unwrap();
+        store.create_and_note("gone").unwrap();
+        let root = dir.path().join("dg-backups");
+        let boundary = std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 60;
+        // The set carries both: one that is live and one that is not.
+        write_set(&root, "20240101T000000Z", &["alpha", "gone"], Some(boundary));
+        // And the second one was deleted on purpose.
+        store.delete("gone", 3600).unwrap();
+
+        let health = snapshot(&store).unwrap();
+        // The live database is judged as it always was.
+        assert_eq!(health.databases.len(), 1);
+        assert_eq!(health.databases[0].name, "alpha");
+        assert_eq!(health.databases[0].state, "fresh");
+        // The deleted one asks for nothing: it does not need a backup.
+        assert!(
+            health.attention().is_empty(),
+            "a deleted database asked for attention: {:?}",
+            health.attention()
+        );
+        // It is counted, so it is not hidden by being dropped.
+        assert_eq!(health.deleted, 1);
+    }
+
     #[test]
     fn stale_when_a_write_lands_after_the_coverage_boundary() {
         let dir = tempfile::tempdir().unwrap();
