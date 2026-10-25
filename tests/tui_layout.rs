@@ -863,7 +863,7 @@ fn a_long_per_database_table_does_not_hide_where_the_copy_is() {
         "dg-sandbox",
         "168h",
         "restored and verified",
-        "2026-10-15T14:16:08Z",
+        "2026-10-15 14:16 UTC",
     ] {
         assert!(
             text.contains(fact),
