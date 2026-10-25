@@ -848,16 +848,15 @@ mod tests {
     #[test]
     fn within_the_cadence_a_change_is_behind_and_asks_for_nothing() {
         let dir = tempfile::tempdir().unwrap();
-        let store = store_with_backup_root(dir.path()).with_backup_cadence(Some(3600));
-        store.create_and_note("alpha").unwrap();
+        let store = store_written_ago(dir.path(), 300).with_backup_cadence(Some(3600));
         let root = dir.path().join("dg-backups");
-        // The boundary is a minute old, so the change has been waiting about
-        // as long as it takes to notice it.
+        // The boundary is older than the write, so the change is not covered
+        // by this copy.
         let boundary = std::time::SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs()
-            - 60;
+            - 600;
         write_set(&root, "20240101T000000Z", &["alpha"], Some(boundary));
         let health = snapshot(&store).unwrap();
         assert_eq!(health.cadence_secs, Some(3600));
@@ -870,8 +869,10 @@ mod tests {
         // The lag is reported, because "behind" is only readable next to the
         // number it was measured against.
         let lag = health.databases[0].lag_secs.expect("the lag is reported");
-        assert!(lag >= 60, "the lag should count from the write: {lag}s");
-        assert!(lag < 3600, "the lag is inside the cadence: {lag}s");
+        assert!(
+            (290..=310).contains(&lag),
+            "the lag should count from the write: {lag}s"
+        );
     }
 
     /// Past the approved cadence, the same change is a finding again.
@@ -884,21 +885,18 @@ mod tests {
     #[test]
     fn past_the_cadence_the_same_change_is_stale_again() {
         let dir = tempfile::tempdir().unwrap();
-        let store = store_with_backup_root(dir.path()).with_backup_cadence(Some(60));
-        store.create_and_note("alpha").unwrap();
+        let store = store_written_ago(dir.path(), 300).with_backup_cadence(Some(60));
         let root = dir.path().join("dg-backups");
-        // The boundary is an hour old and the write is newer, so the change
-        // has been waiting an hour -- past the one-minute objective.
         let boundary = std::time::SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs()
-            - 3600;
+            - 600;
         write_set(&root, "20240101T000000Z", &["alpha"], Some(boundary));
         let health = snapshot(&store).unwrap();
         assert_eq!(health.databases[0].state, "stale");
         assert_eq!(health.attention().len(), 1);
-        assert!(health.databases[0].lag_secs.unwrap() >= 3600);
+        assert!(health.databases[0].lag_secs.unwrap() >= 290);
     }
 
     /// The cadence does not make an absent copy healthy.
