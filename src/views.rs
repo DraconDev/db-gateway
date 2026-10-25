@@ -1212,6 +1212,11 @@ pub fn attempt_outcome_style(outcome: &str) -> Style {
 pub fn backup_state_style(state: &str) -> Style {
     match state {
         "fresh" => Style::Green,
+        // `behind` is quiet on purpose: the copy is waiting for the
+        // producer's next publication and the approved cadence says that
+        // is fine. Drawing it like a warning is how the daily digest
+        // taught the operator to ignore red.
+        "behind" => Style::Dim,
         "stale" => Style::Yellow,
         _ => Style::Red,
     }
