@@ -492,6 +492,52 @@ async fn deleting_a_branch_deletes_the_database_and_forgets_the_record() {
     assert_eq!(body["branches"].as_array().map(Vec::len), Some(0));
 }
 
+/// A branch whose database was deleted another way can still be removed.
+///
+/// `dg delete` tombstones a database without touching the branch
+/// registry, so a branch can be left pointing at a database that is
+/// already gone. Deleting the branch then answered 409 -- the database
+/// was already deleted -- and stopped there: the record stayed, and
+/// `dg branch list` went on showing a branch the operator could
+/// neither use nor list away.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_branch_whose_database_was_deleted_elsewhere_can_still_be_removed() {
+    let dir = tempfile::tempdir().unwrap();
+    let data_dir = dir.path().join("data");
+    let owner = owner_for(&data_dir);
+    let (address, _store) = serve(&data_dir, None).await;
+    seed(&address, &owner, "parent", &["one"]).await;
+    let (status, _) = post(
+        &address,
+        "/v1/branch",
+        &owner,
+        &json!({"parent": "parent", "name": "fork", "at": null}),
+    )
+    .await;
+    assert_eq!(status, 200);
+
+    // The database is tombstoned directly, not through the branch
+    // router: this is `dg delete`, and it leaves the record behind.
+    let (status, _) = delete(&address, "/v1/databases/fork", &owner).await;
+    assert_eq!(status, 200);
+    let (status, body) = get(&address, "/v1/branches", &owner).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["branches"].as_array().map(Vec::len), Some(1));
+
+    // The branch is still removable, and the answer says the database
+    // had already gone.
+    let (status, body) = delete(&address, "/v1/branches/fork", &owner).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["deleted"], json!(true));
+    assert_eq!(body["already_deleted"], json!(true));
+
+    // And the record is gone: nothing is left pointing at a database
+    // nobody can reach.
+    let (status, body) = get(&address, "/v1/branches", &owner).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["branches"].as_array().map(Vec::len), Some(0));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn the_cli_reads_the_same_branches_the_api_serves() {
     let dir = tempfile::tempdir().unwrap();
