@@ -782,6 +782,109 @@ mod tests {
         assert_eq!(health.attention().len(), 1);
     }
 
+    /// Without an approved cadence, the strict reading stands.
+    ///
+    /// A change that no verified copy carries is a finding, whatever its age.
+    /// The owner has not said how long it may wait, so nothing is excused --
+    /// and a deployment that has not made that decision keeps the behaviour
+    /// it has always had.
+    #[test]
+    fn without_a_cadence_every_unrepresented_change_is_reported() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_with_backup_root(dir.path());
+        store.create_and_note("alpha").unwrap();
+        let root = dir.path().join("dg-backups");
+        let boundary = std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - 60;
+        write_set(&root, "20240101T000000Z", &["alpha"], Some(boundary));
+        let health = snapshot(&store).unwrap();
+        assert_eq!(health.cadence_secs, None);
+        assert_eq!(health.databases[0].state, "stale");
+        assert_eq!(health.attention().len(), 1);
+    }
+
+    /// Within the approved cadence, a change waiting for the producer's next
+    /// publication is the producer working.
+    ///
+    /// This is the difference the whole change exists for. An hourly producer
+    /// leaves every database unrepresented for up to an hour after each
+    /// write; before the cadence, that made the daily digest exit
+    /// `backup_unhealthy` every single day, and an alarm that is red
+    /// whenever anything happens says nothing about whether the backup works.
+    #[test]
+    fn within_the_cadence_a_change_is_behind_and_asks_for_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_with_backup_root(dir.path()).with_backup_cadence(Some(3600));
+        store.create_and_note("alpha").unwrap();
+        let root = dir.path().join("dg-backups");
+        // The boundary is a minute old, so the change has been waiting about
+        // as long as it takes to notice it.
+        let boundary = std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - 60;
+        write_set(&root, "20240101T000000Z", &["alpha"], Some(boundary));
+        let health = snapshot(&store).unwrap();
+        assert_eq!(health.cadence_secs, Some(3600));
+        assert_eq!(health.databases[0].state, "behind");
+        assert!(
+            health.attention().is_empty(),
+            "a change within the cadence asked for attention: {:?}",
+            health.attention()
+        );
+        // The lag is reported, because "behind" is only readable next to the
+        // number it was measured against.
+        let lag = health.databases[0].lag_secs.expect("the lag is reported");
+        assert!(lag >= 60, "the lag should count from the write: {lag}s");
+        assert!(lag < 3600, "the lag is inside the cadence: {lag}s");
+    }
+
+    /// Past the approved cadence, the same change is a finding again.
+    ///
+    /// The state is the same measurement as `behind` -- how long an
+    /// unrepresented change has waited -- read against a different line. So
+    /// the same situation flips from quiet to loud when the objective is
+    /// missed, which is exactly the contract's "not represented within the
+    /// cadence".
+    #[test]
+    fn past_the_cadence_the_same_change_is_stale_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_with_backup_root(dir.path()).with_backup_cadence(Some(60));
+        store.create_and_note("alpha").unwrap();
+        let root = dir.path().join("dg-backups");
+        // The boundary is an hour old and the write is newer, so the change
+        // has been waiting an hour -- past the one-minute objective.
+        let boundary = std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - 3600;
+        write_set(&root, "20240101T000000Z", &["alpha"], Some(boundary));
+        let health = snapshot(&store).unwrap();
+        assert_eq!(health.databases[0].state, "stale");
+        assert_eq!(health.attention().len(), 1);
+        assert!(health.databases[0].lag_secs.unwrap() >= 3600);
+    }
+
+    /// The cadence does not make an absent copy healthy.
+    ///
+    /// `unknown` means there is no verified copy to judge, and no duration
+    /// can make that better. A cadence is permission to wait, not a way to
+    /// stop looking.
+    #[test]
+    fn a_cadence_never_turns_an_unknown_into_a_fresh_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_with_backup_root(dir.path()).with_backup_cadence(Some(3600));
+        store.create_and_note("alpha").unwrap();
+        let health = snapshot(&store).unwrap();
+        assert_eq!(health.databases[0].state, "unknown");
+        assert_eq!(health.attention().len(), 1);
+    }
+
     #[test]
     fn a_set_with_no_coverage_boundary_is_unknown_never_fresh() {
         let dir = tempfile::tempdir().unwrap();
