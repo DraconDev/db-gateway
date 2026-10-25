@@ -290,3 +290,117 @@ below is what the terminal showed after the query ran.
 └─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 1-6 tabs  tab next tab  ↑↓ scroll  : commands  r refresh  q quit
 
+----- tab 6: locations -----
+A real `dg tui` session against a real gateway.
+Captured by scripts/capture-tui-evidence.sh: the raw pty
+stream is in the .log beside this file, and the screen
+below is what the terminal showed after the query ran.
+
+ dg http://127.0.0.1:7432 · read 1s ago · connected
+ 1 databases (7) │ 2 service │ 3 backups │ 4 keys (5) │ 5 queries (33) │▸ 6 locations (37)
+┌ locations ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│database                    file                                           size       state                                                                                                  │
+│billing_dev_pilot           /var/lib/dg/billing_dev_pilot.sqlite           68.1 KiB   live                                                                                                   │
+│branch_probe                /var/lib/dg/branch_probe.sqlite                64.0 KiB   tombstoned                                                                                             │
+│branch_probe_1792936872     /var/lib/dg/branch_probe_1792936872.sqlite     64.0 KiB   tombstoned                                                                                             │
+│branch_probe_1792938433     /var/lib/dg/branch_probe_1792938433.sqlite     64.0 KiB   tombstoned                                                                                             │
+│branch_probe_1792953418     /var/lib/dg/branch_probe_1792953418.sqlite     64.0 KiB   tombstoned                                                                                             │
+│inventory                   /var/lib/dg/inventory.sqlite                   88.1 KiB   live                                                                                                   │
+│ledger                      /var/lib/dg/ledger.sqlite                      88.1 KiB   live                                                                                                   │
+│notes                       /var/lib/dg/notes.sqlite                       92.2 KiB   live                                                                                                   │
+│orders                      /var/lib/dg/orders.sqlite                      80.1 KiB   live                                                                                                   │
+│orders_scratch              /var/lib/dg/orders_scratch.sqlite              68.1 KiB   tombstoned                                                                                             │
+│sessions                    /var/lib/dg/sessions.sqlite                    92.1 KiB   live                                                                                                   │
+│t1branch_probe              /var/lib/dg/t1branch_probe.sqlite              56.0 KiB   tombstoned                                                                                             │
+│t1inventory                 /var/lib/dg/t1inventory.sqlite                 64.0 KiB   tombstoned                                                                                             │
+│t1ledger                    /var/lib/dg/t1ledger.sqlite                    64.0 KiB   tombstoned                                                                                             │
+│t1notes                     /var/lib/dg/t1notes.sqlite                     52.0 KiB   tombstoned                                                                                             │
+│t1orders                    /var/lib/dg/t1orders.sqlite                    56.0 KiB   tombstoned                                                                                             │
+│t1sessions                  /var/lib/dg/t1sessions.sqlite                  68.0 KiB   tombstoned                                                                                             │
+│t2branch_probe              /var/lib/dg/t2branch_probe.sqlite              56.0 KiB   tombstoned                                                                                             │
+│t2inventory                 /var/lib/dg/t2inventory.sqlite                 64.0 KiB   tombstoned                                                                                             │
+│t2ledger                    /var/lib/dg/t2ledger.sqlite                    64.0 KiB   tombstoned                                                                                             │
+│t2notes                     /var/lib/dg/t2notes.sqlite                     52.0 KiB   tombstoned                                                                                             │
+│t2orders                    /var/lib/dg/t2orders.sqlite                    56.0 KiB   tombstoned                                                                                             │
+│t2sessions                  /var/lib/dg/t2sessions.sqlite                  68.0 KiB   tombstoned                                                                                             │
+│t3branch_probe              /var/lib/dg/t3branch_probe.sqlite              56.0 KiB   tombstoned                                                                                             │
+│t3inventory                 /var/lib/dg/t3inventory.sqlite                 64.0 KiB   tombstoned                                                                                             │
+│t3ledger                    /var/lib/dg/t3ledger.sqlite                    64.0 KiB   tombstoned                                                                                             │
+│t3notes                     /var/lib/dg/t3notes.sqlite                     52.0 KiB   tombstoned                                                                                             │
+│t3orders                    /var/lib/dg/t3orders.sqlite                    56.0 KiB   tombstoned                                                                                             │
+│t3sessions                  /var/lib/dg/t3sessions.sqlite                  68.0 KiB   tombstoned                                                                                             │
+│t4branch_probe              /var/lib/dg/t4branch_probe.sqlite              56.0 KiB   tombstoned                                                                                             │
+│t4inventory                 /var/lib/dg/t4inventory.sqlite                 64.0 KiB   tombstoned                                                                                             │
+│t4ledger                    /var/lib/dg/t4ledger.sqlite                    64.0 KiB   tombstoned                                                                                             │
+│t4notes                     /var/lib/dg/t4notes.sqlite                     52.0 KiB   tombstoned                                                                                             │
+│t4orders                    /var/lib/dg/t4orders.sqlite                    56.0 KiB   tombstoned                                                                                             │
+│t4sessions                  /var/lib/dg/t4sessions.sqlite                  68.0 KiB   tombstoned                                                                                             │
+│verify_probe                /var/lib/dg/verify_probe.sqlite                84.2 KiB   live                                                                                                   │
+│verify_probe_branch_check   /var/lib/dg/verify_probe_branch_check.sqlite   56.0 KiB   tombstoned                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+1-6 tabs  tab next tab  ↑↓ scroll  : commands  r refresh  q quit
+
+----- the palette -----
+A real `dg tui` session against a real gateway.
+Captured by scripts/capture-tui-evidence.sh: the raw pty
+stream is in the .log beside this file, and the screen
+below is what the terminal showed after the query ran.
+
+ dg http://127.0.0.1:7432 · read 1s ago · connected
+▸ 1 databases (7) │ 2 service │ 3 backups │ 4 keys (5) │ 5 queries (33) │ 6 locations (37)
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│database            rows read   rows written   waits   wait p95   wait max   last write   size                                                                                               │
+│billing_dev_pilot   0           0              0       -          -          never        68.1 KiB                                                                                           │
+│inventory           103         10             13      1 us       1 us       22s ago      88.1 KiB                                                                                           │
+│ledger              26          1              6       1 us       1 us       22s ago      88.1 KiB                                                                                           │
+│notes               23          0              6       1 us       1 us       20s ago      92.2 KiB                                                                                           │
+│orders              32          0              7       1 us       1 us       5h 47m ago   80.1 KiB                                                                                           │
+│sessions            12          0              5       1 us       1 us       6h 1m ago    92.1 KiB                                                                                           │
+│verify_probe        0           0              0       -          -          never        84.2 KiB                                                                                           │
+│wait p95 is this database's own recent waits; wait max is its worst single wait                                                                                                              │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                            ┌ actions ─────────────────────────────────────────────────────────────────────────────────────────┐                                             │
+│                                            │▸   refresh          read the service again now                                                   │                                             │
+│                                            │    query            query <database> <sql>                                                       │                                             │
+│                                            │    run sql file     run <database> <script.sql>                                                  │                                             │
+│                                            │    run batch file   batch <database> <batch.json>                                                │                                             │
+│                                            │    create database  create <name>                                                                │                                             │
+│                                            │  ! delete database  delete <name>                                                                │                                             │
+│                                            │    clone database   clone <source> <destination>                                                 │                                             │
+│                                            │    export database  export <name> <file.sqlite>                                                  │                                             │
+│                                            │    import database  import <name> <file.sqlite>                                                  │                                             │
+│                                            │    issue key        issue <name> <role> <database>...                                            │                                             │
+│                                            │  ! revoke key       revoke <name>                                                                │                                             │
+│                                            │  ! rotate owner key the old owner key dies the moment the new one is issued                      │                                             │
+│                                            │    quit             leave the view                                                               │                                             │
+│                                            │                                                                                                  │                                             │
+│                                            │                                                                                                  │                                             │
+│                                            └──────────────────────────────────────────────────────────────────────────────────────────────────┘                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+1-6 tabs  tab next tab  ↑↓ scroll  : commands  r refresh  q quit
+
