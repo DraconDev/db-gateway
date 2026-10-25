@@ -28,6 +28,18 @@ way it always is: through an SSH tunnel.
 
 A tab strip, and the body of the tab that is showing.
 
+The bar along the top names the gateway, says how long ago it was read, and
+says whether it answered. It is **reachable** when it answered anything at
+all: a refused backup list does not mean the service is down, so one answer
+out of five is an answer. The bar used to say otherwise — the threshold was
+written down as "fewer than four failures", which was right when the view
+read four things and wrong the moment it read five, and the view then said
+*unreachable* while the gateway was answering. The rule is counted from the
+answers now, so a sixth read cannot leave it behind.
+
+The view reads those five things together rather than one after another, so
+a gateway that hangs costs one read's budget rather than five.
+
 | Tab | Key | What it answers |
 |---|---|---|
 | Databases | `1` | Every database the gateway lists, with the rows it has read and written, its own wait p95 and its worst wait, and when it was last written |
