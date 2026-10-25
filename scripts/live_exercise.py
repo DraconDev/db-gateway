@@ -426,6 +426,8 @@ def main():
         print(f"these names already exist: {', '.join(clash)}", file=sys.stderr)
         print("pass --prefix to work beside them, or --reuse to use them", file=sys.stderr)
         return 2
+    if clash and args.reuse:
+        print(f"reusing: {', '.join(clash)}", file=sys.stderr)
     if args.reuse:
         missing = [name for name in names if name not in existing]
         if missing:
@@ -550,7 +552,10 @@ def main():
         report.add(label, code == 0, err.strip()[:160])
 
     print("== the branch lifecycle ==")
-    branch = named("branch_probe")
+    # The branch name is unique per run: a tombstone holds its name
+    # until it is purged, so a name the exercise used before cannot be
+    # used again -- not even the second time in the same day.
+    branch = f"{named('branch_probe')}_{int(time.time())}"
     code, _, err = client.run(["branch", "create", names[1], branch])
     report.add("branch create", code == 0, err.strip()[:160])
     code, _, err = client.run(["branch", "list"])
