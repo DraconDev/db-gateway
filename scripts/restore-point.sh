@@ -183,7 +183,18 @@ if [ "$MODE" = "list" ]; then
         # after it. A database with nothing in the replica is reported as
         # such rather than omitted, because "absent from the list" and
         # "not replicated" are different answers.
-        if "$LITESTREAM_BIN" ltx -config "$LITESTREAM_CONFIG" "$path" \
+        #
+        # `-level all` is not optional. `litestream ltx` lists the
+        # DEFAULT level only, and level 0 is the newest segment of one
+        # database -- so asking for it published one row per database and
+        # a window that was a single instant. The bucket holds the whole
+        # chain: the snapshot at level 9 and the compacted WAL at levels
+        # 1, 2 and 3, which is what covers the hours and days between
+        # snapshots. Without them the published window was hours shorter
+        # than the replica's real one, and every moment inside it was
+        # reported as "the window opens later" -- moments litestream
+        # itself would happily restore.
+        if "$LITESTREAM_BIN" ltx -level all -config "$LITESTREAM_CONFIG" "$path" \
             >"$WORK/$name.ltx" 2>"$WORK/$name.err"; then
             :
         else
