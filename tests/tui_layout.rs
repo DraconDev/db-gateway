@@ -811,6 +811,67 @@ fn a_long_database_list_scrolls_and_says_how_many_it_holds() {
     );
 }
 
+/// The databases tab says how big each database is.
+///
+/// The traffic columns say what a database has been doing; the size says
+/// what it costs to keep. A hosted console puts the two side by side, and
+/// an operator watching a disk wants both.
+#[test]
+fn the_databases_tab_says_how_big_each_database_is() {
+    let mut app = app();
+    let text = screen(&mut app, 191, 50);
+    assert!(
+        text.contains("size"),
+        "the databases tab has no size column:\n{text}"
+    );
+    // The two live databases, at the sizes the fixture gives them.
+    assert!(
+        text.contains("40.0 KiB"),
+        "the databases tab does not say how big demo is:\n{text}"
+    );
+    assert!(
+        text.contains("12.0 KiB"),
+        "the databases tab does not say how big other is:\n{text}"
+    );
+}
+
+/// A long per-database table does not hide where the copy is.
+///
+/// The backups tab draws its summary and its tables in one pane, and the
+/// per-database table kept every row it was given. With a few dozen
+/// databases the summary had no room left, so the two questions an
+/// operator has most reason to ask -- where the off-host copy is, and
+/// whether it was ever restored and verified -- were scrolled out of
+/// sight, while the rows of databases that had been deleted on purpose
+/// filled the screen.
+#[test]
+fn a_long_per_database_table_does_not_hide_where_the_copy_is() {
+    let mut app = app();
+    let mut value = backups();
+    let mut per_database = serde_json::Map::new();
+    for index in 0..30 {
+        per_database.insert(
+            format!("db{index:02}"),
+            json!({"state": "stale", "newest_set": "20261001T070000Z", "age_secs": 1728000}),
+        );
+    }
+    value["per_database"] = json!(per_database);
+    app.backups = Some(value);
+    open_tab(&mut app, '3');
+    let text = screen(&mut app, 191, 50);
+    for fact in [
+        "dg-sandbox",
+        "168h",
+        "restored and verified",
+        "2026-10-15T14:16:08Z",
+    ] {
+        assert!(
+            text.contains(fact),
+            "the backups tab does not say {fact:?}:\n{text}"
+        );
+    }
+}
+
 #[test]
 fn the_backups_tab_says_whether_the_copies_are_any_good() {
     // Four questions an operator asks before they trust the copies: did
