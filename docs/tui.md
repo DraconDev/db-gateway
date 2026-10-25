@@ -230,6 +230,11 @@ credential list carry their count in the tab strip. The strip is the summary
 of every tab — including the ones you cannot see — so it is where the count
 belongs, and the body's frame does not repeat it.
 
+The scroll never runs past the end of what the tab holds. A tab scrolled
+into an empty screen reads as *there is nothing here*, which is a different
+and much worse claim than *you have reached the end*, so the last row stays
+on screen and a table that already fits does not scroll at all.
+
 A table that needs explaining says so under itself. The database list's
 `wait p95` and `wait max` are different facts, and the line under the rows
 says which is which.
