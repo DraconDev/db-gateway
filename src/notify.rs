@@ -137,6 +137,7 @@ pub fn failure_note(health: &BackupHealth, attempt: &AttemptRecord) -> Note {
                 .unwrap_or_else(|| "<root>".to_string())
         ),
         stale_after_secs: health.stale_after_secs,
+        cadence_secs: health.cadence_secs,
     }
 }
 
@@ -190,6 +191,7 @@ pub fn digest_note(health: &BackupHealth) -> Note {
         failure: health.last_failure.clone(),
         action,
         stale_after_secs: health.stale_after_secs,
+        cadence_secs: health.cadence_secs,
     }
 }
 
@@ -205,7 +207,12 @@ pub fn render_text(note: &Note) -> String {
             if let Some(age) = db.age_secs {
                 out.push_str(&format!(", {age}s ago"));
             }
+            if let Some(lag) = db.lag_secs {
+                out.push_str(&format!(", unrepresented {lag}s"));
+            }
             out.push(')');
+        } else if let Some(lag) = db.lag_secs {
+            out.push_str(&format!(" (unrepresented {lag}s)"));
         }
     }
     if let Some(failure) = &note.failure {
