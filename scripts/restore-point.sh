@@ -207,6 +207,7 @@ if [ "$MODE" = "list" ]; then
     SIDECAR="$(sidecar_state)"
 
     python3 - "$WORK" "$PUBLISHED_AT" "$SIDECAR" <<'PY' | publish restore-points.json
+import datetime
 import json
 import os
 import sys
