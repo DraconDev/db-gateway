@@ -607,8 +607,8 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App) {
     // in it, so each table is promised room for a header and one row
     // before the fields are given anything.
     let min_table = 4u16;
-    let fields_height = (lines.len() as u16 + 2)
-        .min(area.height.saturating_sub(min_table * tables.len() as u16));
+    let fields_height =
+        (lines.len() as u16 + 2).min(area.height.saturating_sub(min_table * tables.len() as u16));
     let remaining = area.height.saturating_sub(fields_height);
     // The per-database table is the one that grows with the deployment:
     // it has a row per database. It takes what is left after the log
@@ -623,7 +623,7 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App) {
         })
         .unwrap_or(0);
     let mut constraints = vec![Constraint::Length(fields_height)];
-    if let Some((_, table)) = tables.first() {
+    if !tables.is_empty() {
         constraints.push(Constraint::Length(per_database_height));
     }
     for _ in tables.iter().skip(1) {
@@ -649,7 +649,10 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App) {
     let (content, visible) = if fields_clipped {
         (lines.len(), (fields_height as usize).saturating_sub(2))
     } else if per_database_clipped {
-        let table_rows = tables.first().map(|(_, table)| table.rows().len()).unwrap_or(0);
+        let table_rows = tables
+            .first()
+            .map(|(_, table)| table.rows().len())
+            .unwrap_or(0);
         (
             table_rows,
             (per_database_height as usize).saturating_sub(3).max(1),

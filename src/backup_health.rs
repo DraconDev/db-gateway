@@ -662,7 +662,12 @@ mod tests {
             .as_secs()
             + 60;
         // The set carries both: one that is live and one that is not.
-        write_set(&root, "20240101T000000Z", &["alpha", "gone"], Some(boundary));
+        write_set(
+            &root,
+            "20240101T000000Z",
+            &["alpha", "gone"],
+            Some(boundary),
+        );
         // And the second one was deleted on purpose.
         store.delete("gone", 3600).unwrap();
 

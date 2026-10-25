@@ -551,20 +551,19 @@ fn copy_sections(backups: &Value) -> Vec<Section> {
     // operator reads once.
     if let Some(failure) = backups["last_failure"].as_object()
         && backups["last_attempt"]["ts"] != failure["ts"]
+        && let Some(section) = sections.last_mut()
     {
-        if let Some(section) = sections.last_mut() {
-            section.field(
-                "last failure",
-                Cell::text(format!(
-                    "{} (step {})",
-                    failure["completed_at"]
-                        .as_u64()
-                        .map(human_epoch_ago)
-                        .unwrap_or_else(|| "unknown".to_string()),
-                    failure["step"].as_str().unwrap_or("unknown"),
-                )),
-            );
-        }
+        section.field(
+            "last failure",
+            Cell::text(format!(
+                "{} (step {})",
+                failure["completed_at"]
+                    .as_u64()
+                    .map(human_epoch_ago)
+                    .unwrap_or_else(|| "unknown".to_string()),
+                failure["step"].as_str().unwrap_or("unknown"),
+            )),
+        );
     }
 
     // What the newest set carries. The registry matters as much as the
