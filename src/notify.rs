@@ -342,8 +342,9 @@ impl Sink for LogSink {
                     "backup attempt failed"
                 );
             } else {
-                let (fresh, stale, unknown) = (
+                let (fresh, behind, stale, unknown) = (
                     note.databases.iter().filter(|d| d.state == "fresh").count(),
+                    note.databases.iter().filter(|d| d.state == "behind").count(),
                     note.databases.iter().filter(|d| d.state == "stale").count(),
                     note.databases
                         .iter()
@@ -355,6 +356,7 @@ impl Sink for LogSink {
                     severity = note.severity.as_str(),
                     databases,
                     fresh,
+                    behind,
                     stale,
                     unknown,
                     action = %note.action,
