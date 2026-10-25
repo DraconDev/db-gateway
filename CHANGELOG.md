@@ -17,6 +17,57 @@ tagged state. Deployments and rollbacks follow
 (0.x), minor versions mark feature growth and patch versions mark
 fixes; 1.0.0 waits for production acceptance.
 
+## [0.4.2] — 2026-10-25
+
+### Fixed
+
+- **The view said "unreachable" while the gateway was answering.** The
+  connectivity indicator compared the number of failed reads against a
+  threshold written down as "fewer than four". That was right when the view
+  read four things and wrong the moment a fifth was added in 0.3.0, so a
+  gateway that answered one read out of five was reported as down. The rule
+  is counted from the answers now — reachable when it answered anything at
+  all — and it cannot fall behind the number of reads again.
+- **A gateway that hung froze the view for fifty seconds.** The five reads
+  were made one after another, each with a ten-second budget, and the loop
+  drew nothing until the last one came back. They are made together now, so
+  a hung gateway costs one budget rather than five.
+- **A tab could be scrolled into nothing.** The scroll offset was never
+  clamped to the content, so scrolling past the last row left the offset
+  running — ten presses down on a two-row table needed ten presses up to
+  come back — and the two text tabs, the dashboard and the backups, could
+  be scrolled into an empty screen, which reads as *there is nothing here*.
+  The last row now stays on screen and a table that already fits does not
+  scroll at all.
+- **The actions list did not mark the irreversible ones.** *Delete
+  database*, *revoke key* and *rotate owner key* sat beside *refresh* with
+  the same weight, which tells the operator that the two are the same kind
+  of thing. They now carry a `!` and the theme's colour for a destructive
+  act — the colour that existed for this and had no use until now. The
+  marker is a character and not only a colour, so it survives a monochrome
+  terminal.
+
+### Changed
+
+- The bar's error says what happened rather than listing every failure —
+  *four of five reads failed: forbidden* — because five refusals of the
+  same kind are one fact, not five, and the bar has one line for it. A
+  message too long for the line is cut with an ellipsis, so a message that
+  runs off the edge says that it did.
+- `docs/tui.md` said `1-5` tabs in the command-bar section after the bar
+  said `1-6`. It says `1-6` now, and it records what the top bar claims
+  about the gateway and what the scroll is allowed to do.
+
+### Tests
+
+- New: `tests/tui_refresh.rs` — the view says *connected* when one read
+  of five answered, *unreachable* when none did, the reads are made
+  together, and the error summarises the failures. The first two fail
+  against the old rule and the third against the old order.
+- New: `the_palette_marks_the_actions_that_cannot_be_taken_back`,
+  `a_tab_cannot_be_scrolled_into_nothing` and `a_long_error_is_cut_and_
+  says_so`.
+
 ## [0.4.1] — 2026-10-25
 
 ### Fixed
