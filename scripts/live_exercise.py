@@ -584,13 +584,17 @@ def main():
     summary = {
         "server": args.server,
         "seconds": round(time.time() - started, 1),
+        "reuse": args.reuse,
         "checks": len(report.checks),
         "passed": len(report.checks) - len(report.failures),
         "failed": len(report.failures),
+        "skipped": len(report.skips),
         "failures": [check["name"] for check in report.failures],
+        "skips": [skip["name"] for skip in report.skips],
         "databases": names,
         "credentials": [label for label, _, _ in credentials],
         "detail": report.checks,
+        "skip_detail": report.skips,
     }
     print(json.dumps({k: v for k, v in summary.items() if k != "detail"}))
     if args.out:
