@@ -1,18 +1,22 @@
 {
   "server": "http://127.0.0.1:7432",
-  "seconds": 5.0,
+  "seconds": 5.7,
   "reuse": true,
-  "checks": 45,
-  "passed": 41,
-  "failed": 4,
-  "skipped": 4,
+  "checks": 42,
+  "passed": 37,
+  "failed": 5,
+  "skipped": 7,
   "failures": [
-    "write inventory",
-    "issue warehouse",
-    "issue checkout",
-    "issue finance"
+    "branch create",
+    "branch show",
+    "write into the branch",
+    "diff finds the divergence",
+    "branch delete"
   ],
   "skips": [
+    "issue warehouse",
+    "issue checkout",
+    "issue finance",
     "warehouse reads inventory",
     "checkout reads orders",
     "finance reads ledger",
@@ -48,8 +52,8 @@
     },
     {
       "name": "write inventory",
-      "ok": false,
-      "detail": "{\"timestamp\":\"2026-10-25T13:57:54.380958Z\",\"level\":\"ERROR\",\"fields\":{\"message\":\"command failed\",\"code\":\"api_error\",\"detail\":\"api_error: API request failed; see "
+      "ok": true,
+      "detail": ""
     },
     {
       "name": "write ledger",
@@ -60,21 +64,6 @@
       "name": "write notes",
       "ok": true,
       "detail": ""
-    },
-    {
-      "name": "issue warehouse",
-      "ok": false,
-      "detail": "{\"timestamp\":\"2026-10-25T13:57:54.584156Z\",\"level\":\"ERROR\",\"fields\":{\"message\":\"command failed\",\"code\":\"api_error\",\"detail\":\"api_error: API request failed; see "
-    },
-    {
-      "name": "issue checkout",
-      "ok": false,
-      "detail": "{\"timestamp\":\"2026-10-25T13:57:54.640963Z\",\"level\":\"ERROR\",\"fields\":{\"message\":\"command failed\",\"code\":\"api_error\",\"detail\":\"api_error: API request failed; see "
-    },
-    {
-      "name": "issue finance",
-      "ok": false,
-      "detail": "{\"timestamp\":\"2026-10-25T13:57:54.689828Z\",\"level\":\"ERROR\",\"fields\":{\"message\":\"command failed\",\"code\":\"api_error\",\"detail\":\"api_error: API request failed; see "
     },
     {
       "name": "list",
@@ -153,8 +142,8 @@
     },
     {
       "name": "branch create",
-      "ok": true,
-      "detail": ""
+      "ok": false,
+      "detail": "{\"timestamp\":\"2026-10-25T13:59:30.708812Z\",\"level\":\"ERROR\",\"fields\":{\"message\":\"command failed\",\"code\":\"api_error\",\"detail\":\"api_error: API request failed; see "
     },
     {
       "name": "branch list",
@@ -163,23 +152,23 @@
     },
     {
       "name": "branch show",
-      "ok": true,
-      "detail": ""
+      "ok": false,
+      "detail": "{\"timestamp\":\"2026-10-25T13:59:30.850338Z\",\"level\":\"ERROR\",\"fields\":{\"message\":\"command failed\",\"code\":\"api_error\",\"detail\":\"api_error: API request failed; see "
     },
     {
       "name": "write into the branch",
-      "ok": true,
-      "detail": ""
+      "ok": false,
+      "detail": "{\"timestamp\":\"2026-10-25T13:59:30.945122Z\",\"level\":\"ERROR\",\"fields\":{\"message\":\"command failed\",\"code\":\"api_error\",\"detail\":\"api_error: API request failed; see "
     },
     {
       "name": "diff finds the divergence",
-      "ok": true,
-      "detail": "{\"compared_rows\":311,\"identical\":false,\"left\":\"orders\",\"right\":\"branch_probe\",\"schema\":{\"changed\":[],\"identical\":true,\"only_left\":[],\"only_right\":[]},\"tables\":["
+      "ok": false,
+      "detail": "{\"error\":{\"code\":\"database_not_found\",\"message\":\"database not found\"},\"status\":404}"
     },
     {
       "name": "branch delete",
-      "ok": true,
-      "detail": ""
+      "ok": false,
+      "detail": "{\"timestamp\":\"2026-10-25T13:59:31.073264Z\",\"level\":\"ERROR\",\"fields\":{\"message\":\"command failed\",\"code\":\"api_error\",\"detail\":\"api_error: API request failed; see "
     },
     {
       "name": "mcp initialize",
@@ -214,7 +203,7 @@
     {
       "name": "mcp dg_inspect",
       "ok": true,
-      "detail": "{\"id\": 13, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"activity\\\":{\\\"last_write\\\":1792936674,\\\"queue_timeouts\\\":0,\\\"queue_wait_max_us\\\":2,\\\"queue_wait_ms\\\":0,\\\"queue_wait_p95_us\\\":2,\\\"queue_"
+      "detail": "{\"id\": 13, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"activity\\\":{\\\"last_write\\\":1792936768,\\\"queue_timeouts\\\":0,\\\"queue_wait_max_us\\\":2,\\\"queue_wait_ms\\\":0,\\\"queue_wait_p95_us\\\":1,\\\"queue_"
     },
     {
       "name": "mcp dg_backups",
@@ -258,6 +247,18 @@
     }
   ],
   "skip_detail": [
+    {
+      "name": "issue warehouse",
+      "detail": "the name is taken; its key was shown once"
+    },
+    {
+      "name": "issue checkout",
+      "detail": "the name is taken; its key was shown once"
+    },
+    {
+      "name": "issue finance",
+      "detail": "the name is taken; its key was shown once"
+    },
     {
       "name": "warehouse reads inventory",
       "detail": "no key to read with"
