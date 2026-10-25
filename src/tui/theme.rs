@@ -100,6 +100,20 @@ pub fn key_label() -> Style {
 pub fn tab() -> Style {
     Style::default().fg(SURFACE)
 }
+
+/// An action that cannot be taken back.
+///
+/// The palette marks the destructive actions with this, so "delete
+/// database" does not sit beside "refresh" looking like the same kind of
+/// thing. It is bold as well as tinted: a tint alone is lost on a
+/// monochrome terminal, and the marker that says "this one is
+/// irreversible" has to survive that.
+pub fn destructive() -> Style {
+    Style::default()
+        .fg(NEGATIVE)
+        .add_modifier(Modifier::BOLD)
+}
+
 /// The tab strip's active tab.
 ///
 /// Tinted *and* underlined: the two together survive a monochrome terminal
