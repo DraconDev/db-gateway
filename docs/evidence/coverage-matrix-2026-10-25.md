@@ -91,6 +91,36 @@ recreated with different content behind it.
 | A branch whose database was deleted another way could not be removed (409, record stranded in the registry) | the record is removed either way, and the answer says the database had already gone | 0.5.0 |
 | The live exercise could only run once per box | the branch name is unique per run; the write replaces its row | 0.6.0 |
 | A credential the exercise could not issue was reported as a failure | it is now a skip, with the reason | 0.6.0 |
+| **A deleted database was reported as a stale backup** — the daily digest exited `backup_unhealthy` over databases deleted on purpose, and the per-database table filled with rows for things that no longer exist | a deleted database is gone, not stale: it is counted in `deleted` and never asks for attention | 0.7.0 |
+| **The backups tab could not say where the copy is** — the facts were in the API, but the per-database table took the room and pushed the summary under the fold | the summary keeps its room first; a table that does not fit scrolls | 0.7.0 |
+| The query log kept showing deleted databases (the log is in memory and outlives a deletion) | the shapes of a database that is gone are history; the audit trail keeps them | 0.7.0 |
+
+### The Turso console, for comparison
+
+`app.turso.tech/dracondev` lists 19 databases with the columns **Name,
+Type, Rows Read, Rows Written, Bytes Synced, Storage, Group, Status**.
+The `dracon-billing-dev` detail page adds per-database **Block Reads**,
+**Block Writes**, **Allow ATTACH**, **Delete Protection**, token
+management, and a SQLite file download.
+
+What that told us, and what it changed:
+
+- **Storage** — the console puts the size beside the traffic. Ours now
+  does too: the databases tab has a **size** column.
+- **Bytes Synced** — the console says how much was replicated. Ours says
+  where the replica is and when it last ran (bucket, endpoint, region,
+  retention, snapshot cadence, when the sidecar published, the last
+  attempt, the last drill, the point-in-time window) but not a per-
+  database byte count of what was shipped.
+- **Status** — the console can say "writes blocked" per database. Ours
+  has no such state: writes are shed by admission pressure, not by a
+  per-database switch.
+- **Restore deleted databases / Show branches** — the console has the
+  same two concepts we do, and the same tombstone-and-branch vocabulary.
+- **Group** — the console groups databases. Ours has no grouping.
+- **Block Reads / Allow ATTACH / Delete Protection** — ours denies
+  ATTACH outright, and read/write scope is per credential rather than a
+  switch on the database.
 
 Both 0.5.0 fixes were proven on the running service: the palette now
 shows a gap on every row, and `dg branch delete` on an
