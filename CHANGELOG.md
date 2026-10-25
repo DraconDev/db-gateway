@@ -65,8 +65,8 @@ fixes; 1.0.0 waits for production acceptance.
   together, and the error summarises the failures. The first two fail
   against the old rule and the third against the old order.
 - New: `the_palette_marks_the_actions_that_cannot_be_taken_back`,
-  `a_tab_cannot_be_scrolled_into_nothing` and `a_long_error_is_cut_and_
-  says_so`.
+  `a_tab_cannot_be_scrolled_into_nothing` and
+  `a_long_error_is_cut_and_says_so`.
 
 ## [0.4.1] — 2026-10-25
 
