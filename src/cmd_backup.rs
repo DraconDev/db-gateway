@@ -52,6 +52,7 @@ pub async fn status(
 pub async fn digest(
     data_dir: PathBuf,
     backup_root: Option<PathBuf>,
+    cadence_secs: Option<u64>,
     as_json: bool,
 ) -> Result<(), dg::ServerError> {
     // Deliberately local, not an HTTP round trip: the digest an
