@@ -402,31 +402,39 @@ def main():
 
     # Refuse to run against names that already exist: the exercise
     # inserts rows, and a name that is already there belongs to
-    # somebody else.
+    # somebody else. --reuse says the caller knows better: the
+    # databases are already there with the data in them, and the point
+    # is to give them work and check the surfaces, not to build them.
     code, listing = client.json(["list"])
     existing = set(listing.get("databases", [])) if isinstance(listing, dict) else set()
     clash = [name for name in names if name in existing]
-    if clash:
+    if clash and not args.reuse:
         print(f"these names already exist: {', '.join(clash)}", file=sys.stderr)
-        print("pass --prefix to work beside them", file=sys.stderr)
+        print("pass --prefix to work beside them, or --reuse to use them", file=sys.stderr)
         return 2
+    if args.reuse:
+        missing = [name for name in names if name not in existing]
+        if missing:
+            print(f"these databases do not exist: {', '.join(missing)}", file=sys.stderr)
+            return 2
+        report.add("reuse: the databases are already there", True, ", ".join(names))
+    else:
+        print("== the databases ==")
+        for name in names:
+            code, _, err = client.run(["create", name])
+            report.add(f"create {name}", code == 0, err.strip()[:160])
 
-    print("== the databases ==")
-    for name in names:
-        code, _, err = client.run(["create", name])
-        report.add(f"create {name}", code == 0, err.strip()[:160])
+        for name in names:
+            base = name[len(args.prefix):]
+            path = work / f"{base}-schema.sql"
+            path.write_text(";\n".join(SCHEMA[base]) + ";\n")
+            code, _, err = client.run(["execute", name, str(path)])
+            report.add(f"schema {name}", code == 0, err.strip()[:160])
 
-    for name in names:
-        base = name[len(args.prefix):]
-        path = work / f"{base}-schema.sql"
-        path.write_text(";\n".join(SCHEMA[base]) + ";\n")
-        code, _, err = client.run(["execute", name, str(path)])
-        report.add(f"schema {name}", code == 0, err.strip()[:160])
-
-        path = work / f"{base}-data.sql"
-        path.write_text(";\n".join(ROWS[base]) + ";\n")
-        code, _, err = client.run(["execute", name, str(path)])
-        report.add(f"rows {name}", code == 0, err.strip()[:160])
+            path = work / f"{base}-data.sql"
+            path.write_text(";\n".join(ROWS[base]) + ";\n")
+            code, _, err = client.run(["execute", name, str(path)])
+            report.add(f"rows {name}", code == 0, err.strip()[:160])
 
     print("== the statement spread ==")
     for base, sql, bind in QUERIES:
