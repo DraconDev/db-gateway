@@ -330,6 +330,13 @@ enum Command {
         /// missing.
         #[arg(long)]
         backup_root: Option<PathBuf>,
+        /// The owner-approved snapshot cadence, in seconds: how long a
+        /// committed change may stay unrepresented by a verified copy before
+        /// it is a finding rather than the producer's normal lag. On a
+        /// producer that publishes hourly this is that hour. Without it,
+        /// every unrepresented change is reported.
+        #[arg(long)]
+        backup_cadence_secs: Option<u64>,
         /// Deliver the backup-health digest on this cadence, in seconds
         /// (observability contract §3 alert 4). 0 disables the digest and
         /// leaves only immediate failure notices. The log sink is always on;
