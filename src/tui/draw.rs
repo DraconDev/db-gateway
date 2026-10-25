@@ -626,14 +626,26 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App) {
         .get(rows.len().saturating_sub(1))
         .map(|rect| rect.height)
         .unwrap_or(0);
-    // Scrolling moves whatever is cut off: the fields when they are
-    // longer than the pane, the log table when it is. A section below the
-    // fold is still reachable.
+    // Scrolling moves whatever is cut off. The fields are the last thing
+    // to be cut off -- they hold the facts that have no other home -- and
+    // of the two tables the per-database one is cut off first, because it
+    // grows with the deployment while the published-sets log does not.
+    // A section below the fold is still reachable.
     let fields_clipped = fields_height < lines.len() as u16 + 2;
+    let per_database_clipped = tables
+        .first()
+        .map(|(_, table)| per_database_height < table.rows().len() as u16 + 3)
+        .unwrap_or(false);
     // The scroll cannot run past the end of whatever it is scrolling. A
     // tab scrolled into nothing reads as a service with nothing to say.
     let (content, visible) = if fields_clipped {
         (lines.len(), (fields_height as usize).saturating_sub(2))
+    } else if per_database_clipped {
+        let table_rows = tables.first().map(|(_, table)| table.rows().len()).unwrap_or(0);
+        (
+            table_rows,
+            (per_database_height as usize).saturating_sub(3).max(1),
+        )
     } else {
         let table_rows = tables
             .last()
@@ -662,10 +674,14 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App) {
     frame.render_widget(Paragraph::new(Text::from(lines)).block(block), rows[0]);
     let last = tables.len().saturating_sub(1);
     for (index, (title, table)) in tables.iter().enumerate() {
-        // Only the flexible table scrolls: a table that keeps its rows
+        // Only the cut-off table scrolls: a table that keeps its rows
         // must not lose its first row to a scroll meant for another one.
         let mut state = TableState::default();
-        if index == last && !fields_clipped {
+        let scrolling = match index {
+            0 => per_database_clipped,
+            _ => index == last && !fields_clipped && !per_database_clipped,
+        };
+        if scrolling {
             state = TableState::default().with_offset(offset);
         }
         framed_table(
