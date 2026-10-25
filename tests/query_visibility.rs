@@ -69,12 +69,25 @@ fn start(data_dir: &std::path::Path) -> Server {
     }
 }
 
-fn get(address: &str, path: &str, cred: Option<&str>) -> (u16, Value) {    let client = reqwest::blocking::Client::new();
+fn get(address: &str, path: &str, cred: Option<&str>) -> (u16, Value) {
+    let client = reqwest::blocking::Client::new();
     let mut req = client.get(format!("http://{address}{path}"));
     if let Some(cred) = cred {
         req = req.bearer_auth(cred);
     }
     let response = req.timeout(Duration::from_secs(60)).send().unwrap();
+    let status = response.status().as_u16();
+    let body = response.json().unwrap_or(Value::Null);
+    (status, body)
+}
+
+fn delete(address: &str, path: &str, cred: &str) -> (u16, Value) {
+    let response = reqwest::blocking::Client::new()
+        .delete(format!("http://{address}{path}"))
+        .bearer_auth(cred)
+        .timeout(Duration::from_secs(60))
+        .send()
+        .unwrap();
     let status = response.status().as_u16();
     let body = response.json().unwrap_or(Value::Null);
     (status, body)
