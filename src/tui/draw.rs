@@ -523,7 +523,7 @@ fn locations_tab(frame: &mut Frame, area: Rect, app: &mut App) {
 /// The CLI's dashboard does still carry the table (`dg status` has no
 /// other way to show it), so the section is still built; it is simply
 /// not the terminal view's job to say it twice.
-fn service_tab(frame: &mut Frame, area: Rect, app: &App) {
+fn service_tab(frame: &mut Frame, area: Rect, app: &mut App) {
     let block = pane(app.focus == Focus::Service);
     let mut lines = Vec::new();
     match &app.status {
@@ -546,6 +546,9 @@ fn service_tab(frame: &mut Frame, area: Rect, app: &App) {
         }
         None => lines.push(Line::from("no answer yet")),
     }
+    // The scroll cannot run past the last line: a dashboard scrolled into
+    // nothing reads as a gateway with nothing to say.
+    app.scroll.clamp(Focus::Service, lines.len().saturating_sub(1));
     let offset = app.scroll.service as usize;
     let lines: Vec<Line<'static>> = lines.into_iter().skip(offset).collect();
     frame.render_widget(
