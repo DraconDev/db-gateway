@@ -17,6 +17,41 @@ tagged state. Deployments and rollbacks follow
 (0.x), minor versions mark feature growth and patch versions mark
 fixes; 1.0.0 waits for production acceptance.
 
+## [0.5.0] — 2026-10-25
+
+### Added
+
+- **`scripts/live_exercise.py`: a harness for a DEPLOYED gateway.** The load
+  harnesses in this repo all start their own `dg serve` on a temp directory,
+  which is right — a load test on the box that holds the data is a load test
+  on the data — but it left one question unanswered: does the gateway an
+  operator actually reads still answer, and do the surfaces it shows have
+  anything real in them? This one drives a *running* gateway through the
+  real CLI. It creates databases with real schemas and rows, runs a spread
+  of statement shapes so the query log holds a spread rather than one shape
+  used once, issues scoped credentials and uses them so the audit trail holds
+  more than one principal, walks every read-only surface, and checks the
+  refusals as carefully as the successes — a gateway that answers everything
+  is not a gateway, it is a hole. It never prints a credential, refuses to
+  run against names that already exist, and `--cleanup` tombstones what it
+  created.
+
+### Fixed
+
+- **The palette ran a title into its hint.** The title column was a fixed
+  sixteen characters, and "rotate owner key" is exactly sixteen, so that row
+  read "rotate owner keythe old owner key dies the moment the new one is
+  issued" — two pieces of text mashed into one unreadable word. The column
+  is measured from the titles actually on screen now, so a longer action
+  added later cannot reintroduce the collision.
+- **A branch could be left in the registry with nothing to delete it.** The
+  branch delete tombstones the database first, and a database that was
+  already tombstoned — by `dg delete`, say — answered that with 409, so the
+  registry record was never removed: `dg branch list` went on showing a
+  branch whose database was gone, and `dg branch delete` could not clear it.
+  The record is removed either way now, and the answer says the database had
+  already gone.
+
 ## [0.4.2] — 2026-10-25
 
 ### Fixed
