@@ -234,6 +234,10 @@ pub fn render_text(note: &Note) -> String {
         "\n  judged against a {}s reference; action: {}",
         note.stale_after_secs, note.action
     ));
+    match note.cadence_secs {
+        Some(cadence) => out.push_str(&format!("\n  snapshot cadence: {cadence}s")),
+        None => out.push_str("\n  snapshot cadence: not approved; every unrepresented change is reported"),
+    }
     out
 }
 
