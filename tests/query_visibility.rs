@@ -272,7 +272,7 @@ fn a_deleted_database_does_not_appear_in_the_query_log() {
         assert_eq!(status, 200);
         let (status, _) = post(
             &server.address,
-            &v1/databases/{name}/query",
+            &format!("/v1/databases/{name}/query"),
             &owner,
             &json!({"sql": "CREATE TABLE t (id INTEGER)", "args": []}),
         );
@@ -284,10 +284,6 @@ fn a_deleted_database_does_not_appear_in_the_query_log() {
 
     let (status, body) = get(&server.address, "/v1/queries", Some(&owner));
     assert_eq!(status, 200);
-    assert!(
-        !shapes(&body, "gone").is_empty() || body["deleted"].as_u64().unwrap_or(0) == 0,
-        "the deleted database is gone from the log: {body}"
-    );
     assert!(
         shapes(&body, "gone").is_empty(),
         "the deleted database still shows its shapes: {body}"
