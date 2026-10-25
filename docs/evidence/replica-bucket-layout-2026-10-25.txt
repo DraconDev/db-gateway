@@ -1,0 +1,24 @@
+The replication bucket, as it stands
+
+bucket: dg-sandbox   objects: 150
+layout: <database>/<compaction level>/<min txid>-<max txid>.ltx
+
+  prefix            L0  L1  L2  L3  L9   files
+  a2_scratch           1   1   1   0   1       4
+  billing_dev_pilot    1   2   1   1   1       6
+  inventory            1   8   6   5   1      21
+  ledger               1   1   1   1   1       5
+  metadata             1  30  14   7   1      53
+  notes                1   7   6   4   1      19
+  orders               1   2   2   1   1       7
+  orders_scratch       1   1   1   1   1       5
+  pet_board_live       1   2   1   1   1       6
+  pet_events_live      1   2   1   1   1       6
+  pet_todo_live        1   1   1   1   1       5
+  sessions             1   1   1   1   1       5
+  verify_probe         1   2   2   2   1       8
+
+Level 9 is the snapshot; levels 1, 2 and 3 are the compacted
+write-ahead log; level 0 is the current segment. A restore to a
+moment fetches the chain that covers it, so the OLDEST file in
+the chain is how far back the data goes.
