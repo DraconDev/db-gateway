@@ -339,30 +339,47 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
 /// the backups tab still has to know it exists. Each tab carries its number
 /// as well as its name, because the number is what the keyboard shortcut
 /// uses, and a hint that names a key nobody can discover is not a hint.
+///
+/// The strip has to fit on one line, and a narrow terminal may not have room
+/// for all of it. When it does not, the COUNTS go and the names stay: the
+/// counts are the summary -- how much is in a tab -- and the names are the
+/// promise that every tab exists. A tab that cannot be seen is a tab that
+/// cannot be opened, so the sixth tab is never the one that gets cut off.
 fn tabs(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Focus, u16, u16)> {
     // The one list of tabs. The strip, the number keys and the command
     // bar's range are all built from it, so they cannot drift apart --
     // and they did drift, when the bar said "1-4" with five tabs on the
     // screen.
     let all = Focus::ALL;
-    let mut spans: Vec<Span<'static>> = Vec::new();
-    let mut cells: Vec<(Focus, u16, u16)> = Vec::new();
-    let mut used: u16 = 0;
-    for (index, focus) in all.iter().enumerate() {
-        // What the tab holds, so the strip is a summary and not just a
-        // switchboard: the count is the same number the tab's own heading
-        // shows.
-        let count = match focus {
+    // What each tab holds, so the strip is a summary and not just a
+    // switchboard: the count is the same number the tab's own heading
+    // shows.
+    let counts: Vec<Option<usize>> = all
+        .iter()
+        .map(|focus| match focus {
             Focus::Databases => app.databases().map(|table| table.rows().len()),
             Focus::Keys => app.keys_table().map(|table| table.rows().len()),
             Focus::Queries => app.query_table().map(|table| table.rows().len()),
             Focus::Locations => app.locations().map(|table| table.rows().len()),
             Focus::Service | Focus::Backups => None,
-        };
-        let label = match count {
-            Some(count) => format!(" {} {} ({count}) ", index + 1, focus.title()),
-            None => format!(" {} {} ", index + 1, focus.title()),
-        };
+        })
+        .collect();
+    let with_counts = strip_labels(&all, &counts, true);
+    let names_only = strip_labels(&all, &counts, false);
+    let labels = if strip_width(&with_counts, app.focus) <= area.width as usize {
+        with_counts
+    } else if strip_width(&names_only, app.focus) <= area.width as usize {
+        names_only
+    } else {
+        // Even the names alone do not fit: there is no honest way to draw
+        // six tabs on one short line, so the line is clipped and the
+        // number keys still reach the tabs that are not named.
+        with_counts
+    };
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut cells: Vec<(Focus, u16, u16)> = Vec::new();
+    let mut used: u16 = 0;
+    for (index, (focus, label)) in labels.iter().enumerate() {
         let active = *focus == app.focus;
         let style = if active {
             crate::tui::theme::tab_active()
@@ -371,7 +388,11 @@ fn tabs(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Focus, u16, u16)> {
         };
         // Underlined means active, so the marker survives a monochrome
         // terminal; the caret is a second, plainer signal.
-        let text = if active { format!("▸{label}") } else { label };
+        let text = if active {
+            format!("▸{label}")
+        } else {
+            label.clone()
+        };
         // Record the cells this label will occupy, so a click resolves to
         // what is really on screen rather than to a second layout guess.
         // The width is measured from the text as drawn, caret included, so
@@ -384,13 +405,43 @@ fn tabs(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Focus, u16, u16)> {
         }
         used = used.saturating_add(width);
         spans.push(Span::styled(text, style));
-        if index + 1 < all.len() {
+        if index + 1 < labels.len() {
             spans.push(Span::styled("│", crate::tui::theme::border()));
             used = used.saturating_add(1);
         }
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
     cells
+}
+
+/// The strip's labels, with their counts or without them.
+fn strip_labels(
+    all: &[Focus],
+    counts: &[Option<usize>],
+    with_counts: bool,
+) -> Vec<(Focus, String)> {
+    all.iter()
+        .zip(counts)
+        .enumerate()
+        .map(|(index, (focus, count))| {
+            let count = count.filter(|_| with_counts);
+            let label = match count {
+                Some(count) => format!(" {} {} ({count}) ", index + 1, focus.title()),
+                None => format!(" {} {} ", index + 1, focus.title()),
+            };
+            (*focus, label)
+        })
+        .collect()
+}
+
+/// How wide a strip of labels is, with the separators and the active tab's
+/// caret.
+fn strip_width(labels: &[(Focus, String)], active: Focus) -> usize {
+    let width: usize = labels
+        .iter()
+        .map(|(focus, label)| label.width() + usize::from(*focus == active))
+        .sum();
+    width + labels.len().saturating_sub(1)
 }
 
 /// The database list, with each database's traffic.

@@ -17,6 +17,24 @@ tagged state. Deployments and rollbacks follow
 (0.x), minor versions mark feature growth and patch versions mark
 fixes; 1.0.0 waits for production acceptance.
 
+## [0.4.1] — 2026-10-25
+
+### Fixed
+
+- **A narrow terminal no longer loses a tab.** The strip promises that every
+  tab is named whether or not it is showing, and the sixth tab made the
+  strip longer than an eighty-column terminal: the last tab was cut off,
+  so a tab nobody could see was a tab nobody opened. When the line is too
+  narrow for the whole strip, the **counts go and the names stay** — the
+  counts are the summary, and the names are the promise. A hundred columns
+  is enough for both, so nothing is lost on a normal terminal.
+
+### Tests
+
+- New: `a_narrow_terminal_still_names_every_tab` — the strip names all six
+  tabs at eighty, a hundred, a hundred and twenty, and a hundred and
+  ninety-one columns.
+
 ## [0.4.0] — 2026-10-24
 
 ### Added

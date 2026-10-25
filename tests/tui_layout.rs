@@ -986,3 +986,30 @@ fn the_queries_tab_says_which_statement_is_the_expensive_one() {
         "the queries tab does not say which credential ran the statement:\n{text}"
     );
 }
+
+#[test]
+fn a_narrow_terminal_still_names_every_tab() {
+    // The strip promises that every tab is always named, whether or not it
+    // is showing. A sixth tab made the strip longer than an eighty-column
+    // terminal, so the promise broke exactly where it is most useful --
+    // and a tab nobody can see is a tab nobody opens.
+    let mut app = app();
+    for width in [80, 100, 120, 191] {
+        let text = screen(&mut app, width, 40);
+        // The strip is the second line: the top bar is the first.
+        let strip = text.lines().nth(1).unwrap_or("");
+        for name in [
+            "databases",
+            "service",
+            "backups",
+            "keys",
+            "queries",
+            "locations",
+        ] {
+            assert!(
+                strip.contains(name),
+                "the strip at {width} columns does not name the {name:?} tab:\n{text}"
+            );
+        }
+    }
+}

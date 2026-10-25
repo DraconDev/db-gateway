@@ -41,6 +41,12 @@ The tabs are also reached with `tab` and `shift-tab`. Each tab carries its
 number and, where it has one, its count: the strip is a summary, not just a
 switchboard, so an operator can see how much is in a tab without opening it.
 
+On a terminal too narrow for the whole strip, the **counts go and the names
+stay**. The counts are the summary; the names are the promise that every tab
+exists. A tab nobody can see is a tab nobody opens, so the sixth one is never
+the one that gets cut off — and the number keys still reach every tab
+whatever the width.
+
 The view shows **one tab at a time** rather than tiling every answer. Tiling
 forces each answer into a fraction of the width, which squeezes a wide table
 and cuts a long list; a tab gives the whole body to the thing being read. The
