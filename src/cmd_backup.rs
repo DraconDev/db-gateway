@@ -137,6 +137,7 @@ pub async fn digest(
             table.column("state", Align::Left);
             table.column("newest set", Align::Left);
             table.column("age", Align::Right);
+            table.column("lag", Align::Right);
             for db in &health.databases {
                 table.row(vec![
                     Cell::styled(db.name.clone(), Style::Cyan),
@@ -151,6 +152,11 @@ pub async fn digest(
                         db.age_secs
                             .map(dg::render::human_duration)
                             .unwrap_or_else(|| "unknown".to_string()),
+                    ),
+                    Cell::text(
+                        db.lag_secs
+                            .map(dg::render::human_duration)
+                            .unwrap_or_else(|| "—".to_string()),
                     ),
                 ]);
             }
