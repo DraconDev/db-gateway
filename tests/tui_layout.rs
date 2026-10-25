@@ -1013,3 +1013,14 @@ fn a_narrow_terminal_still_names_every_tab() {
         }
     }
 }
+
+#[test]
+fn zz_scroll_probe() {
+    let mut app = app();
+    let before = screen(&mut app, 191, 40);
+    for _ in 0..10 {
+        app.on_key(key(ratatui::crossterm::event::KeyCode::Down));
+    }
+    let after = screen(&mut app, 191, 40);
+    println!("---BEFORE---\n{}\n---AFTER---\n{}", before, after);
+}
