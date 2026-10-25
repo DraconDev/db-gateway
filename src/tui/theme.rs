@@ -100,7 +100,6 @@ pub fn key_label() -> Style {
 pub fn tab() -> Style {
     Style::default().fg(SURFACE)
 }
-
 /// The tab strip's active tab.
 ///
 /// Tinted *and* underlined: the two together survive a monochrome terminal
