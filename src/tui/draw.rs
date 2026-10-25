@@ -832,6 +832,12 @@ fn status_line(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 /// The list of actions, over the dashboard.
+///
+/// The destructive ones are MARKED, because a palette that lists
+/// "delete database" beside "refresh" with the same weight tells the
+/// operator that the two are the same kind of thing, and they are not.
+/// The marker is a character and not only a colour, so it survives a
+/// monochrome terminal.
 fn palette(frame: &mut Frame, area: Rect, app: &App) {
     let actions = app.filtered_actions();
     let height = (actions.len() as u16 + 4).clamp(5, area.height.saturating_sub(2));
@@ -845,9 +851,18 @@ fn palette(frame: &mut Frame, area: Rect, app: &App) {
         } else {
             crate::tui::theme::paint(ViewStyle::Plain)
         };
+        // A destructive action wears the theme's colour for a destructive
+        // act -- the colour that existed for this and had no use until
+        // now -- and a marker in front of its title.
+        let marked = if action.destructive {
+            crate::tui::theme::destructive()
+        } else {
+            style
+        };
         lines.push(Line::from(vec![
             Span::styled(if selected { "▸ " } else { "  " }, style),
-            Span::styled(format!("{:<16}", action.title), style),
+            Span::styled(if action.destructive { "!" } else { " " }, marked),
+            Span::styled(format!("{:<16}", action.title), marked),
             Span::raw(action.hint.to_string()),
         ]));
     }
