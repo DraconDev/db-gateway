@@ -109,9 +109,7 @@ pub fn tab() -> Style {
 /// monochrome terminal, and the marker that says "this one is
 /// irreversible" has to survive that.
 pub fn destructive() -> Style {
-    Style::default()
-        .fg(NEGATIVE)
-        .add_modifier(Modifier::BOLD)
+    Style::default().fg(NEGATIVE).add_modifier(Modifier::BOLD)
 }
 
 /// The tab strip's active tab.

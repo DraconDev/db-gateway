@@ -1013,3 +1013,90 @@ fn a_narrow_terminal_still_names_every_tab() {
         }
     }
 }
+
+/// The palette marks the actions that cannot be taken back.
+///
+/// "delete database" sitting beside "refresh" with the same weight tells
+/// the operator that the two are the same kind of thing, and they are
+/// not. The marker is a character and not only a colour, so it survives a
+/// monochrome terminal.
+#[test]
+fn the_palette_marks_the_actions_that_cannot_be_taken_back() {
+    let mut app = app();
+    app.on_key(key(ratatui::crossterm::event::KeyCode::Char(':')));
+    let text = screen(&mut app, 120, 40);
+    let line_with = |needle: &str| {
+        text.lines()
+            .find(|line| line.contains(needle))
+            .unwrap_or("")
+            .to_string()
+    };
+    // The palette is centred, so the marker is found by where the title
+    // starts rather than by a fixed column: it is the last thing before
+    // the title.
+    let marked = |needle: &str| {
+        let line = line_with(needle);
+        let index = line.find(needle).unwrap_or(0);
+        line[..index].trim_end().ends_with('!')
+    };
+    for destructive in ["delete database", "revoke key", "rotate owner key"] {
+        assert!(
+            marked(destructive),
+            "the palette does not mark {destructive:?} as destructive:\n{}\n---\n{text}",
+            line_with(destructive)
+        );
+    }
+    // A safe action is not marked: the marker means something only when
+    // it is not on everything.
+    assert!(
+        !marked("run sql file"),
+        "the palette marks a safe action as destructive:\n{text}"
+    );
+}
+
+/// A tab cannot be scrolled into nothing.
+///
+/// Scrolling past the last row used to leave the offset running: ten
+/// presses down on a two-row table needed ten presses up to come back,
+/// though one press had moved everything. And the text tabs -- the
+/// dashboard and the backups -- could be scrolled into an empty screen,
+/// which reads as "there is nothing here".
+#[test]
+fn a_tab_cannot_be_scrolled_into_nothing() {
+    let mut app = app();
+    // The first frame is what tells the view how much room it has.
+    let _ = screen(&mut app, 191, 40);
+    for _ in 0..20 {
+        app.on_key(key(ratatui::crossterm::event::KeyCode::Down));
+        let _ = screen(&mut app, 191, 40);
+    }
+    let text = screen(&mut app, 191, 40);
+    assert!(
+        text.contains("demo") && text.contains("other"),
+        "the database list scrolled away from the screen:\n{text}"
+    );
+    assert_eq!(
+        app.scroll.databases, 0,
+        "the scroll ran past the content even though the whole table fits"
+    );
+}
+
+/// A message that runs off the end of the bar says that it did.
+///
+/// The bar is one line and the error is the last thing on it, so a long
+/// message is cut. A cut that does not say it is a message half-read.
+#[test]
+fn a_long_error_is_cut_and_says_so() {
+    let mut app = app();
+    app.error = Some("a very long problem that will not fit on the bar at all".to_string());
+    let text = screen(&mut app, 80, 24);
+    let bar = text.lines().last().unwrap_or("");
+    assert!(
+        bar.contains('…'),
+        "the error does not say it was cut:\n{bar}"
+    );
+    assert!(
+        !bar.contains("fit on the bar at all"),
+        "the error was not cut at all:\n{bar}"
+    );
+}

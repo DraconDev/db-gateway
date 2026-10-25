@@ -593,7 +593,23 @@ impl App {
         // The gateway is reachable when it answered anything at all: a
         // refused backup list does not mean the service is down.
         self.connected = answered > 0;
-        self.error = (!failures.is_empty()).then(|| failures.join("; "));
+        // The bar has ONE line for the error, so the error says what
+        // happened rather than listing every failure: five refusals of
+        // the same kind are one fact, not five. The count of reads is
+        // counted from the results, so a sixth read cannot leave the
+        // message claiming there were five.
+        let reads = answered + failures.len();
+        self.error = if failures.is_empty() {
+            None
+        } else if failures.len() == 1 {
+            Some(failures.remove(0))
+        } else {
+            Some(format!(
+                "{} of {reads} reads failed: {}",
+                failures.len(),
+                failures[0]
+            ))
+        };
         self.refreshed = Some(Instant::now());
     }
 
@@ -763,6 +779,46 @@ impl App {
     /// empty table would look like a gateway with no databases.
     pub fn locations(&self) -> Option<render::Table> {
         views::locations(self.status.as_ref()?)
+    }
+
+    /// How many rows of content the open tab can show at once.
+    ///
+    /// The body rectangle is known: the drawer sets it before it draws
+    /// the tab, so this is the space the tab really has, not a guess.
+    pub fn visible_rows(&self) -> usize {
+        self.geometry
+            .body
+            .map(|body| (body.height as usize).saturating_sub(2))
+            .filter(|rows| *rows > 0)
+            .unwrap_or(1)
+    }
+
+    /// How many rows of a TABLE the open tab can show.
+    ///
+    /// A table spends two lines on the frame's borders, one on its
+    /// header, and one more on the caption under its rows when it has
+    /// one. Getting this wrong cuts the last row off the screen, which is
+    /// the very thing the clamp exists to prevent.
+    pub fn visible_table_rows(&self, caption: bool) -> usize {
+        self.visible_rows()
+            .saturating_sub(1 + usize::from(caption))
+            .max(1)
+    }
+
+    /// Keep the scroll inside what the open tab holds.
+    ///
+    /// A tab that scrolls past its last row shows nothing, and an empty
+    /// tab reads as "there is nothing here" -- a different and much worse
+    /// claim than "you have reached the end". The offset also ran away
+    /// without this: ten presses down on a two-row table needed ten
+    /// presses up to come back, though one press had moved everything.
+    ///
+    /// `content` is how many rows the tab holds and `visible` how many it
+    /// can show, so the last row stays on screen and a table that already
+    /// fits does not scroll at all.
+    pub fn clamp_scroll(&mut self, content: usize, visible: usize) {
+        let max = content.saturating_sub(visible.max(1));
+        self.scroll.clamp(self.focus, max);
     }
 }
 

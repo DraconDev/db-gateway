@@ -320,7 +320,8 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
         strip_y: Some(rows[0].y),
         body: Some(rows[1]),
     };
-    match app.focus {
+    let focus = app.focus;
+    match focus {
         Focus::Databases => databases_tab(frame, rows[1], app),
         Focus::Service => service_tab(frame, rows[1], app),
         Focus::Backups => backups_tab(frame, rows[1], app),
@@ -466,8 +467,10 @@ fn databases_tab(frame: &mut Frame, area: Rect, app: &mut App) {
     };
     // The scroll cannot run past the last row: a tab that scrolls into
     // nothing is a tab that says "there is nothing here".
-    app.scroll
-        .clamp(Focus::Databases, traffic.rows().len().saturating_sub(1));
+    app.clamp_scroll(
+        traffic.rows().len(),
+        app.visible_table_rows(traffic.footer_text().is_some()),
+    );
     let mut state = TableState::default().with_offset(app.scroll.databases as usize);
     framed_table(frame, area, pane(focused), &traffic, usize::MAX, &mut state);
 }
@@ -496,8 +499,10 @@ fn locations_tab(frame: &mut Frame, area: Rect, app: &mut App) {
         frame.render_widget(Paragraph::new(note).block(block), area);
         return;
     };
-    app.scroll
-        .clamp(Focus::Locations, locations.rows().len().saturating_sub(1));
+    app.clamp_scroll(
+        locations.rows().len(),
+        app.visible_table_rows(locations.footer_text().is_some()),
+    );
     let mut state = TableState::default().with_offset(app.scroll.locations as usize);
     framed_table(
         frame,
@@ -548,7 +553,7 @@ fn service_tab(frame: &mut Frame, area: Rect, app: &mut App) {
     }
     // The scroll cannot run past the last line: a dashboard scrolled into
     // nothing reads as a gateway with nothing to say.
-    app.scroll.clamp(Focus::Service, lines.len().saturating_sub(1));
+    app.clamp_scroll(lines.len(), app.visible_rows());
     let offset = app.scroll.service as usize;
     let lines: Vec<Line<'static>> = lines.into_iter().skip(offset).collect();
     frame.render_widget(
@@ -567,7 +572,7 @@ fn service_tab(frame: &mut Frame, area: Rect, app: &mut App) {
 /// is the one this tab exists for, and `docs/tui.md` promises it. The test
 /// that should have caught that looked for the substring "fresh", which
 /// every screen contains in the word "refresh" on the command bar.
-fn backups_tab(frame: &mut Frame, area: Rect, app: &App) {
+fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App) {
     let block = pane(app.focus == Focus::Backups);
     let Some(backups) = &app.backups else {
         frame.render_widget(Paragraph::new("no answer yet").block(block), area);
@@ -626,21 +631,37 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &App) {
         }
     }
     let rows = Layout::vertical(constraints).split(area);
+    let rows_pane_height = rows
+        .get(rows.len().saturating_sub(1))
+        .map(|rect| rect.height)
+        .unwrap_or(0);
     // Scrolling moves whatever is cut off: the fields when they are
     // longer than the pane, the log table when it is. A section below the
     // fold is still reachable.
     let fields_clipped = fields_height < lines.len() as u16 + 2;
     // The scroll cannot run past the end of whatever it is scrolling. A
     // tab scrolled into nothing reads as a service with nothing to say.
-    let limit = if fields_clipped {
-        lines.len().saturating_sub(1)
+    let (content, visible) = if fields_clipped {
+        (lines.len(), (fields_height as usize).saturating_sub(2))
     } else {
-        tables
+        let table_rows = tables
             .last()
-            .map(|(_, table)| table.rows().len().saturating_sub(1))
-            .unwrap_or(0)
+            .map(|(_, table)| table.rows().len())
+            .unwrap_or(0);
+        let caption = tables
+            .last()
+            .map(|(_, table)| table.footer_text().is_some())
+            .unwrap_or(false);
+        // The flexible table has a pane of its own, and its height was
+        // just measured by the layout.
+        (
+            table_rows,
+            (rows_pane_height as usize)
+                .saturating_sub(3 + usize::from(caption))
+                .max(1),
+        )
     };
-    app.scroll.clamp(Focus::Backups, limit);
+    app.clamp_scroll(content, visible);
     let offset = app.scroll.backups as usize;
     let lines: Vec<Line<'static>> = if fields_clipped {
         lines.into_iter().skip(offset).collect()
@@ -673,8 +694,10 @@ fn keys_tab(frame: &mut Frame, area: Rect, app: &mut App) {
         Some(keys) => {
             let table = views::keys(keys);
             let block = pane(app.focus == Focus::Keys);
-            app.scroll
-                .clamp(Focus::Keys, table.rows().len().saturating_sub(1));
+            app.clamp_scroll(
+                table.rows().len(),
+                app.visible_table_rows(table.footer_text().is_some()),
+            );
             let mut state = TableState::default().with_offset(app.scroll.keys as usize);
             framed_table(frame, area, block, &table, usize::MAX, &mut state);
         }
@@ -697,8 +720,10 @@ fn queries_tab(frame: &mut Frame, area: Rect, app: &mut App) {
         Some(payload) => {
             let table = views::query_table(payload);
             let block = pane(app.focus == Focus::Queries);
-            app.scroll
-                .clamp(Focus::Queries, table.rows().len().saturating_sub(1));
+            app.clamp_scroll(
+                table.rows().len(),
+                app.visible_table_rows(table.footer_text().is_some()),
+            );
             let mut state = TableState::default().with_offset(app.scroll.queries as usize);
             framed_table(frame, area, block, &table, usize::MAX, &mut state);
         }
@@ -803,11 +828,12 @@ fn status_line(frame: &mut Frame, area: Rect, app: &App) {
     // while a fifth tab was on the screen, because the range was written
     // down by hand and only the strip was updated.
     let mut spans: Vec<Span<'static>> = Vec::new();
-    spans.push(Span::styled(
-        format!("1-{}", Focus::ALL.len()),
-        crate::tui::theme::key(),
-    ));
+    let mut used: usize = 0;
+    let tabs = format!("1-{}", Focus::ALL.len());
+    spans.push(Span::styled(tabs.clone(), crate::tui::theme::key()));
+    used += tabs.width();
     spans.push(Span::styled(" tabs", crate::tui::theme::key_label()));
+    used += " tabs".width();
     // Key, then what it does. Ordered by how often it is reached for.
     const HINTS: [(&str, &str); 5] = [
         ("tab", "next tab"),
@@ -823,10 +849,22 @@ fn status_line(frame: &mut Frame, area: Rect, app: &App) {
             format!(" {label}"),
             crate::tui::theme::key_label(),
         ));
+        used += 2 + key.width() + label.width() + 1;
     }
     if let Some(error) = &app.error {
         spans.push(Span::styled("  ·  ", crate::tui::theme::status()));
-        spans.push(Span::styled(error.clone(), paint_style(ViewStyle::Red)));
+        used += 5;
+        // The error is the last thing on a one-line bar, so it is cut to
+        // what is left -- and the cut says so. A message that runs off
+        // the edge without saying it is a message half-read.
+        let room = (area.width as usize).saturating_sub(used);
+        let text = if error.width() > room {
+            let cut: String = error.chars().take(room.saturating_sub(1)).collect();
+            format!("{cut}…")
+        } else {
+            error.clone()
+        };
+        spans.push(Span::styled(text, paint_style(ViewStyle::Red)));
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
@@ -861,7 +899,7 @@ fn palette(frame: &mut Frame, area: Rect, app: &App) {
         };
         lines.push(Line::from(vec![
             Span::styled(if selected { "▸ " } else { "  " }, style),
-            Span::styled(if action.destructive { "!" } else { " " }, marked),
+            Span::styled(if action.destructive { "! " } else { "  " }, marked),
             Span::styled(format!("{:<16}", action.title), marked),
             Span::raw(action.hint.to_string()),
         ]));
