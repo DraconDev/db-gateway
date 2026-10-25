@@ -38,6 +38,22 @@ Tier 2 is **explicitly not host-loss protection**: the sets live on the
 same disk as the databases. Its value is speed and a registry copy
 that travels with a consistent manifest for same-host accidents.
 
+### The approved snapshot cadence
+
+The Tier 2 RPO objective — **1 hour, the producer cadence** — is also the
+owner-approved *snapshot cadence* the backup-health alarm is judged against
+(observability contract §2a). It is configured on the host as
+`--backup-cadence-secs 3600` on `dg serve` and `dg backup digest`.
+
+The two numbers are the same for one reason: the producer publishes hourly,
+so a change is legitimately unrepresented for up to an hour. The cadence is
+what tells that wait apart from a producer that has stopped. Set it below
+the producer's interval and the digest reports every change as overdue;
+set it far above it and a stopped producer goes unnoticed. The objective is
+a target, not a promise — an outage extends it and must stay visible
+(§2), which is why the cadence is the floor for reporting, never a reason
+to stop looking.
+
 ## Registry and credentials from the bucket alone (Tier 1 recovery)
 
 The registry replicates continuously as the fixed `metadata` entry in
