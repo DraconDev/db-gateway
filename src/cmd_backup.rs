@@ -170,6 +170,13 @@ pub async fn digest(
     // while a database is unrepresented is how a schedule gets
     // mistaken for a backup. `unknown` fails too, because §2 says
     // unknown is the state that keeps a scheduled job honest.
+    //
+    // `behind` does not fail, and that is the whole point of the
+    // approved cadence: a change waiting for the producer's next
+    // publication is the producer working. Failing on it made the
+    // daily digest red for an hour after every write on an hourly
+    // producer -- an alarm that was red whenever anything happened,
+    // and therefore an alarm that said nothing.
     if health.attention().is_empty() {
         return Ok(());
     }
