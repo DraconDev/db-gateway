@@ -522,35 +522,64 @@ impl App {
 
     /// Read the service again.
     pub async fn refresh(&mut self) {
-        let status = self.fetch("/v1/status").await;
-        let backups = self.fetch("/v1/backups").await;
-        let keys = self.fetch("/v1/keys").await;
-        let list = self.fetch("/v1/databases").await;
-        let queries = self.fetch("/v1/queries").await;
+        // The five reads are independent, so they are made together rather
+        // than one after another. In turn, a gateway that hung cost the
+        // operator five read budgets -- fifty seconds of a frozen view,
+        // because the loop was waiting on each read in turn and drew
+        // nothing until the last one came back.
+        let (status, backups, keys, list, queries) = tokio::join!(
+            self.fetch("/v1/status"),
+            self.fetch("/v1/backups"),
+            self.fetch("/v1/keys"),
+            self.fetch("/v1/databases"),
+            self.fetch("/v1/queries"),
+        );
         let mut failures: Vec<String> = Vec::new();
+        // How many of the reads were answered. The threshold for "the
+        // gateway is reachable" is counted rather than written down: it
+        // WAS written down, as "fewer than four failures", which was
+        // right when there were four reads and wrong the moment a fifth
+        // one was added. The view then said "unreachable" while the
+        // gateway was answering.
+        let mut answered = 0usize;
         match status {
-            Ok(value) => self.status = Some(value),
+            Ok(value) => {
+                self.status = Some(value);
+                answered += 1;
+            }
             Err(error) => failures.push(error.message.to_string()),
         }
         match backups {
-            Ok(value) => self.backups = Some(value),
+            Ok(value) => {
+                self.backups = Some(value);
+                answered += 1;
+            }
             Err(error) => failures.push(error.message.to_string()),
         }
         match keys {
-            Ok(value) => self.keys = Some(value),
+            Ok(value) => {
+                self.keys = Some(value);
+                answered += 1;
+            }
             Err(error) => failures.push(error.message.to_string()),
         }
         match list {
-            Ok(value) => self.list = Some(value),
+            Ok(value) => {
+                self.list = Some(value);
+                answered += 1;
+            }
             Err(error) => failures.push(error.message.to_string()),
         }
         match queries {
-            Ok(value) => self.queries = Some(value),
+            Ok(value) => {
+                self.queries = Some(value);
+                answered += 1;
+            }
             Err(error) => failures.push(error.message.to_string()),
         }
         // The gateway is reachable when it answered anything at all: a
         // refused backup list does not mean the service is down.
-        self.connected = failures.len() < 4;
+        self.connected = answered > 0;
         self.error = (!failures.is_empty()).then(|| failures.join("; "));
         self.refreshed = Some(Instant::now());
     }
