@@ -1,97 +1,40 @@
 {
   "server": "http://127.0.0.1:7432",
-  "seconds": 7.9,
-  "checks": 73,
-  "passed": 73,
-  "failed": 0,
-  "failures": [],
+  "seconds": 5.0,
+  "reuse": true,
+  "checks": 45,
+  "passed": 41,
+  "failed": 4,
+  "skipped": 4,
+  "failures": [
+    "write inventory",
+    "issue warehouse",
+    "issue checkout",
+    "issue finance"
+  ],
+  "skips": [
+    "warehouse reads inventory",
+    "checkout reads orders",
+    "finance reads ledger",
+    "the read-only refusals"
+  ],
   "databases": [
-    "t4inventory",
-    "t4orders",
-    "t4ledger",
-    "t4sessions",
-    "t4notes"
+    "inventory",
+    "orders",
+    "ledger",
+    "sessions",
+    "notes"
   ],
   "credentials": [
-    "t4warehouse",
-    "t4checkout",
-    "t4finance"
+    "warehouse",
+    "checkout",
+    "finance"
   ],
   "detail": [
     {
-      "name": "create t4inventory",
+      "name": "reuse: the databases are already there",
       "ok": true,
-      "detail": ""
-    },
-    {
-      "name": "create t4orders",
-      "ok": true,
-      "detail": ""
-    },
-    {
-      "name": "create t4ledger",
-      "ok": true,
-      "detail": ""
-    },
-    {
-      "name": "create t4sessions",
-      "ok": true,
-      "detail": ""
-    },
-    {
-      "name": "create t4notes",
-      "ok": true,
-      "detail": ""
-    },
-    {
-      "name": "schema t4inventory",
-      "ok": true,
-      "detail": ""
-    },
-    {
-      "name": "rows t4inventory",
-      "ok": true,
-      "detail": ""
-    },
-    {
-      "name": "schema t4orders",
-      "ok": true,
-      "detail": ""
-    },
-    {
-      "name": "rows t4orders",
-      "ok": true,
-      "detail": ""
-    },
-    {
-      "name": "schema t4ledger",
-      "ok": true,
-      "detail": ""
-    },
-    {
-      "name": "rows t4ledger",
-      "ok": true,
-      "detail": ""
-    },
-    {
-      "name": "schema t4sessions",
-      "ok": true,
-      "detail": ""
-    },
-    {
-      "name": "rows t4sessions",
-      "ok": true,
-      "detail": ""
-    },
-    {
-      "name": "schema t4notes",
-      "ok": true,
-      "detail": ""
-    },
-    {
-      "name": "rows t4notes",
-      "ok": true,
-      "detail": ""
+      "detail": "inventory, orders, ledger, sessions, notes"
     },
     {
       "name": "29 read shapes ran",
@@ -105,8 +48,8 @@
     },
     {
       "name": "write inventory",
-      "ok": true,
-      "detail": ""
+      "ok": false,
+      "detail": "{\"timestamp\":\"2026-10-25T13:57:54.380958Z\",\"level\":\"ERROR\",\"fields\":{\"message\":\"command failed\",\"code\":\"api_error\",\"detail\":\"api_error: API request failed; see "
     },
     {
       "name": "write ledger",
@@ -119,49 +62,19 @@
       "detail": ""
     },
     {
-      "name": "issue t4warehouse",
-      "ok": true,
-      "detail": "database_read_only on t4inventory"
+      "name": "issue warehouse",
+      "ok": false,
+      "detail": "{\"timestamp\":\"2026-10-25T13:57:54.584156Z\",\"level\":\"ERROR\",\"fields\":{\"message\":\"command failed\",\"code\":\"api_error\",\"detail\":\"api_error: API request failed; see "
     },
     {
-      "name": "issue t4checkout",
-      "ok": true,
-      "detail": "database_read_write on t4orders"
+      "name": "issue checkout",
+      "ok": false,
+      "detail": "{\"timestamp\":\"2026-10-25T13:57:54.640963Z\",\"level\":\"ERROR\",\"fields\":{\"message\":\"command failed\",\"code\":\"api_error\",\"detail\":\"api_error: API request failed; see "
     },
     {
-      "name": "issue t4finance",
-      "ok": true,
-      "detail": "database_read_only on t4ledger"
-    },
-    {
-      "name": "t4warehouse reads t4inventory",
-      "ok": true,
-      "detail": "{\"columns\":[\"count(*)\"],\"rows\":[[5]],\"rows_affected\":0}"
-    },
-    {
-      "name": "t4checkout reads t4orders",
-      "ok": true,
-      "detail": "{\"columns\":[\"count(*)\"],\"rows\":[[5]],\"rows_affected\":0}"
-    },
-    {
-      "name": "t4finance reads t4ledger",
-      "ok": true,
-      "detail": "{\"columns\":[\"count(*)\"],\"rows\":[[5]],\"rows_affected\":0}"
-    },
-    {
-      "name": "a read-only credential cannot write",
-      "ok": true,
-      "detail": "{\"error\":{\"code\":\"sql_forbidden\",\"message\":\"SQL operation not permitted\"},\"status\":403}"
-    },
-    {
-      "name": "a read-only credential cannot reach another database",
-      "ok": true,
-      "detail": "{\"error\":{\"code\":\"database_forbidden\",\"message\":\"database access denied\"},\"status\":403}"
-    },
-    {
-      "name": "a read-only credential can read its own database",
-      "ok": true,
-      "detail": "{\"columns\":[\"count(*)\"],\"rows\":[[60]],\"rows_affected\":0}"
+      "name": "issue finance",
+      "ok": false,
+      "detail": "{\"timestamp\":\"2026-10-25T13:57:54.689828Z\",\"level\":\"ERROR\",\"fields\":{\"message\":\"command failed\",\"code\":\"api_error\",\"detail\":\"api_error: API request failed; see "
     },
     {
       "name": "list",
@@ -261,7 +174,7 @@
     {
       "name": "diff finds the divergence",
       "ok": true,
-      "detail": "{\"compared_rows\":310,\"identical\":false,\"left\":\"t4orders\",\"right\":\"t4branch_probe\",\"schema\":{\"changed\":[],\"identical\":true,\"only_left\":[],\"only_right\":[]},\"table"
+      "detail": "{\"compared_rows\":311,\"identical\":false,\"left\":\"orders\",\"right\":\"branch_probe\",\"schema\":{\"changed\":[],\"identical\":true,\"only_left\":[],\"only_right\":[]},\"tables\":["
     },
     {
       "name": "branch delete",
@@ -286,12 +199,12 @@
     {
       "name": "mcp dg_status",
       "ok": true,
-      "detail": "{\"id\": 10, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"admission\\\":{\\\"acquire_timeout_ms\\\":500,\\\"read_permits\\\":8,\\\"write_permits\\\":4},\\\"database_counts\\\":{\\\"live\\\":12,\\\"tombstoned\\\":21},\\\"d"
+      "detail": "{\"id\": 10, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"admission\\\":{\\\"acquire_timeout_ms\\\":500,\\\"read_permits\\\":8,\\\"write_permits\\\":4},\\\"database_counts\\\":{\\\"live\\\":7,\\\"tombstoned\\\":27},\\\"da"
     },
     {
       "name": "mcp dg_list",
       "ok": true,
-      "detail": "{\"id\": 11, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"databases\\\":[\\\"billing_dev_pilot\\\",\\\"inventory\\\",\\\"ledger\\\",\\\"notes\\\",\\\"orders\\\",\\\"sessions\\\",\\\"t4inventory\\\",\\\"t4ledger\\\",\\\"t4notes\\\","
+      "detail": "{\"id\": 11, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"databases\\\":[\\\"billing_dev_pilot\\\",\\\"inventory\\\",\\\"ledger\\\",\\\"notes\\\",\\\"orders\\\",\\\"sessions\\\",\\\"verify_probe\\\"]}\", \"type\": \"text\"}], \"i"
     },
     {
       "name": "mcp dg_info",
@@ -301,12 +214,12 @@
     {
       "name": "mcp dg_inspect",
       "ok": true,
-      "detail": "{\"id\": 13, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"activity\\\":null,\\\"backup\\\":{\\\"age_secs\\\":0,\\\"newest_set\\\":\\\"20261025T134917Z\\\",\\\"state\\\":\\\"fresh\\\"},\\\"database\\\":{\\\"created_at\\\":179293"
+      "detail": "{\"id\": 13, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"activity\\\":{\\\"last_write\\\":1792936674,\\\"queue_timeouts\\\":0,\\\"queue_wait_max_us\\\":2,\\\"queue_wait_ms\\\":0,\\\"queue_wait_p95_us\\\":2,\\\"queue_"
     },
     {
       "name": "mcp dg_backups",
       "ok": true,
-      "detail": "{\"id\": 14, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"backup_root\\\":\\\"/var/lib/dg-backups\\\",\\\"coverage\\\":{\\\"in_newest_set\\\":12,\\\"live\\\":12,\\\"missing\\\":[],\\\"registry\\\":true},\\\"drill\\\":{\\\"dat"
+      "detail": "{\"id\": 14, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"backup_root\\\":\\\"/var/lib/dg-backups\\\",\\\"coverage\\\":{\\\"in_newest_set\\\":7,\\\"live\\\":7,\\\"missing\\\":[],\\\"registry\\\":true},\\\"drill\\\":{\\\"datab"
     },
     {
       "name": "mcp dg_query",
@@ -342,46 +255,24 @@
       "name": "mcp reports a missing database",
       "ok": true,
       "detail": "{\"error\": {\"code\": -32001, \"data\": {\"code\": \"database_not_found\", \"status\": 404}, \"message\": \"database not found\"}, \"id\": 21, \"jsonrpc\": \"2.0\"}"
+    }
+  ],
+  "skip_detail": [
+    {
+      "name": "warehouse reads inventory",
+      "detail": "no key to read with"
     },
     {
-      "name": "revoke t4warehouse",
-      "ok": true,
-      "detail": ""
+      "name": "checkout reads orders",
+      "detail": "no key to read with"
     },
     {
-      "name": "revoke t4checkout",
-      "ok": true,
-      "detail": ""
+      "name": "finance reads ledger",
+      "detail": "no key to read with"
     },
     {
-      "name": "revoke t4finance",
-      "ok": true,
-      "detail": ""
-    },
-    {
-      "name": "tombstone t4inventory",
-      "ok": true,
-      "detail": ""
-    },
-    {
-      "name": "tombstone t4orders",
-      "ok": true,
-      "detail": ""
-    },
-    {
-      "name": "tombstone t4ledger",
-      "ok": true,
-      "detail": ""
-    },
-    {
-      "name": "tombstone t4sessions",
-      "ok": true,
-      "detail": ""
-    },
-    {
-      "name": "tombstone t4notes",
-      "ok": true,
-      "detail": ""
+      "name": "the read-only refusals",
+      "detail": "no read-only credential to try"
     }
   ]
 }
