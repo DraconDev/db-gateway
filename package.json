@@ -1,6 +1,6 @@
 {
   "name": "db-gateway",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "description": "DB Gateway (dg) \u2014 personal SQLite service. Rust server in src/, TypeScript client in client/.",
   "scripts": {
