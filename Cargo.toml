@@ -4,7 +4,7 @@ resolver = "3"
 
 [package]
 name = "dg"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2024"
 publish = false
 
