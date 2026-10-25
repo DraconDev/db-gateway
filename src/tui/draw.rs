@@ -485,7 +485,7 @@ fn databases_tab(frame: &mut Frame, area: Rect, app: &mut App) {
 /// arrived is a different thing again, and is named as such: blaming
 /// the gateway for a question nobody has answered yet is its own kind
 /// of wrong.
-fn locations_tab(frame: &mut Frame, area: Rect, app: &App) {
+fn locations_tab(frame: &mut Frame, area: Rect, app: &mut App) {
     let block = pane(app.focus == Focus::Locations);
     let Some(locations) = app.locations() else {
         let note = if app.status.is_none() {
@@ -496,6 +496,8 @@ fn locations_tab(frame: &mut Frame, area: Rect, app: &App) {
         frame.render_widget(Paragraph::new(note).block(block), area);
         return;
     };
+    app.scroll
+        .clamp(Focus::Locations, locations.rows().len().saturating_sub(1));
     let mut state = TableState::default().with_offset(app.scroll.locations as usize);
     framed_table(
         frame,
