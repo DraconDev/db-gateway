@@ -668,11 +668,13 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 /// The credentials that exist.
-fn keys_tab(frame: &mut Frame, area: Rect, app: &App) {
+fn keys_tab(frame: &mut Frame, area: Rect, app: &mut App) {
     match &app.keys {
         Some(keys) => {
             let table = views::keys(keys);
             let block = pane(app.focus == Focus::Keys);
+            app.scroll
+                .clamp(Focus::Keys, table.rows().len().saturating_sub(1));
             let mut state = TableState::default().with_offset(app.scroll.keys as usize);
             framed_table(frame, area, block, &table, usize::MAX, &mut state);
         }
