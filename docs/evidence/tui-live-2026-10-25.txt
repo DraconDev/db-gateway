@@ -12,16 +12,16 @@ stream is in the .log beside this file, and the screen
 below is what the terminal showed after the query ran.
 
  dg http://127.0.0.1:7432 · read 1s ago · connected
-▸ 1 databases (7) │ 2 service │ 3 backups │ 4 keys (5) │ 5 queries (34) │ 6 locations (36)
+▸ 1 databases (7) │ 2 service │ 3 backups │ 4 keys (5) │ 5 queries (33) │ 6 locations (37)
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│database            rows read   rows written   waits   wait p95   wait max   last write                                                                                                      │
-│billing_dev_pilot   0           0              0       -          -          never                                                                                                           │
-│inventory           104         10             13      1 us       1 us       52s ago                                                                                                         │
-│ledger              26          1              6       1 us       1 us       52s ago                                                                                                         │
-│notes               23          0              6       2 us       2 us       50s ago                                                                                                         │
-│orders              32          0              7       1 us       1 us       1h 38m ago                                                                                                      │
-│sessions            12          0              5       1 us       1 us       1h 51m ago                                                                                                      │
-│verify_probe        0           0              0       -          -          never                                                                                                           │
+│database            rows read   rows written   waits   wait p95   wait max   last write   size                                                                                               │
+│billing_dev_pilot   0           0              0       -          -          never        68.1 KiB                                                                                           │
+│inventory           103         10             13      1 us       1 us       7s ago       88.1 KiB                                                                                           │
+│ledger              26          1              6       1 us       1 us       7s ago       88.1 KiB                                                                                           │
+│notes               23          0              6       1 us       1 us       5s ago       92.2 KiB                                                                                           │
+│orders              32          0              7       1 us       1 us       5h 47m ago   80.1 KiB                                                                                           │
+│sessions            12          0              5       1 us       1 us       6h 0m ago    92.1 KiB                                                                                           │
+│verify_probe        0           0              0       -          -          never        84.2 KiB                                                                                           │
 │wait p95 is this database's own recent waits; wait max is its worst single wait                                                                                                              │
 │                                                                                                                                                                                             │
 │                                                                                                                                                                                             │
@@ -69,26 +69,26 @@ stream is in the .log beside this file, and the screen
 below is what the terminal showed after the query ran.
 
  dg http://127.0.0.1:7432 · read 1s ago · connected
- 1 databases (7) │▸ 2 service │ 3 backups │ 4 keys (5) │ 5 queries (34) │ 6 locations (36)
+ 1 databases (7) │▸ 2 service │ 3 backups │ 4 keys (5) │ 5 queries (33) │ 6 locations (37)
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│version: 0.6.0                                                                                                                                                                               │
-│uptime: 3m 16s                                                                                                                                                                               │
-│databases: 7 live, 29 tombstoned                                                                                                                                                             │
+│version: 0.7.0                                                                                                                                                                               │
+│uptime: 2m 19s                                                                                                                                                                               │
+│databases: 7 live, 30 tombstoned                                                                                                                                                             │
 │deployment                                                                                                                                                                                   │
 │host: micro2                                                                                                                                                                                 │
 │listen: 127.0.0.1:7432                                                                                                                                                                       │
 │data dir: /var/lib/dg                                                                                                                                                                        │
 │backup root: /var/lib/dg-backups                                                                                                                                                             │
 │disk free: 22.3 GiB of 44.1 GiB (49% used)                                                                                                                                                   │
-│databases: 2.3 MiB                                                                                                                                                                           │
+│databases: 2.4 MiB                                                                                                                                                                           │
 │retention: 1d 0h                                                                                                                                                                             │
 │activity                                                                                                                                                                                     │
-│requests: 565                                                                                                                                                                                │
+│requests: 425                                                                                                                                                                                │
 │rate: 224/min                                                                                                                                                                                │
 │errors: 0                                                                                                                                                                                    │
 │error rate: 0%                                                                                                                                                                               │
 │recent activity                                                                                                                                                                              │
-│req/s: ▂ ▂ █▅▇▄▆█▃ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▃ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂▂▂                                                                                                                           │
+│req/s: ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂ ▂▄█▄█▄█ ▂▂▂▁                                                                                                                          │
 │admission                                                                                                                                                                                    │
 │acquire timeout: 500 ms                                                                                                                                                                      │
 │read permits: 8                                                                                                                                                                              │
@@ -126,281 +126,53 @@ stream is in the .log beside this file, and the screen
 below is what the terminal showed after the query ran.
 
  dg http://127.0.0.1:7432 · read 1s ago · connected
- 1 databases (7) │ 2 service │▸ 3 backups │ 4 keys (5) │ 5 queries (34) │ 6 locations (36)
+ 1 databases (7) │ 2 service │▸ 3 backups │ 4 keys (5) │ 5 queries (33) │ 6 locations (37)
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │backup                                                                                                                                                                                       │
 │root: /var/lib/dg-backups                                                                                                                                                                    │
 │freshness objective: 5m 0s                                                                                                                                                                   │
 │sets: 25                                                                                                                                                                                     │
+│deleted: 22 database(s) in the sets; their copies are pruned with the sets                                                                                                                   │
 │last run                                                                                                                                                                                     │
 │outcome: ok                                                                                                                                                                                  │
-│finished: 11m 6s ago                                                                                                                                                                         │
-│set: 2026-10-25 14:17 (7 databases, step prune)                                                                                                                                              │
+│finished: 20m 6s ago                                                                                                                                                                         │
+│set: 2026-10-25 18:17 (7 databases, step prune)                                                                                                                                              │
 │coverage                                                                                                                                                                                     │
 │newest set: 7 of 7 live databases                                                                                                                                                            │
+│missing: none                                                                                                                                                                                │
+│registry: yes                                                                                                                                                                                │
+│replica                                                                                                                                                                                      │
+│bucket: dg-sandbox                                                                                                                                                                           │
+│endpoint: s3.uk.io.cloud.ovh.net (uk)                                                                                                                                                        │
+│retention: 168h (snapshot 24h)                                                                                                                                                               │
+│databases: billing_dev_pilot, inventory, ledger, notes, orders, sessions, verify_probe (+registry)                                                                                           │
+│sidecar: active (published 3m 37s ago)                                                                                                                                                       │
+│restore drill                                                                                                                                                                                │
+│outcome: ok (ran 5h 34m ago)                                                                                                                                                                 │
+│databases: 8 databases, restored from the replicas and verified against the live gateway                                                                                                     │
+│point-in-time restore                                                                                                                                                                        │
+│window: 2026-10-16 07:30 UTC to 2026-10-25 14:28 UTC                                                                                                                                         │
+│replicated: 8 databases, sidecar active                                                                                                                                                      │
+│last restore: billing_dev_pilot at 2026-10-16 08:00 UTC (ok)                                                                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ per-database ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │database            state   newest set         age                                                                                                                                           │
-│billing_dev_pilot   fresh   2026-10-25 14:27   53s                                                                                                                                           │
-│inventory           fresh   2026-10-25 14:27   53s                                                                                                                                           │
-│ledger              fresh   2026-10-25 14:27   53s                                                                                                                                           │
-│notes               stale   2026-10-25 14:27   53s                                                                                                                                           │
-│orders              fresh   2026-10-25 14:27   53s                                                                                                                                           │
-│orders_scratch      stale   2026-10-25 13:22   1h 6m                                                                                                                                         │
-│sessions            fresh   2026-10-25 14:27   53s                                                                                                                                           │
-│t1branch_probe      stale   2026-10-25 13:24   1h 4m                                                                                                                                         │
-│t1inventory         stale   2026-10-25 13:22   1h 6m                                                                                                                                         │
-│t1ledger            stale   2026-10-25 13:22   1h 6m                                                                                                                                         │
-│t1notes             stale   2026-10-25 13:22   1h 6m                                                                                                                                         │
-│t1orders            stale   2026-10-25 13:22   1h 6m                                                                                                                                         │
-│t1sessions          stale   2026-10-25 13:22   1h 6m                                                                                                                                         │
-│t2inventory         stale   2026-10-25 13:24   1h 4m                                                                                                                                         │
-│t2ledger            stale   2026-10-25 13:24   1h 4m                                                                                                                                         │
-│t2notes             stale   2026-10-25 13:24   1h 4m                                                                                                                                         │
-│t2orders            stale   2026-10-25 13:24   1h 4m                                                                                                                                         │
-│t2sessions          stale   2026-10-25 13:24   1h 4m                                                                                                                                         │
-│t3inventory         stale   2026-10-25 13:31   56m 24s                                                                                                                                       │
-│t3ledger            stale   2026-10-25 13:31   56m 24s                                                                                                                                       │
-│t3notes             stale   2026-10-25 13:31   56m 24s                                                                                                                                       │
-│t3orders            stale   2026-10-25 13:31   56m 24s                                                                                                                                       │
-│t3sessions          stale   2026-10-25 13:31   56m 24s                                                                                                                                       │
-│t4inventory         stale   2026-10-25 13:49   38m 49s                                                                                                                                       │
-│t4ledger            stale   2026-10-25 13:49   38m 49s                                                                                                                                       │
-│t4notes             stale   2026-10-25 13:49   38m 49s                                                                                                                                       │
-│t4orders            stale   2026-10-25 13:49   38m 49s                                                                                                                                       │
-│t4sessions          stale   2026-10-25 13:49   38m 49s                                                                                                                                       │
-│verify_probe        fresh   2026-10-25 14:27   53s                                                                                                                                           │
+│billing_dev_pilot   fresh   2026-10-25 18:36   8s                                                                                                                                            │
+│inventory           fresh   2026-10-25 18:36   8s                                                                                                                                            │
+│ledger              fresh   2026-10-25 18:36   8s                                                                                                                                            │
+│notes               stale   2026-10-25 18:36   8s                                                                                                                                            │
+│orders              fresh   2026-10-25 18:36   8s                                                                                                                                            │
+│sessions            fresh   2026-10-25 18:36   8s                                                                                                                                            │
+│verify_probe        fresh   2026-10-25 18:36   8s                                                                                                                                            │
 └─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ published sets ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │set                coverage from          databases   registry                                                                                                                               │
-└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-1-6 tabs  tab next tab  ↑↓ scroll  : commands  r refresh  q quit
-
------ tab 4: keys -----
-A real `dg tui` session against a real gateway.
-Captured by scripts/capture-tui-evidence.sh: the raw pty
-stream is in the .log beside this file, and the screen
-below is what the terminal showed after the query ran.
-
- dg http://127.0.0.1:7432 · read 1s ago · connected
- 1 databases (7) │ 2 service │ 3 backups │▸ 4 keys (5) │ 5 queries (34) │ 6 locations (36)
-┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│name                role                  databases                                                                                                                                          │
-│checkout            database_read_write   orders                                                                                                                                             │
-│finance             database_read_only    ledger                                                                                                                                             │
-│owner               owner                 all                                                                                                                                                │
-│pilot_billing_dev   database_read_write   billing_dev_pilot                                                                                                                                  │
-│warehouse           database_read_only    inventory                                                                                                                                          │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-1-6 tabs  tab next tab  ↑↓ scroll  : commands  r refresh  q quit
-
------ tab 5: queries -----
-A real `dg tui` session against a real gateway.
-Captured by scripts/capture-tui-evidence.sh: the raw pty
-stream is in the .log beside this file, and the screen
-below is what the terminal showed after the query ran.
-
- dg http://127.0.0.1:7432 · read 1s ago · connected
- 1 databases (7) │ 2 service │ 3 backups │ 4 keys (5) │▸ 5 queries (34) │ 6 locations (36)
-┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│database                  statement                                                                  runs   rows read   rows written   total time   slowest   by                             │
-│branch_probe_1792938433   UPDATE orders SET status = ? WHERE id = ?                                  1      0           1              19 us        19 us     owner (1)                      │
-│inventory                 SELECT * FROM stock_moves WHERE delta < ?                                  1      52          0              86 us        86 us     owner (1)                      │
-│inventory                 SELECT p .name, s .name, s .lead_days FROM products p JOIN suppliers s …   1      30          0              1.4 ms       1.4 ms    owner (1)                      │
-│inventory                 SELECT id, name, price_cents FROM products WHERE category = ? ORDER BY …   1      9           0              43 us        43 us     owner (1)                      │
-│inventory                 SELECT category, count(*), sum(stock) FROM products GROUP BY category      1      7           0              60 us        60 us     owner (1)                      │
-│inventory                 SELECT id, delta, reason FROM stock_moves WHERE product_id = ? ORDER BY…   1      2           0              96 us        96 us     owner (1)                      │
-│inventory                 SELECT count(*) FROM products                                              2      2           0              41 us        21 us     owner (2)                      │
-│inventory                 SELECT max(id) FROM stock_moves                                            1      1           0              26 us        26 us     owner (1)                      │
-│inventory                 SELECT id, sku, name FROM products WHERE id = ?                            1      1           0              24 us        24 us     owner (1)                      │
-│inventory                 UPDATE products SET stock = stock + ? WHERE category = ?                   1      0           9              28 us        28 us     owner (1)                      │
-│inventory                 INSERT OR REPLACE INTO stock_moves (id, product_id, delta, reason, at) …   1      0           1              19 us        19 us     owner (1)                      │
-│ledger                    SELECT a .name, b .limit_cents FROM budgets b JOIN accounts a ON a .id …   1      15          0              45 us        45 us     owner (1)                      │
-│ledger                    SELECT account_id, sum(amount_cents) FROM entries GROUP BY account_id H…   1      7           0              76 us        76 us     owner (1)                      │
-│ledger                    SELECT kind, sum(amount_cents) FROM entries e JOIN accounts a ON a .id …   1      2           0              90 us        90 us     owner (1)                      │
-│ledger                    SELECT id, amount_cents, memo FROM entries WHERE id = ?                    1      1           0              529 us       529 us    owner (1)                      │
-│ledger                    SELECT count(*) FROM entries WHERE at BETWEEN ? AND ?                      1      1           0              38 us        38 us     owner (1)                      │
-│ledger                    UPDATE entries SET memo = ? WHERE id = ?                                   1      0           1              36 us        36 us     owner (1)                      │
-│notes                     SELECT tag, count(*) FROM tags GROUP BY tag ORDER BY count(*) DESC LIMI…   1      10          0              575 us       575 us    owner (1)                      │
-│notes                     SELECT id, title FROM notes WHERE pinned = ? ORDER BY updated_at DESC      1      10          0              49 us        49 us     owner (1)                      │
-│notes                     SELECT n .title, t .tag FROM notes n JOIN tags t ON t .note_id = n .id …   1      2           0              36 us        36 us     owner (1)                      │
-│notes                     SELECT count(*) FROM notes WHERE updated_at > ?                            1      1           0              24 us        24 us     owner (1)                      │
-│notes                     DELETE FROM tags WHERE id = ?                                              1      0           0              16 us        16 us     owner (1)                      │
-│orders                    SELECT o .id, o .total_cents, sum(i .qty) FROM orders o JOIN order_item…   1      10          0              154 us       154 us    owner (1)                      │
-│orders                    SELECT c .name, count(o .id) FROM customers c JOIN orders o ON o .custo…   1      10          0              104 us       104 us    owner (1)                      │
-│orders                    SELECT * FROM orders WHERE placed_at > ? ORDER BY placed_at DESC LIMIT ?   1      5           0              59 us        59 us     owner (1)                      │
-│orders                    SELECT status, count(*), sum(total_cents) FROM orders GROUP BY status      1      3           0              66 us        66 us     owner (1)                      │
-│orders                    SELECT id, qty FROM order_items WHERE order_id = ?                         1      2           0              30 us        30 us     owner (1)                      │
-│orders                    SELECT id, total_cents, status FROM orders WHERE id = ?                    1      1           0              514 us       514 us    owner (1)                      │
-│orders                    SELECT count(*) FROM order_items WHERE price_cents > ?                     1      1           0              31 us        31 us     owner (1)                      │
-│sessions                  SELECT name, count(*) FROM events GROUP BY name ORDER BY count(*) DESC     1      9           0              100 us       100 us    owner (1)                      │
-│sessions                  SELECT source, count(*), avg(duration_ms) FROM events e JOIN sessions s…   1      1           0              619 us       619 us    owner (1)                      │
-│sessions                  SELECT id, source, agent, ended_at FROM sessions WHERE id = ?              1      1           0              478 us       478 us    owner (1)                      │
-│sessions                  SELECT count(*) FROM events WHERE name = ?                                 1      1           0              41 us        41 us     owner (1)                      │
-│sessions                  SELECT id, duration_ms FROM events WHERE duration_ms > ? ORDER BY durat…   1      0           0              41 us        41 us     owner (1)                      │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-1-6 tabs  tab next tab  ↑↓ scroll  : commands  r refresh  q quit
-
------ tab 6: locations -----
-A real `dg tui` session against a real gateway.
-Captured by scripts/capture-tui-evidence.sh: the raw pty
-stream is in the .log beside this file, and the screen
-below is what the terminal showed after the query ran.
-
- dg http://127.0.0.1:7432 · read 1s ago · connected
- 1 databases (7) │ 2 service │ 3 backups │ 4 keys (5) │ 5 queries (34) │▸ 6 locations (36)
-┌ locations ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│database                    file                                           size       state                                                                                                  │
-│billing_dev_pilot           /var/lib/dg/billing_dev_pilot.sqlite           68.1 KiB   live                                                                                                   │
-│branch_probe                /var/lib/dg/branch_probe.sqlite                64.0 KiB   tombstoned                                                                                             │
-│branch_probe_1792936872     /var/lib/dg/branch_probe_1792936872.sqlite     64.0 KiB   tombstoned                                                                                             │
-│branch_probe_1792938433     /var/lib/dg/branch_probe_1792938433.sqlite     64.0 KiB   tombstoned                                                                                             │
-│inventory                   /var/lib/dg/inventory.sqlite                   88.1 KiB   live                                                                                                   │
-│ledger                      /var/lib/dg/ledger.sqlite                      88.1 KiB   live                                                                                                   │
-│notes                       /var/lib/dg/notes.sqlite                       92.2 KiB   live                                                                                                   │
-│orders                      /var/lib/dg/orders.sqlite                      80.1 KiB   live                                                                                                   │
-│orders_scratch              /var/lib/dg/orders_scratch.sqlite              68.1 KiB   tombstoned                                                                                             │
-│sessions                    /var/lib/dg/sessions.sqlite                    92.1 KiB   live                                                                                                   │
-│t1branch_probe              /var/lib/dg/t1branch_probe.sqlite              56.0 KiB   tombstoned                                                                                             │
-│t1inventory                 /var/lib/dg/t1inventory.sqlite                 64.0 KiB   tombstoned                                                                                             │
-│t1ledger                    /var/lib/dg/t1ledger.sqlite                    64.0 KiB   tombstoned                                                                                             │
-│t1notes                     /var/lib/dg/t1notes.sqlite                     52.0 KiB   tombstoned                                                                                             │
-│t1orders                    /var/lib/dg/t1orders.sqlite                    56.0 KiB   tombstoned                                                                                             │
-│t1sessions                  /var/lib/dg/t1sessions.sqlite                  68.0 KiB   tombstoned                                                                                             │
-│t2branch_probe              /var/lib/dg/t2branch_probe.sqlite              56.0 KiB   tombstoned                                                                                             │
-│t2inventory                 /var/lib/dg/t2inventory.sqlite                 64.0 KiB   tombstoned                                                                                             │
-│t2ledger                    /var/lib/dg/t2ledger.sqlite                    64.0 KiB   tombstoned                                                                                             │
-│t2notes                     /var/lib/dg/t2notes.sqlite                     52.0 KiB   tombstoned                                                                                             │
-│t2orders                    /var/lib/dg/t2orders.sqlite                    56.0 KiB   tombstoned                                                                                             │
-│t2sessions                  /var/lib/dg/t2sessions.sqlite                  68.0 KiB   tombstoned                                                                                             │
-│t3branch_probe              /var/lib/dg/t3branch_probe.sqlite              56.0 KiB   tombstoned                                                                                             │
-│t3inventory                 /var/lib/dg/t3inventory.sqlite                 64.0 KiB   tombstoned                                                                                             │
-│t3ledger                    /var/lib/dg/t3ledger.sqlite                    64.0 KiB   tombstoned                                                                                             │
-│t3notes                     /var/lib/dg/t3notes.sqlite                     52.0 KiB   tombstoned                                                                                             │
-│t3orders                    /var/lib/dg/t3orders.sqlite                    56.0 KiB   tombstoned                                                                                             │
-│t3sessions                  /var/lib/dg/t3sessions.sqlite                  68.0 KiB   tombstoned                                                                                             │
-│t4branch_probe              /var/lib/dg/t4branch_probe.sqlite              56.0 KiB   tombstoned                                                                                             │
-│t4inventory                 /var/lib/dg/t4inventory.sqlite                 64.0 KiB   tombstoned                                                                                             │
-│t4ledger                    /var/lib/dg/t4ledger.sqlite                    64.0 KiB   tombstoned                                                                                             │
-│t4notes                     /var/lib/dg/t4notes.sqlite                     52.0 KiB   tombstoned                                                                                             │
-│t4orders                    /var/lib/dg/t4orders.sqlite                    56.0 KiB   tombstoned                                                                                             │
-│t4sessions                  /var/lib/dg/t4sessions.sqlite                  68.0 KiB   tombstoned                                                                                             │
-│verify_probe                /var/lib/dg/verify_probe.sqlite                84.2 KiB   live                                                                                                   │
-│verify_probe_branch_check   /var/lib/dg/verify_probe_branch_check.sqlite   56.0 KiB   tombstoned                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-1-6 tabs  tab next tab  ↑↓ scroll  : commands  r refresh  q quit
-
------ the palette -----
-A real `dg tui` session against a real gateway.
-Captured by scripts/capture-tui-evidence.sh: the raw pty
-stream is in the .log beside this file, and the screen
-below is what the terminal showed after the query ran.
-
- dg http://127.0.0.1:7432 · read 1s ago · connected
-▸ 1 databases (7) │ 2 service │ 3 backups │ 4 keys (5) │ 5 queries (34) │ 6 locations (36)
-┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│database            rows read   rows written   waits   wait p95   wait max   last write                                                                                                      │
-│billing_dev_pilot   0           0              0       -          -          never                                                                                                           │
-│inventory           104         10             13      1 us       1 us       1m 6s ago                                                                                                       │
-│ledger              26          1              6       1 us       1 us       1m 6s ago                                                                                                       │
-│notes               23          0              6       2 us       2 us       1m 4s ago                                                                                                       │
-│orders              32          0              7       1 us       1 us       1h 38m ago                                                                                                      │
-│sessions            12          0              5       1 us       1 us       1h 52m ago                                                                                                      │
-│verify_probe        0           0              0       -          -          never                                                                                                           │
-│wait p95 is this database's own recent waits; wait max is its worst single wait                                                                                                              │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                            ┌ actions ─────────────────────────────────────────────────────────────────────────────────────────┐                                             │
-│                                            │▸   refresh          read the service again now                                                   │                                             │
-│                                            │    query            query <database> <sql>                                                       │                                             │
-│                                            │    run sql file     run <database> <script.sql>                                                  │                                             │
-│                                            │    run batch file   batch <database> <batch.json>                                                │                                             │
-│                                            │    create database  create <name>                                                                │                                             │
-│                                            │  ! delete database  delete <name>                                                                │                                             │
-│                                            │    clone database   clone <source> <destination>                                                 │                                             │
-│                                            │    export database  export <name> <file.sqlite>                                                  │                                             │
-│                                            │    import database  import <name> <file.sqlite>                                                  │                                             │
-│                                            │    issue key        issue <name> <role> <database>...                                            │                                             │
-│                                            │  ! revoke key       revoke <name>                                                                │                                             │
-│                                            │  ! rotate owner key the old owner key dies the moment the new one is issued                      │                                             │
-│                                            │    quit             leave the view                                                               │                                             │
-│                                            │                                                                                                  │                                             │
-│                                            │                                                                                                  │                                             │
-│                                            └──────────────────────────────────────────────────────────────────────────────────────────────────┘                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
-│                                                                                                                                                                                             │
+│20261025T183658Z   2026-10-25 18:36 UTC   7           yes                                                                                                                                    │
+│20261025T181701Z   2026-10-25 18:17 UTC   7           yes                                                                                                                                    │
+│20261025T171701Z   2026-10-25 17:17 UTC   7           yes                                                                                                                                    │
+│20261025T161701Z   2026-10-25 16:17 UTC   7           yes                                                                                                                                    │
+│20261025T151701Z   2026-10-25 15:17 UTC   7           yes                                                                                                                                    │
+│20261025T142713Z   2026-10-25 14:27 UTC   7           yes                                                                                                                                    │
 └─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 1-6 tabs  tab next tab  ↑↓ scroll  : commands  r refresh  q quit
 

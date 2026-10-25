@@ -1,6 +1,6 @@
 {
   "server": "http://127.0.0.1:7432",
-  "seconds": 6.2,
+  "seconds": 5.4,
   "reuse": true,
   "checks": 42,
   "passed": 42,
@@ -157,7 +157,7 @@
     {
       "name": "diff finds the divergence",
       "ok": true,
-      "detail": "{\"compared_rows\":311,\"identical\":false,\"left\":\"orders\",\"right\":\"branch_probe_1792938433\",\"schema\":{\"changed\":[],\"identical\":true,\"only_left\":[],\"only_right\":[]}"
+      "detail": "{\"compared_rows\":311,\"identical\":false,\"left\":\"orders\",\"right\":\"branch_probe_1792953418\",\"schema\":{\"changed\":[],\"identical\":true,\"only_left\":[],\"only_right\":[]}"
     },
     {
       "name": "branch delete",
@@ -182,7 +182,7 @@
     {
       "name": "mcp dg_status",
       "ok": true,
-      "detail": "{\"id\": 10, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"admission\\\":{\\\"acquire_timeout_ms\\\":500,\\\"read_permits\\\":8,\\\"write_permits\\\":4},\\\"database_counts\\\":{\\\"live\\\":7,\\\"tombstoned\\\":29},\\\"da"
+      "detail": "{\"id\": 10, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"admission\\\":{\\\"acquire_timeout_ms\\\":500,\\\"read_permits\\\":8,\\\"write_permits\\\":4},\\\"database_counts\\\":{\\\"live\\\":7,\\\"tombstoned\\\":30},\\\"da"
     },
     {
       "name": "mcp dg_list",
@@ -197,12 +197,12 @@
     {
       "name": "mcp dg_inspect",
       "ok": true,
-      "detail": "{\"id\": 13, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"activity\\\":{\\\"last_write\\\":1792938431,\\\"queue_timeouts\\\":0,\\\"queue_wait_max_us\\\":1,\\\"queue_wait_ms\\\":0,\\\"queue_wait_p95_us\\\":1,\\\"queue_"
+      "detail": "{\"id\": 13, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"activity\\\":{\\\"last_write\\\":1792953416,\\\"queue_timeouts\\\":0,\\\"queue_wait_max_us\\\":1,\\\"queue_wait_ms\\\":0,\\\"queue_wait_p95_us\\\":1,\\\"queue_"
     },
     {
       "name": "mcp dg_backups",
       "ok": true,
-      "detail": "{\"id\": 14, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"backup_root\\\":\\\"/var/lib/dg-backups\\\",\\\"coverage\\\":{\\\"in_newest_set\\\":7,\\\"live\\\":7,\\\"missing\\\":[],\\\"registry\\\":true},\\\"drill\\\":{\\\"datab"
+      "detail": "{\"id\": 14, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"backup_root\\\":\\\"/var/lib/dg-backups\\\",\\\"coverage\\\":{\\\"in_newest_set\\\":7,\\\"live\\\":7,\\\"missing\\\":[],\\\"registry\\\":true},\\\"deleted\\\":22,\\\"d"
     },
     {
       "name": "mcp dg_query",
