@@ -97,6 +97,19 @@ The backup units (`deploy/dg-backup.{service,timer}` hourly producer,
 the same style: substitute the placeholders above, install under
 `/etc/systemd/system/`, `daemon-reload`, then enable the timers.
 
+**The snapshot cadence (2026-10-25):** `dg.service` and
+`dg-backup-digest.service` both pass `--backup-cadence-secs 3600` /
+`--cadence-secs 3600` — the owner-approved snapshot cadence, which is the
+hourly producer's own interval (the Tier-2 RPO objective,
+`docs/recovery-policy.md`). It is the number the backup-health alarm is
+judged against: a change that no verified copy carries is a finding only
+once it has waited longer than that. Without it, every change written
+since the last publication is reported and the daily digest is red
+whenever anything has happened on the host. A host whose producer runs on
+a different interval must render the same number in both units, and the
+units are the only place it is set — the gateway and the digest each read
+it from their own command line, so the two halves cannot disagree.
+
 `dg-backup.service` passes the rendered paths to the producer it drives
 (`--server http://{{DG_LISTEN}} --key-file {{DG_OWNER_KEY_FILE}}
 --data-dir {{DG_DATA_DIR}} --backup-root {{DG_BACKUP_ROOT}}`), and
