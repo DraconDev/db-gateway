@@ -394,6 +394,11 @@ def main():
 
     names = [named(name) for name in NAMES]
     credentials = [(named(label), role, named(db)) for label, role, db in CREDENTIALS]
+    # The base name of every database, mapped to the name it has on
+    # this run. The statement lists below are written in base names,
+    # because they are about the shapes of questions rather than about
+    # one deployment.
+    prefixed = {base: named(base) for base in NAMES}
 
     # Refuse to run against names that already exist: the exercise
     # inserts rows, and a name that is already there belongs to
@@ -424,15 +429,15 @@ def main():
         report.add(f"rows {name}", code == 0, err.strip()[:160])
 
     print("== the statement spread ==")
-    for name, sql, bind in QUERIES:
-        base = name[len(args.prefix):]
+    for base, sql, bind in QUERIES:
+        name = prefixed[base]
         code, _, err = client.run(["query", name, sql, "--args", json.dumps(bind)])
         if code != 0:
             report.add(f"read {base}", False, err.strip()[:160])
     report.add(f"{len(QUERIES)} read shapes ran", True)
 
-    for name, sql, bind in MUTATIONS:
-        base = name[len(args.prefix):]
+    for base, sql, bind in MUTATIONS:
+        name = prefixed[base]
         code, _, err = client.run(["query", name, sql, "--args", json.dumps(bind)])
         report.add(f"write {base}", code == 0, err.strip()[:160])
 
