@@ -619,7 +619,7 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App) {
         .map(|(_, table)| {
             (table.rows().len() as u16 + 3)
                 .min(remaining.saturating_sub(min_table))
-                .max(3)
+                .max(min_table)
         })
         .unwrap_or(0);
     let mut constraints = vec![Constraint::Length(fields_height)];
