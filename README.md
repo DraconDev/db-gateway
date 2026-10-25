@@ -68,7 +68,7 @@ $ dg query game_a "SELECT id, name, score FROM players ORDER BY id"
 ```
 $ dg status
 service
-  version    0.4.2
+  version    0.5.0
   uptime     3d 4h
   databases  12 live, 2 tombstoned
 
@@ -128,6 +128,21 @@ Fast loop while iterating (instead of the full workspace suite):
 ```sh
 cargo test --locked --test <name>   # e.g. tui_layout, cli, m1_e2e
 ```
+
+The harnesses in `scripts/` come in two kinds. The load ones (`soak.py`,
+`soak_starvation.py`, `noisy_neighbor_cross_db.py`) start their own `dg serve`
+on a temp directory and never touch a deployment. The functional one
+(`scripts/live_exercise.py`) does the opposite: it drives a *running* gateway
+through the real CLI, giving it real schemas, rows, statement shapes and
+scoped credentials, then walks every read-only surface and checks the
+refusals as carefully as the successes:
+
+```sh
+scripts/live_exercise.py --server http://127.0.0.1:7432 --key-file ~/.config/dg/key
+```
+
+It refuses to run against database names that already exist, and `--cleanup`
+tombstones what it created afterwards.
 
 `Cargo.lock` is tracked to fix dependency resolution. CI runs the Rust checks, the TypeScript client suite, deploy-template validation, and a RustSec advisory scan (`cargo audit` equivalent) on stable Rust.
 
