@@ -1,0 +1,406 @@
+A real `dg tui` session against the LIVE gateway on micro2
+(server http://127.0.0.1:7432), captured one view at a time.
+
+Each view below is the final screen of its own pty session, rebuilt by
+scripts/render-tui-capture.py. The raw pty streams are in
+tui-live-2026-10-25.log-raw/ beside this file.
+
+----- tab 1: databases -----
+A real `dg tui` session against a real gateway.
+Captured by scripts/capture-tui-evidence.sh: the raw pty
+stream is in the .log beside this file, and the screen
+below is what the terminal showed after the query ran.
+
+ dg http://127.0.0.1:7432 · read 0s ago · connected
+▸ 1 databases (8) │ 2 service │ 3 backups │ 4 keys (5) │ 5 queries (107) │ 6 locations (9)
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│database            rows read   rows written   waits   wait p95   wait max   last write                                                                                                      │
+│billing_dev_pilot   4           0              3       1 us       1 us       9d 5h ago                                                                                                       │
+│inventory           128         210            26      2 us       2 us       31m 44s ago                                                                                                     │
+│ledger              36          151            17      2 us       2 us       31m 43s ago                                                                                                     │
+│notes               31          141            14      2 us       2 us       18m 22s ago                                                                                                     │
+│orders              43          311            19      2 us       2 us       18m 22s ago                                                                                                     │
+│orders_scratch      10          1              8       2 us       2 us       18m 22s ago                                                                                                     │
+│sessions            20          270            13      2 us       2 us       31m 46s ago                                                                                                     │
+│verify_probe        7           0              5       1 us       1 us       17h 18m ago                                                                                                     │
+│wait p95 is this database's own recent waits; wait max is its worst single wait                                                                                                              │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+1-6 tabs  tab next tab  ↑↓ scroll  : commands  r refresh  q quit
+
+----- tab 2: service -----
+A real `dg tui` session against a real gateway.
+Captured by scripts/capture-tui-evidence.sh: the raw pty
+stream is in the .log beside this file, and the screen
+below is what the terminal showed after the query ran.
+
+ dg http://127.0.0.1:7432 · read 1s ago · connected
+ 1 databases (8) │▸ 2 service │ 3 backups │ 4 keys (5) │ 5 queries (107) │ 6 locations (9)
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│version: 0.4.2                                                                                                                                                                               │
+│uptime: 2h 3m                                                                                                                                                                                │
+│databases: 8 live, 1 tombstoned                                                                                                                                                              │
+│deployment                                                                                                                                                                                   │
+│host: micro2                                                                                                                                                                                 │
+│listen: 127.0.0.1:7432                                                                                                                                                                       │
+│data dir: /var/lib/dg                                                                                                                                                                        │
+│backup root: /var/lib/dg-backups                                                                                                                                                             │
+│disk free: 22.4 GiB of 44.1 GiB (49% used)                                                                                                                                                   │
+│databases: 717.1 KiB                                                                                                                                                                         │
+│retention: 1d 0h                                                                                                                                                                             │
+│activity                                                                                                                                                                                     │
+│requests: 18,843                                                                                                                                                                             │
+│rate: 151/min                                                                                                                                                                                │
+│errors: 0                                                                                                                                                                                    │
+│error rate: 0%                                                                                                                                                                               │
+│recent activity                                                                                                                                                                              │
+│req/s:  ▄ ▄ ▄ ▄ ▄ ▄ ▄ ▄ ▄ ▄ ▄ ▄ ▄ ▄ ▄ ▄ ▄ ▄ ▄ ▄ ▄ ▄ ▄ ▄ ▄ ▄ ▄ ▄ █ ▁                                                                                                                          │
+│admission                                                                                                                                                                                    │
+│acquire timeout: 500 ms                                                                                                                                                                      │
+│read permits: 8                                                                                                                                                                              │
+│write permits: 4                                                                                                                                                                             │
+│wait p50: 1 us                                                                                                                                                                               │
+│wait p95: 2 us                                                                                                                                                                               │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+1-6 tabs  tab next tab  ↑↓ scroll  : commands  r refresh  q quit
+
+----- tab 3: backups -----
+A real `dg tui` session against a real gateway.
+Captured by scripts/capture-tui-evidence.sh: the raw pty
+stream is in the .log beside this file, and the screen
+below is what the terminal showed after the query ran.
+
+ dg http://127.0.0.1:7432 · read 1s ago · connected
+ 1 databases (8) │ 2 service │▸ 3 backups │ 4 keys (5) │ 5 queries (107) │ 6 locations (9)
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│backup                                                                                                                                                                                       │
+│root: /var/lib/dg-backups                                                                                                                                                                    │
+│freshness objective: 5m 0s                                                                                                                                                                   │
+│sets: 25                                                                                                                                                                                     │
+│last run                                                                                                                                                                                     │
+│outcome: ok                                                                                                                                                                                  │
+│finished: 50m 58s ago                                                                                                                                                                        │
+│set: 2026-10-25 12:17 (2 databases, step prune)                                                                                                                                              │
+│coverage                                                                                                                                                                                     │
+│newest set: 8 of 8 live databases                                                                                                                                                            │
+│missing: none                                                                                                                                                                                │
+│registry: yes                                                                                                                                                                                │
+│replica                                                                                                                                                                                      │
+│bucket: dg-sandbox                                                                                                                                                                           │
+│endpoint: s3.uk.io.cloud.ovh.net (uk)                                                                                                                                                        │
+│retention: 168h (snapshot 24h)                                                                                                                                                               │
+│databases: billing_dev_pilot, inventory, ledger, notes, orders, orders_scratch, sessions, verify_probe (+registry)                                                                           │
+│sidecar: active (published 3m 53s ago)                                                                                                                                                       │
+│restore drill                                                                                                                                                                                │
+│outcome: ok                                                                                                                                                                                  │
+│ran: 5m 43s ago                                                                                                                                                                              │
+│databases: 8 databases, restored from the replicas and verified against the live gateway                                                                                                     │
+│point-in-time restore                                                                                                                                                                        │
+│window: 2026-10-16 07:30 UTC to 2026-10-25 12:54 UTC                                                                                                                                         │
+│replicated: 9 databases, sidecar active                                                                                                                                                      │
+│last restore: billing_dev_pilot at 2026-10-16 08:00 UTC (ok)                                                                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ per-database ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│database            state   newest set         age                                                                                                                                           │
+│billing_dev_pilot   fresh   2026-10-25 12:49   18m 24s                                                                                                                                       │
+│inventory           fresh   2026-10-25 12:49   18m 24s                                                                                                                                       │
+│ledger              fresh   2026-10-25 12:49   18m 24s                                                                                                                                       │
+│notes               stale   2026-10-25 12:49   18m 24s                                                                                                                                       │
+│orders              stale   2026-10-25 12:49   18m 24s                                                                                                                                       │
+│orders_scratch      stale   2026-10-25 12:49   18m 24s                                                                                                                                       │
+│sessions            fresh   2026-10-25 12:49   18m 24s                                                                                                                                       │
+│verify_probe        fresh   2026-10-25 12:49   18m 24s                                                                                                                                       │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ published sets ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│set                coverage from          databases   registry                                                                                                                               │
+│20261025T124933Z   2026-10-25 12:49 UTC   8           yes                                                                                                                                    │
+│20261025T121701Z   2026-10-25 12:17 UTC   2           yes                                                                                                                                    │
+│20261025T111707Z   2026-10-25 11:17 UTC   2           yes                                                                                                                                    │
+│20261025T101707Z   2026-10-25 10:17 UTC   2           yes                                                                                                                                    │
+│20261025T091717Z   2026-10-25 09:17 UTC   2           yes                                                                                                                                    │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+1-6 tabs  tab next tab  ↑↓ scroll  : commands  r refresh  q quit
+
+----- tab 4: keys -----
+A real `dg tui` session against a real gateway.
+Captured by scripts/capture-tui-evidence.sh: the raw pty
+stream is in the .log beside this file, and the screen
+below is what the terminal showed after the query ran.
+
+ dg http://127.0.0.1:7432 · read 1s ago · connected
+ 1 databases (8) │ 2 service │ 3 backups │▸ 4 keys (5) │ 5 queries (107) │ 6 locations (9)
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│name                role                  databases                                                                                                                                          │
+│checkout            database_read_write   orders                                                                                                                                             │
+│finance             database_read_only    ledger                                                                                                                                             │
+│owner               owner                 all                                                                                                                                                │
+│pilot_billing_dev   database_read_write   billing_dev_pilot                                                                                                                                  │
+│warehouse           database_read_only    inventory                                                                                                                                          │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+1-6 tabs  tab next tab  ↑↓ scroll  : commands  r refresh  q quit
+
+----- tab 5: queries -----
+A real `dg tui` session against a real gateway.
+Captured by scripts/capture-tui-evidence.sh: the raw pty
+stream is in the .log beside this file, and the screen
+below is what the terminal showed after the query ran.
+
+ dg http://127.0.0.1:7432 · read 1s ago · connected
+ 1 databases (8) │ 2 service │ 3 backups │ 4 keys (5) │▸ 5 queries (107) │ 6 locations (9)
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│database            statement                                                                  runs   rows read   rows written   total time   slowest   by                                   │
+│billing_dev_pilot   SELECT name FROM sqlite_master WHERE type = ? AND name NOT GLOB ? AND n…   1      2           0              52 us        52 us     owner (1)                            │
+│billing_dev_pilot   SELECT count(*) FROM "_litestream_lock"                                    1      1           0              1.2 ms       1.2 ms    owner (1)                            │
+│billing_dev_pilot   SELECT count(*) FROM "_litestream_seq"                                     1      1           0              21 us        21 us     owner (1)                            │
+│inventory           SELECT * FROM stock_moves WHERE delta < ?                                  1      52          0              93 us        93 us     owner (1)                            │
+│inventory           SELECT p .name, s .name, s .lead_days FROM products p JOIN suppliers s …   1      32          0              68 us        68 us     owner (1)                            │
+│inventory           SELECT id, name, price_cents FROM products WHERE category = ? ORDER BY …   1      9           0              57 us        57 us     owner (1)                            │
+│inventory           SELECT id, name FROM products WHERE category = ?                           1      9           0              29 us        29 us     owner (1)                            │
+│inventory           SELECT category, count(*), sum(stock) FROM products GROUP BY category      1      7           0              148 us       148 us    owner (1)                            │
+│inventory           SELECT name FROM sqlite_master WHERE type = ? AND name NOT GLOB ? AND n…   1      5           0              38 us        38 us     owner (1)                            │
+│inventory           SELECT count(*) FROM products                                              3      3           0              54 us        19 us     owner (2), warehouse (1)             │
+│inventory           SELECT id, delta, reason FROM stock_moves WHERE product_id = ? ORDER BY…   1      2           0              906 us       906 us    owner (1)                            │
+│inventory           SELECT max(id) FROM stock_moves                                            1      1           0              31 us        31 us     owner (1)                            │
+│inventory           SELECT id, sku, name FROM products WHERE id = ?                            1      1           0              29 us        29 us     owner (1)                            │
+│inventory           SELECT count(*) FROM products WHERE stock < ?                              1      1           0              28 us        28 us     warehouse (1)                        │
+│inventory           SELECT count(*) FROM "stock_moves"                                         1      1           0              23 us        23 us     owner (1)                            │
+│inventory           SELECT count(*) FROM "_litestream_seq"                                     1      1           0              21 us        21 us     owner (1)                            │
+│inventory           SELECT count(*) FROM "_litestream_lock"                                    1      1           0              20 us        20 us     owner (1)                            │
+│inventory           SELECT count(*) FROM "products"                                            1      1           0              20 us        20 us     owner (1)                            │
+│inventory           SELECT count(*) FROM "suppliers"                                           1      1           0              19 us        19 us     owner (1)                            │
+│inventory           EXPLAIN QUERY PLAN SELECT id FROM products                                 1      1           0              12 us        12 us     owner (1)                            │
+│inventory           INSERT INTO stock_moves (id, product_id, delta, reason, at) VALUES(?, ?…   1      0           120            108 us       108 us    owner (1)                            │
+│inventory           INSERT INTO products (id, sku, name, price_cents, stock, category, upda…   1      0           60             89 us        89 us     owner (1)                            │
+│inventory           CREATE TABLE products (id INTEGER PRIMARY KEY, sku TEXT, name TEXT, pri…   1      0           0              62 us        62 us     owner (1)                            │
+│inventory           CREATE TABLE suppliers (id INTEGER PRIMARY KEY, name TEXT, country TEXT…   1      0           0              32 us        32 us     owner (1)                            │
+│inventory           CREATE TABLE stock_moves (id INTEGER PRIMARY KEY, product_id INTEGER, d…   1      0           0              27 us        27 us     owner (1)                            │
+│inventory           UPDATE products SET stock = stock + ? WHERE category = ?                   1      0           9              25 us        25 us     owner (1)                            │
+│inventory           INSERT INTO suppliers (id, name, country, lead_days) VALUES(?, ?, ?, ?)…   1      0           20             24 us        24 us     owner (1)                            │
+│inventory           INSERT INTO stock_moves (id, product_id, delta, reason, at) VALUES (?, …   1      0           1              20 us        20 us     owner (1)                            │
+│ledger              SELECT a .name, b .limit_cents FROM budgets b JOIN accounts a ON a .id …   1      15          0              56 us        56 us     owner (1)                            │
+│ledger              SELECT account_id, sum(amount_cents) FROM entries GROUP BY account_id H…   1      7           0              79 us        79 us     owner (1)                            │
+│ledger              SELECT name FROM sqlite_master WHERE type = ? AND name NOT GLOB ? AND n…   1      5           0              55 us        55 us     owner (1)                            │
+│ledger              SELECT kind, sum(amount_cents) FROM entries e JOIN accounts a ON a .id …   1      2           0              86 us        86 us     owner (1)                            │
+│ledger              SELECT count(*) FROM "_litestream_lock"                                    1      1           0              985 us       985 us    owner (1)                            │
+│ledger              SELECT count(*) FROM "_litestream_seq"                                     1      1           0              43 us        43 us     owner (1)                            │
+│ledger              SELECT count(*) FROM entries WHERE at BETWEEN ? AND ?                      1      1           0              41 us        41 us     owner (1)                            │
+│ledger              SELECT count(*) FROM "entries"                                             1      1           0              32 us        32 us     owner (1)                            │
+│ledger              SELECT count(*) FROM "budgets"                                             1      1           0              31 us        31 us     owner (1)                            │
+│ledger              SELECT count(*) FROM "accounts"                                            1      1           0              28 us        28 us     owner (1)                            │
+│ledger              SELECT id, amount_cents, memo FROM entries WHERE id = ?                    1      1           0              23 us        23 us     owner (1)                            │
+│ledger              INSERT INTO entries (id, account_id, amount_cents, memo, at) VALUES(?, …   1      0           120            147 us       147 us    owner (1)                            │
+│ledger              CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT, kind TEXT, cu…   1      0           0              52 us        52 us     owner (1)                            │
+│ledger              CREATE TABLE entries (id INTEGER PRIMARY KEY, account_id INTEGER, amoun…   1      0           0              33 us        33 us     owner (1)                            │
+│ledger              INSERT INTO accounts (id, name, kind, currency) VALUES(?, ?, ?, ?), (?,…   1      0           15             29 us        29 us     owner (1)                            │
+│ledger              CREATE TABLE budgets (id INTEGER PRIMARY KEY, account_id INTEGER, month…   1      0           0              25 us        25 us     owner (1)                            │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+1-6 tabs  tab next tab  ↑↓ scroll  : commands  r refresh  q quit
+
+----- tab 6: locations -----
+A real `dg tui` session against a real gateway.
+Captured by scripts/capture-tui-evidence.sh: the raw pty
+stream is in the .log beside this file, and the screen
+below is what the terminal showed after the query ran.
+
+ dg http://127.0.0.1:7432 · read 1s ago · connected
+ 1 databases (8) │ 2 service │ 3 backups │ 4 keys (5) │ 5 queries (107) │▸ 6 locations (9)
+┌ locations ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│database                    file                                           size       state                                                                                                  │
+│billing_dev_pilot           /var/lib/dg/billing_dev_pilot.sqlite           68.1 KiB   live                                                                                                   │
+│inventory                   /var/lib/dg/inventory.sqlite                   88.1 KiB   live                                                                                                   │
+│ledger                      /var/lib/dg/ledger.sqlite                      88.1 KiB   live                                                                                                   │
+│notes                       /var/lib/dg/notes.sqlite                       92.2 KiB   live                                                                                                   │
+│orders                      /var/lib/dg/orders.sqlite                      80.1 KiB   live                                                                                                   │
+│orders_scratch              /var/lib/dg/orders_scratch.sqlite              68.1 KiB   live                                                                                                   │
+│sessions                    /var/lib/dg/sessions.sqlite                    92.1 KiB   live                                                                                                   │
+│verify_probe                /var/lib/dg/verify_probe.sqlite                84.2 KiB   live                                                                                                   │
+│verify_probe_branch_check   /var/lib/dg/verify_probe_branch_check.sqlite   56.0 KiB   tombstoned                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+1-6 tabs  tab next tab  ↑↓ scroll  : commands  r refresh  q quit
+
+----- the palette -----
+A real `dg tui` session against a real gateway.
+Captured by scripts/capture-tui-evidence.sh: the raw pty
+stream is in the .log beside this file, and the screen
+below is what the terminal showed after the query ran.
+
+ dg http://127.0.0.1:7432 · read 0s ago · connected
+▸ 1 databases (8) │ 2 service │ 3 backups │ 4 keys (5) │ 5 queries (107) │ 6 locations (9)
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│database            rows read   rows written   waits   wait p95   wait max   last write                                                                                                      │
+│billing_dev_pilot   4           0              3       1 us       1 us       9d 5h ago                                                                                                       │
+│inventory           128         210            26      2 us       2 us       32m 0s ago                                                                                                      │
+│ledger              36          151            17      2 us       2 us       31m 59s ago                                                                                                     │
+│notes               31          141            14      2 us       2 us       18m 38s ago                                                                                                     │
+│orders              43          311            19      2 us       2 us       18m 38s ago                                                                                                     │
+│orders_scratch      10          1              8       2 us       2 us       18m 38s ago                                                                                                     │
+│sessions            20          270            13      2 us       2 us       32m 2s ago                                                                                                      │
+│verify_probe        7           0              5       1 us       1 us       17h 18m ago                                                                                                     │
+│wait p95 is this database's own recent waits; wait max is its worst single wait                                                                                                              │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+│                                                                                                                                                                                             │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+1-6 tabs  tab next tab  ↑↓ scroll  : commands  r refresh  q quit
+
