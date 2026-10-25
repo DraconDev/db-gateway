@@ -596,39 +596,30 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App) {
             tables.push((section.title().to_string(), found.clone()));
         }
     }
-    // The tables are the tab's answer, so the table that answers the
-    // question keeps its rows; the last table is a log of what has been
-    // published, and takes what is left. The fields are capped so that a
-    // long list of them can never squeeze a table down to its header,
-    // which is a table with no answer in it.
-    let needed: u16 = tables
-        .iter()
-        .map(|(_, table)| table.rows().len() as u16 + 3)
-        .sum();
-    let fixed_tables: u16 = tables
-        .iter()
-        .take(tables.len().saturating_sub(1))
-        .map(|(_, table)| table.rows().len() as u16 + 3)
-        .sum();
-    let fields_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(fixed_tables + 3));
+    // The fields answer the questions that have no other home: where the
+    // off-host copy is, when it last ran, whether it was ever restored.
+    // The tables are lists, and a list can scroll. So the fields keep
+    // their room FIRST and the tables take what is left. The other way
+    // round, a long per-database list pushed the facts about the copy
+    // off the screen and left the operator scrolling to find them.
+    let min_table = 3u16;
+    let fields_height = (lines.len() as u16 + 2)
+        .min(area.height.saturating_sub(min_table * tables.len() as u16));
+    let remaining = area.height.saturating_sub(fields_height);
+    // The per-database table is the one that grows with the deployment:
+    // it has a row per database. It takes what is left after the log
+    // table has its minimum, and it scrolls when there is more of it than
+    // fits.
+    let per_database_height = tables
+        .first()
+        .map(|(_, table)| (table.rows().len() as u16 + 3).min(remaining.saturating_sub(min_table)))
+        .unwrap_or(0);
     let mut constraints = vec![Constraint::Length(fields_height)];
-    if fields_height + needed <= area.height {
-        constraints.extend(
-            tables
-                .iter()
-                .map(|(_, table)| Constraint::Length(table.rows().len() as u16 + 3)),
-        );
-    } else {
-        // Every table but the last keeps its rows; the last one takes the
-        // slack and scrolls.
-        let last = tables.len().saturating_sub(1);
-        for (index, (_, table)) in tables.iter().enumerate() {
-            constraints.push(if index == last {
-                Constraint::Min(3)
-            } else {
-                Constraint::Length(table.rows().len() as u16 + 3)
-            });
-        }
+    if let Some((_, table)) = tables.first() {
+        constraints.push(Constraint::Length(per_database_height));
+    }
+    for _ in tables.iter().skip(1) {
+        constraints.push(Constraint::Min(min_table));
     }
     let rows = Layout::vertical(constraints).split(area);
     let rows_pane_height = rows
