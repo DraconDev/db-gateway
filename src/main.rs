@@ -666,11 +666,12 @@ enum BackupCommand {
     /// fresh/stale/unknown state.
     Status,
     /// The daily backup-health digest, exactly as the notification sink
-    /// renders it: per-database fresh/stale/unknown, newest verified set,
-    /// age, and a bounded operator action. Reads the data directory and the
-    /// backup root directly, so it works with the gateway stopped -- which
-    /// is when an operator most wants it. Exits nonzero when any database
-    /// is stale or unknown.
+    /// renders it: per-database fresh/behind/stale/unknown, newest verified
+    /// set, age, how long the newest unrepresented change has waited, and a
+    /// bounded operator action. Reads the data directory and the backup root
+    /// directly, so it works with the gateway stopped -- which is when an
+    /// operator most wants it. Exits nonzero when any database is stale
+    /// beyond the approved cadence or unknown.
     Digest {
         /// Data directory to read durable write markers from.
         #[arg(long, default_value = "state/dg")]
@@ -679,6 +680,12 @@ enum BackupCommand {
         /// `<data-dir>/../dg-backups`, the same convention `serve` uses.
         #[arg(long)]
         backup_root: Option<PathBuf>,
+        /// The owner-approved snapshot cadence, in seconds: how long a
+        /// committed change may stay unrepresented by a verified copy before
+        /// it is a finding rather than the producer's normal lag. Without
+        /// it every unrepresented change is reported.
+        #[arg(long)]
+        cadence_secs: Option<u64>,
         /// Emit the structured note instead of the human table.
         #[arg(long)]
         json: bool,
@@ -1007,7 +1014,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                     backup_root,
                     json: as_json,
                 },
-        } => return cmd_backup::digest(data_dir, backup_root, as_json).await,
+        } => return cmd_backup::digest(data_dir, backup_root, cadence_secs, as_json).await,
         Command::Backup {
             command: BackupCommand::Verify { backup_root, set },
         } => return cmd_backup::verify(backup_root, set, json).await,
