@@ -455,7 +455,14 @@ def main():
         code, out, err = client.run(["key", "create", label, "--role", role,
                                      "--database", database])
         if code != 0:
-            report.add(f"issue {label}", False, err.strip()[:160])
+            # A credential whose name is taken cannot be re-read: its
+            # raw key was shown once and is not in the registry. So the
+            # checks that need it are skipped rather than failed, and
+            # the skip says so.
+            if "exist" in err.lower() or "duplicate" in err.lower():
+                report.skip(f"issue {label}", "the name is taken; its key was shown once")
+            else:
+                report.add(f"issue {label}", False, err.strip()[:160])
             continue
         try:
             raw = json.loads(out.strip().splitlines()[-1])["key"]
@@ -472,6 +479,7 @@ def main():
     for label, _, database in credentials:
         path = key_files.get(label)
         if not path:
+            report.skip(f"{label} reads {database}", "no key to read with")
             continue
         code, out, _ = client.run(
             ["query", database, "SELECT count(*) FROM sqlite_master"], key_file=path
@@ -498,6 +506,8 @@ def main():
         )
         report.add("a read-only credential can read its own database",
                    code == 0, out.strip()[:160])
+    else:
+        report.skip("the read-only refusals", "no read-only credential to try")
 
     print("== the read-only surfaces ==")
     surfaces = [
