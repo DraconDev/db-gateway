@@ -8,7 +8,13 @@
 # Runs `dg backup digest` offline against the data directory and backup
 # root. LogSink renders through stderr, so every digest and every failure
 # notice lands in the journal under this unit. Exits nonzero when any
-# database is stale or unknown.
+# database is stale beyond the snapshot cadence or unknown.
+#
+# --cadence-secs is the owner-approved snapshot cadence: how long a
+# committed change may stay unrepresented by a verified copy before it is a
+# finding. It is the producer's own cadence (the hourly Tier-2 objective,
+# 3600) -- without it every change written since the last publication is
+# reported, and the daily digest is red whenever anything happened.
 
 [Unit]
 Description=DB Gateway daily backup-health digest
@@ -18,6 +24,6 @@ After=dg-backup.service
 Type=oneshot
 User={{DG_USER}}
 Group={{DG_USER}}
-ExecStart={{DG_BINARY}} backup digest --data-dir {{DG_DATA_DIR}} --backup-root {{DG_BACKUP_ROOT}}
+ExecStart={{DG_BINARY}} backup digest --data-dir {{DG_DATA_DIR}} --backup-root {{DG_BACKUP_ROOT}} --cadence-secs 3600
 WorkingDirectory={{DG_BACKUP_ROOT}}
 NoNewPrivileges=true
