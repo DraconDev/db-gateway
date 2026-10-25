@@ -1020,6 +1020,15 @@ async fn queries(
     let filter = query_params(query)?;
     work_read(store, headers, move |s, p| {
         p.owner()?;
+        // The log is in memory and it outlives a deletion within the
+        // life of the process, so it can still hold shapes for databases
+        // that have been deleted. Those are history, not traffic: the tab
+        // that shows them is answering "which statement is the expensive
+        // one", and a database that is gone has no expensive statement.
+        // They are counted rather than hidden, and the audit trail keeps
+        // the record of what was run against them.
+        let live = s.list_all()?;
+        let mut deleted = 0usize;
         let databases: Vec<Value> = s
             .metrics
             .queries
@@ -1029,6 +1038,13 @@ async fn queries(
                 Some(wanted) => database == wanted,
                 None => true,
             })
+            .filter(|(database, _)| {
+                let alive = live.contains(database);
+                if !alive {
+                    deleted += 1;
+                }
+                alive
+            })
             .map(|(database, shapes)| {
                 json!({
                     "database": database,
@@ -1036,7 +1052,7 @@ async fn queries(
                 })
             })
             .collect();
-        Ok(Json(json!({ "databases": databases })))
+        Ok(Json(json!({ "databases": databases, "deleted": deleted })))
     })
     .await
 }
