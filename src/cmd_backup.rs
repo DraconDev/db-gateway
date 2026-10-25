@@ -71,6 +71,7 @@ pub async fn digest(
         Some(root) => store.with_backup_root(Some(root)),
         None => store,
     };
+    let store = store.with_backup_cadence(cadence_secs);
     let health = dg::backup_health::snapshot(&store).map_err(Application)?;
     let note = dg::notify::digest_note(&health);
     // The digest is a REPORT, not a command with a machine form: the
