@@ -17,6 +17,44 @@ tagged state. Deployments and rollbacks follow
 (0.x), minor versions mark feature growth and patch versions mark
 fixes; 1.0.0 waits for production acceptance.
 
+## [0.7.0] — 2026-10-25
+
+### Added
+
+- **The backups tab says where the off-host copy is and when it was last
+  synced.** The facts were in the API all along -- bucket, endpoint,
+  region, how long the bucket keeps its history, the snapshot cadence,
+  whether the registry is replicated, when the host published them, the
+  last attempt, the last restore drill and the point-in-time window --
+  but the tab could not show them: the per-database table took the room
+  and the summary was pushed under the fold. The summary now keeps its
+  room and the tables take what is left, and a table that does not fit
+  scrolls.
+- **The databases tab says how big each database is.** The traffic
+  columns say what a database has been doing; the size says what it
+  costs to keep. A hosted console puts the two side by side, and an
+  operator watching a disk wants both.
+
+### Fixed
+
+- **A deleted database was reported as a stale backup.** The backup
+  health judged every database that appeared in a published set,
+  including the ones that had been deleted. Those were counted as
+  `stale`, so the daily digest exited `backup_unhealthy` over databases
+  that had been deleted on purpose, and the per-database table filled
+  with rows for things that no longer exist. A deleted database is not
+  stale, it is gone: it is counted in `deleted` and never asks for the
+  operator's attention.
+- **The query log kept showing deleted databases.** The log lives in
+  memory, so it outlives a deletion for as long as the process runs. The
+  shapes of a database that is gone are history, not traffic, and the
+  audit trail is where that history belongs; the log now leaves them
+  out and counts them.
+- **The last failure and the last drill each spent a heading of their
+  own.** The last failure is about the last run, so it is a field of
+  it; the drill's outcome and when it was reached are one thing said
+  once. A tab that holds both on screen is a tab that fits.
+
 ## [0.6.0] — 2026-10-25
 
 ### Added
