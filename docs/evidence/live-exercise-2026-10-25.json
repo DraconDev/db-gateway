@@ -1,95 +1,95 @@
 {
   "server": "http://127.0.0.1:7432",
-  "seconds": 6.6,
+  "seconds": 7.9,
   "checks": 73,
   "passed": 73,
   "failed": 0,
   "failures": [],
   "databases": [
-    "t3inventory",
-    "t3orders",
-    "t3ledger",
-    "t3sessions",
-    "t3notes"
+    "t4inventory",
+    "t4orders",
+    "t4ledger",
+    "t4sessions",
+    "t4notes"
   ],
   "credentials": [
-    "t3warehouse",
-    "t3checkout",
-    "t3finance"
+    "t4warehouse",
+    "t4checkout",
+    "t4finance"
   ],
   "detail": [
     {
-      "name": "create t3inventory",
+      "name": "create t4inventory",
       "ok": true,
       "detail": ""
     },
     {
-      "name": "create t3orders",
+      "name": "create t4orders",
       "ok": true,
       "detail": ""
     },
     {
-      "name": "create t3ledger",
+      "name": "create t4ledger",
       "ok": true,
       "detail": ""
     },
     {
-      "name": "create t3sessions",
+      "name": "create t4sessions",
       "ok": true,
       "detail": ""
     },
     {
-      "name": "create t3notes",
+      "name": "create t4notes",
       "ok": true,
       "detail": ""
     },
     {
-      "name": "schema t3inventory",
+      "name": "schema t4inventory",
       "ok": true,
       "detail": ""
     },
     {
-      "name": "rows t3inventory",
+      "name": "rows t4inventory",
       "ok": true,
       "detail": ""
     },
     {
-      "name": "schema t3orders",
+      "name": "schema t4orders",
       "ok": true,
       "detail": ""
     },
     {
-      "name": "rows t3orders",
+      "name": "rows t4orders",
       "ok": true,
       "detail": ""
     },
     {
-      "name": "schema t3ledger",
+      "name": "schema t4ledger",
       "ok": true,
       "detail": ""
     },
     {
-      "name": "rows t3ledger",
+      "name": "rows t4ledger",
       "ok": true,
       "detail": ""
     },
     {
-      "name": "schema t3sessions",
+      "name": "schema t4sessions",
       "ok": true,
       "detail": ""
     },
     {
-      "name": "rows t3sessions",
+      "name": "rows t4sessions",
       "ok": true,
       "detail": ""
     },
     {
-      "name": "schema t3notes",
+      "name": "schema t4notes",
       "ok": true,
       "detail": ""
     },
     {
-      "name": "rows t3notes",
+      "name": "rows t4notes",
       "ok": true,
       "detail": ""
     },
@@ -119,32 +119,32 @@
       "detail": ""
     },
     {
-      "name": "issue t3warehouse",
+      "name": "issue t4warehouse",
       "ok": true,
-      "detail": "database_read_only on t3inventory"
+      "detail": "database_read_only on t4inventory"
     },
     {
-      "name": "issue t3checkout",
+      "name": "issue t4checkout",
       "ok": true,
-      "detail": "database_read_write on t3orders"
+      "detail": "database_read_write on t4orders"
     },
     {
-      "name": "issue t3finance",
+      "name": "issue t4finance",
       "ok": true,
-      "detail": "database_read_only on t3ledger"
+      "detail": "database_read_only on t4ledger"
     },
     {
-      "name": "t3warehouse reads t3inventory",
-      "ok": true,
-      "detail": "{\"columns\":[\"count(*)\"],\"rows\":[[5]],\"rows_affected\":0}"
-    },
-    {
-      "name": "t3checkout reads t3orders",
+      "name": "t4warehouse reads t4inventory",
       "ok": true,
       "detail": "{\"columns\":[\"count(*)\"],\"rows\":[[5]],\"rows_affected\":0}"
     },
     {
-      "name": "t3finance reads t3ledger",
+      "name": "t4checkout reads t4orders",
+      "ok": true,
+      "detail": "{\"columns\":[\"count(*)\"],\"rows\":[[5]],\"rows_affected\":0}"
+    },
+    {
+      "name": "t4finance reads t4ledger",
       "ok": true,
       "detail": "{\"columns\":[\"count(*)\"],\"rows\":[[5]],\"rows_affected\":0}"
     },
@@ -261,7 +261,7 @@
     {
       "name": "diff finds the divergence",
       "ok": true,
-      "detail": "{\"compared_rows\":310,\"identical\":false,\"left\":\"t3orders\",\"right\":\"t3branch_probe\",\"schema\":{\"changed\":[],\"identical\":true,\"only_left\":[],\"only_right\":[]},\"table"
+      "detail": "{\"compared_rows\":310,\"identical\":false,\"left\":\"t4orders\",\"right\":\"t4branch_probe\",\"schema\":{\"changed\":[],\"identical\":true,\"only_left\":[],\"only_right\":[]},\"table"
     },
     {
       "name": "branch delete",
@@ -286,12 +286,12 @@
     {
       "name": "mcp dg_status",
       "ok": true,
-      "detail": "{\"id\": 10, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"admission\\\":{\\\"acquire_timeout_ms\\\":500,\\\"read_permits\\\":8,\\\"write_permits\\\":4},\\\"database_counts\\\":{\\\"live\\\":12,\\\"tombstoned\\\":15},\\\"d"
+      "detail": "{\"id\": 10, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"admission\\\":{\\\"acquire_timeout_ms\\\":500,\\\"read_permits\\\":8,\\\"write_permits\\\":4},\\\"database_counts\\\":{\\\"live\\\":12,\\\"tombstoned\\\":21},\\\"d"
     },
     {
       "name": "mcp dg_list",
       "ok": true,
-      "detail": "{\"id\": 11, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"databases\\\":[\\\"billing_dev_pilot\\\",\\\"inventory\\\",\\\"ledger\\\",\\\"notes\\\",\\\"orders\\\",\\\"sessions\\\",\\\"t3inventory\\\",\\\"t3ledger\\\",\\\"t3notes\\\","
+      "detail": "{\"id\": 11, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"databases\\\":[\\\"billing_dev_pilot\\\",\\\"inventory\\\",\\\"ledger\\\",\\\"notes\\\",\\\"orders\\\",\\\"sessions\\\",\\\"t4inventory\\\",\\\"t4ledger\\\",\\\"t4notes\\\","
     },
     {
       "name": "mcp dg_info",
@@ -301,7 +301,7 @@
     {
       "name": "mcp dg_inspect",
       "ok": true,
-      "detail": "{\"id\": 13, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"activity\\\":{\\\"last_write\\\":1792934625,\\\"queue_timeouts\\\":0,\\\"queue_wait_max_us\\\":2,\\\"queue_wait_ms\\\":0,\\\"queue_wait_p95_us\\\":2,\\\"queue_"
+      "detail": "{\"id\": 13, \"jsonrpc\": \"2.0\", \"result\": {\"content\": [{\"text\": \"{\\\"activity\\\":null,\\\"backup\\\":{\\\"age_secs\\\":0,\\\"newest_set\\\":\\\"20261025T134917Z\\\",\\\"state\\\":\\\"fresh\\\"},\\\"database\\\":{\\\"created_at\\\":179293"
     },
     {
       "name": "mcp dg_backups",
@@ -344,42 +344,42 @@
       "detail": "{\"error\": {\"code\": -32001, \"data\": {\"code\": \"database_not_found\", \"status\": 404}, \"message\": \"database not found\"}, \"id\": 21, \"jsonrpc\": \"2.0\"}"
     },
     {
-      "name": "revoke t3warehouse",
+      "name": "revoke t4warehouse",
       "ok": true,
       "detail": ""
     },
     {
-      "name": "revoke t3checkout",
+      "name": "revoke t4checkout",
       "ok": true,
       "detail": ""
     },
     {
-      "name": "revoke t3finance",
+      "name": "revoke t4finance",
       "ok": true,
       "detail": ""
     },
     {
-      "name": "tombstone t3inventory",
+      "name": "tombstone t4inventory",
       "ok": true,
       "detail": ""
     },
     {
-      "name": "tombstone t3orders",
+      "name": "tombstone t4orders",
       "ok": true,
       "detail": ""
     },
     {
-      "name": "tombstone t3ledger",
+      "name": "tombstone t4ledger",
       "ok": true,
       "detail": ""
     },
     {
-      "name": "tombstone t3sessions",
+      "name": "tombstone t4sessions",
       "ok": true,
       "detail": ""
     },
     {
-      "name": "tombstone t3notes",
+      "name": "tombstone t4notes",
       "ok": true,
       "detail": ""
     }
