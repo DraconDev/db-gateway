@@ -91,6 +91,12 @@ pub struct Note {
     /// and a notification that carried one would be making a promise the
     /// project has not earned.
     pub stale_after_secs: u64,
+    /// The owner-approved snapshot cadence the states were judged against,
+    /// when the deployment has one. Carried so a sink can say what the
+    /// digest was measured against instead of leaving the operator to guess
+    /// whether "behind" was a failure.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cadence_secs: Option<u64>,
 }
 
 /// Render a failure notice for one attempt. The database list is carried
