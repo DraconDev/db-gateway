@@ -8,6 +8,108 @@ fn tempdir() -> tempfile::TempDir {
     tempfile::tempdir().expect("temp dir")
 }
 
+/// The window the replica offers is the whole chain, not the newest file.
+///
+/// `litestream ltx` lists the DEFAULT compaction level only, and level 0
+/// is one database's newest segment. The publisher used to ask for that,
+/// so it published one row per database and a window that was a single
+/// instant: the published window was hours shorter than the replica's
+/// real one, and every moment inside it was reported as "the window
+/// opens later" -- moments litestream itself restores without complaint.
+#[test]
+fn the_published_window_covers_the_whole_replica_chain() {
+    let dir = tempdir();
+    let backup_root = dir.path().join("dg-backups");
+    fs::create_dir_all(&backup_root).unwrap();
+    let data_dir = dir.path().join("dg");
+    fs::create_dir_all(&data_dir).unwrap();
+
+    // A litestream that answers `ltx` with a chain across the levels, the
+    // way a database that has been written to all day answers: the
+    // snapshot at level 9, the compacted WAL at 1, 2 and 3, and the
+    // current segment at level 0.
+    let args_log = dir.path().join("ltx.args");
+    let fake = dir.path().join("litestream");
+    fs::write(
+        &fake,
+        format!(
+            "#!/bin/sh\n\
+             if [ \"$1\" = \"ltx\" ]; then\n\
+             \  echo \"$@\" >> {log}\n\
+             \  echo 'level  min_txid          max_txid          size  created'\n\
+             \  echo '0      0000000000000010  0000000000000010  191   2026-10-25T18:36:57Z'\n\
+             \  echo '1      0000000000000001  0000000000000002  6195  2026-10-25T12:38:02Z'\n\
+             \  echo '2      0000000000000003  0000000000000006  1533  2026-10-25T13:22:00Z'\n\
+             \  echo '3      0000000000000007  000000000000000a  1845  2026-10-25T13:58:00Z'\n\
+             \  echo '9      0000000000000001  0000000000000002  6195  2026-10-25T12:38:03Z'\n\
+             fi\n\
+             exit 0\n",
+            log = args_log.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let config = dir.path().join("litestream.yml");
+    fs::write(
+        &config,
+        format!(
+            "dbs:\n  - path: {}/inventory.sqlite\n    replicas:\n      - url: s3://example/inventory\n",
+            data_dir.display()
+        ),
+    )
+    .unwrap();
+
+    let output = Command::new("bash")
+        .args(["scripts/restore-point.sh", "--list"])
+        .env("LITESTREAM_BIN", &fake)
+        .env("LITESTREAM_CONFIG", &config)
+        .env("LITESTREAM_ENV_FILE", dir.path().join("no-such-env-file"))
+        .env("DG_BACKUP_ROOT", &backup_root)
+        .env("DG_DATA_DIR", &data_dir)
+        .env("DG_LITESTREAM_STATUS_CMD", "echo active")
+        .output()
+        .expect("run the window publisher");
+    assert!(
+        output.status.success(),
+        "the publisher failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // It asked for every level, not the default one.
+    let asked = fs::read_to_string(&args_log).unwrap();
+    assert!(
+        asked.contains("-level all"),
+        "the publisher asked litestream for the default level only: {asked}"
+    );
+
+    let published: Value = serde_json::from_slice(
+        &fs::read(backup_root.join("restore-points.json")).unwrap(),
+    )
+    .unwrap();
+    let window = &published["databases"]["inventory"];
+    // The window starts at the OLDEST file in the chain -- the snapshot
+    // and the compacted WAL -- not at the newest segment.
+    assert_eq!(
+        window["oldest"],
+        json!("2026-10-25T12:38:02Z"),
+        "the window does not start at the oldest file in the chain: {published}"
+    );
+    assert_eq!(
+        window["files"],
+        json!(5),
+        "the window does not count every file in the chain: {published}"
+    );
+    // And it ends at the moment the replica is current to, because a
+    // database that has not changed since its snapshot can still be
+    // restored to any later moment.
+    assert!(
+        window["newest"].as_str().unwrap() >= "2026-10-25T18:36:57Z",
+        "the window does not reach the newest file: {published}"
+    );
+    assert_eq!(published["sidecar"], json!("active"));
+}
+
 #[test]
 fn backup_rejects_invalid_retention_before_touching_backup_root() {
     for keep in ["0", "-1", "many", ""] {
