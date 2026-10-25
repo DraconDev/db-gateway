@@ -392,6 +392,18 @@ pub fn backups(backups: &Value) -> Vec<Section> {
     );
     let sets = backups["sets"].as_array().cloned().unwrap_or_default();
     root.field("sets", Cell::number(sets.len()));
+    // How many of the published sets are carrying databases that have
+    // since been deleted. They are not stale -- they are gone -- so they
+    // are not in the per-database table, but they are still on disk until
+    // the sets are pruned, and an operator who sees them in the sets
+    // deserves to be told why the per-database table does not list them.
+    let deleted = backups["deleted"].as_u64().unwrap_or(0);
+    root.field(
+        "deleted",
+        Cell::text(format!(
+            "{deleted} database(s) in the sets were deleted; their copies are pruned with the sets"
+        )),
+    );
 
     let mut sections = vec![root];
 
