@@ -17,6 +17,43 @@ tagged state. Deployments and rollbacks follow
 (0.x), minor versions mark feature growth and patch versions mark
 fixes; 1.0.0 waits for production acceptance.
 
+## [0.8.0] — 2026-10-25
+
+### Fixed
+
+- **The published restore window was hours shorter than the replica's real
+  one.** The bucket holds one prefix per database, and inside it the whole
+  chain: the snapshot at level 9 and the compacted write-ahead log at
+  levels 1, 2 and 3, which is what covers the time between snapshots. The
+  publisher asked litestream for its **default** level, and the default
+  is level 0 — one database's newest segment. So it published one row per
+  database and a window that was a single instant. `billing_dev_pilot`
+  was published as "Oct 16 07:30:03 to Oct 16 07:30:03" while the bucket
+  held six files going back to 07:30:00 and forward to a snapshot on the
+  17th; `inventory` was published as a point, and the bucket held
+  twenty-one files spanning six hours.
+
+  Every moment inside the real window was therefore reported as *"no —
+  the window opens later"*, including moments litestream itself restores
+  without complaint. The window now reaches back across every level the
+  bucket holds, and on micro2 it runs from **2026-10-15 14:16 to now**
+  instead of from the 16th.
+
+- **The window's end is now the moment the replica is current to, not the
+  last time it happened to write a file.** A database that has not
+  changed since its snapshot can still be restored to any later moment:
+  litestream restores the snapshot, and the bytes are the same ones the
+  replica holds now. When the sidecar is not running the state is frozen
+  at the newest file, so that is the end. This changes what the published
+  facts mean, which is why it is a minor release rather than a patch.
+
+Proven against litestream's own answers, moment by moment: the plan now
+says *yes* for the moments litestream restores and *no* for the one it
+refuses (`inventory` at 12:00 on the 25th, before the database existed),
+and a real restore to a mid-window moment
+(`billing_dev_pilot` at 2026-10-16T12:00:00Z) produced a copy with the
+same tables as the live database.
+
 ## [0.7.0] — 2026-10-25
 
 ### Added
