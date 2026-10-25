@@ -64,7 +64,26 @@ service (version, uptime, 18.8k requests, 0 errors), backups, keys
 (5 credentials), queries (33 shapes across the five real databases),
 locations (8 files plus the tombstone), and the palette.
 
-## 5. What this exercise found and fixed
+## 7. The state the box was left in
+
+`dg 0.6.0` deployed and active, with `dg`, `dg-litestream`,
+`dg-restore-points.timer` and `dg-backup.timer` all running.
+
+**Kept** (by the operator's choice): `inventory`, `orders`, `ledger`,
+`sessions`, `notes`, and the three scoped credentials `warehouse`
+(read-only on inventory), `checkout` (read-write on orders) and
+`finance` (read-only on ledger). The query log holds 34 statement
+shapes across the five real databases; the audit trail holds 593
+entries across fifteen principals.
+
+**Left behind:** 29 tombstones from the test runs (`t1…` through
+`t4…`, plus the branch probes). The locations tab lists them, because
+it lists every file on disk and says which are live. They purge
+themselves after the 24-hour retention window; there is no early
+purge, by design — a tombstone holds its name so it cannot be
+recreated with different content behind it.
+
+## 8. What this exercise found and fixed
 
 | Defect | Fix | Release |
 |---|---|---|
@@ -78,7 +97,7 @@ shows a gap on every row, and `dg branch delete` on an
 already-tombstoned branch returns `{"deleted": true, "already_deleted":
 true}` and empties the registry.
 
-## 6. What is still not proven
+## 9. What is still not proven
 
 - **CI never ran.** GitHub Actions fails in ~2 s on an account billing
   gate ("recent account payments have failed or your spending limit
