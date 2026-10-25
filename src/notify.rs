@@ -672,6 +672,41 @@ mod tests {
         assert!(!note.action.is_empty());
     }
 
+    /// A change waiting for the producer's next publication is named, not
+    /// counted as a failure.
+    ///
+    /// The digest used to have two answers: "all fresh" and "something is
+    /// wrong". A periodic producer needs a third, because between
+    /// publications every change is unrepresented by design, and calling
+    /// that "something is wrong" is what made the daily digest
+    /// permanently red.
+    #[test]
+    fn a_behind_database_is_named_and_is_not_an_alert() {
+        let mut health = health();
+        health.cadence_secs = Some(3600);
+        for db in &mut health.databases {
+            db.state = "fresh";
+        }
+        health.databases[1].state = "behind";
+        health.databases[1].lag_secs = Some(120);
+        let note = digest_note(&health);
+        assert_eq!(note.severity, Severity::Digest);
+        assert!(
+            note.title.contains("1 behind"),
+            "the digest should name the waiting database: {}",
+            note.title
+        );
+        // The cadence is stated, so "behind" is not a mystery to the
+        // operator reading it.
+        assert!(
+            note.action.contains("3600s"),
+            "the action should say what the states were judged against: {}",
+            note.action
+        );
+        let text = render_text(&note);
+        assert!(text.contains("unrepresented 120s"), "{text}");
+    }
+
     #[test]
     fn a_failure_note_names_the_attempt_the_step_and_the_action() {
         let note = failure_note(&health(), &attempt("20240102T000000Z", "error", "manifest"));
