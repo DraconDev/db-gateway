@@ -80,10 +80,9 @@ fn the_published_window_covers_the_whole_replica_chain() {
         "the publisher asked litestream for the default level only: {asked}"
     );
 
-    let published: Value = serde_json::from_slice(
-        &fs::read(backup_root.join("restore-points.json")).unwrap(),
-    )
-    .unwrap();
+    let published: Value =
+        serde_json::from_slice(&fs::read(backup_root.join("restore-points.json")).unwrap())
+            .unwrap();
     let window = &published["databases"]["inventory"];
     // The window starts at the OLDEST file in the chain -- the snapshot
     // and the compacted WAL -- not at the newest segment.
