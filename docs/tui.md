@@ -200,11 +200,17 @@ tinted *and* underlined, and the caret marks it a third time.
 ## The command bar
 
 The bar along the bottom names the keys that matter, in the same order on
-every screen: `1-5` tabs, `tab` next tab, `↑↓` scroll, `:` commands, `r`
+every screen: `1-6` tabs, `tab` next tab, `↑↓` scroll, `:` commands, `r`
 refresh, `q` quit. Everything else is behind `:` — the palette is powerful but
 invisible, and nobody finds a command they cannot see, so the ones an operator
 needs constantly are always on screen with the key visually distinct from the
 label.
+
+The error, when there is one, is at the end of that line. It says what
+happened rather than listing every failure — *four of five reads failed:
+forbidden* — because five refusals of the same kind are one fact, not five,
+and the bar has one line for it. A message too long for the line is cut with
+an ellipsis, so a message that runs off the edge says that it did.
 
 ## The keys
 
