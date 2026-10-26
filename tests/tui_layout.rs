@@ -838,7 +838,7 @@ fn the_databases_tab_says_how_big_each_database_is() {
 /// A long per-database table keeps every row, and the summary scrolls.
 ///
 /// The freshness table is reserved its full row count first: with more
-databases than the terminal has rows for, all thirty rows stay on
+/// databases than the terminal has rows for, all thirty rows stay on
 /// screen and the field list above them takes the remainder and scrolls.
 /// The operator reads where the copy is with the arrow keys -- the facts
 /// are a keystroke away, not gone.
@@ -873,20 +873,26 @@ fn a_long_per_database_table_keeps_every_row_and_the_summary_scrolls() {
         "the summary did not scroll to make room for the table:\n{text}"
     );
     // The arrow keys reach what scrolled: the fields are a keystroke
-    // away, and scrolling stops at the end of what the tab holds.
-    for _ in 0..40 {
+    // away, and scrolling stops at the end of what the tab holds. The
+    // copy's facts sit at two stops of the scroll.
+    for _ in 0..10 {
         app.on_key(key(ratatui::crossterm::event::KeyCode::Down));
     }
     let scrolled = screen(&mut app, 191, 50);
-    for fact in [
-        "dg-sandbox",
-        "168h",
-        "restored and verified",
-        "2026-10-15 14:16 UTC",
-    ] {
+    for fact in ["dg-sandbox", "168h"] {
         assert!(
             scrolled.contains(fact),
             "the backups tab does not say {fact:?} after scrolling:\n{scrolled}"
+        );
+    }
+    for _ in 0..30 {
+        app.on_key(key(ratatui::crossterm::event::KeyCode::Down));
+    }
+    let bottom = screen(&mut app, 191, 50);
+    for fact in ["restored and verified", "2026-10-15 14:16 UTC"] {
+        assert!(
+            bottom.contains(fact),
+            "the backups tab does not say {fact:?} at the end of the scroll:\n{bottom}"
         );
     }
 }
