@@ -289,8 +289,15 @@ fn a_full_page_of_rows_is_all_drawn() {
     });
     let outcome = open_table_outcome("demo", "products", 0, &response);
     assert_eq!(outcome.headline, format!("products rows 1–{count}"));
-    let grid = outcome.table.expect("the outcome holds the grid");
-    assert_eq!(grid.len(), count, "the grid dropped rows of its own page");
+    assert_eq!(
+        outcome
+            .table
+            .as_ref()
+            .expect("the outcome holds the grid")
+            .len(),
+        count,
+        "the grid dropped rows of its own page"
+    );
     let mut app = App::new("http://127.0.0.1:1".to_string(), "0".repeat(64));
     app.outcome = Some(outcome);
     let backend = TestBackend::new(60, 25);
