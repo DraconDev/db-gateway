@@ -865,3 +865,10 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 running 3 tests
 test the_client_and_the_server_agree_on_what_a_read_is ... ok
 test a_request_is_given_up_on_as_what_it_is ... ok
+test rust_client_drives_a_live_gateway_end_to_end ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.63s
+
+     Running tests/schema_shapes.rs (.cargo/target/debug/deps/schema_shapes-a64451be18f7798b)
+
+running 1 test
