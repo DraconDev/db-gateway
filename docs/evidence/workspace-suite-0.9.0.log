@@ -556,3 +556,69 @@ test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fin
      Running tests/disk_pressure.rs (.cargo/target/debug/deps/disk_pressure-a7ead398a329ebae)
 
 running 1 test
+test file_size_ceiling_kills_the_writer_but_not_the_acknowledged_rows ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.35s
+
+     Running tests/doc_caps.rs (.cargo/target/debug/deps/doc_caps-7f65db91700ca666)
+
+running 4 tests
+test a_document_that_states_the_units_own_cap_passes ... ok
+test a_document_that_states_a_different_cap_is_refused ... ok
+test a_document_quoting_a_different_quantity_is_not_refused ... ok
+test the_repository_is_consistent ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+
+     Running tests/fleet_analytics.rs (.cargo/target/debug/deps/fleet_analytics-2ab7c20d6fef1cdf)
+
+running 1 test
+test analytics_rolls_up_like_a_real_pipeline ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.59s
+
+     Running tests/fleet_blog.rs (.cargo/target/debug/deps/fleet_blog-c5595a630ede1125)
+
+running 1 test
+test blog_renders_like_a_real_cms ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.21s
+
+     Running tests/fleet_chat.rs (.cargo/target/debug/deps/fleet_chat-d9e0b7ac6b27baee)
+
+running 1 test
+test chat_reads_like_a_real_client ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.58s
+
+     Running tests/fleet_finale.rs (.cargo/target/debug/deps/fleet_finale-c7ee53a630700622)
+
+running 1 test
+test fleet_lives_side_by_side ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.55s
+
+     Running tests/fleet_flags.rs (.cargo/target/debug/deps/fleet_flags-21a944bc9a0ecb4c)
+
+running 1 test
+test flags_serve_like_a_real_config_service ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.05s
+
+     Running tests/fleet_shop.rs (.cargo/target/debug/deps/fleet_shop-b884d9f1bd05abb0)
+
+running 1 test
+test shop_checks_out_like_a_real_store ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.04s
+
+     Running tests/fleet_tasks.rs (.cargo/target/debug/deps/fleet_tasks-b59c79d05202be96)
+
+running 1 test
+test task_tracker_works_like_a_real_app ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.31s
+
+     Running tests/garbage_sweep.rs (.cargo/target/debug/deps/garbage_sweep-45af08b6dc71a54f)
+
+running 1 test
