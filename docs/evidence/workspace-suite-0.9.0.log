@@ -643,3 +643,18 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
      Running tests/key_chaos.rs (.cargo/target/debug/deps/key_chaos-48fcb2a62f80aa74)
 
 running 1 test
+test every_credential_gets_its_exact_code_on_every_route ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.66s
+
+     Running tests/key_rotation.rs (.cargo/target/debug/deps/key_rotation-a43592cae938079f)
+
+running 2 tests
+test rotation_kills_old_key_keeps_data_and_scopes ... ok
+test cli_rotate_owner_end_to_end ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.72s
+
+     Running tests/kill_gauntlet.rs (.cargo/target/debug/deps/kill_gauntlet-b50765b3adec5b89)
+
+running 1 test
