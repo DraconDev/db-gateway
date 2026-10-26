@@ -658,3 +658,17 @@ test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
      Running tests/kill_gauntlet.rs (.cargo/target/debug/deps/kill_gauntlet-b50765b3adec5b89)
 
 running 1 test
+test twenty_kills_leave_zero_unaccounted_rows ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 23.85s
+
+     Running tests/kill_midwrite_10x.rs (.cargo/target/debug/deps/kill_midwrite_10x-63d15b2e340413c2)
+
+running 1 test
+test ten_sigkill_mid_write_rounds_leave_no_partial_batches ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+
+     Running tests/lifecycle_churn.rs (.cargo/target/debug/deps/lifecycle_churn-ca1973a45c55ed3e)
+
+running 1 test
