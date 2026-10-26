@@ -98,7 +98,7 @@ fn an_open_table_reads_one_page_through_the_query_endpoint() {
     let sql = request.body.as_ref().and_then(|body| body["sql"].as_str());
     assert_eq!(
         sql,
-        Some("SELECT * FROM \"products\" ORDER BY rowid LIMIT 50 OFFSET 100"),
+        Some("SELECT * FROM \"products\" ORDER BY rowid LIMIT 10 OFFSET 20"),
         "unexpected page SQL: {sql:?}"
     );
     assert_eq!(
@@ -118,7 +118,7 @@ fn an_open_table_reads_one_page_through_the_query_endpoint() {
         dg::client::Semantics::Read,
         "listing tables is a read"
     );
-    assert_eq!(TABLE_PAGE_SIZE, 50);
+    assert_eq!(TABLE_PAGE_SIZE, 10);
 }
 
 #[test]
@@ -149,7 +149,7 @@ fn the_open_table_outcome_says_which_slice_is_on_screen() {
     assert_eq!(table.len(), 2);
 
     let outcome = open_table_outcome("demo", "products", 3, &rows());
-    assert_eq!(outcome.headline, "products rows 151–152");
+    assert_eq!(outcome.headline, "products rows 31–32");
 
     let empty = json!({"columns": ["id"], "rows": [], "rows_affected": 0});
     let outcome = open_table_outcome("demo", "products", 1, &empty);
@@ -217,10 +217,14 @@ fn key(code: ratatui::crossterm::event::KeyCode) -> ratatui::crossterm::event::K
 #[test]
 fn enter_on_the_databases_tab_prefills_the_open_action() {
     // The row grid is palette-driven, and the databases tab is its
-    // doorway: Enter opens the palette already filtered to
-    // `open <database>`, with the scrolled-to database prefilled,
-    // so the operator types only the table (and optionally the page).
+    // doorway: Enter lists the open-table action with the database
+    // under the scroll already typed into its prompt, so the
+    // operator types only the table (and optionally the page).
+    // The test proves the doorway end to end: the action is
+    // selectable from the palette, and choosing it prompts with
+    // the database prefilled and parses to the expected invocation.
     use dg::tui::{App, Mode};
+    use dg::tui::actions::{ActionKind, Invocation};
 
     let mut app = App::new("http://127.0.0.1:1".to_string(), "0".repeat(64));
     app.list = Some(json!({"databases": ["orders", "inventory"]}));
@@ -228,9 +232,83 @@ fn enter_on_the_databases_tab_prefills_the_open_action() {
     app.scroll.databases = 1;
     app.on_key(key(ratatui::crossterm::event::KeyCode::Enter));
     assert_eq!(app.mode, Mode::Palette, "Enter left the dashboard");
-    assert_eq!(
-        app.filter, "open orders ",
-        "the palette is not prefilled with the scrolled-to database: {}",
-        app.filter
+    let selectable: Vec<ActionKind> = app
+        .filtered_actions()
+        .iter()
+        .map(|action| action.kind)
+        .collect();
+    assert!(
+        selectable.contains(&ActionKind::OpenTable),
+        "the palette does not offer the open-table action: {selectable:?}"
     );
+    app.on_key(key(ratatui::crossterm::event::KeyCode::Enter));
+    let Mode::Prompt { kind } = app.mode.clone() else {
+        panic!("choosing did not open the action's prompt: {:?}", app.mode);
+    };
+    assert_eq!(kind, ActionKind::OpenTable, "the prompt is for {kind:?}");
+    assert_eq!(
+        app.input, "orders ",
+        "the prompt is not prefilled with the scrolled-to database: {}",
+        app.input
+    );
+    let invocation = kind
+        .parse(&format!("{}products", app.input))
+        .expect("the prefilled database plus a table parses");
+    assert_eq!(
+        invocation,
+        Invocation::OpenTable {
+            name: "orders".to_string(),
+            table: "products".to_string(),
+            page: 0,
+        },
+        "the doorway does not produce the expected invocation"
+    );
+}
+
+#[test]
+fn a_full_page_of_rows_is_all_drawn() {
+    // The grid fetches one page per request, and the last-action
+    // pane draws every row of that page: a page whose rows did not
+    // fit the pane used to silently drop them. Twelve rows stand in
+    // for a full page of ten plus overflow: all twelve must reach
+    // the grid, so none of a page is unreachable.
+    use dg::tui::App;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let columns = vec!["id", "name"];
+    let response = json!({
+        "columns": columns,
+        "rows": (1..=12).map(|i| json!([i, format!("item {i}")])).collect::<Vec<_>>(),
+        "rows_affected": 0,
+    });
+    let outcome = open_table_outcome("demo", "products", 0, &response);
+    assert_eq!(outcome.headline, "products rows 1–12");
+    let grid = outcome.table.expect("the outcome holds the grid");
+    assert_eq!(grid.len(), 12, "the grid dropped rows of its own page");
+    let mut app = App::new("http://127.0.0.1:1".to_string(), "0".repeat(64));
+    app.outcome = Some(outcome);
+    let backend = TestBackend::new(60, 25);
+    let mut terminal = Terminal::new(backend).expect("a test terminal");
+    terminal
+        .draw(|frame| dg::tui::draw::draw(frame, &mut app))
+        .expect("the view draws");
+    let buffer = terminal.backend().buffer();
+    let mut text = String::new();
+    for y in 0..25 {
+        for x in 0..60 {
+            text.push_str(
+                &buffer
+                    .cell((x, y))
+                    .map(|cell| cell.symbol().to_string())
+                    .unwrap_or_default(),
+            );
+        }
+        text.push('\n');
+    }
+    for index in [1, 10, 12] {
+        assert!(
+            text.contains(&format!("item {index}")),
+            "row {index} of the page is not drawn"
+        );
+    }
 }
