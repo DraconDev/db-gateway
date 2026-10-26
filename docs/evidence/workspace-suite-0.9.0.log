@@ -312,3 +312,158 @@ test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fin
 running 4 tests
 test chunk_errors_are_stable ... ok
 test transfer_expiry_and_orphans_at_store_level ... ok
+test cli_uses_chunked_transfer ... ok
+test chunked_round_trip_above_single_shot_cap ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.69s
+
+     Running tests/cli.rs (.cargo/target/debug/deps/cli-a1554c0c5aca4b0a)
+
+running 5 tests
+test the_tui_help_describes_the_tabbed_view_it_actually_opens ... ok
+test import_rejects_a_directory_without_a_size_error ... ok
+test help_and_version ... ok
+test help_documents_positional_arguments_and_flags ... ok
+test invalid_configuration_fails_without_binding ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/cli_backup.rs (.cargo/target/debug/deps/cli_backup-cf64dd08c10a1e9c)
+
+running 2 tests
+test the_digest_reports_on_a_registry_it_did_not_create ... ok
+test the_digest_leaves_the_owners_in_flight_directories_alone ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/cli_batch_input.rs (.cargo/target/debug/deps/cli_batch_input-59725274ce435e4a)
+
+running 3 tests
+test batch_rejects_writerless_fifo_promptly ... ok
+test batch_refuses_more_statements_than_the_api_accepts ... ok
+test batch_enforces_the_64_kib_boundary ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/cli_churn.rs (.cargo/target/debug/deps/cli_churn-201a1d1f833824ce)
+
+running 1 test
+test full_lifecycle_through_the_binary_only ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.40s
+
+     Running tests/cli_commands.rs (.cargo/target/debug/deps/cli_commands-b5299cbc4bb91772)
+
+running 13 tests
+test execute_refuses_an_over_long_script_before_sending_it ... ok
+test execute_refuses_a_script_with_no_statements ... ok
+test execute_reports_a_failing_statement ... ok
+test key_tokens_stays_machine_readable_when_piped ... ok
+test a_one_statement_script_that_fails_shows_why_and_is_not_called_not_run ... ok
+test a_single_statement_error_envelope_is_unchanged ... ok
+test execute_does_not_claim_a_rollback_when_the_batch_never_ran ... ok
+test execute_stays_machine_readable_when_piped ... ok
+test a_failing_script_names_the_statement_that_broke_it_on_a_terminal ... ok
+test execute_runs_a_script_of_exactly_the_cap ... ok
+test execute_runs_every_statement_of_a_script_and_reports_each_one ... ok
+test key_tokens_narrows_the_answer_for_a_script_too ... ok
+test key_tokens_lists_the_credentials_that_can_reach_a_database ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.73s
+
+     Running tests/cli_config.rs (.cargo/target/debug/deps/cli_config-6c8f0def4f159c2c)
+
+running 1 test
+test bare_commands_resolve_flag_over_env_over_default ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+
+     Running tests/cli_export_cleanup.rs (.cargo/target/debug/deps/cli_export_cleanup-b11f39314e1a3353)
+
+running 1 test
+test malformed_export_begin_metadata_releases_retained_snapshot ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests/cli_hostile_wire.rs (.cargo/target/debug/deps/cli_hostile_wire-80ea58cea34f8c06)
+
+running 3 tests
+test a_malformed_backup_stamp_does_not_panic_the_cli ... ok
+test a_database_name_from_the_wire_cannot_repaint_the_terminal ... ok
+test no_dashboard_view_lets_a_wire_value_repaint_the_terminal ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.62s
+
+     Running tests/cli_human.rs (.cargo/target/debug/deps/cli_human-b688da8f91b6f18f)
+
+running 9 tests
+test the_backup_digest_is_the_one_deliberate_exception ... ok
+test dg_init_shows_the_key_to_a_person_and_json_to_a_pipe ... ok
+test a_failing_command_shows_a_one_line_error_on_a_terminal ... ok
+test a_command_is_not_run_twice ... ok
+test every_mutating_command_still_emits_json_when_piped ... ok
+test dg_export_shows_what_it_wrote_and_its_hash ... ok
+test every_mutating_command_shows_a_human_view_on_a_terminal ... ok
+test every_contract_command_still_emits_json_when_piped ... ok
+test every_contract_command_shows_a_human_view_on_a_terminal ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.77s
+
+     Running tests/cli_info.rs (.cargo/target/debug/deps/cli_info-179f83bd02d344f5)
+
+running 1 test
+test info_reports_exact_database_facts ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.64s
+
+     Running tests/cli_json_contract.rs (.cargo/target/debug/deps/cli_json_contract-4b46911f972a9dcc)
+
+running 4 tests
+test the_status_shape_the_scripts_read_is_unchanged ... ok
+test the_create_and_import_shapes_the_scripts_read_are_unchanged ... ok
+test the_list_shape_the_scripts_read_is_unchanged ... ok
+test the_query_shape_the_scripts_read_is_unchanged ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
+
+     Running tests/cli_keys.rs (.cargo/target/debug/deps/cli_keys-ef929eb412663027)
+
+running 1 test
+test key_list_audits_outstanding_access ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.60s
+
+     Running tests/cli_lifecycle.rs (.cargo/target/debug/deps/cli_lifecycle-b501dbd638ea6634)
+
+running 2 tests
+test import_rejects_oversized_local_files_before_encoding_or_network ... ok
+test export_accepts_large_snapshots_and_publishes_without_clobbering ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.35s
+
+     Running tests/cli_pretty.rs (.cargo/target/debug/deps/cli_pretty-311c5d51d14cac33)
+
+running 8 tests
+test the_restore_view_shows_the_window_the_replica_offers ... ok
+test the_backup_view_shows_the_freshness_state ... ok
+test the_shell_speaks_json_when_asked ... ok
+test a_null_value_is_shown_as_null ... ok
+test the_terminal_path_draws_a_table_and_no_json ... ok
+test wide_characters_do_not_shear_the_grid ... ok
+test colour_is_off_when_the_environment_says_so ... ok
+test piped_output_stays_json_and_identical_to_the_json_flag ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.32s
+
+     Running tests/cli_tables.rs (.cargo/target/debug/deps/cli_tables-212a18c20f86c30c)
+
+running 3 tests
+test query_piped_json_pty_table ... ok
+test status_backup_keys_piped_json_pty_table ... ok
+test list_info_piped_json_pty_table ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.86s
+
+     Running tests/cli_views.rs (.cargo/target/debug/deps/cli_views-acf3333c6308fff1)
+
+running 6 tests
