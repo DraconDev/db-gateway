@@ -90,6 +90,18 @@ fn backups() -> Value { json!({
             "path": "/var/lib/dg-restores/20261016000000/demo.sqlite"
         }
     }) }
+fn mkapp30() -> App {
+    let mut app = App::new("http://127.0.0.1:7432".to_string(), "0".repeat(64));
+    let mut value = backups();
+    let mut per_database = serde_json::Map::new();
+    for index in 0..30 {
+        per_database.insert(format!("db{index:02}"), json!({"state": "stale", "newest_set": "20261001T070000Z", "age_secs": 1728000}));
+    }
+    value["per_database"] = json!(per_database);
+    app.backups = Some(value);
+    app.connected = true;
+    app
+}
 fn mkapp() -> App {
     let mut app = App::new("http://127.0.0.1:7432".to_string(), "0".repeat(64));
     app.backups = Some(backups());
@@ -105,13 +117,17 @@ fn screen(app: &mut App, w: u16, h: u16) -> String {
 }
 #[test]
 fn repro_short() {
-    for h in [18u16,19,20,21,22,23,24,25,30,35,40,50] {
-        let mut a = mkapp();
+    for h in [50u16] {
+        let mut a = mkapp30();
         a.on_key(ratatui::crossterm::event::KeyEvent::new(ratatui::crossterm::event::KeyCode::Char('3'), ratatui::crossterm::event::KeyModifiers::NONE));
         let t = screen(&mut a, 120, h);
         let other_row = t.lines().any(|l| l.contains("other") && (l.contains("stale")||l.contains("fresh")||l.contains("behind")||l.contains("unknown")));
         let missing = t.contains("missing: other");
         println!("H={h} other_row={other_row} missing={missing}");
+        for fact in ["dg-sandbox","168h","restored and verified","2026-10-15 14:16 UTC"] {
+            println!("fact {fact} visible={}", t.contains(fact));
+        }
+        println!("---SCREEN---\n{t}\n---END---");
         if missing && !other_row { println!("CONTRADICTION at H={h}"); }
         if h==21 { println!("---SCREEN H=21---\n{t}\n---END---"); }
     }
