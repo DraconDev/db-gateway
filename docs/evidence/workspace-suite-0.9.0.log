@@ -622,3 +622,17 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
      Running tests/garbage_sweep.rs (.cargo/target/debug/deps/garbage_sweep-45af08b6dc71a54f)
 
 running 1 test
+test garbage_inputs_reject_cleanly_and_server_recovers ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.78s
+
+     Running tests/generation_auth.rs (.cargo/target/debug/deps/generation_auth-2086c7734bf3f8dd)
+
+running 1 test
+test purged_name_replacement_rejects_old_scoped_replay_key ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+     Running tests/import_export_torture.rs (.cargo/target/debug/deps/import_export_torture-21a17dd02c9588d7)
+
+running 1 test
