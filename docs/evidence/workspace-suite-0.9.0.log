@@ -467,3 +467,8 @@ test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
      Running tests/cli_views.rs (.cargo/target/debug/deps/cli_views-acf3333c6308fff1)
 
 running 6 tests
+test the_views_stay_machine_readable_when_piped ... ok
+test the_watch_view_is_the_status_view_read_once ... ok
+test a_tombstoned_database_is_still_counted_and_still_inspectable ... ok
+test the_inspect_view_shows_one_database_and_what_it_did ... ok
+test the_status_view_answers_the_operators_questions ... ok
