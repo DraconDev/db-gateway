@@ -19,6 +19,10 @@ pub enum ActionKind {
     Refresh,
     /// Run one statement against a database.
     Query,
+    /// List one database's tables with their row counts.
+    Tables,
+    /// Page through one table's rows, newest page first by row order.
+    OpenTable,
     /// Run a SQL file as one atomic batch.
     ExecuteFile,
     /// Run a JSON batch file.
@@ -74,6 +78,22 @@ pub const CATALOG: &[Action] = &[
         kind: ActionKind::Query,
         title: "query",
         hint: "query <database> <sql>",
+        arguments: true,
+        confirmation: false,
+        destructive: false,
+    },
+    Action {
+        kind: ActionKind::Tables,
+        title: "tables",
+        hint: "tables <database>",
+        arguments: true,
+        confirmation: false,
+        destructive: false,
+    },
+    Action {
+        kind: ActionKind::OpenTable,
+        title: "open table",
+        hint: "open <database> <table> [page]",
         arguments: true,
         confirmation: false,
         destructive: false,
@@ -185,6 +205,14 @@ pub enum Invocation {
     Quit,
     /// Run one statement.
     Query { name: String, sql: String },
+    /// List one database's tables.
+    Tables { name: String },
+    /// Page through one table's rows.
+    OpenTable {
+        name: String,
+        table: String,
+        page: u64,
+    },
     /// Run a SQL file as one atomic batch.
     ExecuteFile { name: String, file: PathBuf },
     /// Run a JSON batch file.
@@ -209,6 +237,27 @@ pub enum Invocation {
     RevokeKey { name: String },
     /// Replace the owner credential.
     RotateOwner,
+}
+
+/// How many rows one page of an opened table holds.
+///
+/// Fifty is the web console's page as well, so an operator paging
+/// here sees the same rows-per-page they would see there.
+pub const TABLE_PAGE_SIZE: u64 = 50;
+
+/// Whether a table name is safe to put into a statement.
+///
+/// The name travels inside double quotes, and a quote inside it
+/// would break out: rather than escaping, the view only opens names
+/// made of letters, digits and underscores that do not start with a
+/// digit. Everything the gateway creates for an operator matches.
+pub fn valid_table(name: &str) -> bool {
+    let mut characters = name.chars();
+    match characters.next() {
+        Some(first) if first.is_ascii_alphabetic() || first == '_' => {}
+        _ => return false,
+    }
+    characters.all(|character| character.is_ascii_alphanumeric() || character == '_')
 }
 
 /// The request an invocation makes.
@@ -270,6 +319,31 @@ impl ActionKind {
                 }
                 crate::store::validate_name(&name)?;
                 Ok(Invocation::Query { name, sql })
+            }
+            ActionKind::Tables => {
+                need(1, "a table list needs a database")?;
+                let name = parts[0].to_string();
+                crate::store::validate_name(&name)?;
+                Ok(Invocation::Tables { name })
+            }
+            ActionKind::OpenTable => {
+                need(2, "an open table needs a database and a table")?;
+                let name = parts[0].to_string();
+                let table = parts[1].to_string();
+                crate::store::validate_name(&name)?;
+                if !valid_table(&table) {
+                    return Err(invalid(
+                        "a table name is letters, digits and underscores, and does not start with a digit",
+                    ));
+                }
+                let page = if parts.len() > 2 {
+                    parts[2].parse::<u64>().map_err(|_| {
+                        invalid("a page is a number, starting at 0")
+                    })?
+                } else {
+                    0
+                };
+                Ok(Invocation::OpenTable { name, table, page })
             }
             ActionKind::CreateDatabase => {
                 need(1, "a new database needs a name")?;
@@ -393,6 +467,24 @@ impl Invocation {
                 body: Some(json!({"sql": sql, "args": []})),
                 semantics: crate::client::semantics_of(std::slice::from_ref(sql)),
             },
+            Invocation::Tables { name } => Request {
+                method: Method::GET,
+                path: format!("/v1/databases/{name}"),
+                body: None,
+                semantics: Semantics::Read,
+            },
+            Invocation::OpenTable { name, table, page } => {
+                let offset = page.saturating_mul(TABLE_PAGE_SIZE);
+                let sql = format!(
+                    "SELECT * FROM \"{table}\" ORDER BY rowid LIMIT {TABLE_PAGE_SIZE} OFFSET {offset}"
+                );
+                Request {
+                    method: Method::POST,
+                    path: format!("/v1/databases/{name}/query"),
+                    body: Some(json!({"sql": sql, "args": []})),
+                    semantics: crate::client::semantics_of(std::slice::from_ref(&sql)),
+                }
+            }
             Invocation::CreateDatabase { name } => Request {
                 method: Method::POST,
                 path: "/v1/databases".to_string(),

@@ -822,12 +822,90 @@ impl App {
     }
 }
 
+/// The outcome of listing one database's tables.
+///
+/// Pure so a test can read what the operator would read without a
+/// gateway: the table is the shared [`views::database_tables`] reading.
+pub fn tables_outcome(name: &str, response: &Value) -> Outcome {
+    if let Some(error) = refusal(response) {
+        return error;
+    }
+    Outcome {
+        headline: format!("tables in {name}"),
+        facts: vec![("database".to_string(), name.to_string())],
+        table: Some(views::database_tables(response)),
+        error: None,
+    }
+}
+
+/// The outcome of paging through one table's rows.
+///
+/// Pure for the same reason: the grid the operator pages is built
+/// here, from the columns and rows the gateway returned, and the
+/// headline says which slice of the table is on screen.
+pub fn open_table_outcome(name: &str, table: &str, page: u64, response: &Value) -> Outcome {
+    if let Some(error) = refusal(response) {
+        return error;
+    }
+    let Some(columns) = response["columns"].as_array() else {
+        return Outcome {
+            headline: "the table could not be read".to_string(),
+            facts: vec![("database".to_string(), name.to_string())],
+            table: None,
+            error: Some("the gateway answered without columns".to_string()),
+        };
+    };
+    let rows: Vec<Vec<Value>> = response["rows"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|row| row.as_array().cloned().unwrap_or_default())
+        .collect();
+    let names: Vec<String> = columns
+        .iter()
+        .map(|column| column.as_str().unwrap_or("").to_string())
+        .collect();
+    let first = page.saturating_mul(crate::tui::actions::TABLE_PAGE_SIZE);
+    Outcome {
+        headline: if rows.is_empty() {
+            format!("{table} has no rows on page {page}")
+        } else {
+            format!("{table} rows {}–{}", first + 1, first + rows.len() as u64)
+        },
+        facts: vec![("database".to_string(), name.to_string())],
+        table: Some(render::Table::from_json(&names, &rows)),
+        error: None,
+    }
+}
+
+/// The refusal the gateway sent, read the way every outcome reads
+/// one, so a refused table opens with the same words as any other
+/// refused act.
+fn refusal(response: &Value) -> Option<Outcome> {
+    let error = response.get("error")?;
+    let code = error["code"].as_str().unwrap_or("error");
+    let message = error["message"].as_str().unwrap_or("refused");
+    Some(Outcome {
+        headline: "the gateway refused".to_string(),
+        facts: Vec::new(),
+        table: None,
+        error: Some(format!("{code}: {message}")),
+    })
+}
+
 /// Read the answer to an action.
 ///
 /// The reading is the shared one: a batch's outcome comes from
 /// [`views::batch_outcomes`], so the view says the same thing about a
 /// failed batch that the CLI says.
 fn outcome_of(invocation: &Invocation, statements: &[String], response: &Value) -> Outcome {
+    if let Invocation::Tables { name } = invocation {
+        return tables_outcome(name, response);
+    }
+    if let Invocation::OpenTable { name, table, page } = invocation {
+        return open_table_outcome(name, table, *page, response);
+    }
     if !statements.is_empty() {
         let outcome = views::batch_outcomes(statements, response);
         let reason = outcome.reason();

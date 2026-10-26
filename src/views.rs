@@ -1285,6 +1285,31 @@ pub fn database_names(databases: &Value) -> Table {
     table
 }
 
+/// One database's tables with their row counts, from a
+/// `GET /v1/databases/{name}` answer.
+///
+/// The table the shell's `.tables` implies but never draws: the TUI
+/// reads the same answer, so the two surfaces cannot disagree about
+/// what a database holds.
+pub fn database_tables(info: &Value) -> Table {
+    let mut table = Table::new();
+    table.column("table", Align::Left);
+    table.column("rows", Align::Right);
+    let mut count = 0usize;
+    for entry in info["tables"].as_array().cloned().unwrap_or_default() {
+        let name = entry["name"].as_str().unwrap_or("").to_string();
+        let rows = entry["rows"].as_u64().unwrap_or(0);
+        table.row(vec![Cell::text(name), Cell::number(rows)]);
+        count += 1;
+    }
+    table.footer(if count == 1 {
+        "1 table".to_string()
+    } else {
+        format!("{count} tables")
+    });
+    table
+}
+
 /// What one database has been doing, as the `activity` section.
 ///
 /// The p95 and the max are different facts and are labelled as such:
