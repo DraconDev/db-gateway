@@ -1,0 +1,25 @@
+Turso web console — Databases list, dracondev org — captured 2026-10-26 via browser bridge (document.body.innerText).
+
+Columns: Name, Type, Rows Read, Rows Written, Bytes Synced, Storage, Group, Status, (Edit Data link per row).
+
+ai-books | Database | 37,032,892 | 2 | 0 B | 29.52 MB | default | Active | Edit Data
+ai-model-list | Database | 16 | 0 | 0 B | 4.1 KB | default | Active | Edit Data
+dracon-aihub-dev | Database | 18 | 0 | 0 B | 831.49 KB | default | Active | Edit Data
+dracon-auth | Database | 62,445 | 21,592 | 0 B | 364.54 KB | default | Active | Edit Data
+dracon-auth-dev | Database | 117,989 | 14,201 | 0 B | 12.76 MB | default | Active | Edit Data
+dracon-billing | Database | 43,708 | 157 | 0 B | 245.76 KB | default | Active | Edit Data
+dracon-billing-dev | Database | 189,344 | 48 | 1.51 MB | 1.04 MB | default | Active | Edit Data
+dracon-email | Database | 15,507 | 611 | 0 B | 200.7 KB | default | Active | Edit Data
+dracon-email-dev | Database | 34,488 | 2,398 | 0 B | 495.62 KB | default | Active | Edit Data
+dracon-jobs-dev | Database | 4,334,785 | 245,923 | 0 B | 3.94 MB | default | Active | Edit Data
+dracon-music | Database | 368 | 9 | 0 B | 57.34 KB | default | Active | Edit Data
+dracon-music-dev | Database | 458 | 0 | 0 B | 802.82 KB | default | Active | Edit Data
+dracon-saves | Database | 12 | 0 | 0 B | 20.48 KB | default | Active | Edit Data
+dracon-saves-dev | Database | 12 | 0 | 0 B | 12.29 KB | default | Active | Edit Data
+dracon-search-dev | Database | 140 | 3 | 0 B | 90.11 KB | default | Active | Edit Data
+dracon-studio | Database | 46,796,361 | 5,437,201 | 0 B | 296.54 MB | default | Writes Blocked | Edit Data
+dracon-studio-dev | Database | 2,165,085,739 | 19,599,101 | 0 B | 805.42 MB | default | Writes Blocked | Edit Data
+dracon-ytcache | Database | 6 | 0 | 0 B | 4.1 KB | default | Active | Edit Data
+dracon-ytcache-dev | Database | 2,375 | 2 | 0 B | 32.77 KB | default | Active | Edit Data
+
+Page chrome also shows: "Restore deleted databases", "Show branches", "Showing 50 databases per page", and the quota banner ("99% used — You're using 99% of your rows written quota").
