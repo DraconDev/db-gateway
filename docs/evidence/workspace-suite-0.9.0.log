@@ -785,3 +785,4 @@ test the_restore_drill_publishes_whether_the_copies_restored ... ok
 test backup_uses_array_invocation_and_emits_contract_artifacts ... ok
 test upgrade_rehearsal_passes_on_a_faithful_binary_and_fails_on_a_lost_generation ... ok
 test soak_readiness_wait_is_bounded ... ok
+test setup_flags_an_install_older_than_the_source_tree has been running for over 60 seconds
