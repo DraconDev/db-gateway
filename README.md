@@ -68,7 +68,7 @@ $ dg query game_a "SELECT id, name, score FROM players ORDER BY id"
 ```
 $ dg status
 service
-  version    0.8.0
+  version    0.9.0
   uptime     3d 4h
   databases  12 live, 2 tombstoned
 
