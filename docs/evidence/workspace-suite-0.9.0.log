@@ -784,3 +784,4 @@ test the_restore_point_script_publishes_what_a_restore_produced ... ok
 test the_restore_drill_publishes_whether_the_copies_restored ... ok
 test backup_uses_array_invocation_and_emits_contract_artifacts ... ok
 test upgrade_rehearsal_passes_on_a_faithful_binary_and_fails_on_a_lost_generation ... ok
+test soak_readiness_wait_is_bounded ... ok
