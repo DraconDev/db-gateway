@@ -598,30 +598,50 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App) {
     }
     // The fields answer the questions that have no other home: where the
     // off-host copy is, when it last ran, whether it was ever restored.
-    // The tables are lists, and a list can scroll. So the fields keep
-    // their room FIRST and the tables take what is left. The other way
-    // round, a long per-database list pushed the facts about the copy
-    // off the screen and left the operator scrolling to find them.
+    // The tables are lists, and a list can scroll -- but the per-database
+    // freshness table is not a list of that kind. It is this tab's
+    // answer, one row per database, and docs/tui.md promises that it
+    // keeps its rows whatever else is on screen.
+    //
+    // That promise was broken by the "snapshot cadence" field. The
+    // fields took their room first, so on a short terminal the freshness
+    // table lost a row: a database could be named as missing in the
+    // coverage block while its state was clipped off the bottom, and the
+    // operator was told a fact about a database they could not see. The
+    // order is therefore the freshness table's rows first, then the
+    // fields, then the published-sets log -- a log of what has been
+    // published, which takes what is left and scrolls.
     //
     // A table that has nothing but its header is a table with no answer
     // in it, so each table is promised room for a header and one row
     // before the fields are given anything.
     let min_table = 4u16;
-    let fields_height =
-        (lines.len() as u16 + 2).min(area.height.saturating_sub(min_table * tables.len() as u16));
-    let remaining = area.height.saturating_sub(fields_height);
-    // The per-database table is the one that grows with the deployment:
-    // it has a row per database. It takes what is left after the log
-    // table has its promise, and it scrolls when there is more of it than
-    // fits.
-    let per_database_height = tables
+    // The fields keep a few facts on screen even when the freshness table
+    // has a row per database and the terminal is short.
+    let min_fields = 6u16;
+    // Every row the freshness table has, plus the frame around it.
+    let per_database_full = tables
         .first()
-        .map(|(_, table)| {
-            (table.rows().len() as u16 + 3)
-                .min(remaining.saturating_sub(min_table))
-                .max(min_table)
-        })
+        .map(|(_, table)| table.rows().len() as u16 + 3)
         .unwrap_or(0);
+    // The tables other than the freshness one get their minimum promise.
+    let other_tables_min = min_table * tables.len().saturating_sub(1) as u16;
+    // The freshness table keeps its rows as far as the terminal allows.
+    // When there are more databases than fit, it is the table that
+    // scrolls -- it is the only one with a row per database.
+    let per_database_height = if tables.is_empty() {
+        0
+    } else {
+        per_database_full
+            .min(area.height.saturating_sub(other_tables_min + min_fields))
+            .max(min_table.min(area.height.saturating_sub(other_tables_min)))
+    };
+    // The fields take what they need from what is left, and scroll when
+    // there is more of them than that. They give their unused room back
+    // to the published-sets log, which is the pane that grows.
+    let fields_wanted = lines.len() as u16 + 2;
+    let fields_height = fields_wanted
+        .min(area.height.saturating_sub(per_database_height + other_tables_min));
     let mut constraints = vec![Constraint::Length(fields_height)];
     if !tables.is_empty() {
         constraints.push(Constraint::Length(per_database_height));
