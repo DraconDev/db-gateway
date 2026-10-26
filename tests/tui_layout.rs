@@ -918,6 +918,35 @@ fn the_freshness_table_keeps_every_database_row_at_any_height() {
     }
 }
 
+/// A row the summary does not name is still an answer.
+///
+/// The earlier repair only made the table whole when the coverage block
+/// named the clipped row, so a database that was merely stale -- present
+/// in the table but absent from `missing` -- still lost its row on a
+/// short terminal. The allocation rule does not look at `missing` at
+/// all: every pane starts at its minimum and the surplus finishes
+/// whichever unfinished pane is closest to whole. Swept across heights
+/// with an empty `missing` list, both rows stay on screen.
+#[test]
+fn an_unlisted_state_row_remains_visible_at_short_heights() {
+    for height in 18u16..=55 {
+        let mut app = app();
+        let mut value = backups();
+        value["coverage"]["missing"] = json!([]);
+        app.backups = Some(value);
+        open_tab(&mut app, '3');
+        let text = screen(&mut app, 120, height);
+        for (database, state) in [("demo", "fresh"), ("other", "stale")] {
+            assert!(
+                text.lines()
+                    .any(|line| line.contains(database) && line.contains(state)),
+                "at 120x{height} with an empty missing list the freshness table does not show \
+                 {database:?} as {state:?}:\n{text}"
+            );
+        }
+    }
+}
+
 #[test]
 fn the_backups_tab_says_whether_the_copies_are_any_good() {
     // Four questions an operator asks before they trust the copies: did
