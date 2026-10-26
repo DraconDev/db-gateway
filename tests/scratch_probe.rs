@@ -84,7 +84,7 @@ fn probe() {
             }
             a.backups.as_mut().unwrap()["per_database"] = json!(per_database);
         }
-        a.on_key(ratatui::crossterm::event::KeyCode::Char('3'));
+        a.on_key(ratatui::crossterm::event::KeyEvent::new(ratatui::crossterm::event::KeyCode::Char('3'), ratatui::crossterm::event::KeyModifiers::NONE));
         let text = screen(&mut a, w, h);
         println!("=== {w}x{h} ===");
         for (i, line) in text.lines().enumerate() {
