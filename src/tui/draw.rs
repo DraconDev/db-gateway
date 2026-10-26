@@ -20,7 +20,7 @@ use crate::{
     tui::{App, Focus, Mode, Outcome},
     views,
 };
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Where the tab strip and the tab bodies landed on the last frame.
 ///
@@ -1009,10 +1009,4 @@ fn centered(area: Rect, width: u16, height: u16) -> Rect {
         width,
         height,
     }
-}
-
-/// How long the view has been open, for the tests.
-#[allow(dead_code)]
-fn _elapsed(since: Instant) -> Duration {
-    since.elapsed()
 }
