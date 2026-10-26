@@ -169,9 +169,10 @@ def main():
         # Table name is the token after CREATE TABLE [IF NOT EXISTS].
         for statement in statements:
             tokens = statement.split()
-            name = tokens[tokens.index("TABLE") + 1]
-            if name.upper() == "IF":
-                name = tokens[tokens.index("TABLE") + 3]
+            at = tokens.index("TABLE") + 1
+            if tokens[at].upper() == "IF":
+                at += 3  # skip IF NOT EXISTS
+            name = tokens[at]
             if table_rows(args.dg, args.server, args.key_file, db, name) == 0:
                 key = (db, name)
                 run(
