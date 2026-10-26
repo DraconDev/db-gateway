@@ -38,11 +38,21 @@ KEY=(--server "$SERVER" --key-file "$DIR/owner.key")
 "$DG" "${KEY[@]}" query demo "INSERT INTO players VALUES (2, 'bo')" > /dev/null
 "$DG" "${KEY[@]}" query demo "SELECT * FROM players" > /dev/null
 
-# A published set first, then a write after it: that write is what the
-# cadence judges, so the capture shows a real per-database state rather
+# A published set first, then writes after it: those writes are what the
+# cadence judges, so the capture shows real per-database states rather
 # than a gateway that has never backed anything up.
 "$DG" "${KEY[@]}" backup run > "$DIR/backup-run.log" 2>&1 || true
 "$DG" "${KEY[@]}" query demo "INSERT INTO players VALUES (3, 'cy')" > /dev/null
+
+# A second database, created after the published set: the newest set
+# carries demo but not other, so the coverage block names the missing
+# database the same way the two-database fixture does -- and the
+# freshness table has two rows to keep, which is the case this release
+# fixed. The write after the set keeps other inside the cadence, so
+# both rows show real states with a lag beside them.
+"$DG" "${KEY[@]}" create other > /dev/null
+"$DG" "${KEY[@]}" query other "CREATE TABLE players (id INTEGER PRIMARY KEY, name TEXT)" > /dev/null
+"$DG" "${KEY[@]}" query other "INSERT INTO players VALUES (1, 'zed')" > /dev/null
 
 # The session: open the actions, run a query, then leave.
 #
