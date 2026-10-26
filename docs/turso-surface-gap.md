@@ -56,9 +56,8 @@ and storage. Evidence file §1 quotes, captured 2026-10-26:
 - Chart axes: rows read `0 … 1B`, rows written `0 … 8M`, inbound
   `0 B … 600 MB`, outbound `0 B … 1.2 GB`, syncs `0 B … 1.6 MB`,
   storage `0 B … 1.2 GB`; latency `0 ms … 80 ms` with
-  `p50 p75 p90 p95 p99 Average`.
-- Banners: `Quota Critical 99% used` and `Vegas Blackout: Usage was
-  erased on October 11th`.
+  `p50 p75 p90 p95 p99 Average`. (The page's account banners are out
+  of scope and are listed in the final section, not quoted here.)
 
 `dg` equivalent tested: `dg status` on the disposable gateway returned
 (full output observed 2026-10-26, trimmed to the per-database block):
@@ -317,7 +316,8 @@ Billing, plans, organisations, invoices, subscriptions, and auth tokens
 for third parties. Excluded CLI verbs: `turso auth`, `turso org`, and
 `turso plan` with all their subcommands. Concretely observed but excluded: the Analytics
 page's `Next Invoice $5.99` card with its `View Invoice` action, the
-`Quota Critical 99% used … See plans` banners, and the sidebar's
+`Quota Critical 99% used … See plans` banners, the `Vegas Blackout:
+Usage was erased on October 11th` notice, and the sidebar's
 Billing/Upgrade entries. This audit read the Turso web console and `--help`
 text only; the `turso` CLI is not authenticated here, no live
 `show`/`inspect`/`shell` ran against Turso, and no Turso data was
