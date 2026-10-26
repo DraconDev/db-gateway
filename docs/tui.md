@@ -176,15 +176,13 @@ capped by the room left after the published-sets minimum and keeps its
 header and as many rows as fit. The set list, which is a log of what has
 been published, takes the space that is left and scrolls.
 
-There is one case where the summary wins instead, and it is a matter of
-room, not importance. The table carries a row per database, so a
-deployment with thirty databases wants more rows than the terminal has:
-reserving all thirty would push the facts about the copy -- where it is,
-whether it was ever restored -- off the screen, and the operator would be
-told where the copy is by a line they cannot see. The field list still
-takes the remainder and scrolls, and everything it holds is a keystroke
-away: the arrow keys reach every fact, and the scroll never runs past the
-end of what the tab holds.
+The consequence lands on wide deployments. The table carries a row per
+database, so thirty databases reserve thirty rows before the summary sees
+any room: the field list takes the small remainder and scrolls, and the
+facts about the copy -- where it is, whether it was ever restored --
+start below the fold. They are not gone: the arrow keys reach every fact,
+and the scroll never runs past the end of what the tab holds. What does
+not fit is a keystroke away.
 
 The number at the top of the tab is the **freshness objective**, not an age
 limit. Freshness is decided by whether a committed change is covered by a
