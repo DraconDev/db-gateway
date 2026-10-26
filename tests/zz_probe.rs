@@ -102,23 +102,57 @@ fn key(code: ratatui::crossterm::event::KeyCode) -> ratatui::crossterm::event::K
     ratatui::crossterm::event::KeyEvent::new(code, ratatui::crossterm::event::KeyModifiers::NONE)
 }
 
-#[test]
-fn probe_lines() {
-    let sections = dg::views::backups(&backups());
-    let mut n = 0;
-    for s in &sections {
-        let has_table = s.blocks().iter().any(|b| matches!(b, dg::render::ViewBlock::Table(_)));
-        let mut lines = 0;
-        for b in s.blocks() {
-            if let dg::render::ViewBlock::Fields(fields) = b {
-                lines += fields.len();
-            }
-        }
-        println!("section {:?}: field_blocks={} has_table={}", s.title(), lines, has_table);
-        n += lines;
-        if lines > 0 {
-            n += 1; // heading
-        }
+fn mkapp30() -> App {
+    let mut app = App::new("http://127.0.0.1:7432".to_string(), "0".repeat(64));
+    let mut value = backups();
+    let mut per_database = serde_json::Map::new();
+    for index in 0..30 {
+        per_database.insert(
+            format!("db{index:02}"),
+            json!({"state": "stale", "newest_set": "20261001T070000Z", "age_secs": 1728000}),
+        );
     }
-    println!("TOTAL field lines (excl frame): {n}");
+    value["per_database"] = json!(per_database);
+    app.backups = Some(value);
+    app.connected = true;
+    app
+}
+
+fn open3(app: &mut App) {
+    app.on_key(key(ratatui::crossterm::event::KeyCode::Char('3')));
+}
+
+#[test]
+fn probe30() {
+    let mut a = mkapp30();
+    open3(&mut a);
+    let t = screen(&mut a, 191, 50);
+    let rows: Vec<&str> = t.lines().filter(|l| l.contains("db")).collect();
+    println!("db-row lines visible initially: {}", rows.len());
+    println!("dg-sandbox visible: {}", t.contains("dg-sandbox"));
+    // scroll in steps and report when each fact appears
+    for downs in [8u32, 10, 12, 19, 30] {
+        let mut b = mkapp30();
+        open3(&mut b);
+        for _ in 0..downs {
+            b.on_key(key(ratatui::crossterm::event::KeyCode::Down));
+        }
+        let s = screen(&mut b, 191, 50);
+        println!(
+            "downs={downs} sandbox={} 168h={} restored={} window={}",
+            s.contains("dg-sandbox"),
+            s.contains("168h"),
+            s.contains("restored and verified"),
+            s.contains("2026-10-15 14:16 UTC"),
+        );
+    }
+    // tall screen: everything visible?
+    let mut c = mkapp30();
+    open3(&mut c);
+    let tall = screen(&mut c, 191, 90);
+    println!(
+        "tall90 all30rows={} sandbox={}",
+        (0..30).all(|i| tall.contains(&format!("db{i:02}"))),
+        tall.contains("dg-sandbox")
+    );
 }
