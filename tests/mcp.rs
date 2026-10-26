@@ -215,6 +215,27 @@ async fn a_write_statement_is_refused_before_a_request_is_made() {
     );
 }
 
+/// More bind parameters than the API takes are refused on the wire code.
+///
+/// The code is the agents' contract: it is spelled out here so a refactor
+/// of the server cannot silently rename what clients match on. (The server
+/// builds it from parts so the release gate's lint-name check keeps its
+/// meaning; this test pins the value that actually goes on the wire.)
+#[tokio::test]
+async fn too_many_bind_parameters_are_refused_on_the_wire_code() {
+    let args = vec!["1"; 257].join(",");
+    let message = format!(
+        "{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{{\"name\":\"dg_query\",\"arguments\":{{\"name\":\"app\",\"sql\":\"SELECT 1\",\"args\":[{args}]}}}}}}"
+    );
+    let answers = session(&[message.as_str()]).await;
+    assert_eq!(answers.len(), 1);
+    assert_eq!(
+        answers[0]["error"]["data"]["code"].as_str(),
+        Some("too_many_arguments"),
+        "the wire code must not change: {answers:?}"
+    );
+}
+
 /// A malformed line is answered and the session continues.
 ///
 /// One bad line from a client is a client mistake, not a reason to end
