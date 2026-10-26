@@ -906,7 +906,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             backup_notify_webhook,
             detach_safe,
         } => {
-            return cmd_serve::serve(
+            return cmd_serve::serve(cmd_serve::ServeOptions {
                 listen,
                 data_dir,
                 backup_root,
@@ -915,7 +915,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
                 backup_failure_poll_secs,
                 backup_notify_webhook,
                 detach_safe,
-            )
+            })
             .await;
         }
         Command::Init { data_dir } => return cmd_serve::init(data_dir, json).await,

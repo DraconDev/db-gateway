@@ -7,16 +7,43 @@ use std::io::IsTerminal;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-pub async fn serve(
-    listen: SocketAddr,
-    data_dir: PathBuf,
-    backup_root: Option<PathBuf>,
-    backup_cadence_secs: Option<u64>,
-    backup_digest_secs: u64,
-    backup_failure_poll_secs: u64,
-    backup_notify_webhook: Option<String>,
-    detach_safe: bool,
-) -> Result<(), dg::ServerError> {
+/// How the gateway is to be served.
+///
+/// The flags that configure one server are a group, not eight loose
+/// arguments: a group is what a caller reads, and a call that passes
+/// eight of them cannot be checked by eye -- the order of two `Option`
+/// arguments and two `u64` arguments is not visible in the call.
+#[derive(Debug, Clone)]
+pub struct ServeOptions {
+    /// The address to bind.
+    pub listen: SocketAddr,
+    /// Where the data directory is.
+    pub data_dir: PathBuf,
+    /// The backup root to watch, or the convention default.
+    pub backup_root: Option<PathBuf>,
+    /// The owner-approved snapshot cadence, in seconds.
+    pub backup_cadence_secs: Option<u64>,
+    /// How often the backup-health digest is delivered, in seconds.
+    pub backup_digest_secs: u64,
+    /// How often the producer's attempt log is polled for a new failure.
+    pub backup_failure_poll_secs: u64,
+    /// The webhook to deliver backup notifications to.
+    pub backup_notify_webhook: Option<String>,
+    /// Whether the server may outlive the process that launched it.
+    pub detach_safe: bool,
+}
+
+pub async fn serve(options: ServeOptions) -> Result<(), dg::ServerError> {
+    let ServeOptions {
+        listen,
+        data_dir,
+        backup_root,
+        backup_cadence_secs,
+        backup_digest_secs,
+        backup_failure_poll_secs,
+        backup_notify_webhook,
+        detach_safe,
+    } = options;
     // A flag that cannot be honoured is refused at startup rather
     // than half-applied: a sink silently dropped means an operator
     // believes they have webhook delivery and do not.
