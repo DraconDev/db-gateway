@@ -17,6 +17,48 @@ tagged state. Deployments and rollbacks follow
 (0.x), minor versions mark feature growth and patch versions mark
 fixes; 1.0.0 waits for production acceptance.
 
+## [0.9.0] — 2026-10-26
+
+### Added
+
+- **A database written since the last publication is `behind`, not
+  `stale`.** The backup-health state had no third value: a change
+  written after the newest verified set was reported as a finding, so on
+  an hourly producer every write made the daily digest red for the hour
+  after it, and a box that was merely busy was indistinguishable from a
+  box whose backups had failed. An alarm that is red whenever anything
+  happens says nothing about the backup, and an operator who reads it
+  daily learns to skip it.
+  The owner now approves a snapshot cadence -- `dg serve
+  --backup-cadence-secs`, `dg backup digest --cadence-secs` -- and a
+  change that has waited no longer than that is `behind`: the producer
+  is between publications. A change that has waited longer is `stale`,
+  and only then does it ask for attention. With no cadence approved
+  there is no `behind` and every unrepresented change is reported, which
+  is the strict reading a deployment has before it has made the
+  decision.
+- **The lag is shown next to the state.** `lag_secs` says how long the
+  newest unrepresented change has waited, so a row is a measurement
+  rather than a verdict, and `cadence_secs` is published beside it. The
+  terminal view gained a `lag` column and a `snapshot cadence` field for
+  the same reason.
+- **The deployment templates carry the cadence.** `dg.service` and
+  `dg-backup-digest.service` pass it, so the gateway and the digest
+  judge the same change by the same number and cannot disagree.
+
+### Fixed
+
+- **The backups tab could lose a database's state.** The freshness table
+  has a row per database, and the facts above it took their room first,
+  so on a short terminal the table lost a row: a database could be named
+  as missing in the coverage block while its state was clipped off the
+  bottom, and the operator was told a fact about a database they could
+  not see. The table is made whole first and the facts scroll; when a
+  deployment has more databases than the terminal has rows for, the
+  facts keep their room and the table is the one that scrolls, because a
+  table of thirty rows that pushes "where the copy is" off the screen is
+  the other half of the same defect.
+
 ## [0.8.0] — 2026-10-25
 
 ### Fixed
