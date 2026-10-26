@@ -236,7 +236,8 @@ pub fn render_text(note: &Note) -> String {
     ));
     match note.cadence_secs {
         Some(cadence) => out.push_str(&format!("\n  snapshot cadence: {cadence}s")),
-        None => out.push_str("\n  snapshot cadence: not approved; every unrepresented change is reported"),
+        None => out
+            .push_str("\n  snapshot cadence: not approved; every unrepresented change is reported"),
     }
     out
 }
@@ -344,7 +345,10 @@ impl Sink for LogSink {
             } else {
                 let (fresh, behind, stale, unknown) = (
                     note.databases.iter().filter(|d| d.state == "fresh").count(),
-                    note.databases.iter().filter(|d| d.state == "behind").count(),
+                    note.databases
+                        .iter()
+                        .filter(|d| d.state == "behind")
+                        .count(),
                     note.databases.iter().filter(|d| d.state == "stale").count(),
                     note.databases
                         .iter()

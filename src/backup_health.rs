@@ -502,10 +502,7 @@ pub fn snapshot(store: &Store) -> Result<BackupHealth, crate::error::Error> {
                         // the wait of the newest unrepresented change. An
                         // older one may have waited longer; the durable
                         // marker cannot say so.
-                        let lag = now
-                            .duration_since(wrote)
-                            .map(|d| d.as_secs())
-                            .unwrap_or(0);
+                        let lag = now.duration_since(wrote).map(|d| d.as_secs()).unwrap_or(0);
                         let state = match cadence {
                             // Within the approved cadence, the producer is
                             // simply between publications: the change is
@@ -657,7 +654,9 @@ mod tests {
         let data = dir.join("data");
         let root = dir.join("dg-backups");
         {
-            let store = Store::open(&data).unwrap().with_backup_root(Some(root.clone()));
+            let store = Store::open(&data)
+                .unwrap()
+                .with_backup_root(Some(root.clone()));
             store.create_and_note("alpha").unwrap();
         }
         // The durable marker is what the rule reads after a restart, so
