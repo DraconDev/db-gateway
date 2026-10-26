@@ -835,17 +835,15 @@ fn the_databases_tab_says_how_big_each_database_is() {
     );
 }
 
-/// A long per-database table does not hide where the copy is.
+/// A long per-database table keeps every row, and the summary scrolls.
 ///
-/// The backups tab draws its summary and its tables in one pane, and the
-/// per-database table kept every row it was given. With a few dozen
-/// databases the summary had no room left, so the two questions an
-/// operator has most reason to ask -- where the off-host copy is, and
-/// whether it was ever restored and verified -- were scrolled out of
-/// sight, while the rows of databases that had been deleted on purpose
-/// filled the screen.
+/// The freshness table is reserved its full row count first: with more
+databases than the terminal has rows for, all thirty rows stay on
+/// screen and the field list above them takes the remainder and scrolls.
+/// The operator reads where the copy is with the arrow keys -- the facts
+/// are a keystroke away, not gone.
 #[test]
-fn a_long_per_database_table_does_not_hide_where_the_copy_is() {
+fn a_long_per_database_table_keeps_every_row_and_the_summary_scrolls() {
     let mut app = app();
     let mut value = backups();
     let mut per_database = serde_json::Map::new();
@@ -859,6 +857,27 @@ fn a_long_per_database_table_does_not_hide_where_the_copy_is() {
     app.backups = Some(value);
     open_tab(&mut app, '3');
     let text = screen(&mut app, 191, 50);
+    // Every row is on screen: the table keeps its rows whatever else is
+    // on screen, even when there are thirty of them.
+    for index in 0..30 {
+        let name = format!("db{index:02}");
+        assert!(
+            text.lines().any(|line| line.contains(&name)),
+            "the freshness table does not show {name:?}:\n{text}"
+        );
+    }
+    // The summary took the remainder: the copy's facts start below the
+    // fold on a screen this short, so the table's thirty rows all fit.
+    assert!(
+        !text.contains("dg-sandbox"),
+        "the summary did not scroll to make room for the table:\n{text}"
+    );
+    // The arrow keys reach what scrolled: the fields are a keystroke
+    // away, and scrolling stops at the end of what the tab holds.
+    for _ in 0..40 {
+        app.on_key(key(ratatui::crossterm::event::KeyCode::Down));
+    }
+    let scrolled = screen(&mut app, 191, 50);
     for fact in [
         "dg-sandbox",
         "168h",
@@ -866,8 +885,8 @@ fn a_long_per_database_table_does_not_hide_where_the_copy_is() {
         "2026-10-15 14:16 UTC",
     ] {
         assert!(
-            text.contains(fact),
-            "the backups tab does not say {fact:?}:\n{text}"
+            scrolled.contains(fact),
+            "the backups tab does not say {fact:?} after scrolling:\n{scrolled}"
         );
     }
 }
