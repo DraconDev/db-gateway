@@ -672,3 +672,57 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
      Running tests/lifecycle_churn.rs (.cargo/target/debug/deps/lifecycle_churn-ca1973a45c55ed3e)
 
 running 1 test
+test three_hundred_ops_keep_registry_and_files_exact ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.11s
+
+     Running tests/litestream_restore.rs (.cargo/target/debug/deps/litestream_restore-700733f0f0a73945)
+
+running 4 tests
+test integrity_check_passes_on_a_fresh_db ... ok
+test integrity_check_fails_on_a_corrupted_db ... ok
+test row_counts_diverge_when_a_row_is_missing ... ok
+test row_counts_match_when_the_copies_are_identical ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/logging_canary.rs (.cargo/target/debug/deps/logging_canary-4181530223ab3464)
+
+running 1 test
+test server_and_cli_logs_exclude_credential_and_sql_canaries ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+
+     Running tests/m1_e2e.rs (.cargo/target/debug/deps/m1_e2e-e6f07ff954b9d66a)
+
+running 14 tests
+test bootstrap_refuses_second_owner ... ok
+test delete_with_active_writer_is_safe_and_never_recreates ... ok
+test clone_during_writes_takes_consistent_snapshot ... ok
+test round_trip_write_read_persists_across_restart ... ok
+test idempotency_key_replays_committed_write ... ok
+test cli_commands_against_running_server ... ok
+test json_schema_errors_match_http_contract ... ok
+test atomic_batch_rolls_back_and_limits_bind ... ok
+test failed_import_and_missing_source_never_publish ... ok
+test scoped_keys_enforce_boundaries ... ok
+test cli_lifecycle_commands_against_running_server ... ok
+test lifecycle_clone_export_import_delete ... ok
+test request_result_boundaries_reject_cleanly_and_recover ... ok
+test deadline_failure_recovers_over_http ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.45s
+
+     Running tests/m2_lifecycle.rs (.cargo/target/debug/deps/m2_lifecycle-e1505e2e48e7af85)
+
+running 4 tests
+test imported_external_sqlite_file_supports_m1_keyed_writes ... ok
+test concurrent_same_source_exports_and_same_target_publication_are_isolated ... ok
+test idle_server_purges_only_expired_tombstones_and_allows_safe_recreation ... ok
+test contended_capacity_rejects_with_429_and_server_recovers ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.98s
+
+     Running tests/many_databases.rs (.cargo/target/debug/deps/many_databases-cf382abc347e9ef5)
+
+running 2 tests
