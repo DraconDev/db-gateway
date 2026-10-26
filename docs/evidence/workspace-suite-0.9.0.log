@@ -856,3 +856,12 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
      Running tests/resource_report.rs (.cargo/target/debug/deps/resource_report-c80d01b0449ba3dd)
 
 running 1 test
+test resource_report_fields_validate_and_cleanup_holds ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.87s
+
+     Running tests/rust_client.rs (.cargo/target/debug/deps/rust_client-d44941791d8b0de4)
+
+running 3 tests
+test the_client_and_the_server_agree_on_what_a_read_is ... ok
+test a_request_is_given_up_on_as_what_it_is ... ok
