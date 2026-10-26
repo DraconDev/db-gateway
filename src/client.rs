@@ -39,6 +39,15 @@ pub fn read_key(path: &Path) -> Result<String> {
     Ok(key.to_string())
 }
 const MAX_GENERIC_RESPONSE: usize = crate::execution::MAX_RESULT + 4096;
+// The audit trail is bounded by the log itself, not by a query result:
+// the endpoint keeps at most `MAX_ENTRIES` actions and each shape is a
+// statement with its literals replaced, so a full log is far larger
+// than one query answer. Capping it at the query size meant `dg audit`
+// failed with "response too large" once the trail filled -- a command
+// that stopped working precisely because the gateway had been used.
+// The bound below is the log's own bound with room for the JSON around
+// it, so the read can always answer what the gateway can hold.
+const MAX_AUDIT_RESPONSE: usize = 8 * 1024 * 1024;
 // Export responses contain base64 for an 8 MiB SQLite snapshot plus JSON
 // overhead; lifecycle responses are deliberately larger than query results.
 const MAX_LIFECYCLE_RESPONSE: usize = 12 * 1024 * 1024;
@@ -247,6 +256,8 @@ pub async fn request_with_semantics(
         MAX_LIFECYCLE_RESPONSE
     } else if path.starts_with("/v1/snapshots/") {
         MAX_CHUNK_RESPONSE
+    } else if path.starts_with("/v1/audit") {
+        MAX_AUDIT_RESPONSE
     } else {
         MAX_GENERIC_RESPONSE
     };
