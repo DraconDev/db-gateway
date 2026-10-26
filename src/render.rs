@@ -241,6 +241,19 @@ impl Table {
         self
     }
 
+    /// How many body rows the table holds.
+    ///
+    /// The header and the footer are not rows: a test that draws a
+    /// grid can count what the operator would count.
+    pub fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    /// Whether the table holds no body rows.
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+
     /// Build a table from a JSON result: `columns` names the columns and
     /// `rows` holds the values. A column whose values are all numbers is
     /// right-aligned, so figures line up under their headers; a column
