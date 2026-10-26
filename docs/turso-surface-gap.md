@@ -19,7 +19,7 @@ Turso; the CLI surface below is inventoried from `--help` output quoted
 verbatim, and the web captures cover the same facts. Key Turso-side
 figures are quoted in each section; the full text lives in the files
 above. Billing, plans, organisations, invoices, and subscription changes
-are out of scope and appear only in the final section.
+are out of scope; the final section names the excluded billing surfaces.
 
 ## Headline answer
 
@@ -48,8 +48,11 @@ for rows read, rows written, inbound traffic, outbound traffic, syncs,
 and storage. Evidence file §1 quotes, captured 2026-10-26:
 
 - `Rows Read 2.20B / 2.50B`, `Rows Written 24.70M / 25M`,
-  `Syncs 1.51 MB / 10 GB`, `Storage 1.15 GB / 9 GB`,
-  `Next Invoice $5.99`.
+  `Syncs 1.51 MB / 10 GB`, `Storage 1.15 GB / 9 GB`.
+  (The page's invoice card and plan-upsell links are billing surfaces
+  and are not quoted here — see the final section. The rows-read/written
+  quota ratios above are usage analytics, which is what this section
+  audits.)
 - Chart axes: rows read `0 … 1B`, rows written `0 … 8M`, inbound
   `0 B … 600 MB`, outbound `0 B … 1.2 GB`, syncs `0 B … 1.6 MB`,
   storage `0 B … 1.2 GB`; latency `0 ms … 80 ms` with
@@ -188,13 +191,20 @@ captured 2026-10-26):
 - SQL console ≡ `dg shell` interactive/piped plus one-shot `dg query`:
   `dg query shop "SELECT * FROM products"` →
   `{"columns":["id","name"],"rows":[[1,"widget"]],"rows_affected":0}`.
-- Row grid reads ≡ `SELECT` in either; writes are SQL statements, not
-  clicks; table creation is `CREATE TABLE` (exercised: `dg query shop
-  "CREATE TABLE …"` exit 0, then visible in `.tables` and `dg info`).
+- Row grid reads ≡ `SELECT` in either; the grid's Add record ≡ an
+  `INSERT` statement, tested exactly (observed 2026-10-26):
+  `dg query shop "INSERT INTO products (id, name) VALUES (1,
+  'widget')"` → `{"columns":[],"rows":[],"rows_affected":1}`;
+  read-back `dg query shop "SELECT * FROM products"` →
+  `{"columns":["id","name"],"rows":[[1,"widget"]],
+  "rows_affected":0}`; `dg info shop` then reports the table with
+  `"rows":1`. Table creation is `CREATE TABLE`, tested the same way
+  (`rows_affected: 0`, then visible in `.tables` and `dg info`).
 
 Verdict: COVERED with one PARTIAL: no click-grid row browser exists,
 but every operation the grid performs (list tables, show schema, read
-rows, add record, create table) is expressible and was exercised above.
+rows, add record, create table) is expressible and was exercised above
+with the exact commands and outputs quoted.
 The per-database Analytics/Top Queries scoping has no one-shot `dg`
 equivalent beyond `dg queries --database <name>` and `dg status`.
 
@@ -303,7 +313,10 @@ Sharpest scriptability gap found.
 ## Out of scope, untouched
 
 Billing, plans, organisations, invoices, subscriptions, and auth tokens
-for third parties. This audit read the Turso web console and `--help`
+for third parties. Concretely observed but excluded: the Analytics
+page's `Next Invoice $5.99` card with its `View Invoice` action, the
+`Quota Critical 99% used … See plans` banners, and the sidebar's
+Billing/Upgrade entries. This audit read the Turso web console and `--help`
 text only; the `turso` CLI is not authenticated here, no live
 `show`/`inspect`/`shell` ran against Turso, and no Turso data was
 created, modified, or deleted. All `dg` testing ran against disposable
