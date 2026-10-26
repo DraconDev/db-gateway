@@ -256,7 +256,9 @@ pub async fn request_with_semantics(
         MAX_LIFECYCLE_RESPONSE
     } else if path.starts_with("/v1/snapshots/") {
         MAX_CHUNK_RESPONSE
-        } else {
+    } else if path.starts_with("/v1/audit") {
+        MAX_AUDIT_RESPONSE
+    } else {
         MAX_GENERIC_RESPONSE
     };
     let mut response = response;
