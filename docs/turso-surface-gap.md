@@ -18,8 +18,8 @@ turso auth login"), so no live `show`/`inspect`/`shell` ran against
 Turso; the CLI surface below is inventoried from `--help` output quoted
 verbatim, and the web captures cover the same facts. Key Turso-side
 figures are quoted in each section; the full text lives in the files
-above. Billing, plans, organisations, invoices, and subscription changes
-are out of scope; the final section names the excluded billing surfaces.
+above. Account-management surfaces are out of scope for this audit;
+the final section names them.
 
 ## Headline answer
 
@@ -49,8 +49,8 @@ and storage. Evidence file §1 quotes, captured 2026-10-26:
 
 - `Rows Read 2.20B / 2.50B`, `Rows Written 24.70M / 25M`,
   `Syncs 1.51 MB / 10 GB`, `Storage 1.15 GB / 9 GB`.
-  (The page's invoice card and plan-upsell links are billing surfaces
-  and are not quoted here — see the final section. The rows-read/written
+  (Account-management elements of the page are out of scope and are
+  not quoted here — see the final section. The rows-read/written
   quota ratios above are usage analytics, which is what this section
   audits.)
 - Chart axes: rows read `0 … 1B`, rows written `0 … 8M`, inbound
@@ -231,8 +231,9 @@ Available Commands:
   update      Updates the database to the latest turso version
 ```
 
-Top level (`turso --help`) adds `group`, `auth`, `org`, `plan`, `dev`,
-`config`, `quickstart`: `group` manages database groups
+Top level (`turso --help`) adds `group` (database groups — mapped
+below), `dev`, `config`, and `quickstart`, plus account-management
+verbs that are out of scope (see the final section). `group` manages
 (`create/destroy/list/locations/…`); `replicate` usage is
 `turso db replicate <database-name> <location-code>`; `tokens` manages
 `create` (bearer token) and `invalidate` (rotate signing keys).
@@ -252,7 +253,7 @@ Top level (`turso --help`) adds `group`, `auth`, `org`, `plan`, `dev`,
 | `db tokens` | `dg key list` → `{"keys":[{"databases":[],"name":"owner","role":"owner"}]}`; `dg key create app1 --role database_read_write --database shop` printed a raw key; `dg key revoke app1` → `{"revoked":true}` | COVERED (create/list/revoke exercised; `rotate-owner` exists per `dg key --help`, not exercised) |
 | `db locations`, `turso group …`, `db replicate` | No `dg` equivalent | NOT APPLICABLE: single-host architecture, documented non-goal (`docs/architecture.md`). Turso-side evidence: `locations List available database locations`, `turso db replicate <database-name> <location-code>`, `turso group [create/destroy/list/locations/…]` |
 | `db config`, `db update`, `db unarchive` | `dg config list` → `{"config_path":"/home/dracon/.config/dg/config.toml","contexts":[],"default":null}` (local contexts exist) | PARTIAL/N/A: contexts cover connection config; server update and unarchive have no single-host meaning |
-| `auth`, `org`, `plan` | None | OUT OF SCOPE — see final section |
+| Account-management verbs | None | OUT OF SCOPE — named in the final section |
 
 ## 7. `dg inspect`: the terminal-only rich view
 
@@ -313,7 +314,8 @@ Sharpest scriptability gap found.
 ## Out of scope, untouched
 
 Billing, plans, organisations, invoices, subscriptions, and auth tokens
-for third parties. Concretely observed but excluded: the Analytics
+for third parties. Excluded CLI verbs: `turso auth`, `turso org`, and
+`turso plan` with all their subcommands. Concretely observed but excluded: the Analytics
 page's `Next Invoice $5.99` card with its `View Invoice` action, the
 `Quota Critical 99% used … See plans` banners, and the sidebar's
 Billing/Upgrade entries. This audit read the Turso web console and `--help`
