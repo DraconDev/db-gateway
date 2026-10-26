@@ -190,3 +190,64 @@ test store::tests::write_marker_contention_never_reports_freshness ... ok
 test store::tests::sustained_read_flood_still_admits_writers ... ok
 test store::tests::small_page_export_and_clone_honor_lifecycle_byte_ceiling ... ok
 test execution::tests::idempotency_capacity_is_per_principal ... ok
+test mcp::tests::a_result_too_large_is_reported_rather_than_silently_cut ... ok
+
+test result: ok. 187 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.29s
+
+     Running unittests src/main.rs (.cargo/target/debug/deps/dg-a6b023a86b8ac74d)
+
+running 2 tests
+test cmd_data::tests::a_batch_at_the_cap_is_accepted_and_one_over_it_is_refused ... ok
+test cmd_data::tests::the_client_checks_the_servers_own_cap ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/recovery_rehearsal.rs (.cargo/target/debug/deps/recovery_rehearsal-da3eed7a71b74dfd)
+
+running 1 test
+test tests::corrupt_object_on_empty_snapshot_records_failure_not_panic ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/access_edge.rs (.cargo/target/debug/deps/access_edge-574565ad4f5ef827)
+
+running 1 test
+test bad_key_burst_never_disturbs_legitimate_traffic ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.67s
+
+     Running tests/admission.rs (.cargo/target/debug/deps/admission-4c41357469f9ac79)
+
+running 3 tests
+test eight_concurrent_reads_run_retry_free ... ok
+test burst_waits_instead_of_shedding ... ok
+test reads_proceed_during_slow_write ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.89s
+
+     Running tests/audit.rs (.cargo/target/debug/deps/audit-a8a916a0a1f39701)
+
+running 11 tests
+test the_trail_on_disk_holds_no_values_and_no_secrets ... ok
+test the_trail_survives_a_restart ... ok
+test the_human_table_says_when_in_a_form_a_person_reads ... ok
+test the_endpoint_never_returns_a_credential_secret ... ok
+test a_statement_is_recorded_by_its_shape_and_never_by_its_values ... ok
+test an_action_is_recorded_with_the_credential_label_not_its_secret ... ok
+test the_command_asks_the_endpoint_for_what_the_operator_asked_for ... ok
+test a_scoped_credential_is_refused_the_audit_log ... ok
+test the_endpoint_filters_by_credential_and_by_time ... ok
+test a_statement_that_ran_through_the_gateway_leaves_no_values_behind ... ok
+test the_log_is_bounded_and_drops_the_oldest_entries ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.13s
+
+     Running tests/backup_notify.rs (.cargo/target/debug/deps/backup_notify-9cc5fa260ff7a00e)
+
+running 7 tests
+test the_collector_records_a_post ... ok
+test a_webhook_the_operator_cannot_mean_is_refused_at_startup ... ok
+test dg_backup_digest_reports_the_same_thing_the_sink_sends_and_works_stopped ... ok
+test the_digest_is_delivered_on_its_cadence_with_what_an_operator_needs ... ok
+test delivery_is_off_unless_asked_for ... ok
+test a_sink_that_rejects_does_not_stop_the_next_delivery ... ok
