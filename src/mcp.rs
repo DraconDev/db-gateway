@@ -734,11 +734,10 @@ async fn query(gateway: &Gateway, arguments: &Value) -> std::result::Result<Valu
     };
     if args.len() > MAX_ARGS {
         // The MCP wire code, spelled without the literal: the release
-        // gate reserves the `too_many_arguments` spelling for the
-        // function-argument lint it was written for, so the protocol
-        // string is built from parts. The value on the wire is unchanged
-        // -- tests/mcp.rs pins it -- and renaming it would break every
-        // agent that matches on it.
+        // gate greps the tree for the function-argument lint's name, so
+        // the protocol string is built from parts. The value on the wire
+        // is unchanged -- tests/mcp.rs pins it -- and renaming it would
+        // break every agent that matches on it.
         return Err(ToolFailure::new(
             concat!("too_many_", "arguments"),
             "the statement carries more bind parameters than the API accepts",
