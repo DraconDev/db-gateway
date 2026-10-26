@@ -259,3 +259,31 @@ test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 running 6 tests
 test failed_run_records_attempt ... ok
+test verify_accepts_published_set ... ok
+test verify_rejects_tampered_and_malformed_sets ... ok
+test script_run_reports_fresh_status ... ok
+test restore_drill_from_versioned_set ... ok
+test interrupted_run_publishes_nothing_and_next_run_recovers ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.17s
+
+     Running tests/backup_run.rs (.cargo/target/debug/deps/backup_run-4c1f34b6f17ed307)
+
+running 11 tests
+test the_cli_view_says_plainly_when_nothing_was_captured ... ok
+test a_failed_validation_publishes_nothing ... ok
+test a_run_while_the_lock_is_held_fails_and_writes_nothing ... ok
+test a_run_without_a_backup_root_fails_and_writes_nothing ... ok
+test a_non_owner_credential_is_refused ... ok
+test a_run_publishes_a_set_the_producer_would_accept ... ok
+test the_cli_command_publishes_a_set ... ok
+test the_cli_view_says_what_was_written ... ok
+test the_set_carries_the_data_as_it_was_at_the_run ... ok
+test every_member_is_a_standalone_database_and_the_manifest_agrees ... ok
+test the_gateway_reads_back_the_set_it_wrote ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.30s
+
+     Running tests/boundary_sweep.rs (.cargo/target/debug/deps/boundary_sweep-482506feb7ce58f5)
+
+running 1 test
