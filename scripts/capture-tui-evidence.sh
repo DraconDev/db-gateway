@@ -16,7 +16,13 @@ trap 'rm -rf "$DIR"' EXIT
 python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["owner_key"])' "$DIR/init.json" > "$DIR/owner.key"
 chmod 600 "$DIR/owner.key"
 
-"$DG" serve --listen 127.0.0.1:0 --data-dir "$DIR/data" > "$DIR/serve.log" 2>&1 &
+# The approved snapshot cadence is the number the freshness state is
+# judged on, so the capture sets one: without it every unrepresented
+# change is reported and the screen would show the strict reading rather
+# than the state this release added.
+CADENCE_SECS="${DG_CAPTURE_CADENCE_SECS:-3600}"
+"$DG" serve --listen 127.0.0.1:0 --data-dir "$DIR/data" \
+    --backup-cadence-secs "$CADENCE_SECS" > "$DIR/serve.log" 2>&1 &
 SERVER_PID=$!
 for _ in $(seq 1 50); do
     SERVER="$(python3 "$ROOT/scripts/read-gateway-address.py" "$DIR/serve.log" 2>/dev/null || true)"
@@ -31,6 +37,12 @@ KEY=(--server "$SERVER" --key-file "$DIR/owner.key")
 "$DG" "${KEY[@]}" query demo "INSERT INTO players VALUES (1, 'aria')" > /dev/null
 "$DG" "${KEY[@]}" query demo "INSERT INTO players VALUES (2, 'bo')" > /dev/null
 "$DG" "${KEY[@]}" query demo "SELECT * FROM players" > /dev/null
+
+# A published set first, then a write after it: that write is what the
+# cadence judges, so the capture shows a real per-database state rather
+# than a gateway that has never backed anything up.
+"$DG" "${KEY[@]}" backup run > "$DIR/backup-run.log" 2>&1 || true
+"$DG" "${KEY[@]}" query demo "INSERT INTO players VALUES (3, 'cy')" > /dev/null
 
 # The session: open the actions, run a query, then leave.
 #

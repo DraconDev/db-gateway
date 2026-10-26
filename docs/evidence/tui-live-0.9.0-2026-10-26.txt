@@ -3,16 +3,18 @@ Captured by scripts/capture-tui-evidence.sh: the raw pty
 stream is in the .log beside this file, and the screen
 below is what the terminal showed after the query ran.
 
- dg http://127.0.0.1:43977 · read 0s ago · connected
+ dg http://127.0.0.1:42965 · read 0s ago · connected
  1 databases (1) │ 2 service │▸ 3 backups │ 4 keys (1) │ 5 queries (4) │ 6 locations (1)
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │backup                                                                                                                │
-│root: /tmp/dg-tui-capture-rncjyA/dg-backups                                                                           │
+│root: /tmp/dg-tui-capture-ItBMZG/dg-backups                                                                           │
 │freshness objective: 5m 0s                                                                                            │
-│snapshot cadence: not approved                                                                                        │
-│sets: 0                                                                                                               │
+│snapshot cadence: 1h 0m                                                                                               │
+│sets: 1                                                                                                               │
 │coverage                                                                                                              │
-│reported: the gateway reports no coverage                                                                             │
+│newest set: 1 of 1 live databases                                                                                     │
+│missing: none                                                                                                         │
+│registry: yes                                                                                                         │
 │replica                                                                                                               │
 │reported: this host publishes no off-host copy status                                                                 │
 │restore drill                                                                                                         │
@@ -20,18 +22,22 @@ below is what the terminal showed after the query ran.
 │point-in-time restore                                                                                                 │
 │reported: this host publishes no restore points                                                                       │
 │last restore                                                                                                          │
-│reported: this host publishes no restore result                                                                       │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ per-database ────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│database   state     newest set   age       lag                                                                       │
-│demo       unknown   —            unknown   —                                                                         │
+│database   state    newest set         age   lag                                                                      │
+│demo       behind   2026-10-26 02:15   4s    4s                                                                       │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ published sets ──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│set                coverage from          databases   registry                                                        │
+│20261026T021500Z   2026-10-26 02:15 UTC   1           yes                                                             │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ last action ─────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│2 rows                                                                                                                │
+│3 rows                                                                                                                │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ rows ────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │id   name                                                                                                             │
 │1    aria                                                                                                             │
 │2    bo                                                                                                               │
+│3    cy                                                                                                               │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 1-6 tabs  tab next tab  ↑↓ scroll  : commands  r refresh  q quit
