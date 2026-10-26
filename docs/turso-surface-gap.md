@@ -11,6 +11,8 @@ browser bridge, with the live captures saved as audit evidence:
   (all 19 rows with figures).
 - `docs/evidence/turso-edit-data-2026-10-26.png` — Edit Data browser
   screenshot (`dracon-music-dev`, a database with tables).
+- `docs/evidence/turso-audit-logs-2026-10-26.txt` — Audit Logs page
+  text (columns, all 23 entries).
 
 The `turso` CLI is not logged in in this environment
 (`turso db show …` answers "You are not logged in, please login with
@@ -49,10 +51,16 @@ and storage. Evidence file §1 quotes, captured 2026-10-26:
 
 - `Rows Read 2.20B / 2.50B`, `Rows Written 24.70M / 25M`,
   `Syncs 1.51 MB / 10 GB`, `Storage 1.15 GB / 9 GB`.
-  (Account-management elements of the page are out of scope and are
-  not quoted here — see the final section. The rows-read/written
-  quota ratios above are usage analytics, which is what this section
-  audits.)
+  (The capture's remaining elements are account-management surfaces,
+  out of scope — see the final section.)
+
+`dg` exposes the numerators but not the denominators. `dg status`
+returned per-database `rows_read: 3, rows_written: 1` (full block
+quoted below): raw lifetime counters with no plan quota to ratio them
+against. The `/ 2.50B`, `/ 25M`, `/ 10 GB`, `/ 9 GB` denominators are
+therefore MISSING on the `dg` side — Turso-side evidence is the usage
+figures above; `dg` has no metering or plan limits (single owner, no
+quotas), so a percent-of-quota card has nothing to divide by.
 - Chart axes: rows read `0 … 1B`, rows written `0 … 8M`, inbound
   `0 B … 600 MB`, outbound `0 B … 1.2 GB`, syncs `0 B … 1.6 MB`,
   storage `0 B … 1.2 GB`; latency `0 ms … 80 ms` with
@@ -253,6 +261,7 @@ verbs that are out of scope (see the final section). `group` manages
 | `db locations`, `turso group …`, `db replicate` | No `dg` equivalent | NOT APPLICABLE: single-host architecture, documented non-goal (`docs/architecture.md`). Turso-side evidence: `locations List available database locations`, `turso db replicate <database-name> <location-code>`, `turso group [create/destroy/list/locations/…]` |
 | `db config`, `db update`, `db unarchive` | `dg config list` → `{"config_path":"/home/dracon/.config/dg/config.toml","contexts":[],"default":null}` (local contexts exist) | PARTIAL/N/A: contexts cover connection config; server update and unarchive have no single-host meaning |
 | Account-management verbs | None | OUT OF SCOPE — named in the final section |
+| Turso web Audit Logs + `turso org audit-logs list` | `dg audit` → `{"entries":[{"action":"create","at":1793019443,"database":"shop","principal":"owner","role":"owner"},{"action":"query","database":"shop","detail":"CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT)","principal":"owner"},{"action":"query","database":"shop","detail":"INSERT INTO products VALUES (?, ?)","principal":"owner"},{"action":"query","database":"shop","detail":"SELECT * FROM products","principal":"owner"}]}` (trimmed; observed 2026-10-26) | COVERED: who ran what and when, with statement shapes and no values — matches the Turso columns Author/Event/Origin/Timestamp |
 
 ## 7. `dg inspect`: the terminal-only rich view
 
