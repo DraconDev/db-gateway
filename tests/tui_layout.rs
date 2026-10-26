@@ -835,6 +835,76 @@ fn the_databases_tab_says_how_big_each_database_is() {
     );
 }
 
+/// An idle fleet reads as zeroes, not as missing.
+///
+/// A gateway with databases that have never been written to -- no rows,
+/// no waits, no last write -- must still list every one of them, with
+/// its size beside it and the wait columns explained underneath. A live
+/// screenshot of seven such databases is the fixture: each row shows
+/// zeroes, `never`, and its size, and the footer says what the wait
+/// columns mean. Anything less reads as "not a database".
+#[test]
+fn idle_databases_read_as_zeroes_not_as_missing() {
+    let names = [
+        "billing_dev_pilot",
+        "inventory",
+        "ledger",
+        "notes",
+        "orders",
+        "sessions",
+        "verify_probe",
+    ];
+    let mut deployment = serde_json::Map::new();
+    for (index, name) in names.iter().enumerate() {
+        deployment.insert(
+            (*name).to_string(),
+            json!({
+                "file": format!("/var/lib/dg/{name}.sqlite"),
+                "exists": true,
+                "size_bytes": (70 + index as u64) * 1024,
+                "tombstoned": false
+            }),
+        );
+    }
+    let mut app = app();
+    app.status = Some(json!({
+        "deployment": {"databases": deployment},
+        "databases": {},
+    }));
+    app.list = Some(json!({"databases": names}));
+    let text = screen(&mut app, 191, 40);
+    assert!(
+        text.contains("1 databases (7)"),
+        "the strip does not count the idle fleet:\n{text}"
+    );
+    for column in ["wait p95", "wait max", "last write", "size"] {
+        assert!(
+            text.contains(column),
+            "the idle fleet is missing the {column:?} column:\n{text}"
+        );
+    }
+    for name in names {
+        let row = text
+            .lines()
+            .find(|line| line.contains(name))
+            .unwrap_or_else(|| {
+                panic!("an idle database is missing from the list: {name:?}:\n{text}")
+            });
+        assert!(
+            row.contains("never"),
+            "an idle database does not say it was never written: {row:?}"
+        );
+    }
+    assert!(
+        text.contains("70.0 KiB") && text.contains("76.0 KiB"),
+        "the idle fleet does not say what it costs to keep:\n{text}"
+    );
+    assert!(
+        text.contains("wait p95 is this database's own recent waits"),
+        "the traffic table does not explain its wait columns:\n{text}"
+    );
+}
+
 /// A long per-database table keeps every row, and the summary scrolls.
 ///
 /// The freshness table is reserved its full row count first: with more
