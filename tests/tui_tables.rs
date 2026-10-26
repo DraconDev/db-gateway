@@ -158,8 +158,7 @@ fn the_open_table_outcome_says_which_slice_is_on_screen() {
 
 #[test]
 fn a_refused_open_reads_like_any_other_refusal() {
-    let refused =
-        json!({"error": {"code": "database_not_found", "message": "no such database"}});
+    let refused = json!({"error": {"code": "database_not_found", "message": "no such database"}});
     for outcome in [
         tables_outcome("demo", &refused),
         open_table_outcome("demo", "products", 0, &refused),
@@ -167,7 +166,10 @@ fn a_refused_open_reads_like_any_other_refusal() {
         assert_eq!(outcome.headline, "the gateway refused");
         assert!(outcome.table.is_none());
         assert!(
-            outcome.error.unwrap_or_default().contains("database_not_found"),
+            outcome
+                .error
+                .unwrap_or_default()
+                .contains("database_not_found"),
             "the refusal loses the reason"
         );
     }
@@ -204,8 +206,5 @@ fn the_open_grid_draws_on_a_test_terminal() {
         text.contains("products rows 1–2"),
         "the headline is not drawn"
     );
-    assert!(
-        text.contains("canvas tote"),
-        "the grid rows are not drawn"
-    );
+    assert!(text.contains("canvas tote"), "the grid rows are not drawn");
 }

@@ -337,9 +337,9 @@ impl ActionKind {
                     ));
                 }
                 let page = if parts.len() > 2 {
-                    parts[2].parse::<u64>().map_err(|_| {
-                        invalid("a page is a number, starting at 0")
-                    })?
+                    parts[2]
+                        .parse::<u64>()
+                        .map_err(|_| invalid("a page is a number, starting at 0"))?
                 } else {
                     0
                 };

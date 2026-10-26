@@ -293,6 +293,8 @@ reachable by a misplaced pointer.
 |---|---|---|
 | refresh | — | Reads the service again |
 | query | `query <database> <sql>` | Runs one statement; the rows appear in the last-action area |
+| tables | `tables <database>` | Lists one database's tables with row counts |
+| open table | `open <database> <table> [page]` | Pages through one table's rows, 50 per page |
 | run sql file | `run <database> <script.sql>` | Runs a SQL file as one atomic batch, statement by statement |
 | run batch file | `batch <database> <batch.json>` | Runs a JSON batch file |
 | create database | `create <name>` | Creates an empty database |
