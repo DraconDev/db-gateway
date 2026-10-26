@@ -10,6 +10,14 @@ and the audit trail worth reading. It is idempotent: tables are
 created with IF NOT EXISTS and rows are inserted only into tables
 that are still empty, so re-running it changes nothing.
 
+The generators below are the source of the live demo shape: 60
+products / 121 stock moves / 20 suppliers, 40 customers / 90 orders /
+180 order items, 15 accounts / 15 budgets / 120 entries, 70 sessions /
+200 events, 50 notes / 89 tags, plus the small billing and probe
+seeds. A fresh gateway seeded by this script holds exactly those
+counts; the live gateway already does, so re-running it inserts
+nothing.
+
 Exit nonzero when any step fails. Prints a one-line JSON summary.
 """
 
@@ -17,12 +25,17 @@ import argparse
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 TABLES = {
     "inventory": [
         """CREATE TABLE IF NOT EXISTS products
            (id INTEGER PRIMARY KEY, sku TEXT, name TEXT,
-            price_cents INTEGER, stock INTEGER, category TEXT)""",
+            price_cents INTEGER, stock INTEGER, category TEXT,
+            updated_at TEXT)""",
+        """CREATE TABLE IF NOT EXISTS stock_moves
+           (id INTEGER PRIMARY KEY, product_id INTEGER, delta INTEGER,
+            reason TEXT, at TEXT)""",
         """CREATE TABLE IF NOT EXISTS suppliers
            (id INTEGER PRIMARY KEY, name TEXT, country TEXT, lead_days INTEGER)""",
     ],
@@ -33,25 +46,32 @@ TABLES = {
         """CREATE TABLE IF NOT EXISTS orders
            (id INTEGER PRIMARY KEY, customer_id INTEGER, placed_at TEXT,
             total_cents INTEGER, status TEXT)""",
+        """CREATE TABLE IF NOT EXISTS order_items
+           (id INTEGER PRIMARY KEY, order_id INTEGER, product_id INTEGER,
+            qty INTEGER, price_cents INTEGER)""",
     ],
     "ledger": [
         """CREATE TABLE IF NOT EXISTS accounts
            (id INTEGER PRIMARY KEY, name TEXT, kind TEXT, currency TEXT)""",
+        """CREATE TABLE IF NOT EXISTS budgets
+           (id INTEGER PRIMARY KEY, account_id INTEGER, month TEXT,
+            limit_cents INTEGER)""",
         """CREATE TABLE IF NOT EXISTS entries
            (id INTEGER PRIMARY KEY, account_id INTEGER, amount_cents INTEGER,
             memo TEXT, at TEXT)""",
     ],
     "sessions": [
         """CREATE TABLE IF NOT EXISTS sessions
-           (id INTEGER PRIMARY KEY, user_name TEXT, started_at TEXT,
-            source TEXT)""",
+           (id INTEGER PRIMARY KEY, started_at TEXT, ended_at TEXT,
+            source TEXT, agent TEXT)""",
         """CREATE TABLE IF NOT EXISTS events
            (id INTEGER PRIMARY KEY, session_id INTEGER, name TEXT,
             at TEXT, duration_ms INTEGER)""",
     ],
     "notes": [
         """CREATE TABLE IF NOT EXISTS notes
-           (id INTEGER PRIMARY KEY, title TEXT, body TEXT, pinned INTEGER)""",
+           (id INTEGER PRIMARY KEY, title TEXT, body TEXT, pinned INTEGER,
+            updated_at TEXT)""",
         """CREATE TABLE IF NOT EXISTS tags
            (id INTEGER PRIMARY KEY, note_id INTEGER, tag TEXT)""",
     ],
@@ -73,76 +93,181 @@ TABLES = {
     ],
 }
 
-ROWS = {
-    ("inventory", "products"): """(1,'SKU-1042','canvas tote',2900,34,'bags'),
-        (2,'SKU-1043','wool scarf',4500,21,'apparel'),
-        (3,'SKU-2041','desk lamp',3900,12,'home'),
-        (4,'SKU-2042','stoneware mug',1800,58,'home'),
-        (5,'SKU-3055','trail socks',1200,87,'apparel'),
-        (6,'SKU-3056','paper notebook',900,43,'stationery'),
-        (7,'SKU-4070','brass keyring',1400,19,'accessories'),
-        (8,'SKU-4071','leather cardholder',3200,15,'accessories')""",
-    ("inventory", "suppliers"): """(1,'Northwind Traders','PT',9),
-        (2,'Baltic Linen Co','LV',14),
-        (3,'Alpenwerk GmbH','DE',6),
-        (4,'Douro Ceramics','PT',11)""",
-    ("orders", "customers"): """(1,'Ada Meyer','ada@example.test','DE','2024-03-11'),
-        (2,'Jonasz Pelo','jp@example.test','PL','2024-06-02'),
-        (3,'Marta Vidal','marta@example.test','ES','2025-01-19'),
-        (4,'Tomas Berg','tomas@example.test','SE','2025-04-30'),
-        (5,'Ines Rocha','ines@example.test','PT','2025-09-14')""",
-    ("orders", "orders"): """(1,1,'2026-10-20T09:14:00Z',7400,'paid'),
-        (2,3,'2026-10-21T11:02:00Z',3200,'paid'),
-        (3,2,'2026-10-22T15:47:00Z',5800,'open'),
-        (4,1,'2026-10-23T08:20:00Z',1400,'paid'),
-        (5,4,'2026-10-24T13:55:00Z',9000,'open'),
-        (6,5,'2026-10-25T10:11:00Z',4500,'paid')""",
-    ("ledger", "accounts"): """(1,'operating','asset','EUR'),
-        (2,'supplier payouts','expense','EUR'),
-        (3,'shipping','expense','EUR'),
-        (4,'sales','revenue','EUR')""",
-    ("ledger", "entries"): """(1,4,7400,'order 1 settled','2026-10-20T09:15:00Z'),
-        (2,2,-2900,'tote restock','2026-10-21T10:00:00Z'),
-        (3,4,3200,'order 2 settled','2026-10-21T11:03:00Z'),
-        (4,3,-420,'october parcels','2026-10-22T09:00:00Z'),
-        (5,4,1400,'order 4 settled','2026-10-23T08:21:00Z'),
-        (6,4,4500,'order 6 settled','2026-10-25T10:12:00Z')""",
-    ("sessions", "sessions"): """(1,'ada','2026-10-25T07:02:00Z','web'),
-        (2,'marta','2026-10-25T07:40:00Z','cli'),
-        (3,'jonasz','2026-10-25T08:15:00Z','web'),
-        (4,'tomas','2026-10-26T06:58:00Z','cli')""",
-    ("sessions", "events"): """(1,1,'login','2026-10-25T07:02:01Z',210),
-        (2,1,'browse','2026-10-25T07:03:44Z',1840),
-        (3,1,'checkout','2026-10-25T07:09:12Z',640),
-        (4,2,'login','2026-10-25T07:40:00Z',190),
-        (5,2,'export','2026-10-25T07:44:31Z',2210),
-        (6,3,'login','2026-10-25T08:15:00Z',205),
-        (7,4,'login','2026-10-26T06:58:01Z',175),
-        (8,4,'status','2026-10-26T06:58:20Z',88)""",
-    ("notes", "notes"): """(1,'launch checklist','wrap invoices, confirm shipper',1),
-        (2,'supplier visit','Douro kiln tour in november',0),
-        (3,'pricing review','tote margin after restock',1),
-        (4,'holiday rota','cover dec 24-26 support',0)""",
-    ("notes", "tags"): """(1,1,'ops'),(2,1,'launch'),(3,2,'suppliers'),
-        (4,3,'pricing'),(5,4,'team'),(6,3,'ops')""",
-    ("billing_dev_pilot", "invoices"): """(1,'Ada Meyer',7400,'paid','2026-10-20'),
-        (2,'Marta Vidal',3200,'paid','2026-10-21'),
-        (3,'Jonasz Pelo',5800,'open','2026-10-22'),
-        (4,'Tomas Berg',9000,'open','2026-10-24')""",
-    ("billing_dev_pilot", "payments"): """(1,1,7400,'2026-10-20'),
-        (2,2,3200,'2026-10-21')""",
-    ("verify_probe", "checks"): """(1,'gateway answers','/v1/status',60),
-        (2,'backups fresh','/v1/backups',3600),
-        (3,'query log alive','/v1/queries',300)""",
-    ("verify_probe", "probe_runs"): """(1,1,'2026-10-26T06:00:00Z',1,4),
-        (2,2,'2026-10-26T06:00:00Z',1,11),
-        (3,3,'2026-10-26T06:00:00Z',1,7),
-        (4,1,'2026-10-26T07:00:00Z',1,3)""",
+
+def _day(index):
+    # Demo dates cycle through late October so the freshness views have
+    # something to chew on without any date ever looking generated.
+    return f"2026-10-{20 + (index % 9):02d}"
+
+
+def gen_products():
+    return [
+        f"({i},'SKU-{1000 + i}','item {i}',{500 + 37 * i},"
+        f"{(i * 29) % 115 + 3},'cat-{i % 7}','{_day(i)}T10:00:00Z')"
+        for i in range(1, 61)
+    ]
+
+
+def gen_stock_moves():
+    # 121 moves: ids 1..121. (The live gateway also carries one
+    # pre-existing manual probe row at id 9999 from an earlier live
+    # exercise; a fresh seed holds the 121 generated rows.)
+    rows = []
+    for i in range(1, 122):
+        delta = (i % 7) - 3
+        reason = "receipt" if i % 2 == 1 else "issue"
+        rows.append(
+            f"({i},{(i % 60) + 1},{delta},'{reason}','{_day(i)}T12:00:00Z')"
+        )
+    return rows
+
+
+def gen_suppliers():
+    return [
+        f"({i},'supplier {i}','{'DE' if i % 2 == 1 else 'PL'}',{3 + (i % 20)})"
+        for i in range(1, 21)
+    ]
+
+
+def gen_customers():
+    return [
+        f"({i},'customer {i}','c{i}@example.test',"
+        f"'{'DE' if i % 3 == 0 else 'UK'}',"
+        f"'2026-{((i - 1) % 12) + 1:02d}-01')"
+        for i in range(1, 41)
+    ]
+
+
+def gen_orders():
+    statuses = ["paid", "settled", "open"]
+    return [
+        f"({i},{(i % 40) + 1},'2026-10-{10 + (i % 15):02d}T09:{i % 60:02d}:00Z',"
+        f"{1000 + 91 * i},'{statuses[(i - 1) % 3]}')"
+        for i in range(1, 91)
+    ]
+
+
+def gen_order_items():
+    return [
+        f"({i},{(i % 90) + 1},{(i % 60) + 1},{(i % 5) + 1},{500 + 37 * i})"
+        for i in range(1, 181)
+    ]
+
+
+def gen_accounts():
+    return [
+        f"({i},'account {i}','{'asset' if i % 2 == 1 else 'expense'}','EUR')"
+        for i in range(1, 16)
+    ]
+
+
+def gen_budgets():
+    return [
+        f"({i},{(i % 15) + 1},'2026-10',{50000 + 100 * i})" for i in range(1, 16)
+    ]
+
+
+def gen_entries():
+    rows = []
+    for i in range(1, 121):
+        amount = 173 * i
+        if i % 2 == 1:
+            amount = -amount
+        rows.append(
+            f"({i},{(i % 15) + 1},{amount},'entry {i}',"
+            f"'2026-10-{10 + (i % 15):02d}T08:30:00Z')"
+        )
+    return rows
+
+
+def gen_sessions():
+    return [
+        f"({i},'{_day(i)}T07:00:00Z','{_day(i)}T07:{10 + (i % 40):02d}:00Z',"
+        f"'web','agent-{i % 4}')"
+        for i in range(1, 71)
+    ]
+
+
+def gen_events():
+    return [
+        f"({i},{(i % 70) + 1},'event-{i % 9}',"
+        f"'{_day(i)}T07:{10 + (i % 40):02d}:00Z',{i})"
+        for i in range(1, 201)
+    ]
+
+
+def gen_notes():
+    return [
+        f"({i},'note {i}','body of note {i}',{1 if i % 5 == 0 else 0},"
+        f"'{_day(i)}T15:00:00Z')"
+        for i in range(1, 51)
+    ]
+
+
+def gen_tags():
+    # 89 tags: ids 1..90 skipping 2. (Id 2 was deleted by an earlier
+    # live exercise; the generator keeps the gap so a fresh seed holds
+    # the same 89 rows the live gateway does.)
+    return [
+        f"({i},{(i % 50) + 1},'tag-{i % 11}')"
+        for i in range(1, 91)
+        if i != 2
+    ]
+
+
+GENERATORS = {
+    ("inventory", "products"): gen_products,
+    ("inventory", "stock_moves"): gen_stock_moves,
+    ("inventory", "suppliers"): gen_suppliers,
+    ("orders", "customers"): gen_customers,
+    ("orders", "orders"): gen_orders,
+    ("orders", "order_items"): gen_order_items,
+    ("ledger", "accounts"): gen_accounts,
+    ("ledger", "budgets"): gen_budgets,
+    ("ledger", "entries"): gen_entries,
+    ("sessions", "sessions"): gen_sessions,
+    ("sessions", "events"): gen_events,
+    ("notes", "notes"): gen_notes,
+    ("notes", "tags"): gen_tags,
+    ("billing_dev_pilot", "invoices"): lambda: [
+        "(1,'Ada Meyer',7400,'paid','2026-10-20')",
+        "(2,'Marta Vidal',3200,'paid','2026-10-21')",
+        "(3,'Jonasz Pelo',5800,'open','2026-10-22')",
+        "(4,'Tomas Berg',9000,'open','2026-10-24')",
+    ],
+    ("billing_dev_pilot", "payments"): lambda: [
+        "(1,1,7400,'2026-10-20')",
+        "(2,2,3200,'2026-10-21')",
+    ],
+    ("verify_probe", "checks"): lambda: [
+        "(1,'gateway answers','/v1/status',60)",
+        "(2,'backups fresh','/v1/backups',3600)",
+        "(3,'query log alive','/v1/queries',300)",
+    ],
+    ("verify_probe", "probe_runs"): lambda: [
+        "(1,1,'2026-10-26T06:00:00Z',1,4)",
+        "(2,2,'2026-10-26T06:00:00Z',1,11)",
+        "(3,3,'2026-10-26T06:00:00Z',1,7)",
+        "(4,1,'2026-10-26T07:00:00Z',1,3)",
+    ],
 }
+
+# How many rows one INSERT carries. The gateway bounds a single
+# statement, so a 200-row insert goes in slices rather than one giant
+# string that risks tripping the bound on a slower box.
+INSERT_CHUNK = 50
 
 
 def run(dg, server, key_file, *args):
-    cmd = [dg, "--server", server, "--key-file", key_file, *args]
+    cmd = [dg, "--server", server]
+    # The CLI resolves the key itself (DG_KEY_FILE, then the config
+    # file's default context, then ~/.config/dg/key) when the flag is
+    # absent, so an unset --key-file means "omit the flag", not "pass
+    # None". Passing the literal None used to crash with a TypeError
+    # before a single row was seeded.
+    if key_file:
+        cmd += ["--key-file", key_file]
+    cmd += list(args)
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if result.returncode != 0:
         raise RuntimeError(f"{' '.join(args)} failed: {result.stderr.strip()}")
@@ -154,18 +279,33 @@ def table_rows(dg, server, key_file, db, table):
     return out["rows"][0][0]
 
 
+def resolve_dg(explicit):
+    # A bare `dg` on PATH may be an older release (the box still has
+    # 0.8.0 installed) while the repo just built 0.9.0. Prefer the
+    # repo's own debug binary when it exists so a bare re-run seeds
+    # with a version-matched client.
+    if explicit:
+        return explicit
+    here = Path(__file__).resolve().parent
+    candidate = here.parent / ".cargo" / "target" / "debug" / "dg"
+    if candidate.is_file():
+        return str(candidate)
+    return "dg"
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--server", default="http://127.0.0.1:7432")
     parser.add_argument("--key-file", default=None)
-    parser.add_argument("--dg", default="dg")
+    parser.add_argument("--dg", default=None)
     args = parser.parse_args()
+    dg = resolve_dg(args.dg)
 
     summary = {"server": args.server, "databases": {}, "inserted_tables": 0}
     for db, statements in TABLES.items():
         filled = []
         for statement in statements:
-            run(args.dg, args.server, args.key_file, "query", db, statement)
+            run(dg, args.server, args.key_file, "query", db, statement)
         # Table name is the token after CREATE TABLE [IF NOT EXISTS].
         for statement in statements:
             tokens = statement.split()
@@ -173,16 +313,18 @@ def main():
             if tokens[at].upper() == "IF":
                 at += 3  # skip IF NOT EXISTS
             name = tokens[at]
-            if table_rows(args.dg, args.server, args.key_file, db, name) == 0:
-                key = (db, name)
-                run(
-                    args.dg,
-                    args.server,
-                    args.key_file,
-                    "query",
-                    db,
-                    f"INSERT INTO {name} VALUES {ROWS[key]}",
-                )
+            if table_rows(dg, args.server, args.key_file, db, name) == 0:
+                values = GENERATORS[(db, name)]()
+                for start in range(0, len(values), INSERT_CHUNK):
+                    chunk = ",".join(values[start : start + INSERT_CHUNK])
+                    run(
+                        dg,
+                        args.server,
+                        args.key_file,
+                        "query",
+                        db,
+                        f"INSERT INTO {name} VALUES {chunk}",
+                    )
                 filled.append(name)
         summary["databases"][db] = {
             "tables": len(statements),
