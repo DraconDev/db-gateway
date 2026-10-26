@@ -636,3 +636,10 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
      Running tests/import_export_torture.rs (.cargo/target/debug/deps/import_export_torture-21a17dd02c9588d7)
 
 running 1 test
+test twenty_export_import_cycles_with_corruption ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.74s
+
+     Running tests/key_chaos.rs (.cargo/target/debug/deps/key_chaos-48fcb2a62f80aa74)
+
+running 1 test
