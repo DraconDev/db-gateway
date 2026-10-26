@@ -113,5 +113,6 @@ fn repro_short() {
         let missing = t.contains("missing: other");
         println!("H={h} other_row={other_row} missing={missing}");
         if missing && !other_row { println!("CONTRADICTION at H={h}"); }
+        if h==21 { println!("---SCREEN H=21---\n{t}\n---END---"); }
     }
 }
