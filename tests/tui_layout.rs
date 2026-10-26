@@ -881,23 +881,40 @@ fn a_long_per_database_table_does_not_hide_where_the_copy_is() {
 /// while its state was clipped off the bottom -- the operator was told a
 /// fact about a database they could not see.
 ///
-/// The promise is about the table, so it is checked at more than one
-/// height. A rule that only holds at forty rows is a rule about that
-/// screen, not about the tab.
+/// The promise is about the table, so it is swept across heights rather
+/// than checked at one or two of them. A rule that only holds at forty
+/// rows is a rule about that screen, not about the tab. Two things are
+/// checked at every height: both rows are on screen with their states,
+/// and -- the shape the original defect took -- the coverage block never
+/// names a database whose row is clipped. The sweep starts at eighteen
+/// rows: below that the tab cannot show a whole table, the minimum log,
+/// and a readable fields window at once, and no allocation rule can make
+/// it do so.
 #[test]
 fn the_freshness_table_keeps_every_database_row_at_any_height() {
-    for (width, height) in [(120u16, 40u16), (160, 30), (191, 50)] {
+    for height in 18u16..=55 {
         let mut app = app();
         open_tab(&mut app, '3');
-        let text = screen(&mut app, width, height);
+        let text = screen(&mut app, 120, height);
         for (database, state) in [("demo", "fresh"), ("other", "stale")] {
             assert!(
                 text.lines()
                     .any(|line| line.contains(database) && line.contains(state)),
-                "at {width}x{height} the freshness table does not show {database:?} as \
+                "at 120x{height} the freshness table does not show {database:?} as \
                  {state:?}:\n{text}"
             );
         }
+        // The contradiction, stated exactly: the coverage block names a
+        // database whose state the table does not show.
+        let missing_names_other = text.contains("missing: other");
+        let other_row_shown = text
+            .lines()
+            .any(|line| line.contains("other") && line.contains("stale"));
+        assert!(
+            !missing_names_other || other_row_shown,
+            "at 120x{height} the coverage block says 'missing: other' while other's \
+             stale row is clipped:\n{text}"
+        );
     }
 }
 
