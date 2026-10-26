@@ -167,30 +167,24 @@ different claims:
   a promise, so the last restore is shown beside it.
 
 The two tables below them are the per-database freshness and the published
-sets. Every pane is promised a readable minimum: the field list keeps its
-frame plus four field lines, the freshness table keeps a header and one
-row, and the set list keeps its minimum. The room left over finishes
-whichever unfinished pane is closest to whole: a two-row table is one row
-from whole, so on a short terminal it is made whole and the field list
-scrolls. The set list, which is a log of what has been published, takes
-the space that is left and scrolls, and the field list scrolls when the
-terminal is short.
+sets. The freshness table is reserved its full row count first -- one row
+per database, plus its frame -- the published-sets table keeps its minimum
+promise of a header and one row, and the field list takes the remainder
+and scrolls. A table that has nothing but its header is a table with no
+answer in it, so on a terminal too short for even that, the table is
+capped by the room left after the published-sets minimum and keeps its
+header and as many rows as fit. The set list, which is a log of what has
+been published, takes the space that is left and scrolls.
 
-There is one case where the small table wins instead. The table carries a
-row per database, and the coverage block above it can name one of them as
-missing: when a small table is clipped while the summary names its missing
-row, the operator is told a fact about a database they cannot see. The
-closest-to-whole rule already covers that case -- finishing one clipped
-row costs less than finishing a long field list -- and it covers the
-unlisted case too: a stale row the summary never names is still an answer,
-and it is made whole the same way. A deployment with thirty databases
-stays the other way round -- finishing that table costs dozens of rows,
-so the summary is finished first and the long list scrolls, because making
-it whole would push the facts about the copy off the screen, and the
-operator would be told where the copy is and when it was last synced by a
-line they cannot see. Nothing is lost either way: what does not
-fit is a keystroke away, and the scroll never runs past the end of what the
-tab holds.
+There is one case where the summary wins instead, and it is a matter of
+room, not importance. The table carries a row per database, so a
+deployment with thirty databases wants more rows than the terminal has:
+reserving all thirty would push the facts about the copy -- where it is,
+whether it was ever restored -- off the screen, and the operator would be
+told where the copy is by a line they cannot see. The field list still
+takes the remainder and scrolls, and everything it holds is a keystroke
+away: the arrow keys reach every fact, and the scroll never runs past the
+end of what the tab holds.
 
 The number at the top of the tab is the **freshness objective**, not an age
 limit. Freshness is decided by whether a committed change is covered by a
