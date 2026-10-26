@@ -872,6 +872,35 @@ fn a_long_per_database_table_does_not_hide_where_the_copy_is() {
     }
 }
 
+/// The freshness table keeps every database's row, whatever the height.
+///
+/// docs/tui.md promises that the table keeps its rows whatever else is on
+/// screen, and the promise was broken by the "snapshot cadence" field: the
+/// fields took their room first, so on a short terminal the table lost a
+/// row and a database could be named as missing in the coverage block
+/// while its state was clipped off the bottom -- the operator was told a
+/// fact about a database they could not see.
+///
+/// The promise is about the table, so it is checked at more than one
+/// height. A rule that only holds at forty rows is a rule about that
+/// screen, not about the tab.
+#[test]
+fn the_freshness_table_keeps_every_database_row_at_any_height() {
+    for (width, height) in [(120u16, 40u16), (160, 30), (191, 50)] {
+        let mut app = app();
+        open_tab(&mut app, '3');
+        let text = screen(&mut app, width, height);
+        for (database, state) in [("demo", "fresh"), ("other", "stale")] {
+            assert!(
+                text.lines()
+                    .any(|line| line.contains(database) && line.contains(state)),
+                "at {width}x{height} the freshness table does not show {database:?} as \
+                 {state:?}:\n{text}"
+            );
+        }
+    }
+}
+
 #[test]
 fn the_backups_tab_says_whether_the_copies_are_any_good() {
     // Four questions an operator asks before they trust the copies: did
