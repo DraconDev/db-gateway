@@ -638,7 +638,7 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App) {
     // unfinished pane is closest to whole. On a tie the table wins: a
     // clipped row can contradict the summary, while a clipped field line
     // only defers a fact that scrolling reaches.
-    let (mut fields_height, mut per_database_height) = {
+    let (fields_height, per_database_height) = {
         let fields_base = fields_wanted.min(fields_floor);
         let table_base = if tables.is_empty() {
             0
