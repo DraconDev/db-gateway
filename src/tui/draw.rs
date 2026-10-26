@@ -20,6 +20,7 @@ use crate::{
     tui::{App, Focus, Mode, Outcome},
     views,
 };
+use serde_json::Value;
 use std::time::{Duration, Instant};
 
 /// Where the tab strip and the tab bodies landed on the last frame.
@@ -667,7 +668,7 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App) {
     // the screen, which is the failure the 0.7.0 release fixed.
     if !tables.is_empty() && per_database_height < per_database_full {
         let visible_rows = per_database_height.saturating_sub(3) as usize;
-        let mut names: Vec<&str> = backups["per_database"]
+        let names: Vec<&str> = backups["per_database"]
             .as_object()
             .map(|map| {
                 let mut keys: Vec<&str> = map.keys().map(String::as_str).collect();
@@ -675,15 +676,12 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App) {
                 keys
             })
             .unwrap_or_default();
-        let _ = &mut names;
         let missing: Vec<&str> = backups["coverage"]["missing"]
             .as_array()
             .map(|list| list.iter().filter_map(Value::as_str).collect())
             .unwrap_or_default();
         let names_beyond: Vec<&str> = names.iter().skip(visible_rows).copied().collect();
-        let contradiction = missing
-            .iter()
-            .any(|name| names_beyond.contains(name));
+        let contradiction = missing.iter().any(|name| names_beyond.contains(name));
         let small_enough = per_database_full <= area.height / 2;
         let repaired_fields = area
             .height
