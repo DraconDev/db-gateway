@@ -258,6 +258,19 @@ GENERATORS = {
 INSERT_CHUNK = 50
 
 
+def ensure_db(dg, server, key_file, db):
+    # A fresh gateway holds no databases; the live one already holds
+    # all seven. Creating unconditionally and ignoring the
+    # already-exists refusal keeps both paths identical.
+    cmd = [dg, "--server", server]
+    if key_file:
+        cmd += ["--key-file", key_file]
+    cmd += ["create", db]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    if result.returncode != 0 and "database_exists" not in result.stderr:
+        raise RuntimeError(f"create {db} failed: {result.stderr.strip()}")
+
+
 def run(dg, server, key_file, *args):
     cmd = [dg, "--server", server]
     # The CLI resolves the key itself (DG_KEY_FILE, then the config
@@ -302,6 +315,8 @@ def main():
     dg = resolve_dg(args.dg)
 
     summary = {"server": args.server, "databases": {}, "inserted_tables": 0}
+    for db in TABLES:
+        ensure_db(dg, args.server, args.key_file, db)
     for db, statements in TABLES.items():
         filled = []
         for statement in statements:
