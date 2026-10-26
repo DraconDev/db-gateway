@@ -726,3 +726,4 @@ test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
      Running tests/many_databases.rs (.cargo/target/debug/deps/many_databases-cf382abc347e9ef5)
 
 running 2 tests
+test three_hundred_databases_persist_across_restart ... ok
