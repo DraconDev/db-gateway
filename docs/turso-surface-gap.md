@@ -240,13 +240,15 @@ Available Commands:
 
 Top level (`turso --help`) adds `group` (database groups — mapped
 below), `dev`, `config`, and `quickstart`, plus account-management
-verbs that are out of scope (see the final section). The audit surface
-lives under `turso org`: `turso org audit-logs list [--limit N]
-[--page N] [--verbose]` ("List organization audit logs"). The matching
-web surface is the Audit Logs page: columns Author/Event/Origin/
+verbs that are out of scope (see the final section). The in-scope
+audit surface is the web Audit Logs page: columns Author/Event/Origin/
 Timestamp, 23 items on 2026-10-26, all `Created Database Token` by
 `dracondev` via `dashboard` (2) or `cli` (21) — full text in
-`docs/evidence/turso-audit-logs-2026-10-26.txt`. `group` manages
+`docs/evidence/turso-audit-logs-2026-10-26.txt`. (The CLI exposes the
+same logs as `turso org audit-logs list [--limit N] [--page N]
+[--verbose]`; that verb lives under the excluded `turso org` namespace
+— see the final section — so the §6 row below is anchored on the web
+page, not the CLI verb.) `group` manages
 (`create/destroy/list/locations/…`); `replicate` usage is
 `turso db replicate <database-name> <location-code>`; `tokens` manages
 `create` (bearer token) and `invalidate` (rotate signing keys).
@@ -267,7 +269,7 @@ Timestamp, 23 items on 2026-10-26, all `Created Database Token` by
 | `db locations`, `turso group …`, `db replicate` | No `dg` equivalent | NOT APPLICABLE: single-host architecture, documented non-goal (`docs/architecture.md`). Turso-side evidence: `locations List available database locations`, `turso db replicate <database-name> <location-code>`, `turso group [create/destroy/list/locations/…]` |
 | `db config`, `db update`, `db unarchive` | `dg config list` → `{"config_path":"/home/dracon/.config/dg/config.toml","contexts":[],"default":null}` (local contexts exist) | PARTIAL/N/A: contexts cover connection config; server update and unarchive have no single-host meaning |
 | Account-management verbs | None | OUT OF SCOPE — named in the final section |
-| Turso web Audit Logs + `turso org audit-logs list` | `dg audit` → `{"entries":[{"action":"create","at":1793019443,"database":"shop","principal":"owner","role":"owner"},{"action":"query","database":"shop","detail":"CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT)","principal":"owner"},{"action":"query","database":"shop","detail":"INSERT INTO products VALUES (?, ?)","principal":"owner"},{"action":"query","database":"shop","detail":"SELECT * FROM products","principal":"owner"}]}` (trimmed; observed 2026-10-26) | PARTIAL: who ran what and when, with statement shapes and no values — covers Author/Event/Timestamp, but `dg audit` entries carry no Origin: Turso distinguishes `dashboard` from `cli` (evidence file: 2 dashboard + 21 cli entries) while every `dg` entry differs only by principal/role |
+| Turso web Audit Logs page (CLI equivalent lives under the excluded `turso org` namespace) | `dg audit` → `{"entries":[{"action":"create","at":1793019443,"database":"shop","principal":"owner","role":"owner"},{"action":"query","database":"shop","detail":"CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT)","principal":"owner"},{"action":"query","database":"shop","detail":"INSERT INTO products VALUES (?, ?)","principal":"owner"},{"action":"query","database":"shop","detail":"SELECT * FROM products","principal":"owner"}]}` (trimmed; observed 2026-10-26) | PARTIAL: who ran what and when, with statement shapes and no values — covers Author/Event/Timestamp, but `dg audit` entries carry no Origin: Turso distinguishes `dashboard` from `cli` (evidence file: 2 dashboard + 21 cli entries) while every `dg` entry differs only by principal/role |
 
 ## 7. `dg inspect`: the terminal-only rich view
 
@@ -328,8 +330,8 @@ Sharpest scriptability gap found.
 ## Out of scope, untouched
 
 Billing, plans, organisations, invoices, subscriptions, and auth tokens
-for third parties. Excluded CLI verbs: `turso auth`, `turso org`, and
-`turso plan` with all their subcommands. Concretely observed but excluded: the Analytics
+for third parties. Excluded CLI verbs: `turso auth`, `turso org` (including
+`turso org audit-logs list`), and `turso plan` with all their subcommands. Concretely observed but excluded: the Analytics
 page's `Next Invoice $5.99` card with its `View Invoice` action, the
 `Quota Critical 99% used … See plans` banners, the `Vegas Blackout:
 Usage was erased on October 11th` notice, and the sidebar's
