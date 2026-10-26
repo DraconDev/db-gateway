@@ -46,10 +46,7 @@ fixes; 1.0.0 waits for production acceptance.
   `dg-backup-digest.service` pass it, so the gateway and the digest
   judge the same change by the same number and cannot disagree.
 
-- **The rule is written down.** `docs/tui.md` states both halves of the
-  backups-tab layout rule -- the fields keep their room and the table
-  scrolls, except that a small table clipped while the summary names its
-  missing row is made whole instead -- and the tab's own table entry
+- **The rule is written down.** `docs/tui.md` states the backups-tab layout rule -- every pane keeps a readable minimum and the surplus finishes whichever unfinished pane is closest to whole, so a small table is made whole on a short terminal and a thirty-row table stays a scrolling list -- and the tab's own table entry
   names the snapshot cadence. `docs/api.md` documents `cadence_secs`,
   `lag_secs` and the `behind` state, `docs/observability-contract.md`
   gained section 2a with the three-state vocabulary, and
@@ -63,13 +60,13 @@ fixes; 1.0.0 waits for production acceptance.
   so on a short terminal the table lost a row: a database could be named
   as missing in the coverage block while its state was clipped off the
   bottom, and the operator was told a fact about a database they could
-  not see. The fields keep their room and the table takes what is left,
-  scrolling when there is more of it than fits -- except for the exact
-  contradiction above: when a small table is clipped while the summary
-  names its missing row, the small table is made whole and the fields
-  scroll instead. A thirty-row table stays a scrolling list, because
-  making it whole would push "where the copy is" off the screen, which
-  is the other half of the same defect.
+  not see. Every pane is now promised a readable minimum, and the room
+  left over finishes whichever unfinished pane is closest to whole: a
+  two-row table is one row from whole, so on a short terminal it is made
+  whole and the field list scrolls. A thirty-row table is dozens of rows
+  from whole, so the summary is finished first and the long list scrolls,
+  because making it whole would push "where the copy is" off the screen,
+  which is the other half of the same defect.
 
 ## [0.8.0] — 2026-10-25
 
