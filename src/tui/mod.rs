@@ -236,6 +236,14 @@ pub struct App {
     pub highlighted: usize,
     /// The line the operator is typing.
     pub input: String,
+    /// Arguments already typed for the next prompt.
+    ///
+    /// The databases tab's Enter doorway fills this with the database
+    /// under the scroll, so choosing the action drops the operator
+    /// into its prompt with the database already typed. Typing in the
+    /// palette clears it: a filter the operator changed no longer
+    /// promises the action the doorway meant.
+    pub prompt_prefill: String,
     /// The last action's outcome.
     pub outcome: Option<Outcome>,
     /// Which tab has the keyboard.
@@ -270,6 +278,7 @@ impl App {
             filter: String::new(),
             highlighted: 0,
             input: String::new(),
+            prompt_prefill: String::new(),
             outcome: None,
             focus: Focus::Databases,
             scroll: Scroll::default(),
@@ -383,19 +392,23 @@ impl App {
                 self.highlighted = 0;
             }
             // The row grid is one keystroke from the databases tab:
-            // Enter opens the palette already filtered to `open <db>`,
-            // with the database under the scroll prefilled, so the
-            // operator types only the table (and optionally the page).
-            // The grid itself stays palette-driven -- this is the
-            // tab's doorway to it, not a second grid.
+            // Enter opens the palette on the open-table action, with
+            // the database under the scroll already typed into the
+            // action's prompt. The filter names the action so the
+            // palette lists it first and selectable; choosing it
+            // drops into the prompt with the database prefilled, so
+            // the operator types only the table (and optionally the
+            // page). Typing anything else clears the prefill first.
             KeyCode::Enter => {
                 if self.focus == Focus::Databases {
                     let names = self.database_names();
-                    let index = (self.scroll.databases as usize).min(names.len().saturating_sub(1));
-                    self.filter = match names.get(index) {
-                        Some(name) => format!("open {name} "),
-                        None => "open ".to_string(),
+                    let index = (self.scroll.databases as usize)
+                        .min(names.len().saturating_sub(1));
+                    self.prompt_prefill = match names.get(index) {
+                        Some(name) => format!("{name} "),
+                        None => String::new(),
                     };
+                    self.filter = "open table".to_string();
                     self.mode = Mode::Palette;
                     self.highlighted = 0;
                 }
@@ -436,6 +449,7 @@ impl App {
             KeyCode::Esc => {
                 self.mode = Mode::Normal;
                 self.filter.clear();
+                self.prompt_prefill.clear();
             }
             KeyCode::Up => self.highlighted = self.highlighted.saturating_sub(1),
             KeyCode::Down => {
@@ -446,10 +460,12 @@ impl App {
             KeyCode::Backspace => {
                 self.filter.pop();
                 self.highlighted = 0;
+                self.prompt_prefill.clear();
             }
             KeyCode::Char(character) => {
                 self.filter.push(character);
                 self.highlighted = 0;
+                self.prompt_prefill.clear();
             }
             KeyCode::Enter => self.choose(),
             _ => {}
@@ -478,10 +494,12 @@ impl App {
         };
         if action.arguments {
             self.mode = Mode::Prompt { kind: action.kind };
-            self.input.clear();
+            self.input = std::mem::take(&mut self.prompt_prefill);
+            self.filter.clear();
             return;
         }
         if action.confirmation {
+            self.prompt_prefill.clear();
             // An action whose confirmation is its whole input: the
             // owner key has no arguments, only a word.
             let Ok(invocation) = action.kind.parse("") else {
@@ -495,6 +513,8 @@ impl App {
             return;
         }
         self.mode = Mode::Normal;
+        self.filter.clear();
+        self.prompt_prefill.clear();
         match action.kind {
             ActionKind::Quit => self.quit = true,
             ActionKind::Refresh => self.pending = Some(Invocation::Refresh),
