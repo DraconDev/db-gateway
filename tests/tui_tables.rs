@@ -223,8 +223,8 @@ fn enter_on_the_databases_tab_prefills_the_open_action() {
     // The test proves the doorway end to end: the action is
     // selectable from the palette, and choosing it prompts with
     // the database prefilled and parses to the expected invocation.
-    use dg::tui::{App, Mode};
     use dg::tui::actions::{ActionKind, Invocation};
+    use dg::tui::{App, Mode};
 
     let mut app = App::new("http://127.0.0.1:1".to_string(), "0".repeat(64));
     app.list = Some(json!({"databases": ["orders", "inventory"]}));
@@ -269,22 +269,28 @@ fn enter_on_the_databases_tab_prefills_the_open_action() {
 fn a_full_page_of_rows_is_all_drawn() {
     // The grid fetches one page per request, and the last-action
     // pane draws every row of that page: a page whose rows did not
-    // fit the pane used to silently drop them. Twelve rows stand in
-    // for a full page of ten plus overflow: all twelve must reach
-    // the grid, so none of a page is unreachable.
+    // fit the pane used to silently drop them (fifty fetched, ten
+    // drawn). The row count comes from the page SQL itself, so the
+    // test fails if the fetch ever outgrows what the pane draws:
+    // build a full page, then read every one of its rows back
+    // from a drawn terminal.
     use dg::tui::App;
+    use dg::tui::actions::TABLE_PAGE_SIZE;
     use ratatui::{Terminal, backend::TestBackend};
 
-    let columns = vec!["id", "name"];
+    let count = TABLE_PAGE_SIZE as usize;
+    assert!(count > 0, "a page holds no rows");
     let response = json!({
-        "columns": columns,
-        "rows": (1..=12).map(|i| json!([i, format!("item {i}")])).collect::<Vec<_>>(),
+        "columns": ["id", "name"],
+        "rows": (1..=count)
+            .map(|i| json!([i, format!("item {i}")]))
+            .collect::<Vec<_>>(),
         "rows_affected": 0,
     });
     let outcome = open_table_outcome("demo", "products", 0, &response);
-    assert_eq!(outcome.headline, "products rows 1–12");
+    assert_eq!(outcome.headline, format!("products rows 1–{count}"));
     let grid = outcome.table.expect("the outcome holds the grid");
-    assert_eq!(grid.len(), 12, "the grid dropped rows of its own page");
+    assert_eq!(grid.len(), count, "the grid dropped rows of its own page");
     let mut app = App::new("http://127.0.0.1:1".to_string(), "0".repeat(64));
     app.outcome = Some(outcome);
     let backend = TestBackend::new(60, 25);
@@ -305,10 +311,30 @@ fn a_full_page_of_rows_is_all_drawn() {
         }
         text.push('\n');
     }
-    for index in [1, 10, 12] {
+    for index in [1, count / 2, count] {
         assert!(
             text.contains(&format!("item {index}")),
             "row {index} of the page is not drawn"
         );
     }
+}
+
+#[test]
+fn an_overflowing_answer_still_reaches_the_grid() {
+    // Twelve rows are more than one page: the outcome still holds
+    // every row it was given, with the headline naming the whole
+    // slice, so a bigger answer is never silently cut to the page
+    // before the grid sees it. Paging itself stays at the page
+    // size; this pins the builder, the page test pins the drawing.
+    let response = json!({
+        "columns": ["id", "name"],
+        "rows": (1..=12)
+            .map(|i| json!([i, format!("item {i}")]))
+            .collect::<Vec<_>>(),
+        "rows_affected": 0,
+    });
+    let outcome = open_table_outcome("demo", "products", 0, &response);
+    assert_eq!(outcome.headline, "products rows 1–12");
+    let grid = outcome.table.expect("the outcome holds the grid");
+    assert_eq!(grid.len(), 12, "the outcome cut the answer");
 }

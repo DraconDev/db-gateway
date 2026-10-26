@@ -402,8 +402,7 @@ impl App {
             KeyCode::Enter => {
                 if self.focus == Focus::Databases {
                     let names = self.database_names();
-                    let index = (self.scroll.databases as usize)
-                        .min(names.len().saturating_sub(1));
+                    let index = (self.scroll.databases as usize).min(names.len().saturating_sub(1));
                     self.prompt_prefill = match names.get(index) {
                         Some(name) => format!("{name} "),
                         None => String::new(),
