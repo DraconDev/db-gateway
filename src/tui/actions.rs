@@ -241,9 +241,12 @@ pub enum Invocation {
 
 /// How many rows one page of an opened table holds.
 ///
-/// Fifty is the web console's page as well, so an operator paging
-/// here sees the same rows-per-page they would see there.
-pub const TABLE_PAGE_SIZE: u64 = 50;
+/// Ten is what the last-action pane draws (see `OUTCOME_ROWS` in the
+/// draw layer), so a page is exactly what fits on screen: every row
+/// the gateway returns for the page is drawn, and the next page holds
+/// the next rows. A bigger page would fetch rows the pane could not
+/// show, leaving most of each page unreachable.
+pub const TABLE_PAGE_SIZE: u64 = 10;
 
 /// Whether a table name is safe to put into a statement.
 ///
