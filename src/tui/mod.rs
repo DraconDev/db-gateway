@@ -382,6 +382,25 @@ impl App {
                 self.filter.clear();
                 self.highlighted = 0;
             }
+            // The row grid is one keystroke from the databases tab:
+            // Enter opens the palette already filtered to `open <db>`,
+            // with the database under the scroll prefilled, so the
+            // operator types only the table (and optionally the page).
+            // The grid itself stays palette-driven -- this is the
+            // tab's doorway to it, not a second grid.
+            KeyCode::Enter => {
+                if self.focus == Focus::Databases {
+                    let names = self.database_names();
+                    let index = (self.scroll.databases as usize)
+                        .min(names.len().saturating_sub(1));
+                    self.filter = match names.get(index) {
+                        Some(name) => format!("open {name} "),
+                        None => "open ".to_string(),
+                    };
+                    self.mode = Mode::Palette;
+                    self.highlighted = 0;
+                }
+            }
             KeyCode::Tab => self.focus = self.focus.next(),
             KeyCode::BackTab => self.focus = self.focus.previous(),
             // The tab strip prints these numbers, so they have to work.
@@ -752,6 +771,25 @@ impl App {
         let list = self.list.as_ref()?;
         let status = self.status.clone().unwrap_or(Value::Null);
         Some(views::databases(list, &status))
+    }
+
+    /// The sorted database names the databases tab shows.
+    ///
+    /// The tab's Enter doorway prefills the palette from this list,
+    /// so the doorway and the tab read the same names in the same
+    /// order: the scrolled-to row and the prefilled name cannot
+    /// disagree about which database is which.
+    pub fn database_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .list
+            .as_ref()
+            .and_then(|list| list["databases"].as_array().cloned())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|name| name.as_str().map(str::to_string))
+            .collect();
+        names.sort();
+        names
     }
 
     /// The credential list.
