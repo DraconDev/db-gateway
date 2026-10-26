@@ -598,30 +598,71 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App) {
     }
     // The fields answer the questions that have no other home: where the
     // off-host copy is, when it last ran, whether it was ever restored.
-    // The tables are lists, and a list can scroll. So the fields keep
-    // their room FIRST and the tables take what is left. The other way
-    // round, a long per-database list pushed the facts about the copy
-    // off the screen and left the operator scrolling to find them.
+    // The tables are lists, and a list can scroll -- but the per-database
+    // freshness table is not a list of that kind. It is this tab's
+    // answer, one row per database, and docs/tui.md promises that it
+    // keeps its rows whatever else is on screen.
+    //
+    // That promise was broken by the "snapshot cadence" field. The
+    // fields took their room first, so on a short terminal the freshness
+    // table lost a row: a database could be named as missing in the
+    // coverage block while its state was clipped off the bottom, and the
+    // operator was told a fact about a database they could not see.
+    //
+    // So the freshness table is made whole first and the fields take
+    // what is left, scrolling when there is more of them than that. The
+    // one exception is a table too big to be whole: with a row per
+    // database, thirty databases want more room than any terminal has.
+    // Making it whole then would push the facts about the copy off the
+    // screen, which is the failure the 0.7.0 release fixed and its test
+    // still protects. So when the table cannot be whole without
+    // squeezing the fields below a readable window, the fields keep
+    // their room and the table is the one that scrolls.
     //
     // A table that has nothing but its header is a table with no answer
     // in it, so each table is promised room for a header and one row
     // before the fields are given anything.
     let min_table = 4u16;
-    let fields_height =
-        (lines.len() as u16 + 2).min(area.height.saturating_sub(min_table * tables.len() as u16));
-    let remaining = area.height.saturating_sub(fields_height);
-    // The per-database table is the one that grows with the deployment:
-    // it has a row per database. It takes what is left after the log
-    // table has its promise, and it scrolls when there is more of it than
-    // fits.
-    let per_database_height = tables
+    // The window the fields keep when the table cannot be whole: enough
+    // for the root facts, the last run, and the headings above them.
+    let min_fields = 12u16;
+    // Every row the freshness table has, plus the frame around it.
+    let per_database_full = tables
         .first()
-        .map(|(_, table)| {
-            (table.rows().len() as u16 + 3)
-                .min(remaining.saturating_sub(min_table))
-                .max(min_table)
-        })
+        .map(|(_, table)| table.rows().len() as u16 + 3)
         .unwrap_or(0);
+    // The tables other than the freshness one get their minimum promise.
+    let other_tables_min = min_table * tables.len().saturating_sub(1) as u16;
+    // The room the fields need to show what they carry.
+    let fields_wanted = lines.len() as u16 + 2;
+    // The room left over if the freshness table were made whole.
+    let fields_if_whole_table = area
+        .height
+        .saturating_sub(other_tables_min)
+        .saturating_sub(per_database_full);
+    let fields_height = if fields_if_whole_table >= min_fields {
+        // The table can be whole and the fields can still be read.
+        fields_if_whole_table.min(fields_wanted)
+    } else {
+        // The table is too big to be whole. The fields keep their room
+        // and the table is the one that scrolls.
+        fields_wanted.min(
+            area.height
+                .saturating_sub(other_tables_min)
+                .saturating_sub(min_table),
+        )
+    };
+    // The freshness table takes what is left of that room, and is whole
+    // whenever it can be.
+    let per_database_height = if tables.is_empty() {
+        0
+    } else {
+        per_database_full.min(
+            area.height
+                .saturating_sub(fields_height)
+                .saturating_sub(other_tables_min),
+        )
+    };
     let mut constraints = vec![Constraint::Length(fields_height)];
     if !tables.is_empty() {
         constraints.push(Constraint::Length(per_database_height));
