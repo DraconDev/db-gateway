@@ -16,6 +16,8 @@ fn every_action_is_in_the_catalogue_once() {
     let kinds = [
         ActionKind::Refresh,
         ActionKind::Query,
+        ActionKind::Tables,
+        ActionKind::OpenTable,
         ActionKind::ExecuteFile,
         ActionKind::BatchFile,
         ActionKind::CreateDatabase,
@@ -55,10 +57,16 @@ fn the_actions_ask_the_gateway_for_what_the_api_documents() {
             "/v1/databases/demo/query",
         ),
         (
-            ActionKind::CreateDatabase,
+            ActionKind::Tables,
             "demo",
+            Method::GET,
+            "/v1/databases/demo",
+        ),
+        (
+            ActionKind::OpenTable,
+            "demo products",
             Method::POST,
-            "/v1/databases",
+            "/v1/databases/demo/query",
         ),
         (
             ActionKind::DeleteDatabase,
@@ -248,6 +256,8 @@ fn the_palette_offers_the_operations_an_operator_needs() {
     for expected in [
         "refresh",
         "query",
+        "tables",
+        "open table",
         "run sql file",
         "run batch file",
         "create database",
