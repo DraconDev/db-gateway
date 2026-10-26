@@ -727,3 +727,60 @@ test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 running 2 tests
 test three_hundred_databases_persist_across_restart ... ok
+test registry_cap_supports_hundreds ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 45.84s
+
+     Running tests/match_finalization.rs (.cargo/target/debug/deps/match_finalization-0654260de4a2e54b)
+
+running 1 test
+test retry_of_a_match_finalization_under_the_same_key_does_not_double_reward ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+
+     Running tests/mcp.rs (.cargo/target/debug/deps/mcp-919d23d08e23f1a7)
+
+running 13 tests
+test stdout_capture_child ... ignored, driven by the stdout capture test
+test the_handshake_lists_tools_and_refuses_an_unknown_one ... ok
+test an_envelope_that_is_not_json_rpc_is_refused ... ok
+test no_answer_carries_the_credential ... ok
+test an_unknown_protocol_revision_is_answered_with_a_known_one ... ok
+test an_unknown_method_is_refused_and_a_notification_is_not ... ok
+test stdout_carries_the_protocol_and_nothing_else ... ok
+test too_many_bind_parameters_are_refused_on_the_wire_code ... ok
+test a_malformed_line_is_answered_and_the_session_continues ... ok
+test the_catalogue_offers_reads_and_nothing_else ... ok
+test a_write_statement_is_refused_before_a_request_is_made ... ok
+test every_tool_in_the_catalogue_is_callable ... ok
+test the_tools_answer_from_a_real_gateway ... ok
+
+test result: ok. 12 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running tests/migration_fixture.rs (.cargo/target/debug/deps/migration_fixture-6a01f8805eb890da)
+
+running 2 tests
+test incompatible_fixture_rejected_without_publication ... ok
+test synthetic_external_sqlite_imports_with_exact_data ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/operations_scripts.rs (.cargo/target/debug/deps/operations_scripts-7965af9bdba8c172)
+
+running 18 tests
+test setup_help_documents_interface_without_building ... ok
+test setup_rejects_unknown_arguments_before_doing_anything ... ok
+test backup_rejects_invalid_retention_before_touching_backup_root ... ok
+test the_restore_point_script_refuses_a_moment_it_cannot_restore ... ok
+test an_install_replaces_a_running_binary_without_disturbing_it ... ok
+test the_published_window_covers_the_whole_replica_chain ... ok
+test the_restore_point_script_publishes_the_window_the_replica_offers ... ok
+test the_published_restore_facts_never_carry_a_credential ... ok
+test backup_staging_is_unique_and_cleaned_on_failure ... ok
+test failed_restore_drill_terminates_its_server ... ok
+test the_sync_publishes_where_the_off_host_copy_is ... ok
+test the_published_replica_status_never_carries_a_credential ... ok
+test the_restore_point_script_publishes_what_a_restore_produced ... ok
+test the_restore_drill_publishes_whether_the_copies_restored ... ok
+test backup_uses_array_invocation_and_emits_contract_artifacts ... ok
+test upgrade_rehearsal_passes_on_a_faithful_binary_and_fails_on_a_lost_generation ... ok
