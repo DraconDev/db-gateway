@@ -554,3 +554,5 @@ test a_table_over_the_cap_is_truncated_and_not_identical ... ok
 test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s
 
      Running tests/disk_pressure.rs (.cargo/target/debug/deps/disk_pressure-a7ead398a329ebae)
+
+running 1 test
