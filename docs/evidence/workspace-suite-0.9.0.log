@@ -889,3 +889,183 @@ test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
      Running tests/shell_control.rs (.cargo/target/debug/deps/shell_control-8d8afdf86ed2f38d)
 
 running 5 tests
+test the_shell_has_dot_commands_for_the_operator_surface ... ok
+test the_shell_lists_the_credentials ... ok
+test the_shell_shows_the_backup_freshness ... ok
+test the_shell_draws_the_same_status_dashboard_as_the_command ... ok
+test the_shell_still_draws_its_tables_and_queries ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/shell_e2e.rs (.cargo/target/debug/deps/shell_e2e-02ed2fcb0c7472dd)
+
+running 6 tests
+test keyed_transport_failure_retains_key_for_identical_replay ... ok
+test lost_response_is_reported_without_retrying_unkeyed_writes ... ok
+test typed_batch_failure_consumes_key_and_database_switch_clears_it ... ok
+test json_mode_multiline_batch_errors_and_eof ... ok
+test shell_errors_are_stable_and_never_kill_the_session ... ok
+test shell_session_covers_use_query_error_recovery_batch_and_quit ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/status.rs (.cargo/target/debug/deps/status-f5dba2d783a699f4)
+
+running 11 tests
+test a_host_that_publishes_nothing_reports_nothing_rather_than_nothing_being_true ... ok
+test health_is_unauthenticated_liveness_only ... ok
+test backups_report_the_last_run_the_coverage_the_replica_and_the_drill ... ok
+test backups_unreadable_root_is_unknown ... ok
+test failed_owner_writes_pin_no_phantom_status_rows ... ok
+test status_reports_the_disk_headroom_and_the_settings ... ok
+test status_shape_counters_and_owner_gate ... ok
+test status_reports_where_the_gateway_and_its_databases_are ... ok
+test backups_freshness_transitions ... ok
+test status_reports_per_database_usage_since_boot ... ok
+test forced_429_is_counted ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.15s
+
+     Running tests/tombstone_purge.rs (.cargo/target/debug/deps/tombstone_purge-a6ab12297f3f0bfb)
+
+running 1 test
+test tombstoned_names_purge_and_become_reusable ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.99s
+
+     Running tests/tui_actions.rs (.cargo/target/debug/deps/tui_actions-0838f2877140b699)
+
+running 9 tests
+test every_action_is_in_the_catalogue_once ... ok
+test the_palette_offers_the_operations_an_operator_needs ... ok
+test a_destructive_action_has_to_be_confirmed_by_name ... ok
+test the_actions_ask_the_gateway_for_what_the_api_documents ... ok
+test a_whole_request_is_never_made_for_an_over_long_script ... ok
+test a_batch_file_is_read_by_the_rules_the_api_sets ... ok
+test every_request_carries_what_it_can_commit ... ok
+test a_query_that_writes_is_answered_as_a_write ... ok
+test a_read_only_query_that_cannot_reach_the_gateway_says_so ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/tui_layout.rs (.cargo/target/debug/deps/tui_layout-1af83a0be08757cb)
+
+running 29 tests
+test every_tab_is_reachable_from_the_keyboard ... ok
+test a_deletion_asks_for_the_name_twice_and_runs_only_then ... ok
+test a_database_with_no_traffic_is_on_screen_with_zeroes ... ok
+test a_long_database_list_scrolls_and_says_how_many_it_holds ... ok
+test a_host_that_publishes_no_copy_status_says_so ... ok
+test the_bar_names_the_keys_that_work ... ok
+test the_databases_tab_says_how_big_each_database_is ... ok
+test the_palette_keeps_a_gap_between_a_title_and_its_hint ... ok
+test an_unreachable_gateway_says_so_rather_than_looking_healthy ... ok
+test a_long_error_is_cut_and_says_so ... ok
+test a_gateway_that_reports_no_placement_says_so_rather_than_looking_empty ... ok
+test a_host_that_publishes_no_restore_points_says_so ... ok
+test the_locations_tab_says_where_each_database_is_and_whether_it_is_there ... ok
+test the_backups_tab_says_whether_the_copies_are_any_good ... ok
+test the_backups_tab_says_which_moments_the_copy_can_be_taken_back_to ... ok
+test every_tab_answers_its_own_question_and_only_its_own ... ok
+test the_tabs_are_written_down_once_and_everything_is_built_from_that_list ... ok
+test every_tab_is_named_on_screen_and_holds_its_own_answer ... ok
+test the_palette_marks_the_actions_that_cannot_be_taken_back ... ok
+test the_queries_tab_says_which_statement_is_the_expensive_one ... ok
+test a_narrow_terminal_still_names_every_tab ... ok
+test the_service_tab_says_where_the_gateway_is ... ok
+test the_palette_lists_the_actions_and_the_one_that_is_chosen ... ok
+test the_freshness_reference_is_named_as_an_objective_not_as_an_age_threshold ... ok
+test the_view_fits_a_small_terminal_without_losing_the_databases ... ok
+test a_long_per_database_table_keeps_every_row_and_the_summary_scrolls ... ok
+test a_tab_cannot_be_scrolled_into_nothing ... ok
+test an_unlisted_state_row_remains_visible_at_short_heights ... ok
+test the_freshness_table_keeps_every_database_row_at_any_height ... ok
+
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s
+
+     Running tests/tui_mouse.rs (.cargo/target/debug/deps/tui_mouse-9a3eba389b89da25)
+
+running 6 tests
+test the_wheel_scrolls_only_the_open_tab ... ok
+test the_wheel_scrolls_the_open_tab_and_stops_at_the_top ... ok
+test a_click_is_ignored_while_a_dialogue_is_open ... ok
+test clicking_between_labels_leaves_the_tab_alone ... ok
+test a_click_never_starts_an_action ... ok
+test clicking_a_tab_label_switches_to_that_tab ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/tui_refresh.rs (.cargo/target/debug/deps/tui_refresh-a4c6279a26cd7668)
+
+running 5 tests
+test the_view_says_connected_when_the_gateway_answered_something ... ok
+test the_error_says_how_many_reads_failed_and_why ... ok
+test the_reads_are_made_together ... ok
+test the_view_says_unreachable_when_nothing_answered ... ok
+test one_failure_is_reported_as_it_is ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/tui_terminal.rs (.cargo/target/debug/deps/tui_terminal-379fad27b136c42b)
+
+running 4 tests
+test a_bare_invocation_off_a_terminal_prints_usage_and_changes_nothing ... ok
+test the_view_leaves_a_shell_that_works ... ok
+test the_view_draws_the_gateway_and_gives_the_terminal_back ... ok
+test a_bare_invocation_opens_the_view_on_a_terminal ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+
+     Running tests/tui_view.rs (.cargo/target/debug/deps/tui_view-f43a9e06a8e29202)
+
+running 8 tests
+test the_database_list_shows_every_database_the_gateway_lists ... ok
+test a_lone_statement_that_fails_carries_the_reason ... ok
+test a_refused_batch_reads_the_same_way_on_both_surfaces ... ok
+test the_traffic_table_says_what_its_wait_columns_mean ... ok
+test a_section_that_is_only_a_table_does_not_print_an_empty_heading ... ok
+test the_database_tab_carries_every_figure ... ok
+test the_cli_and_the_view_show_the_same_numbers ... ok
+test the_tab_is_named_once ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/unit_render.rs (.cargo/target/debug/deps/unit_render-41bc1970454c8eca)
+
+running 7 tests
+test a_placeholder_with_no_value_is_refused ... ok
+test a_value_with_special_characters_is_substituted_literally ... ok
+test the_values_it_is_given_replace_the_placeholders ... ok
+test the_rendered_backup_unit_carries_the_producers_reference_layout ... ok
+test the_drift_gate_renders_every_unit_it_compares ... ok
+test the_host_audit_leaves_no_temp_files_behind ... ok
+test a_unit_that_gains_a_placeholder_fails_the_drift_gate ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.91s
+
+     Running unittests src/lib.rs (.cargo/target/debug/deps/dg_client-a57d5b86e7e2955e)
+
+running 6 tests
+test tests::the_statements_decide_whether_a_request_is_a_read ... ok
+test tests::names_follow_the_gateway_rule ... ok
+test tests::a_batch_is_a_read_only_when_every_statement_is_one ... ok
+test tests::values_round_trip_the_gateway_encoding ... ok
+test tests::result_parsing_checks_row_width ... ok
+test tests::origin_rules_match_the_other_clients ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+   Doc-tests dg
+
+running 1 test
+test src/branch.rs - branch::router (line 550) ... ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.37s; merged doctests compilation took 0.36s
+   Doc-tests dg_client
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
