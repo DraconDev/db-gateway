@@ -287,3 +287,28 @@ test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fin
      Running tests/boundary_sweep.rs (.cargo/target/debug/deps/boundary_sweep-482506feb7ce58f5)
 
 running 1 test
+test every_wall_accepts_at_the_line_and_rejects_past_it ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 35.63s
+
+     Running tests/branch.rs (.cargo/target/debug/deps/branch-e6993d39fdd192d5)
+
+running 10 tests
+test the_branch_list_returns_the_records_and_never_the_credential ... ok
+test an_app_credential_cannot_fork ... ok
+test the_branch_registry_survives_a_restart ... ok
+test the_cli_reads_the_same_branches_the_api_serves ... ok
+test a_moment_before_the_oldest_set_is_refused_and_the_window_is_named ... ok
+test a_branch_whose_database_was_deleted_elsewhere_can_still_be_removed ... ok
+test a_fork_of_the_live_parent_carries_its_tables_and_its_rows ... ok
+test a_fork_of_a_moment_carries_the_rows_of_that_moment ... ok
+test a_fork_onto_a_name_that_is_taken_is_refused ... ok
+test deleting_a_branch_deletes_the_database_and_forgets_the_record ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.82s
+
+     Running tests/chunked_transfer.rs (.cargo/target/debug/deps/chunked_transfer-d67a41f1af036fda)
+
+running 4 tests
+test chunk_errors_are_stable ... ok
+test transfer_expiry_and_orphans_at_store_level ... ok
