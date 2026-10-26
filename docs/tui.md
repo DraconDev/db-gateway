@@ -168,9 +168,20 @@ different claims:
 
 The two tables below them are the per-database freshness and the published
 sets. The freshness table keeps its rows whatever else is on screen: a table
-squeezed down to its header is a table with no answer in it, and the set
-list, which is a log of what has been published, takes the space that is
-left and scrolls.
+squeezed down to its header is a table with no answer in it, so the facts
+above it take what is left over and scroll when the terminal is short. The
+set list, which is a log of what has been published, takes the space that
+is left and scrolls.
+
+There is one case where the table gives way instead. It carries a row per
+database, so a deployment with thirty databases wants more room than any
+terminal has; making the table whole then would push the facts about the
+copy off the screen, and the operator would be told where the copy is and
+when it was last synced by a line they cannot see. So when the table cannot
+be whole without squeezing the facts below a readable window, the facts keep
+their room and the table is the one that scrolls. Nothing is lost either
+way: what does not fit is a keystroke away, and the scroll never runs past
+the end of what the tab holds.
 
 The number at the top of the tab is the **freshness objective**, not an age
 limit. Freshness is decided by whether a committed change is covered by a
