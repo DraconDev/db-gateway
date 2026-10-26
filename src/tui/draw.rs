@@ -610,15 +610,13 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App) {
     // coverage block while its state was clipped off the bottom, and the
     // operator was told a fact about a database they could not see.
     //
-    // So the freshness table is made whole first and the fields take
-    // what is left, scrolling when there is more of them than that. The
-    // one exception is a table too big to be whole: with a row per
-    // database, thirty databases want more room than any terminal has.
-    // Making it whole then would push the facts about the copy off the
-    // screen, which is the failure the 0.7.0 release fixed and its test
-    // still protects. So when the table cannot be whole without
-    // squeezing the fields below a readable window, the fields keep
-    // their room and the table is the one that scrolls.
+    // So the fields keep their room first and the table takes what is
+    // left: with a row per database, thirty databases want more room
+    // than any terminal has, and making that whole would push the facts
+    // about the copy off the screen, which is the failure the 0.7.0
+    // release fixed and its test still protects. The repair below is the
+    // other half: it fires only for a small table, where making it whole
+    // costs a few scrolled field lines and removes the contradiction.
     //
     // A table that has nothing but its header is a table with no answer
     // in it, so each table is promised room for a header and one row
