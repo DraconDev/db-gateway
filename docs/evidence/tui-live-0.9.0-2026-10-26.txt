@@ -1,0 +1,37 @@
+A real `dg tui` session against a real gateway.
+Captured by scripts/capture-tui-evidence.sh: the raw pty
+stream is in the .log beside this file, and the screen
+below is what the terminal showed after the query ran.
+
+ dg http://127.0.0.1:43977 · read 0s ago · connected
+ 1 databases (1) │ 2 service │▸ 3 backups │ 4 keys (1) │ 5 queries (4) │ 6 locations (1)
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│backup                                                                                                                │
+│root: /tmp/dg-tui-capture-rncjyA/dg-backups                                                                           │
+│freshness objective: 5m 0s                                                                                            │
+│snapshot cadence: not approved                                                                                        │
+│sets: 0                                                                                                               │
+│coverage                                                                                                              │
+│reported: the gateway reports no coverage                                                                             │
+│replica                                                                                                               │
+│reported: this host publishes no off-host copy status                                                                 │
+│restore drill                                                                                                         │
+│reported: this host publishes no restore drill result                                                                 │
+│point-in-time restore                                                                                                 │
+│reported: this host publishes no restore points                                                                       │
+│last restore                                                                                                          │
+│reported: this host publishes no restore result                                                                       │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ per-database ────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│database   state     newest set   age       lag                                                                       │
+│demo       unknown   —            unknown   —                                                                         │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ last action ─────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│2 rows                                                                                                                │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ rows ────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│id   name                                                                                                             │
+│1    aria                                                                                                             │
+│2    bo                                                                                                               │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+1-6 tabs  tab next tab  ↑↓ scroll  : commands  r refresh  q quit

@@ -50,6 +50,10 @@ KEY=(--server "$SERVER" --key-file "$DIR/owner.key")
     sleep 0.4
     printf '\r'
     sleep 1.5
+    # The backups tab: the freshness table, the lag beside each state, and
+    # the approved snapshot cadence the digest is judged on.
+    printf '3'
+    sleep 1.2
     printf 'q'
 ) | script -qec \
     "stty rows 40 cols 120 && $DG ${KEY[*]} tui" /dev/null > "$OUT_RAW" 2>&1 || true
