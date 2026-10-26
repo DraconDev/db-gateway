@@ -472,3 +472,60 @@ test the_watch_view_is_the_status_view_read_once ... ok
 test a_tombstoned_database_is_still_counted_and_still_inspectable ... ok
 test the_inspect_view_shows_one_database_and_what_it_did ... ok
 test the_status_view_answers_the_operators_questions ... ok
+test the_per_database_wait_columns_name_what_they_hold ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.59s
+
+     Running tests/clone_marathon.rs (.cargo/target/debug/deps/clone_marathon-88a690c9e374a905)
+
+running 1 test
+test twenty_clones_with_write_load_stay_exact ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.11s
+
+     Running tests/cmd_config.rs (.cargo/target/debug/deps/cmd_config-9a3c04eb6a1bd24b)
+
+running 8 tests
+/home/dracon/.config/dg/config.toml
+test the_default_location_is_beside_the_default_key_file ... ok
+test a_corrupt_config_is_an_error_not_a_panic ... ok
+{"created":true,"default":true,"key_file":"/tmp/.tmpsqyuYr/micro2.key","name":"micro2","server":"http://127.0.0.1:7432"}
+{"created":true,"default":true,"key_file":"/tmp/.tmpQIMqWg/micro2.key","name":"micro2","server":"http://127.0.0.1:7432"}
+{"created":true,"default":false,"key_file":"/tmp/.tmpvqvOTB/micro2.key","name":"micro2","server":"http://127.0.0.1:7432"}
+{"created":true,"default":false,"key_file":"/tmp/.tmpa2HPUf/micro2.key","name":"micro2","server":"http://127.0.0.1:7432"}
+{"created":true,"default":true,"key_file":"/tmp/.tmpIfZmnH/ctx.key","name":"micro2","server":"http://context:7432"}
+{"created":true,"default":true,"key_file":"/tmp/.tmpxMhCYl/micro2.key","name":"micro2","server":"http://127.0.0.1:7432"}
+test resolve_follows_the_documented_order ... ok
+test writing_without_its_directory_creates_it_privately ... ok
+{"created":false,"default":false,"key_file":"/tmp/.tmpvqvOTB/micro2.key","name":"micro2","server":"http://127.0.0.1:7432"}
+{"created":true,"default":false,"key_file":"/tmp/.tmpQIMqWg/staging.key","name":"my ctx","server":"https://staging.example"}
+{"config_path":"/tmp/.tmpQIMqWg/config.toml","contexts":[{"key_file":"/tmp/.tmpQIMqWg/micro2.key","key_present":true,"name":"micro2","server":"http://127.0.0.1:7432"},{"key_file":"/tmp/.tmpQIMqWg/staging.key","key_present":false,"name":"my ctx","server":"https://staging.example"}],"default":"micro2"}
+{"config_path":"/tmp/.tmpQIMqWg/config.toml","default":true,"key_file":"/tmp/.tmpQIMqWg/micro2.key","key_present":true,"name":"micro2","server":"http://127.0.0.1:7432"}
+{"removed":"micro2"}
+test set_list_and_show_round_trip ... ok
+test the_config_file_is_private_and_never_widened ... ok
+test removing_the_default_context_clears_the_default ... ok
+{"created":true,"default":false,"key_file":"/tmp/.tmpxMhCYl/staging.key","name":"staging","server":"https://staging.example"}
+{"removed":"staging"}
+test remove_deletes_only_that_context ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/crash_restart.rs (.cargo/target/debug/deps/crash_restart-42e842b760cd3bfa)
+
+running 2 tests
+test acknowledged_write_survives_exactly_once_across_force_kill_restart ... ok
+test keyed_write_replays_identically_after_restart_without_duplicating ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+
+     Running tests/db_ops.rs (.cargo/target/debug/deps/db_ops-9df57495d23a1bac)
+
+running 11 tests
+test the_human_views_say_what_happened ... ok
+test explain_reports_sqlites_own_error_for_a_statement_that_does_not_compile ... ok
+test integrity_refuses_a_credential_that_is_not_the_owner ... ok
+test explain_reports_the_plan_for_a_table_with_no_index ... ok
+test vacuum_and_integrity_refuse_a_read_only_credential ... ok
+test integrity_reports_a_sound_database_as_sound ... ok
+test integrity_reports_a_corrupted_file_as_not_sound ... ok
