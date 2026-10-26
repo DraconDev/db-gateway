@@ -251,3 +251,11 @@ test dg_backup_digest_reports_the_same_thing_the_sink_sends_and_works_stopped ..
 test the_digest_is_delivered_on_its_cadence_with_what_an_operator_needs ... ok
 test delivery_is_off_unless_asked_for ... ok
 test a_sink_that_rejects_does_not_stop_the_next_delivery ... ok
+test a_failed_attempt_is_notified_immediately_and_exactly_once ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.59s
+
+     Running tests/backup_pipeline.rs (.cargo/target/debug/deps/backup_pipeline-6f21f1964cff29dd)
+
+running 6 tests
+test failed_run_records_attempt ... ok
