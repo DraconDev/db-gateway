@@ -529,3 +529,28 @@ test explain_reports_the_plan_for_a_table_with_no_index ... ok
 test vacuum_and_integrity_refuse_a_read_only_credential ... ok
 test integrity_reports_a_sound_database_as_sound ... ok
 test integrity_reports_a_corrupted_file_as_not_sound ... ok
+test vacuum_says_plainly_when_there_is_nothing_to_reclaim ... ok
+test integrity_reports_the_row_that_breaks_a_foreign_key ... ok
+test the_commands_answer_the_three_questions ... ok
+test vacuum_reclaims_the_space_deleted_rows_left_behind ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s
+
+     Running tests/diff.rs (.cargo/target/debug/deps/diff-f87e1e8d457524a1)
+
+running 11 tests
+test the_human_view_names_the_table_that_differs ... ok
+test the_endpoint_does_not_modify_the_databases_it_compares ... ok
+test a_changed_column_list_is_not_compared ... ok
+test a_different_row_count_is_a_difference ... ok
+test the_order_of_the_rows_does_not_matter ... ok
+test a_credential_scoped_to_one_side_is_refused ... ok
+test the_cli_exits_non_zero_when_the_databases_differ ... ok
+test a_different_schema_says_what_is_missing_on_each_side ... ok
+test the_same_schema_and_the_same_rows_are_identical ... ok
+test different_rows_are_reported_and_the_table_is_named ... ok
+test a_table_over_the_cap_is_truncated_and_not_identical ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s
+
+     Running tests/disk_pressure.rs (.cargo/target/debug/deps/disk_pressure-a7ead398a329ebae)
