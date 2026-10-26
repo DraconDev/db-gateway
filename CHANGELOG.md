@@ -46,6 +46,16 @@ fixes; 1.0.0 waits for production acceptance.
   `dg-backup-digest.service` pass it, so the gateway and the digest
   judge the same change by the same number and cannot disagree.
 
+- **The rule is written down.** `docs/tui.md` states both halves of the
+  backups-tab layout rule -- the fields keep their room and the table
+  scrolls, except that a small table clipped while the summary names its
+  missing row is made whole instead -- and the tab's own table entry
+  names the snapshot cadence. `docs/api.md` documents `cadence_secs`,
+  `lag_secs` and the `behind` state, `docs/observability-contract.md`
+  gained section 2a with the three-state vocabulary, and
+  `docs/recovery-policy.md` and `docs/deployment.md` record the Tier-2
+  number and the units that carry it.
+
 ### Fixed
 
 - **The backups tab could lose a database's state.** The freshness table
@@ -53,11 +63,13 @@ fixes; 1.0.0 waits for production acceptance.
   so on a short terminal the table lost a row: a database could be named
   as missing in the coverage block while its state was clipped off the
   bottom, and the operator was told a fact about a database they could
-  not see. The table is made whole first and the facts scroll; when a
-  deployment has more databases than the terminal has rows for, the
-  facts keep their room and the table is the one that scrolls, because a
-  table of thirty rows that pushes "where the copy is" off the screen is
-  the other half of the same defect.
+  not see. The fields keep their room and the table takes what is left,
+  scrolling when there is more of it than fits -- except for the exact
+  contradiction above: when a small table is clipped while the summary
+  names its missing row, the small table is made whole and the fields
+  scroll instead. A thirty-row table stays a scrolling list, because
+  making it whole would push "where the copy is" off the screen, which
+  is the other half of the same defect.
 
 ## [0.8.0] — 2026-10-25
 

@@ -167,21 +167,24 @@ different claims:
   a promise, so the last restore is shown beside it.
 
 The two tables below them are the per-database freshness and the published
-sets. The freshness table keeps its rows whatever else is on screen: a table
-squeezed down to its header is a table with no answer in it, so the facts
-above it take what is left over and scroll when the terminal is short. The
-set list, which is a log of what has been published, takes the space that
-is left and scrolls.
+sets. The facts keep their room and the table takes what is left: a table
+that has nothing but its header is a table with no answer in it, so each
+table is promised room for a header and one row before the fields are given
+anything. The set list, which is a log of what has been published, takes
+the space that is left and scrolls, and the field list scrolls when the
+terminal is short.
 
-There is one case where the table gives way instead. It carries a row per
-database, so a deployment with thirty databases wants more room than any
-terminal has; making the table whole then would push the facts about the
-copy off the screen, and the operator would be told where the copy is and
-when it was last synced by a line they cannot see. So when the table cannot
-be whole without squeezing the facts below a readable window, the facts keep
-their room and the table is the one that scrolls. Nothing is lost either
-way: what does not fit is a keystroke away, and the scroll never runs past
-the end of what the tab holds.
+There is one case where the small table wins instead. The table carries a
+row per database, and the coverage block above it can name one of them as
+missing: when a small table is clipped while the summary names its missing
+row, the operator is told a fact about a database they cannot see. So in
+that exact case the small table is made whole and the fields scroll
+instead. A deployment with thirty databases stays the other way round --
+making that table whole would push the facts about the copy off the screen,
+and the operator would be told where the copy is and when it was last
+synced by a line they cannot see. Nothing is lost either way: what does not
+fit is a keystroke away, and the scroll never runs past the end of what the
+tab holds.
 
 The number at the top of the tab is the **freshness objective**, not an age
 limit. Freshness is decided by whether a committed change is covered by a
