@@ -240,7 +240,13 @@ Available Commands:
 
 Top level (`turso --help`) adds `group` (database groups — mapped
 below), `dev`, `config`, and `quickstart`, plus account-management
-verbs that are out of scope (see the final section). `group` manages
+verbs that are out of scope (see the final section). The audit surface
+lives under `turso org`: `turso org audit-logs list [--limit N]
+[--page N] [--verbose]` ("List organization audit logs"). The matching
+web surface is the Audit Logs page: columns Author/Event/Origin/
+Timestamp, 23 items on 2026-10-26, all `Created Database Token` by
+`dracondev` via `dashboard` (2) or `cli` (21) — full text in
+`docs/evidence/turso-audit-logs-2026-10-26.txt`. `group` manages
 (`create/destroy/list/locations/…`); `replicate` usage is
 `turso db replicate <database-name> <location-code>`; `tokens` manages
 `create` (bearer token) and `invalidate` (rotate signing keys).
