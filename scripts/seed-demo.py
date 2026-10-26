@@ -267,7 +267,11 @@ def ensure_db(dg, server, key_file, db):
         cmd += ["--key-file", key_file]
     cmd += ["create", db]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    if result.returncode != 0 and "database_exists" not in result.stderr:
+    if result.returncode != 0:
+        # An existing database refuses with a database_exists document
+        # on stdout; anything else is a real failure.
+        if "database_exists" in result.stdout:
+            return
         raise RuntimeError(f"create {db} failed: {result.stderr.strip()}")
 
 
