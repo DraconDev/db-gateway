@@ -786,3 +786,66 @@ test backup_uses_array_invocation_and_emits_contract_artifacts ... ok
 test upgrade_rehearsal_passes_on_a_faithful_binary_and_fails_on_a_lost_generation ... ok
 test soak_readiness_wait_is_bounded ... ok
 test setup_flags_an_install_older_than_the_source_tree has been running for over 60 seconds
+test setup_flags_an_install_older_than_the_source_tree ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 106.90s
+
+     Running tests/orphan_guard.rs (.cargo/target/debug/deps/orphan_guard-cd3ad04dddb920cd)
+
+running 3 tests
+kill: sending signal to 298981 failed: No such process
+test a_server_started_normally_dies_with_a_sigkilled_launcher ... ok
+test a_server_owned_by_a_live_parent_is_not_reported_as_an_orphan ... ok
+test the_guard_is_clean_first_and_reports_a_planted_orphan_second ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.85s
+
+     Running tests/plan_consistency.rs (.cargo/target/debug/deps/plan_consistency-3b2a81968169bdf3)
+
+running 2 tests
+test canonical_plan_passes ... ok
+test checker_rejects_missing_phase_rollback ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/query_visibility.rs (.cargo/target/debug/deps/query_visibility-a4559cdafae38d4f)
+
+running 6 tests
+test the_endpoint_is_owner_only ... ok
+test a_statement_is_recorded_as_its_shape_and_never_as_its_values ... ok
+test two_spellings_of_the_same_statement_are_one_shape ... ok
+test a_deleted_database_does_not_appear_in_the_query_log ... ok
+test the_endpoint_can_narrow_to_one_database ... ok
+test the_shapes_are_bounded_per_database ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.44s
+
+     Running tests/recovery_drill.rs (.cargo/target/debug/deps/recovery_drill-0ceefe26363fbd40)
+
+running 1 test
+test snapshot_export_restores_exact_rows_and_rejects_corrupt_input ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests/recovery_rehearsal.rs (.cargo/target/debug/deps/recovery_rehearsal-a4dbde06ad36c064)
+
+running 1 test
+test local_rehearsal_reports_all_faults_and_restore_evidence ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.47s
+
+     Running tests/release_bundle.rs (.cargo/target/debug/deps/release_bundle-d4b0f509cd6b3dc5)
+
+running 6 tests
+test micro2_pinned_container_builds_bundle_and_records_builder ... ignored
+test explicit_host_bundle_never_claims_micro2_abi_verified ... ok
+test micro2_rejects_missing_container_engine_without_native_fallback ... ok
+test micro2_propagates_build_or_smoke_failure ... ok
+test micro2_propagates_builder_inspection_failure ... ok
+test staged_dg_must_be_executable_and_the_gate_enforces_it ... ok
+
+test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.70s
+
+     Running tests/replay_deep.rs (.cargo/target/debug/deps/replay_deep-15960e79a0be3bd0)
+
+running 1 test
