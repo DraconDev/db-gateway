@@ -208,3 +208,29 @@ fn the_open_grid_draws_on_a_test_terminal() {
     );
     assert!(text.contains("canvas tote"), "the grid rows are not drawn");
 }
+
+/// A key press.
+fn key(code: ratatui::crossterm::event::KeyCode) -> ratatui::crossterm::event::KeyEvent {
+    ratatui::crossterm::event::KeyEvent::new(code, ratatui::crossterm::event::KeyModifiers::NONE)
+}
+
+#[test]
+fn enter_on_the_databases_tab_prefills_the_open_action() {
+    // The row grid is palette-driven, and the databases tab is its
+    // doorway: Enter opens the palette already filtered to
+    // `open <database>`, with the scrolled-to database prefilled,
+    // so the operator types only the table (and optionally the page).
+    use dg::tui::{App, Mode};
+
+    let mut app = App::new("http://127.0.0.1:1".to_string(), "0".repeat(64));
+    app.list = Some(json!({"databases": ["orders", "inventory"]}));
+    // Sorted, the first row is inventory; scroll to the second row.
+    app.scroll.databases = 1;
+    app.on_key(key(ratatui::crossterm::event::KeyCode::Enter));
+    assert_eq!(app.mode, Mode::Palette, "Enter left the dashboard");
+    assert_eq!(
+        app.filter, "open orders ",
+        "the palette is not prefilled with the scrolled-to database: {}",
+        app.filter
+    );
+}
