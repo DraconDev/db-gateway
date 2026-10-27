@@ -216,7 +216,7 @@ fn the_route_answers_one_databases_tables_over_http() {
     let columns = products["columns"]
         .as_array()
         .expect("the table has columns");
-    assert_eq!(columns.len(), 3);
+    assert_eq!(columns.len(), 4);
     assert_eq!(columns[0]["name"], "id");
     assert_eq!(columns[0]["type"], "INTEGER");
     assert_eq!(columns[0]["not_null"], false);
