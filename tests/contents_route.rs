@@ -135,6 +135,8 @@ fn a_database_named_contents_still_works() {
 fn only_the_owner_may_ask() {
     // The answer is a view of every database in the service, which is
     // operator information: a scoped application key may not read it.
+    // Asked over HTTP directly, because the CLI harness pins the owner
+    // key file and this test needs a different credential.
     let fleet = Fleet::boot();
     seed(&fleet);
     let scoped = fleet.cli.ok(
@@ -150,22 +152,19 @@ fn only_the_owner_may_ask() {
         ],
     );
     let key = scoped["key"].as_str().unwrap().to_string();
-    let key_file = fleet.cli.key_file.with_file_name("reader.key");
-    std::fs::write(&key_file, &key).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&key_file, std::fs::Permissions::from_mode(0o600)).unwrap();
-    }
-    let (success, stdout, stderr) = fleet
-        .cli
-        .run(&["--key-file", key_file.to_str().unwrap(), "contents"]);
-    assert!(
-        !success,
-        "a scoped key read every database's contents: {stdout}"
+    let response = reqwest::blocking::Client::new()
+        .get(format!("{}/v1/contents", fleet.cli.server))
+        .bearer_auth(&key)
+        .send()
+        .expect("the route answers");
+    assert_eq!(
+        response.status().as_u16(),
+        403,
+        "a scoped key read every database's contents"
     );
-    assert!(
-        stdout.contains("forbidden") || stderr.contains("forbidden"),
-        "the refusal does not name the reason: stdout={stdout} stderr={stderr}"
+    let body: Value = response.json().expect("the refusal is JSON");
+    assert_eq!(
+        body["error"]["code"], "forbidden",
+        "the refusal does not name the reason: {body}"
     );
 }
