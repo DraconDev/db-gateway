@@ -393,13 +393,16 @@ fn clicking_a_table_in_an_opened_database_opens_that_table() {
     let (column, row) =
         column_of(&text, "orders").unwrap_or_else(|| panic!("no orders row:\n{text}"));
     app.on_mouse(click(column, row));
+    // Opening a table means opening its ROWS: the data is what "open"
+    // means, and the structure is one key away on the browser.
     assert_eq!(
         app.take_pending(),
-        Some(Invocation::Schema {
+        Some(Invocation::OpenTable {
             name: "demo".to_string(),
-            table: Some("orders".to_string())
+            table: "orders".to_string(),
+            page: 0
         }),
-        "the click on a table did not open that table"
+        "the click on a table did not open that table's rows"
     );
 }
 
