@@ -165,10 +165,7 @@ fn indexes(conn: &Connection, quoted: &str) -> Result<Vec<Index>> {
         indexes.push(Index {
             name,
             unique,
-            columns: covered
-                .into_iter()
-                .flatten()
-                .collect::<Vec<String>>(),
+            columns: covered.into_iter().flatten().collect::<Vec<String>>(),
         });
     }
     Ok(indexes)

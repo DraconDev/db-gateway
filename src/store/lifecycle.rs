@@ -297,7 +297,10 @@ impl Store {
     /// deadline and the creation time otherwise. The lookup is written
     /// once, because the database's own listing and its structure both
     /// have to answer the same question about the same name.
-    pub(crate) fn registry_entry(&self, name: &str) -> Result<Option<(Option<i64>, Option<i64>, i64)>> {
+    pub(crate) fn registry_entry(
+        &self,
+        name: &str,
+    ) -> Result<Option<(Option<i64>, Option<i64>, i64)>> {
         let row: Option<(Option<i64>, Option<i64>, i64)> = self
             .meta()?
             .query_row(
