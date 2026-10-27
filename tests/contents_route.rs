@@ -64,7 +64,9 @@ fn every_live_database_is_listed() {
     let fleet = Fleet::boot();
     fleet.cli.ok("create one", &["create", "one"]);
     fleet.cli.ok("create two", &["create", "two"]);
-    fleet.cli.q("create t", "one", "CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    fleet
+        .cli
+        .q("create t", "one", "CREATE TABLE t (id INTEGER PRIMARY KEY)");
     let document = contents(&fleet);
     let mut names: Vec<&str> = document["databases"]
         .as_object()

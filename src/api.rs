@@ -576,10 +576,7 @@ async fn info(
 /// `/v1/databases/` would be matched before `{name}`, so a database
 /// called `contents` would have its own info and delete routes shadowed
 /// and become unreachable. Outside `/v1/databases/`, no name can collide.
-async fn contents(
-    State(store): State<Arc<Store>>,
-    headers: HeaderMap,
-) -> Result<Json<Value>> {
+async fn contents(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<Json<Value>> {
     work_read(store, headers, move |s, p| {
         p.owner()?;
         Ok(Json(s.contents()?))
