@@ -515,7 +515,7 @@ fn strip_width(labels: &[(Focus, String)], active: Focus) -> usize {
 /// left, and on a screen with enough databases the placement table was
 /// squeezed to a header and a row. Placement is its own tab now, and
 /// each tab answers one question.
-fn databases_tab(frame: &mut Frame, area: Rect, app: &mut App) {
+fn databases_tab(frame: &mut Frame, area: Rect, app: &mut App, tables: &mut Vec<TableGeometry>) {
     let focused = app.focus == Focus::Databases;
     let Some(traffic) = app.databases() else {
         let block = pane(focused);
@@ -529,7 +529,17 @@ fn databases_tab(frame: &mut Frame, area: Rect, app: &mut App) {
         app.visible_table_rows(traffic.footer_text().is_some()),
     );
     let mut state = TableState::default().with_offset(app.scroll.databases as usize);
-    framed_table(frame, area, pane(focused), &traffic, usize::MAX, &mut state);
+    let mouse = app.mouse;
+    framed_table(
+        frame,
+        area,
+        pane(focused),
+        &traffic,
+        usize::MAX,
+        &mut state,
+        mouse,
+        tables,
+    );
 }
 
 /// Where each database lives on disk, and whether it is there.
@@ -545,7 +555,12 @@ fn databases_tab(frame: &mut Frame, area: Rect, app: &mut App) {
 /// arrived is a different thing again, and is named as such: blaming
 /// the gateway for a question nobody has answered yet is its own kind
 /// of wrong.
-fn locations_tab(frame: &mut Frame, area: Rect, app: &mut App) {
+fn locations_tab(
+    frame: &mut Frame,
+    area: Rect,
+    app: &mut App,
+    tables: &mut Vec<TableGeometry>,
+) {
     let block = pane(app.focus == Focus::Locations);
     let Some(locations) = app.locations() else {
         let note = if app.status.is_none() {
@@ -561,6 +576,7 @@ fn locations_tab(frame: &mut Frame, area: Rect, app: &mut App) {
         app.visible_table_rows(locations.footer_text().is_some()),
     );
     let mut state = TableState::default().with_offset(app.scroll.locations as usize);
+    let mouse = app.mouse;
     framed_table(
         frame,
         area,
@@ -568,6 +584,8 @@ fn locations_tab(frame: &mut Frame, area: Rect, app: &mut App) {
         &locations,
         usize::MAX,
         &mut state,
+        mouse,
+        tables,
     );
 }
 
