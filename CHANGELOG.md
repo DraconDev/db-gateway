@@ -21,6 +21,39 @@ fixes; 1.0.0 waits for production acceptance.
 
 ### Added
 
+- **A database's contents, and a table's rows.** Two questions were
+  missing from the terminal, and their absence made seven full databases
+  look like seven empty ones:
+
+  `dg contents` (and `GET /v1/contents`) answers **what a database
+  holds**: its table count and its total row count, read from the file.
+  The databases tab now leads with those two columns. Every column it
+  used to show — `rows read`, `rows written`, `waits`, `last write` — is
+  an in-memory counter that a gateway restart zeroes, so a freshly
+  restarted gateway drew every database with nothing beside it. Those
+  counters are still there, now marked and footnoted as **since
+  restart**, and the counts that come from the files sit first. A
+  database whose file cannot be read reports `unknown` rather than `0`:
+  a fault must not be drawn as an empty database.
+
+  `dg rows <database> <table> [page]` answers **what is in a table**:
+  the data, ten rows a page, with `--sort <column>[:asc|:desc]` and
+  `--where <condition>`. The TUI's browser is the same read with keys —
+  `n`/`p` for pages, `o` to cycle the sort, `f` to edit the filter, `c`
+  to clear it, `s` for the table's structure, `esc` to leave — and its
+  footer says `rows 21-30 of 62` with the sort and filter named beside
+  it. Clicking a table in an opened database now lands in the rows,
+  which is what "open" means; the structure is one key away.
+
+  Sorting and filtering happen **in the statement, on the gateway**,
+  never by discarding rows after they arrive: otherwise page 2 of a
+  filtered view would be empty while the footer promised more. The sort
+  column is validated against the table's real columns before it is
+  written into the SQL, and the filter is checked by the same read-only
+  rule the query endpoint uses — a filter that would modify data is
+  refused, not run. Both surfaces draw through the shared view layer, so
+  they cannot tell different stories.
+
 - **The pointer opens databases, and the row under it is marked.** A
   click on a row that names a database opens it: the database's tables,
   with their row and column counts, appear in the last action. Clicking
