@@ -923,8 +923,8 @@ fn palette(frame: &mut Frame, area: Rect, app: &App) {
     // window size, or a window shorter than the popup's minimum)
     // makes the range empty. A view that panics over its own window
     // size takes the operator's terminal with it.
-    let height = (actions.len() as u16 + 4).clamp(5, area.height.saturating_sub(2));
-    let width = area.width.saturating_sub(6).clamp(30, 100);
+    let height = clamp_into(actions.len() as u16 + 4, 5, area.height.saturating_sub(2));
+    let width = clamp_into(area.width.saturating_sub(6), 30, 100);
     let popup = centered(area, width, height);
     // The title column is MEASURED, not assumed. It used to be a fixed
     // sixteen characters, and "rotate owner key" is exactly sixteen, so
@@ -985,7 +985,7 @@ fn palette(frame: &mut Frame, area: Rect, app: &App) {
 
 /// A prompt, over the dashboard.
 fn prompt(frame: &mut Frame, area: Rect, label: &str, input: &str) {
-    let width = area.width.saturating_sub(6).clamp(30, 100);
+    let width = clamp_into(area.width.saturating_sub(6), 30, 100);
     let popup = centered(area, width, 3);
     let line = Line::from(vec![
         Span::styled(format!("{label}: "), crate::tui::theme::heading()),
