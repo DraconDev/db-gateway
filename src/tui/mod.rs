@@ -35,6 +35,15 @@ use screen::Screen;
 use serde_json::Value;
 use std::time::{Duration, Instant};
 
+/// How often the databases' contents are read again.
+///
+/// Slower than the traffic poll on purpose. The traffic counters are
+/// read from the gateway's memory; the contents are read by opening
+/// every database file and counting every row. Counting is not work to
+/// do every two seconds for a service nobody is touching, and the
+/// figures move only when someone writes.
+const CONTENTS_PERIOD: Duration = Duration::from_secs(30);
+
 /// How the view was started.
 #[derive(Clone, Copy, Debug)]
 pub struct Options {
