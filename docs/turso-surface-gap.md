@@ -22,6 +22,9 @@ browser bridge, with the live captures saved as audit evidence:
 - `docs/evidence/turso-edit-data-grid-2026-10-27.png` — the Edit Data
   → DATA tab of the same table: the type-annotated grid headers and
   the Filters / Sort / Columns toolbar.
+- `docs/evidence/schema-live-2026-10-27.txt` — the live record:
+  the route's answer for `inventory.products`, the CLI on a pipe and
+  on a terminal, and the per-database table counts after the deploy.
 - `docs/evidence/turso-structure-2026-10-27.txt` — the capture note
   for the three captures above, with the read-only record.
 
@@ -256,7 +259,8 @@ Turso side, captured 2026-10-27 in the browser, read-only:
   affordances were left untouched).
 
 What `dg` covers now, added 2026-10-27 and exercised against the
-seeded live gateway (outputs quoted in §9):
+seeded live gateway (outputs quoted verbatim in
+`docs/evidence/schema-live-2026-10-27.txt`):
 
 - **The per-column facts**: `dg schema <db> [table]` gives each
   column's name, its **declared** type, and its `not_null` and
