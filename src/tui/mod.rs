@@ -383,9 +383,8 @@ impl App {
             return;
         }
         // Then a row that names a database: clicking a database OPENS
-        // it, and so does the Enter key on the same row. The mouse and
-        // the keyboard answer the same question the same way, and an
-        // operator who learned one has learned the other.
+        // it. The keyboard's doorway to a table's rows is Enter; the
+        // mouse's doorway to the database itself is the click.
         if let Some(name) = self.database_under_pointer(column, row) {
             self.open_database(&name);
             return;
@@ -442,7 +441,7 @@ impl App {
         (!name.is_empty() && crate::store::validate_name(&name).is_ok()).then_some(name)
     }
 
-    /// Open a database: the doorway the Enter key opens on the same row.
+    /// Open a database: what a click on its row does.
     ///
     /// Opening a database means reading its contents -- the tables it
     /// holds, with their row and column counts -- and the last action's
@@ -492,16 +491,27 @@ impl App {
                 self.highlighted = 0;
             }
             // The row grid is one keystroke from the databases tab:
-            // Enter opens the database the row names, exactly as a
-            // click on that row does. The answer is the database's
-            // contents, and a table in it opens further from there.
+            // Enter opens the palette on the open-table action, with
+            // the database under the scroll already typed into the
+            // action's prompt. The filter names the action so the
+            // palette lists it first and selectable; choosing it
+            // drops into the prompt with the database prefilled, so
+            // the operator types only the table (and optionally the
+            // page). Typing anything else clears the prefill first.
+            //
+            // The keyboard's doorway to a table's ROWS; a click is the
+            // mouse's doorway to the database itself.
             KeyCode::Enter => {
                 if self.focus == Focus::Databases {
                     let names = self.database_names();
                     let index = (self.scroll.databases as usize).min(names.len().saturating_sub(1));
-                    if let Some(name) = names.get(index) {
-                        self.open_database(name);
-                    }
+                    self.prompt_prefill = match names.get(index) {
+                        Some(name) => format!("{name} "),
+                        None => String::new(),
+                    };
+                    self.filter = "open table".to_string();
+                    self.mode = Mode::Palette;
+                    self.highlighted = 0;
                 }
             }
             KeyCode::Tab => self.focus = self.focus.next(),
