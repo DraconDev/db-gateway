@@ -95,6 +95,46 @@ export interface StatusResponse {
 export type DatabaseInfo =
   | { name: string; tombstoned: false; size_bytes: number; created_at: number; tables: TableInfo[] }
   | { name: string; tombstoned: true; purge_after: number; size_bytes: number };
+/** One column of a table, as the gateway reports the schema. */
+export interface ColumnInfo {
+  name: string;
+  /** The declared type, empty when the schema gave none. */
+  type: string;
+  not_null: boolean;
+  primary_key: boolean;
+  default: string | null;
+}
+/** One index of a table. */
+export interface IndexInfo {
+  name: string;
+  unique: boolean;
+  columns: string[];
+}
+/** One foreign key of a table. */
+export interface ForeignKeyInfo {
+  table: string;
+  from: string;
+  to: string;
+  on_update: string;
+  on_delete: string;
+}
+/** One table's structure. */
+export interface TableStructure {
+  name: string;
+  rows: number;
+  columns: ColumnInfo[];
+  indexes: IndexInfo[];
+  foreign_keys: ForeignKeyInfo[];
+  /** The statement that created the table, verbatim. */
+  sql: string | null;
+}
+/** The structure of a database's tables. */
+export interface SchemaResponse {
+  database: string;
+  tombstoned: boolean;
+  created_at: number;
+  tables: TableStructure[];
+}
 export interface SnapshotData { size: number; sha256: string; data: Uint8Array }
 export class GatewayError extends Error {
   constructor(public readonly code: string, message: string, public readonly status?: number) { super(message); }
@@ -278,6 +318,30 @@ function isDatabaseInfo(v: unknown): v is DatabaseInfo {
   return typeof v.created_at === 'number' && Number.isSafeInteger(v.created_at) && Array.isArray(v.tables) &&
     v.tables.every(t => object(t) && typeof t.name === 'string' && typeof t.rows === 'number' && Number.isSafeInteger(t.rows));
 }
+function isColumnInfo(v: unknown): v is ColumnInfo {
+  return object(v) && typeof v.name === 'string' && typeof v.type === 'string' &&
+    typeof v.not_null === 'boolean' && typeof v.primary_key === 'boolean' &&
+    (v.default === null || typeof v.default === 'string');
+}
+function isIndexInfo(v: unknown): v is IndexInfo {
+  return object(v) && typeof v.name === 'string' && typeof v.unique === 'boolean' &&
+    Array.isArray(v.columns) && v.columns.every(c => typeof c === 'string');
+}
+function isForeignKeyInfo(v: unknown): v is ForeignKeyInfo {
+  return object(v) && typeof v.table === 'string' && typeof v.from === 'string' &&
+    typeof v.to === 'string' && typeof v.on_update === 'string' && typeof v.on_delete === 'string';
+}
+function isTableStructure(v: unknown): v is TableStructure {
+  return object(v) && typeof v.name === 'string' && isNonNegativeInt(v.rows) &&
+    Array.isArray(v.columns) && v.columns.every(isColumnInfo) &&
+    Array.isArray(v.indexes) && v.indexes.every(isIndexInfo) &&
+    Array.isArray(v.foreign_keys) && v.foreign_keys.every(isForeignKeyInfo) &&
+    (v.sql === null || typeof v.sql === 'string');
+}
+function isSchemaResponse(v: unknown): v is SchemaResponse {
+  return object(v) && typeof v.database === 'string' && typeof v.tombstoned === 'boolean' &&
+    isNonNegativeInt(v.created_at) && Array.isArray(v.tables) && v.tables.every(isTableStructure);
+}
 const isNonNegativeInt = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 function isDatabaseUsage(v: unknown): v is DatabaseUsage {
   return object(v) && isNonNegativeInt(v.rows_read) && isNonNegativeInt(v.rows_written) &&
@@ -426,6 +490,19 @@ export class Gateway {
     assertName(name);
     const result = await this.request(`/v1/databases/${name}`, 'GET');
     if (!isDatabaseInfo(result)) throw new GatewayError('invalid_gateway_response','Malformed info response', 502);
+    return result;
+  }
+  /**
+   * The structure of a database's tables: every column with its type
+   * and flags, plus the indexes and foreign keys. A table name narrows
+   * the answer; the narrowing happens on the server, so the document is
+   * the API's own either way.
+   */
+  async schema(name: string, table?: string): Promise<SchemaResponse> {
+    assertName(name);
+    const query = table === undefined ? '' : `?table=${encodeURIComponent(table)}`;
+    const result = await this.request(`/v1/databases/${name}/schema${query}`, 'GET');
+    if (!isSchemaResponse(result)) throw new GatewayError('invalid_gateway_response','Malformed schema response', 502);
     return result;
   }
   async deleteDatabase(name: string): Promise<{ deleted: boolean; purge_after_seconds: number }> {
