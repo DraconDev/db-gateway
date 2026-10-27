@@ -144,6 +144,45 @@ fn an_unknown_table_is_not_invented() {
 }
 
 #[test]
+fn the_replications_own_tables_are_not_the_operators_data() {
+    // A replicated database holds the replication's own bookkeeping
+    // tables. The structure view describes the operator's data, so
+    // those stay out of it; the file's own listing still shows them.
+    let fleet = Fleet::boot();
+    fleet.cli.ok("create", &["create", "shop"]);
+    fleet.cli.q(
+        "create products",
+        "shop",
+        "CREATE TABLE products (id INTEGER PRIMARY KEY, sku TEXT)",
+    );
+    fleet.cli.q(
+        "create replication bookkeeping",
+        "shop",
+        "CREATE TABLE _litestream_seq (id INTEGER PRIMARY KEY, seq INTEGER)",
+    );
+    let document = fleet.cli.ok("schema", &["schema", "shop"]);
+    let names: Vec<&str> = document["tables"]
+        .as_array()
+        .expect("the document has tables")
+        .iter()
+        .map(|table| table["name"].as_str().unwrap_or(""))
+        .collect();
+    assert_eq!(names, vec!["products"]);
+    // The file's own listing still tells the whole truth.
+    let info = fleet.cli.ok("info", &["info", "shop"]);
+    let listed: Vec<&str> = info["tables"]
+        .as_array()
+        .expect("the info has tables")
+        .iter()
+        .map(|table| table["name"].as_str().unwrap_or(""))
+        .collect();
+    assert!(
+        listed.contains(&"_litestream_seq"),
+        "the file's listing hides a table of the file: {info}"
+    );
+}
+
+#[test]
 fn an_unknown_database_is_refused() {
     let fleet = Fleet::boot();
     let (success, stdout, stderr) = fleet.cli.run(&["schema", "nosuchdb"]);

@@ -276,8 +276,11 @@ impl Store {
         }
         let db = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
             .map_err(|_| Error::internal())?;
-        // The same list the structure view uses, so `dg info` and
-        // `dg schema` cannot disagree about which tables a database has.
+        // The list the file holds. A replicated database also holds
+        // the replication's own tables, and they are listed here
+        // because this route answers "what is in the file"; the
+        // structure view answers "what is your data" and leaves them
+        // out.
         let tables = super::schema::user_tables(&db)?;
         let mut detail = Vec::with_capacity(tables.len());
         for table in tables {

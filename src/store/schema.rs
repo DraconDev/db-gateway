@@ -42,6 +42,26 @@ pub fn user_tables(conn: &Connection) -> Result<Vec<String>> {
     Ok(tables)
 }
 
+/// The tables whose structure an operator reads.
+///
+/// The gateway's own bookkeeping (`_dg_`) and the replication's
+/// (`_litestream_`) are not the operator's data: this view describes
+/// what the operator's data is made of, so those tables stay out of it.
+/// `dg info` still lists every table in the file -- that route answers
+/// "what is in the file", not "what is your data" -- so the two
+/// surfaces differ here on purpose, and each says what it is.
+pub fn operator_tables(conn: &Connection) -> Result<Vec<String>> {
+    let tables = conn
+        .prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' \
+             AND lower(substr(name,1,4))!='_dg_' \
+             AND name NOT LIKE '_litestream%' ORDER BY name",
+        )?
+        .query_map([], |row| row.get(0))?
+        .collect::<std::result::Result<Vec<String>, _>>()?;
+    Ok(tables)
+}
+
 /// One table's structure, as the gateway reports it.
 pub struct TableStructure {
     /// The table's name.
@@ -101,7 +121,7 @@ pub fn structure(path: &Path) -> Result<Vec<TableStructure>> {
     let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|_| Error::internal())?;
     let mut structures = Vec::new();
-    for name in user_tables(&conn)? {
+    for name in operator_tables(&conn)? {
         structures.push(table_structure(&conn, &name)?);
     }
     Ok(structures)
