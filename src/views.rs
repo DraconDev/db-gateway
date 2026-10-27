@@ -2723,7 +2723,10 @@ pub fn rows_query(
             format!(" WHERE ({when})")
         }
     };
-    let offset = page.saturating_mul(ROWS_PAGE);
+    // A page number that would overflow the offset is refused, not
+    // saturated: a saturated offset reads an arbitrary slice of the
+    // table and calls it page N.
+    let offset = page.checked_mul(ROWS_PAGE).ok_or(RowsRefusal::BadFilter)?;
     Ok(RowsQuery {
         sql: format!(
             "SELECT * FROM {}{condition}{order} LIMIT {ROWS_PAGE} OFFSET {offset}",
@@ -2744,13 +2747,25 @@ fn quote_identifier(name: &str) -> String {
 /// Whether a filter is a read-only condition and not a statement.
 ///
 /// A filter may not contain a statement separator, a comment (which can
-/// comment out the rest of the generated SQL), or a data-modifying
-/// keyword. That is stricter than the query endpoint, which allows a
-/// whole statement; a filter is only ever an expression, so anything
-/// statement-shaped is refused.
+/// comment out the rest of the generated SQL), or a set operation --
+/// `UNION SELECT` is a read, so the write-keyword scan would allow it,
+/// and it would splice a second result set into this one. That is
+/// stricter than the query endpoint, which allows a whole statement; a
+/// filter is only ever an expression, so anything statement-shaped is
+/// refused.
 fn filter_is_safe(when: &str) -> bool {
     if when.contains(';') || when.contains("--") || when.contains("/*") {
         return false;
+    }
+    // A set operation is a statement, not a condition. The keyword scan
+    // below only looks for writes; `UNION`, `INTERSECT` and `EXCEPT` are
+    // reads, and each one would append a result set the operator did
+    // not ask for.
+    let upper = when.to_ascii_uppercase();
+    for operation in ["UNION", "INTERSECT", "EXCEPT"] {
+        if upper.contains(operation) {
+            return false;
+        }
     }
     // The same keyword scan the read-only rule uses, applied to the
     // filter alone: `SELECT * FROM t WHERE (1=1) DELETE` must not pass.

@@ -63,13 +63,11 @@ fn each_page_asks_for_its_own_slice() {
     assert!(first.sql.contains("OFFSET 0"), "{}", first.sql);
     assert!(second.sql.contains("OFFSET 10"), "{}", second.sql);
     assert!(third.sql.contains("OFFSET 70"), "{}", third.sql);
-    // A page number far beyond the table must not wrap or overflow.
-    let far = rows_query(&structure(), "products", u64::MAX, None, None).unwrap();
-    assert!(
-        far.sql.contains("OFFSET 18446744073709551610"),
-        "a huge page number changed shape: {}",
-        far.sql
-    );
+    // A page number whose offset would overflow is refused rather than
+    // saturated: a saturated offset reads an arbitrary slice of the
+    // table and calls it page N, which is worse than saying no.
+    let refused = rows_query(&structure(), "products", u64::MAX, None, None).unwrap_err();
+    assert_eq!(refused, RowsRefusal::BadFilter);
 }
 
 #[test]
