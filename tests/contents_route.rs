@@ -170,3 +170,75 @@ fn only_the_owner_may_ask() {
         "the refusal does not name the reason: {body}"
     );
 }
+
+/// The databases tab shows what each database HOLDS, and says which of
+/// its columns are since-restart counters.
+///
+/// This is the whole point of the work: seven full databases used to
+/// read as seven empty ones, because every column on the tab was an
+/// in-memory counter that a restart zeroes.
+#[test]
+fn the_databases_tab_shows_contents_and_labels_its_counters() {
+    let fleet = Fleet::boot();
+    seed(&fleet);
+    let document = contents(&fleet);
+    let list = fleet.cli.ok("list", &["list", "--json"]);
+    let status = fleet.cli.ok("status", &["status", "--json"]);
+    let table = dg::views::databases(&list, &status, &document);
+    let mut out = Vec::new();
+    table
+        .write(&mut out, &dg::render::Theme::fixed(false, true))
+        .expect("the table writes");
+    let text = String::from_utf8(out).expect("the table is text");
+    // What the database holds, from its file.
+    let headings = text.lines().next().unwrap_or("");
+    for column in ["tables", "rows"] {
+        assert!(
+            headings.contains(column),
+            "the tab has no {column} column: {headings}"
+        );
+    }
+    // The counts are real: this database has 2 tables and 63 rows.
+    let shop = text
+        .lines()
+        .find(|line| line.contains("shop") && !line.contains("database"))
+        .unwrap_or_else(|| panic!("the shop row is missing:\n{text}"));
+    assert!(shop.contains("63"), "the row count is not drawn: {shop}");
+    // Every counter that a restart zeroes is marked, and the mark is
+    // explained: a star nobody explains is a worse hint than none.
+    assert!(
+        headings.contains("rows read*"),
+        "the since-restart counters are not marked: {headings}"
+    );
+    assert!(
+        text.contains("since the gateway"),
+        "the mark is not explained:\n{text}"
+    );
+}
+
+/// The status dashboard keeps its own columns, unstarred.
+///
+/// The traffic table is shared, but the star is the databases tab's:
+/// the dashboard is the traffic view and carries no contents, so its
+/// footnote would have nothing to explain.
+#[test]
+fn the_status_dashboard_keeps_its_unstarred_columns() {
+    let fleet = Fleet::boot();
+    seed(&fleet);
+    let status = fleet.cli.ok("status", &["status", "--json"]);
+    let table = dg::views::per_database_table(&status);
+    let mut out = Vec::new();
+    table
+        .write(&mut out, &dg::render::Theme::fixed(false, true))
+        .expect("the table writes");
+    let text = String::from_utf8(out).expect("the table is text");
+    let headings = text.lines().next().unwrap_or("");
+    assert!(
+        headings.contains("rows read"),
+        "the dashboard lost its read column: {headings}"
+    );
+    assert!(
+        !headings.contains("rows read*"),
+        "the dashboard took a mark it does not explain: {headings}"
+    );
+}
