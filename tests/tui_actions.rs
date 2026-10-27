@@ -264,6 +264,7 @@ fn the_palette_offers_the_operations_an_operator_needs() {
         "refresh",
         "query",
         "tables",
+        "schema",
         "open table",
         "run sql file",
         "run batch file",
