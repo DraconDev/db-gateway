@@ -164,7 +164,7 @@ fn framed_table(
     table: &ViewTable,
     max_rows: usize,
     state: &mut TableState,
-    mut out: TableDraw<'_>,
+    out: TableDraw<'_>,
 ) {
     let caption = table.footer_text().map(str::to_string);
     let inner = block.inner(area);
