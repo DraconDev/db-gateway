@@ -144,10 +144,12 @@ pub fn selection() -> Style {
 ///
 /// The mark is a background, and nothing else: the cells keep the
 /// colours that carry meaning, and the row says which one the pointer
-/// is over. A mark that repainted the text would take the meaning with
-/// it.
+/// is over. The background is a shade darker than the text it sits
+/// behind, not a second accent: a full-strength accent wash across a
+/// whole row glares and eats the text, and a mark that takes the
+/// meaning with it is worse than no mark.
 pub fn hover() -> Style {
-    Style::default().bg(ACCENT).add_modifier(Modifier::BOLD)
+    Style::default().bg(Color::Rgb(0x1a, 0x26, 0x33))
 }
 
 /// The status bar along the bottom.
