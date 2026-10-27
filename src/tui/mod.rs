@@ -167,6 +167,109 @@ pub struct Outcome {
     pub error: Option<String>,
 }
 
+/// A table open in the rows browser.
+///
+/// The browser is a place the operator can stay in, not a one-shot read:
+/// paging, sorting and filtering are all questions about the SAME table,
+/// so the table, the page over it and the choices narrowing it live here
+/// together. Losing them on the next keystroke would turn every key into
+/// a fresh start.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Browser {
+    /// The database the table is in.
+    pub database: String,
+    /// The table being read.
+    pub table: String,
+    /// Which page, counting from zero.
+    pub page: u64,
+    /// The column it is sorted by, and which way.
+    pub sort: Option<(String, crate::views::SortDirection)>,
+    /// The condition narrowing the rows, when there is one.
+    pub filter: Option<String>,
+    /// How many rows the current filter selects.
+    ///
+    /// The table's own total under the filter, not the page's length:
+    /// `rows 11-20 of N` is a statement about the whole answer, and a
+    /// footer that said 10 would make every page look like the last.
+    pub total: u64,
+}
+
+impl Browser {
+    /// A browser on the first page of a table, unsorted and unfiltered.
+    pub fn new(database: &str, table: &str) -> Self {
+        Self {
+            database: database.to_string(),
+            table: table.to_string(),
+            page: 0,
+            sort: None,
+            filter: None,
+            total: 0,
+        }
+    }
+
+    /// The first row number on this page, counting from one, as an
+    /// operator counts.
+    pub fn first_row(&self) -> u64 {
+        self.page
+            .saturating_mul(crate::views::ROWS_PAGE)
+            .saturating_add(1)
+    }
+
+    /// The last row number on this page, or zero when the page is past
+    /// the end of the answer.
+    pub fn last_row(&self) -> u64 {
+        if self.total == 0 || self.first_row() > self.total {
+            return 0;
+        }
+        (self.first_row() + crate::views::ROWS_PAGE - 1).min(self.total)
+    }
+
+    /// Whether there is a page after this one.
+    pub fn has_next(&self) -> bool {
+        self.last_row() != 0 && self.last_row() < self.total
+    }
+
+    /// Whether there is a page before this one.
+    pub fn has_previous(&self) -> bool {
+        self.page > 0
+    }
+
+    /// The footer that says which slice of the answer is on screen.
+    pub fn page_footer(&self) -> String {
+        let mut parts = Vec::new();
+        if self.total == 0 {
+            parts.push("no rows match".to_string());
+        } else {
+            parts.push(format!(
+                "rows {}-{} of {}",
+                self.first_row(),
+                self.last_row(),
+                self.total
+            ));
+        }
+        if let Some((column, direction)) = &self.sort {
+            let arrow = match direction {
+                crate::views::SortDirection::Ascending => "asc",
+                crate::views::SortDirection::Descending => "desc",
+            };
+            parts.push(format!("sorted by {column} {arrow}"));
+        }
+        if let Some(filter) = &self.filter {
+            parts.push(format!("filter: {filter}"));
+        }
+        let mut keys = Vec::new();
+        if self.has_previous() {
+            keys.push("[p] prev");
+        }
+        if self.has_next() {
+            keys.push("[n] next");
+        }
+        keys.push("[s] structure");
+        parts.push(keys.join("  "));
+        parts.join("   ")
+    }
+}
+
 /// How far each tab is scrolled.
 ///
 /// A tab that silently cuts its list is a visibility lie: the operator
@@ -263,6 +366,13 @@ pub struct App {
     pub prompt_prefill: String,
     /// The last action's outcome.
     pub outcome: Option<Outcome>,
+    /// The rows browser, when a table is open in it.
+    ///
+    /// It holds what the operator is looking at -- which table, which
+    /// page, how it is sorted, what it is filtered by -- so the next
+    /// keystroke can ask the gateway for the next page of the same
+    /// question rather than starting over.
+    pub browser: Option<Browser>,
     /// Which tab has the keyboard.
     pub focus: Focus,
     /// How far each tab is scrolled.
@@ -306,6 +416,7 @@ impl App {
             input: String::new(),
             prompt_prefill: String::new(),
             outcome: None,
+            browser: None,
             focus: Focus::Databases,
             scroll: Scroll::default(),
             geometry: Geometry::default(),
