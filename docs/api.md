@@ -405,7 +405,7 @@ idempotency key — so a write waits a minute, and a transfer phase (which
 commits nothing, but means beginning the whole transfer again) waits the
 same. The answer is what removes the doubt, so the CLI waits for it.
 
-The human views are: `dg list`, `dg info`, `dg inspect`, `dg query`, `dg execute`, `dg status`, `dg watch`, `dg backup status`, `dg backup run`, `dg queries`, `dg audit`, `dg branch list`, `dg config list`, `dg key list` and `dg key tokens` (tables and dashboards), and `dg create`, `dg delete`, `dg export`, `dg import`, `dg clone`, `dg diff`, `dg branch create`, `dg branch delete`, `dg vacuum`, `dg integrity`, `dg explain`, `dg restore plan`, `dg key create`, `dg key revoke`, `dg key rotate-owner`, `dg backup verify`, `dg batch`, `dg config set`, `dg config remove` and `dg init` (a headline and the facts behind it). Piped output always stays JSON, so
+The human views are: `dg list`, `dg info`, `dg inspect`, `dg schema`, `dg query`, `dg execute`, `dg status`, `dg watch`, `dg backup status`, `dg backup run`, `dg queries`, `dg audit`, `dg branch list`, `dg config list`, `dg key list` and `dg key tokens` (tables and dashboards), and `dg create`, `dg delete`, `dg export`, `dg import`, `dg clone`, `dg diff`, `dg branch create`, `dg branch delete`, `dg vacuum`, `dg integrity`, `dg explain`, `dg restore plan`, `dg key create`, `dg key revoke`, `dg key rotate-owner`, `dg backup verify`, `dg batch`, `dg config set`, `dg config remove` and `dg init` (a headline and the facts behind it). Piped output always stays JSON, so
 scripts are unaffected.
 
 The one exception is `dg backup digest`, which is a REPORT rather than
@@ -466,6 +466,11 @@ CLI looks the same everywhere. The rules it follows:
 - **`dg inspect <db>` is one database**: what it holds AND what it has
   been doing. `dg info` is what a database IS; `dg inspect` is what it
   has been DOING.
+- **`dg schema <db> [table]` is what a table is MADE OF**: each column's
+  declared type, its not-null and primary-key flags, the table's indexes
+  and foreign keys, and its `CREATE` statement. It reads the structure
+  of the schema, not the rows; a pipe gets the gateway's JSON document
+  unchanged.
 - **The shell is the control surface.** `dg shell` has dot-commands for
   the operator's whole surface — `.status`, `.keys`, `.backups`, plus
   `.tables` and `.schema` — and they draw the SAME views as the
