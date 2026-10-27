@@ -2748,8 +2748,8 @@ fn filter_is_safe(when: &str) -> bool {
     }
     // The same keyword scan the read-only rule uses, applied to the
     // filter alone: `SELECT * FROM t WHERE (1=1) DELETE` must not pass.
-    crate::execution::is_read_only(&[crate::execution::Statement::new(
-        format!("SELECT 1 WHERE {when}"),
-        Vec::new(),
-    )])
+    crate::execution::is_read_only(&[crate::execution::Statement {
+        sql: format!("SELECT 1 WHERE {when}"),
+        args: Vec::new(),
+    }])
 }
