@@ -425,6 +425,14 @@ Billing/Upgrade entries. This audit read the Turso web console and `--help`
 text only; the `turso` CLI is not authenticated here, no live
 `show`/`inspect`/`shell` ran against Turso, and no Turso data was
 created, modified, or deleted. All `dg` testing ran against disposable
-local gateways (temp dirs removed afterwards). No `dg` code, templates,
-or units were changed; the only repository change is this report plus
-the three evidence files cited at the top.
+local gateways (temp dirs removed afterwards).
+
+This report was updated on 2026-10-27, when `dg` gained the structure
+surface described in §5.1: the `GET /v1/databases/{name}/schema` route,
+the `dg schema <database> [table]` command and the TUI's `schema` action.
+That is the only `dg` change this report's second edition covers; the
+repository changes are the new surface (route, command, action, shared
+view, client typing, tests), this report, and the four evidence files
+cited at the top. The Turso captures were taken read-only, and `dg` has
+no outbound Turso contact: the new surface reads the gateway's own
+SQLite file and nothing else.
