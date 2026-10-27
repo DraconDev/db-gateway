@@ -291,12 +291,12 @@ fn the_row_under_the_pointer_is_marked() {
         .expect("the cell is there");
     assert_eq!(
         marked.style().bg,
-        dg::tui::theme::ACCENT,
+        Some(dg::tui::theme::ACCENT),
         "the row under the pointer is not marked"
     );
     assert_ne!(
         unmarked.style().bg,
-        dg::tui::theme::ACCENT,
+        Some(dg::tui::theme::ACCENT),
         "a row the pointer is not over is marked as well"
     );
 }
@@ -317,7 +317,7 @@ fn a_pointer_over_the_header_marks_no_row() {
     let cell = buffer.cell((column, row)).expect("the cell is there");
     assert_ne!(
         cell.style().bg,
-        dg::tui::theme::ACCENT,
+        Some(dg::tui::theme::ACCENT),
         "the header is marked as if it were a row"
     );
 }
