@@ -146,6 +146,17 @@ fn table_widget(table: &ViewTable, area: u16, max_rows: usize) -> Table<'static>
 /// The caption goes directly under the rows, as the CLI prints it. An
 /// explanation pinned to the foot of a tall frame is not next to what it
 /// explains, and "wait p95" is read next to the numbers, not a screen away.
+/// What a drawn table reports back.
+///
+/// The pointer's place, so the row under it can be marked, and the
+/// list the table's own geometry is recorded into, so a click is
+/// resolved against what was really on screen. One argument rather
+/// than two, because the drawing function already takes enough.
+struct TableDraw<'a> {
+    mouse: Option<(u16, u16)>,
+    geometry: &'a mut Vec<TableGeometry>,
+}
+
 fn framed_table(
     frame: &mut Frame,
     area: Rect,
@@ -153,8 +164,7 @@ fn framed_table(
     table: &ViewTable,
     max_rows: usize,
     state: &mut TableState,
-    mouse: Option<(u16, u16)>,
-    geometry: &mut Vec<TableGeometry>,
+    mut out: TableDraw<'_>,
 ) {
     let caption = table.footer_text().map(str::to_string);
     let inner = block.inner(area);
@@ -176,12 +186,12 @@ fn framed_table(
     // row a click would take before taking it. The mark is the row's own
     // background: the cells keep the colours that mean something, and the
     // row says which one the pointer is over.
-    let drawn = TableGeometry {
+    let geometry = TableGeometry {
         area: rows[0],
         offset: state.offset(),
         rows: table.rows().len(),
     };
-    let hovered = mouse.and_then(|(column, row)| drawn.row_at(column, row));
+    let hovered = out.mouse.and_then(|(column, row)| geometry.row_at(column, row));
     if let Some(index) = hovered {
         state.select(Some(index));
     }
@@ -198,7 +208,7 @@ fn framed_table(
         );
     }
     frame.render_widget(block, area);
-    geometry.push(drawn);
+    out.geometry.push(geometry);
 }
 
 /// A section's fields, as lines.
