@@ -161,3 +161,70 @@ fn a_refused_structure_reads_like_any_other_refusal() {
         "the refusal does not carry the code"
     );
 }
+
+/// A whole database opens as its contents.
+///
+/// Opening a database is the question "what is in it", and the answer
+/// is one row per table: how many rows it holds, how many columns,
+/// how many indexes and how many foreign keys. The grid's first column
+/// holds the table names, because that is what a click on a table
+/// needs to name.
+#[test]
+fn a_whole_database_opens_as_its_contents() {
+    let document = json!({
+        "database": "shop",
+        "tombstoned": false,
+        "created_at": 1_700_000_000,
+        "tables": [
+            {"name": "products", "rows": 60,
+             "columns": [{"name": "id", "type": "INTEGER", "not_null": false, "primary_key": true, "default": null},
+                         {"name": "sku", "type": "TEXT", "not_null": true, "primary_key": false, "default": null}],
+             "indexes": [{"name": "sqlite_autoindex_products_1", "unique": true, "columns": ["sku"]}],
+             "foreign_keys": [], "sql": "CREATE TABLE products (id INTEGER PRIMARY KEY, sku TEXT NOT NULL)"},
+            {"name": "orders", "rows": 12,
+             "columns": [{"name": "id", "type": "INTEGER", "not_null": false, "primary_key": true, "default": null}],
+             "indexes": [], "foreign_keys": [], "sql": "CREATE TABLE orders (id INTEGER PRIMARY KEY)"}
+        ]
+    });
+    let outcome = schema_outcome("shop", None, &document);
+    assert!(outcome.error.is_none());
+    assert_eq!(outcome.headline, "shop holds 2 tables");
+    let facts: Vec<(&str, &str)> = outcome
+        .facts
+        .iter()
+        .map(|(key, value)| (key.as_str(), value.as_str()))
+        .collect();
+    assert!(
+        facts.contains(&("database", "shop")),
+        "the facts do not name the database: {facts:?}"
+    );
+    assert!(
+        facts.contains(&("rows", "72")),
+        "the facts do not total the rows: {facts:?}"
+    );
+    let grid = outcome.table.expect("the outcome holds the grid");
+    assert_eq!(grid.rows().len(), 2, "the grid holds one row per table");
+    // The first column names the tables: a click on a table reads it.
+    assert_eq!(
+        grid.columns().first().map(|(name, _)| name.as_str()),
+        Some("table")
+    );
+    let names: Vec<String> = grid
+        .rows()
+        .iter()
+        .map(|row| {
+            row.first()
+                .map(|cell| cell.parts().0.into_owned())
+                .unwrap_or_default()
+        })
+        .collect();
+    assert_eq!(names, vec!["products", "orders"]);
+    // The counts are the table's own.
+    let first = grid.rows()[0]
+        .iter()
+        .map(|cell| cell.parts().0.into_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(first[1], "60", "the row count is wrong: {first:?}");
+    assert_eq!(first[2], "2", "the column count is wrong: {first:?}");
+    assert_eq!(first[3], "1", "the index count is wrong: {first:?}");
+}
