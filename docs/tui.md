@@ -274,18 +274,24 @@ leaves, so the shell you return to keeps its selection and its wheel.
 | Gesture | What it does |
 |---|---|
 | click a tab's label | Open that tab, exactly as its number key does |
+| move the pointer over a table | Mark the row under it, so a click can be seen before it is taken |
+| click a row that names a database | Open that database, exactly as Enter does on the same row |
 | wheel over the body | Scroll the open tab; three lines a notch |
 | click a scrolled body | Back to the top of the open tab |
 
 Only the strip and the body are targets: a click on the separators, the
 top bar or the status line does nothing, and a click that lands while the
 actions list or a prompt is open belongs to that dialogue rather than to
-the view underneath it.
+the view underneath it. The mark follows the pointer and leaves with it:
+a header is never marked, because a header is not a row, and a table the
+pointer has left keeps no mark behind.
 
-Mouse support deliberately stops at navigation and scrolling. Nothing in
-the view can be started by a click, because the destructive actions are
-confirmed by typing their own name and that confirmation must not be
-reachable by a misplaced pointer.
+Mouse support deliberately stops at opening things. Nothing in the view
+can be *changed* by a click — the rows that change something are the
+actions list's, and those are chosen by the keyboard — because the
+destructive actions are confirmed by typing their own name and that
+confirmation must not be reachable by a misplaced pointer. The keys and
+queries tabs open nothing: their rows are not databases.
 
 ## The actions
 

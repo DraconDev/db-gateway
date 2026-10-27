@@ -19,6 +19,18 @@ fixes; 1.0.0 waits for production acceptance.
 
 ## [Unreleased]
 
+### Added
+
+- **The pointer opens databases, and the row under it is marked.** A
+  click on a row that names a database opens it — the same doorway the
+  Enter key opens on the same row, with the database already typed into
+  the open-table prompt. The mark follows the pointer so the operator
+  can see which row a click would take before taking it; the mark is
+  the row's own background, the cells keep the colours that carry
+  meaning, and nothing shifts when the pointer moves. The keys and
+  queries tabs open nothing, and a click never reaches a destructive
+  action.
+
 ### Fixed
 
 - **The action list no longer panics on a terminal with no room.** The
