@@ -42,6 +42,11 @@ pub struct Geometry {
     /// that is not on screen is never a target. The header takes the
     /// first line of the area, so a row's own line is one below it.
     pub tables: Vec<TableGeometry>,
+    /// The last action's own grid, when it has one.
+    ///
+    /// It is a target of its own: the database's contents list its
+    /// tables there, and clicking one opens that table.
+    pub outcome: Option<TableGeometry>,
 }
 
 /// One drawn table: where its rows are, and which rows they are.
@@ -389,6 +394,7 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
         strip_y: Some(rows[0].y),
         body: Some(rows[1]),
         tables: Vec::new(),
+        outcome: None,
     };
     let focus = app.focus;
     // The tables the open tab drew, with their rows: a click is
@@ -404,9 +410,14 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
         Focus::Locations => locations_tab(frame, rows[1], app, &mut tables),
     }
     app.geometry.tables = tables;
+    // The last action's grid is a target of its own: it is where a
+    // database's tables are listed, and clicking one opens it.
+    let mut outcome_geometry = None;
+    let mouse = app.mouse;
     if let Some(outcome) = &app.outcome {
-        outcome_pane(frame, rows[2], outcome);
+        outcome_pane(frame, rows[2], outcome, mouse, &mut outcome_geometry);
     }
+    app.geometry.outcome = outcome_geometry;
 }
 
 /// Every tab, named, with the active one marked.
