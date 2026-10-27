@@ -1186,6 +1186,10 @@ impl App {
                 self.refresh().await;
                 return;
             }
+            Invocation::RefreshRows => {
+                self.reread_page().await;
+                return;
+            }
             Invocation::ExportDatabase { name, out } => {
                 match transfer::export(&self.server, &self.key, name, out).await {
                     Ok(report) => Outcome {
