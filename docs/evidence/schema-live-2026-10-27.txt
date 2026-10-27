@@ -1,0 +1,85 @@
+Live verification of the structure surface against the seeded gateway,
+run 2026-10-27 after deploying the schema feature to micro2 (the host
+behind the 127.0.0.1:7432 tunnel). The service was stopped, the data dir
+copied aside to /var/lib/dg-pre-schema-2026-10-27, the previous binary kept
+as /usr/local/bin/dg.prev-0.9.0, and the container-built bundle binary
+(dist/dg-schema-2026-10-27/dg, `dg 0.9.0`, Ubuntu 24.04 glibc 2.39)
+installed at /usr/local/bin/dg. Per-database exports of all 7 databases
+were taken first to dist/pre-upgrade-schema-2026-10-27/ with SHA256SUMS.
+The service came back `active` on the first start.
+
+1. THE ROUTE, NARROWED — GET /v1/databases/inventory/schema?table=products:
+
+{
+    "created_at": 1792931768,
+    "database": "inventory",
+    "tables": [
+        {
+            "columns": [
+                {"default": null, "name": "id", "not_null": false, "primary_key": true, "type": "INTEGER"},
+                {"default": null, "name": "sku", "not_null": false, "primary_key": false, "type": "TEXT"},
+                {"default": null, "name": "name", "not_null": false, "primary_key": false, "type": "TEXT"},
+                {"default": null, "name": "price_cents", "not_null": false, "primary_key": false, "type": "INTEGER"},
+                {"default": null, "name": "stock", "not_null": false, "primary_key": false, "type": "INTEGER"},
+                {"default": null, "name": "category", "not_null": false, "primary_key": false, "type": "TEXT"},
+                {"default": null, "name": "updated_at", "not_null": false, "primary_key": false, "type": "TEXT"}
+            ],
+            "foreign_keys": [],
+            "indexes": [],
+            "name": "products",
+            "rows": 60,
+            "sql": "CREATE TABLE products (id INTEGER PRIMARY KEY, sku TEXT, name TEXT, price_cents INTEGER, stock INTEGER, category TEXT, updated_at TEXT)"
+        }
+    ],
+    "tombstoned": false
+}
+
+Seven products columns, each with its declared type; id is the primary
+key; 60 rows; the CREATE statement verbatim.
+
+2. THE CLI ON A PIPE — `dg schema inventory` (JSON, unchanged document):
+
+tables: ['products', 'stock_moves', 'suppliers']
+
+Three tables — the operator's own; the replication's `_litestream*`
+tables stay out of the structure view.
+
+`dg schema inventory products` on a pipe:
+
+tables: ['products']
+cols: [('id', 'INTEGER'), ('sku', 'TEXT'), ('name', 'TEXT'),
+       ('price_cents', 'INTEGER'), ('stock', 'INTEGER'),
+       ('category', 'TEXT'), ('updated_at', 'TEXT')]
+
+The narrowing happens on the server; the pipe reads the API's own
+document either way.
+
+3. THE CLI ON A TERMINAL — `dg schema inventory products` under `script`:
+
+products
+  rows     60
+  columns  7
+┌─────────────┬─────────┬──────────┬─────────────┬─────────┐
+│ column      │ type    │ not null │ primary key │ default │
+├─────────────┼─────────┼──────────┼─────────────┼─────────┤
+│ id          │ INTEGER │       no │         yes │         │
+│ sku         │ TEXT    │       no │          no │         │
+│ name        │ TEXT    │       no │          no │         │
+│ price_cents │ INTEGER │       no │          no │         │
+│ stock       │ INTEGER │       no │          no │         │
+│ category    │ TEXT    │       no │          no │         │
+│ updated_at  │ TEXT    │       no │          no │         │
+└─────────────┴─────────┴──────────┴─────────────┴─────────┘
+7 columns
+  created by  CREATE TABLE products (id INTEGER PRIMARY KEY, sku TEXT, name TEXT, price_cents INTEGER, stock INTEGER, category TEXT, updated_at TEXT)
+
+The grid's cells carry each column's name and declared type.
+
+4. DATA INTEGRITY AFTER THE SWAP — per-database table counts:
+
+inventory: tables=5, orders: tables=5, ledger: tables=5, sessions:
+tables=4, notes: tables=4, billing_dev_pilot: tables=4,
+verify_probe: tables=4.
+
+(All counts include the replication's own tables, which `dg info`
+lists because it answers "what is in the file".)
