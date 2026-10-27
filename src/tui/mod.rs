@@ -254,6 +254,13 @@ pub struct App {
     /// resolved against what was actually drawn rather than a second guess
     /// at the layout.
     pub geometry: Geometry,
+    /// Where the pointer is, in cells, as the last mouse event said.
+    ///
+    /// The view marks the row under the pointer, so the operator can see
+    /// which row a click would take before taking it. A pointer the
+    /// terminal has never reported is not a pointer, and a row that is
+    /// marked without a pointer under it would be a lie.
+    pub mouse: Option<(u16, u16)>,
     /// The action waiting to run.
     pending: Option<Invocation>,
     /// Whether the view should end.

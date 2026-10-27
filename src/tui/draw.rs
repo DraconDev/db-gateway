@@ -36,6 +36,42 @@ pub struct Geometry {
     pub strip_y: Option<u16>,
     /// The body rectangle of the open tab.
     pub body: Option<Rect>,
+    /// Every table drawn in the open tab, with the rows it holds.
+    ///
+    /// A click is resolved against the table it landed in, so a table
+    /// that is not on screen is never a target. The header takes the
+    /// first line of the area, so a row's own line is one below it.
+    pub tables: Vec<TableGeometry>,
+}
+
+/// One drawn table: where its rows are, and which rows they are.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TableGeometry {
+    /// The rectangle the rows are drawn in, the header included.
+    pub area: Rect,
+    /// The first row on screen: the table's scroll offset.
+    pub offset: usize,
+    /// How many rows the table holds.
+    pub rows: usize,
+}
+
+impl TableGeometry {
+    /// The row under a cell, if the cell is on a row.
+    ///
+    /// The header is the first line of the area, and a click on the
+    /// header is a click on the table's head, not on one of its rows.
+    /// The row is the table's own index, so a scrolled table answers
+    /// with the row the operator actually clicked.
+    pub fn row_at(&self, column: u16, row: u16) -> Option<usize> {
+        if column < self.area.x || column >= self.area.x.saturating_add(self.area.width) {
+            return None;
+        }
+        if row <= self.area.y || row >= self.area.y.saturating_add(self.area.height) {
+            return None;
+        }
+        let index = self.offset + usize::from(row - self.area.y - 1);
+        (index < self.rows).then_some(index)
+    }
 }
 
 /// The paint for a view style.
