@@ -399,6 +399,17 @@ enum Command {
         /// Database to describe.
         name: String,
     },
+    /// Show the structure of a database's tables: the columns, their
+    /// types and flags, and the indexes and foreign keys.
+    ///
+    /// `dg info` says which tables a database has; this says what is
+    /// inside one of them.
+    Schema {
+        /// Database to describe.
+        name: String,
+        /// One table to describe; every table when left out.
+        table: Option<String>,
+    },
     /// Clone a database into a new one via the SQLite backup API.
     Clone {
         /// Existing database to copy from.
@@ -1048,6 +1059,9 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         Command::List => cmd_data::list(&server, json, &key_path).await?,
         Command::Inspect { name } => cmd_data::inspect(&server, json, &key_path, name).await?,
         Command::Info { name } => cmd_data::info(&server, json, &key_path, name).await?,
+        Command::Schema { name, table } => {
+            cmd_data::schema(&server, json, &key_path, name, table).await?
+        }
         Command::Create { name } => cmd_data::create(&server, json, &key_path, name).await?,
         Command::Clone {
             source,
