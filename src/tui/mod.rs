@@ -1249,6 +1249,66 @@ pub fn open_table_outcome(name: &str, table: &str, page: u64, response: &Value) 
     }
 }
 
+/// The outcome of the rows browser: one page of a table, with the
+/// footer that says which slice of the answer it is.
+///
+/// The footer is the browser's own, not the grid's: "rows 11-20 of 60"
+/// is a statement about the whole answer under the current filter, and
+/// only the browser knows that number. The grid shows the rows.
+pub fn browser_outcome(browser: &Browser, response: &Value) -> Outcome {
+    if let Some(error) = refusal(response) {
+        return error;
+    }
+    let Some(columns) = response["columns"].as_array() else {
+        return Outcome {
+            headline: "the table could not be read".to_string(),
+            facts: vec![
+                ("database".to_string(), browser.database.clone()),
+                ("table".to_string(), browser.table.clone()),
+            ],
+            table: None,
+            error: Some("the gateway answered without columns".to_string()),
+        };
+    };
+    let rows: Vec<Vec<Value>> = response["rows"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|row| row.as_array().cloned().unwrap_or_default())
+        .collect();
+    let names: Vec<String> = columns
+        .iter()
+        .map(|column| column.as_str().unwrap_or("").to_string())
+        .collect();
+    let mut grid = render::Table::from_json(&names, &rows);
+    grid.footer(browser.page_footer());
+    Outcome {
+        headline: format!("{} in {}", browser.table, browser.database),
+        facts: vec![
+            ("database".to_string(), browser.database.clone()),
+            ("table".to_string(), browser.table.clone()),
+        ],
+        table: Some(grid),
+        error: None,
+    }
+}
+
+/// The outcome of a count: how many rows the current filter selects.
+///
+/// Read on its own so the page and the total cannot be confused: the
+/// page answers "what is on screen", the count answers "how much is
+/// there". One request could not answer both without the gateway
+/// returning a second number nobody asked it for.
+pub fn count_total(response: &Value) -> Option<u64> {
+    response["rows"]
+        .as_array()?
+        .first()?
+        .as_array()?
+        .first()?
+        .as_u64()
+}
+
 /// The refusal the gateway sent, read the way every outcome reads
 /// one, so a refused table opens with the same words as any other
 /// refused act.
