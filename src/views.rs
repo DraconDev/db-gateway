@@ -2774,3 +2774,30 @@ fn filter_is_safe(when: &str) -> bool {
         args: Vec::new(),
     }])
 }
+
+/// The statement that counts a table's rows under the same filter.
+///
+/// The browser's footer says `rows 11-20 of N`, and N has to be the
+/// count of what the filter selects -- not the table's total. Otherwise
+/// a filtered view claims to have 60 rows and shows 4, which is the kind
+/// of quiet lie that makes an operator distrust the whole view.
+pub fn rows_count_query(
+    structure: &Value,
+    table: &str,
+    filter: Option<&str>,
+) -> std::result::Result<RowsQuery, RowsRefusal> {
+    // The same validation as the page query, by asking it: a table that
+    // does not exist, or a filter that is not a condition, is refused in
+    // exactly one place.
+    rows_query(structure, table, 0, None, filter)?;
+    let condition = match filter.map(str::trim) {
+        None | Some("") => String::new(),
+        Some(when) => format!(" WHERE ({when})"),
+    };
+    Ok(RowsQuery {
+        sql: format!(
+            "SELECT count(*) FROM {}{condition}",
+            quote_identifier(table)
+        ),
+    })
+}
