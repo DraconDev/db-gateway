@@ -218,10 +218,7 @@ pub enum Invocation {
     /// List one database's tables.
     Tables { name: String },
     /// Read one database's table structure.
-    Schema {
-        name: String,
-        table: Option<String>,
-    },
+    Schema { name: String, table: Option<String> },
     /// Page through one table's rows.
     OpenTable {
         name: String,

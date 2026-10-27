@@ -79,7 +79,10 @@ fn the_outcome_names_the_table_and_carries_its_columns() {
     assert_eq!(outcome.headline, "structure of products in shop");
     let facts: Vec<&str> = outcome.facts.iter().map(|(key, _)| key.as_str()).collect();
     assert!(facts.contains(&"table"), "the facts do not name the table");
-    assert!(facts.contains(&"columns"), "the facts do not count the columns");
+    assert!(
+        facts.contains(&"columns"),
+        "the facts do not count the columns"
+    );
     let table = outcome.table.expect("the outcome holds the grid");
     assert_eq!(table.len(), 3, "the grid holds one row per column");
     let text = format!("{table:?}");
@@ -122,7 +125,10 @@ fn the_grid_is_drawn_on_a_test_terminal() {
         text.contains("structure of products in shop"),
         "the headline is not drawn: {text}"
     );
-    assert!(text.contains("price_cents"), "the columns are not drawn: {text}");
+    assert!(
+        text.contains("price_cents"),
+        "the columns are not drawn: {text}"
+    );
     assert!(text.contains("TEXT"), "the types are not drawn: {text}");
 }
 
