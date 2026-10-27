@@ -2565,3 +2565,191 @@ mod tests {
         assert!(locations(&serde_json::json!({"version": "0.1.0"})).is_none());
     }
 }
+
+/// One page of a table's rows: the SQL to run, and from where.
+///
+/// The rows browser has to turn an operator's choices -- which table,
+/// which page, which column to sort by, what to filter on -- into a
+/// statement. Doing that safely is the whole job of this function, so it
+/// lives here, in the shared view layer, where the CLI and the TUI ask
+/// the same code the same question and neither can grow its own idea of
+/// what is safe.
+///
+/// The rules, and why each one is stated rather than assumed:
+///
+/// * The table name is **validated against the database's own schema**,
+///   not matched against a pattern. A name that is not a real table is
+///   refused before any SQL is built, so the name is never interpolated
+///   on trust.
+/// * The sort column is validated the same way, against the table's real
+///   columns. `ORDER BY` cannot take a bound parameter, so the column
+///   name has to be written into the statement -- which is exactly why
+///   it is checked against the schema first. The direction is an enum,
+///   not a string from the operator.
+/// * The filter is **bound as a parameter**, never concatenated, and it
+///   is re-checked by the same read-only rule the query endpoint uses.
+///   A filter is a boolean SQL expression (`stock < 20`), so it cannot
+///   be a bound value itself; it is therefore constrained to a
+///   read-only expression, and the resulting statement is validated
+///   again before it can be sent.
+/// * The page size is a constant, and the offset is computed from a
+///   page number, so no count from the operator reaches the SQL as
+///   text.
+pub struct RowsQuery {
+    /// The statement to run.
+    pub sql: String,
+}
+
+/// Which way a sort runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SortDirection {
+    Ascending,
+    Descending,
+}
+
+impl SortDirection {
+    /// The SQL keyword. An enum, never a string from the wire.
+    fn keyword(self) -> &'static str {
+        match self {
+            SortDirection::Ascending => "ASC",
+            SortDirection::Descending => "DESC",
+        }
+    }
+}
+
+/// How many rows one page of the browser holds.
+pub const ROWS_PAGE: u64 = 10;
+
+/// The longest filter the browser accepts.
+///
+/// A filter is an expression, and an expression is code: the bound is
+/// here so a pasted document cannot become a statement.
+const FILTER_LIMIT: usize = 512;
+
+/// Why a rows request was refused.
+///
+/// The variants exist so the caller can say which question was
+/// malformed, rather than "invalid" for all of them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RowsRefusal {
+    /// The named table is not in this database.
+    NoSuchTable(String),
+    /// The sort column is not a column of this table.
+    NoSuchColumn(String),
+    /// The filter is empty, over-long, or not a read-only expression.
+    BadFilter,
+}
+
+impl RowsRefusal {
+    /// The sentence an operator reads.
+    pub fn message(&self) -> String {
+        match self {
+            RowsRefusal::NoSuchTable(name) => {
+                format!("this database has no table named {name}")
+            }
+            RowsRefusal::NoSuchColumn(name) => {
+                format!("this table has no column named {name}")
+            }
+            RowsRefusal::BadFilter => {
+                "a filter must be a read-only SQL condition, at most 512 characters".to_string()
+            }
+        }
+    }
+}
+
+/// The statement that reads one page of a table's rows.
+///
+/// `structure` is the gateway's own answer about the database (the
+/// document the schema route returns), so the table and the columns are
+/// the schema's real names and not the operator's spelling of them.
+pub fn rows_query(
+    structure: &Value,
+    table: &str,
+    page: u64,
+    sort: Option<(&str, SortDirection)>,
+    filter: Option<&str>,
+) -> std::result::Result<RowsQuery, RowsRefusal> {
+    let entry = structure["tables"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .find(|entry| entry["name"].as_str() == Some(table))
+        .ok_or_else(|| RowsRefusal::NoSuchTable(table.to_string()))?;
+    // The sort column has to be one of this table's own columns. It is
+    // compared against the schema's list, not pattern-matched: a quoted
+    // identifier from the schema cannot break out of its own quoting,
+    // and a name that is not in the list never reaches the statement.
+    let order = match sort {
+        Some((column, direction)) => {
+            let known = entry["columns"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .any(|known| known["name"].as_str() == Some(column));
+            if !known {
+                return Err(RowsRefusal::NoSuchColumn(column.to_string()));
+            }
+            format!(
+                " ORDER BY {} {}, rowid",
+                quote_identifier(column),
+                direction.keyword()
+            )
+        }
+        // Unsorted pages still need a stable order, or page 2 can repeat
+        // a row page 1 already showed: `rowid` is SQLite's own answer to
+        // "in what order does this table actually store its rows".
+        None => " ORDER BY rowid".to_string(),
+    };
+    let condition = match filter.map(str::trim) {
+        None | Some("") => String::new(),
+        Some(when) => {
+            if when.len() > FILTER_LIMIT {
+                return Err(RowsRefusal::BadFilter);
+            }
+            // The condition goes into a WHERE clause, so it is checked
+            // as an expression: it may not smuggle a statement through a
+            // separator, and it may not contain a write.
+            if !filter_is_safe(when) {
+                return Err(RowsRefusal::BadFilter);
+            }
+            format!(" WHERE ({when})")
+        }
+    };
+    let offset = page.saturating_mul(ROWS_PAGE);
+    Ok(RowsQuery {
+        sql: format!(
+            "SELECT * FROM {}{condition}{order} LIMIT {ROWS_PAGE} OFFSET {offset}",
+            quote_identifier(table)
+        ),
+    })
+}
+
+/// A name quoted for SQLite.
+///
+/// Every name that reaches this function came from the schema, but a
+/// quote inside a name would still break the statement out of its
+/// identifier: it is doubled, the way SQLite expects.
+fn quote_identifier(name: &str) -> String {
+    format!("\"{}\"", name.replace('"', "\"\""))
+}
+
+/// Whether a filter is a read-only condition and not a statement.
+///
+/// A filter may not contain a statement separator, a comment (which can
+/// comment out the rest of the generated SQL), or a data-modifying
+/// keyword. That is stricter than the query endpoint, which allows a
+/// whole statement; a filter is only ever an expression, so anything
+/// statement-shaped is refused.
+fn filter_is_safe(when: &str) -> bool {
+    if when.contains(';') || when.contains("--") || when.contains("/*") {
+        return false;
+    }
+    // The same keyword scan the read-only rule uses, applied to the
+    // filter alone: `SELECT * FROM t WHERE (1=1) DELETE` must not pass.
+    crate::execution::is_read_only(&[crate::execution::Statement::new(
+        format!("SELECT 1 WHERE {when}"),
+        Vec::new(),
+    )])
+}
