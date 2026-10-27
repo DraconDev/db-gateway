@@ -378,14 +378,19 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
         body: Some(rows[1]),
     };
     let focus = app.focus;
+    // The tables the open tab drew, with their rows: a click is
+    // resolved against them, so a click can only ever land on a row
+    // that was really on screen.
+    let mut tables: Vec<TableGeometry> = Vec::new();
     match focus {
-        Focus::Databases => databases_tab(frame, rows[1], app),
+        Focus::Databases => databases_tab(frame, rows[1], app, &mut tables),
         Focus::Service => service_tab(frame, rows[1], app),
-        Focus::Backups => backups_tab(frame, rows[1], app),
-        Focus::Keys => keys_tab(frame, rows[1], app),
-        Focus::Queries => queries_tab(frame, rows[1], app),
-        Focus::Locations => locations_tab(frame, rows[1], app),
+        Focus::Backups => backups_tab(frame, rows[1], app, &mut tables),
+        Focus::Keys => keys_tab(frame, rows[1], app, &mut tables),
+        Focus::Queries => queries_tab(frame, rows[1], app, &mut tables),
+        Focus::Locations => locations_tab(frame, rows[1], app, &mut tables),
     }
+    app.geometry.tables = tables;
     if let Some(outcome) = &app.outcome {
         outcome_pane(frame, rows[2], outcome);
     }
@@ -647,7 +652,7 @@ fn service_tab(frame: &mut Frame, area: Rect, app: &mut App) {
 /// is the one this tab exists for, and `docs/tui.md` promises it. The test
 /// that should have caught that looked for the substring "fresh", which
 /// every screen contains in the word "refresh" on the command bar.
-fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App) {
+fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App, tables: &mut Vec<TableGeometry>) {
     let block = pane(app.focus == Focus::Backups);
     let Some(backups) = &app.backups else {
         frame.render_widget(Paragraph::new("no answer yet").block(block), area);
@@ -791,6 +796,7 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App) {
         if scrolling {
             state = TableState::default().with_offset(offset);
         }
+        let mouse = app.mouse;
         framed_table(
             frame,
             rows[index + 1],
@@ -798,12 +804,14 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App) {
             table,
             usize::MAX,
             &mut state,
+            mouse,
+            tables,
         );
     }
 }
 
 /// The credentials that exist.
-fn keys_tab(frame: &mut Frame, area: Rect, app: &mut App) {
+fn keys_tab(frame: &mut Frame, area: Rect, app: &mut App, tables: &mut Vec<TableGeometry>) {
     match &app.keys {
         Some(keys) => {
             let table = views::keys(keys);
@@ -813,7 +821,17 @@ fn keys_tab(frame: &mut Frame, area: Rect, app: &mut App) {
                 app.visible_table_rows(table.footer_text().is_some()),
             );
             let mut state = TableState::default().with_offset(app.scroll.keys as usize);
-            framed_table(frame, area, block, &table, usize::MAX, &mut state);
+            let mouse = app.mouse;
+            framed_table(
+                frame,
+                area,
+                block,
+                &table,
+                usize::MAX,
+                &mut state,
+                mouse,
+                tables,
+            );
         }
         None => {
             let block = pane(app.focus == Focus::Keys);
@@ -829,7 +847,7 @@ fn keys_tab(frame: &mut Frame, area: Rect, app: &mut App) {
 /// gateway on its way to SQLite. What is shown is the SHAPE of a
 /// statement -- its SQL with every literal replaced by a placeholder --
 /// so a row names a statement without quoting the data it carried.
-fn queries_tab(frame: &mut Frame, area: Rect, app: &mut App) {
+fn queries_tab(frame: &mut Frame, area: Rect, app: &mut App, tables: &mut Vec<TableGeometry>) {
     match &app.queries {
         Some(payload) => {
             let table = views::query_table(payload);
@@ -839,7 +857,17 @@ fn queries_tab(frame: &mut Frame, area: Rect, app: &mut App) {
                 app.visible_table_rows(table.footer_text().is_some()),
             );
             let mut state = TableState::default().with_offset(app.scroll.queries as usize);
-            framed_table(frame, area, block, &table, usize::MAX, &mut state);
+            let mouse = app.mouse;
+            framed_table(
+                frame,
+                area,
+                block,
+                &table,
+                usize::MAX,
+                &mut state,
+                mouse,
+                tables,
+            );
         }
         None => {
             let block = pane(app.focus == Focus::Queries);

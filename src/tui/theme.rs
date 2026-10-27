@@ -140,6 +140,16 @@ pub fn selection() -> Style {
         .add_modifier(Modifier::BOLD)
 }
 
+/// The table row under the pointer.
+///
+/// The mark is a background, and nothing else: the cells keep the
+/// colours that carry meaning, and the row says which one the pointer
+/// is over. A mark that repainted the text would take the meaning with
+/// it.
+pub fn hover() -> Style {
+    Style::default().bg(ACCENT).add_modifier(Modifier::BOLD)
+}
+
 /// The status bar along the bottom.
 pub fn status() -> Style {
     Style::default().fg(SURFACE)

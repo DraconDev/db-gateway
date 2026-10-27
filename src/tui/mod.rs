@@ -346,7 +346,16 @@ impl App {
             return;
         }
         match mouse.kind {
-            MouseEventKind::Down(MouseButton::Left) => self.on_click(mouse.column, mouse.row),
+            MouseEventKind::Moved(_) | MouseEventKind::Drag(_) => {
+                // The pointer's place is remembered so the row under it
+                // can be marked, and so a click without a move first
+                // still knows which row it landed on.
+                self.mouse = Some((mouse.column, mouse.row));
+            }
+            MouseEventKind::Down(MouseButton::Left) => {
+                self.mouse = Some((mouse.column, mouse.row));
+                self.on_click(mouse.column, mouse.row);
+            }
             // Three lines a notch is what a terminal wheel usually carries,
             // and scrolling faster than the keyboard's single line is what
             // makes a long table usable with a trackpad.
