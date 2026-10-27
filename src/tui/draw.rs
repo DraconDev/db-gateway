@@ -153,6 +153,8 @@ fn framed_table(
     table: &ViewTable,
     max_rows: usize,
     state: &mut TableState,
+    mouse: Option<(u16, u16)>,
+    geometry: &mut Vec<TableGeometry>,
 ) {
     let caption = table.footer_text().map(str::to_string);
     let inner = block.inner(area);
@@ -170,7 +172,25 @@ fn framed_table(
         Constraint::Length(u16::from(caption.is_some())),
     ])
     .split(inner);
-    frame.render_stateful_widget(table_widget(table, inner.width, max_rows), rows[0], state);
+    // The row under the pointer is marked, so the operator can see which
+    // row a click would take before taking it. The mark is the row's own
+    // background: the cells keep the colours that mean something, and the
+    // row says which one the pointer is over.
+    let drawn = TableGeometry {
+        area: rows[0],
+        offset: state.offset(),
+        rows: table.rows().len(),
+    };
+    let hovered = mouse.and_then(|(column, row)| drawn.row_at(column, row));
+    if let Some(index) = hovered {
+        state.selected = Some(index);
+    }
+    let widget = table_widget(table, inner.width, max_rows)
+        .row_highlight_style(crate::tui::theme::hover())
+        // The mark is a background, not a symbol: the table never reserves
+        // a column for it, so nothing shifts when the pointer moves.
+        .highlight_spacing(ratatui::widgets::HighlightSpacing::Never);
+    frame.render_stateful_widget(widget, rows[0], state);
     if let Some(text) = caption {
         frame.render_widget(
             Paragraph::new(text).style(crate::tui::theme::status()),
@@ -178,6 +198,7 @@ fn framed_table(
         );
     }
     frame.render_widget(block, area);
+    geometry.push(drawn);
 }
 
 /// A section's fields, as lines.
