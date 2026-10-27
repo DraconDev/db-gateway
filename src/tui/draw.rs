@@ -191,7 +191,9 @@ fn framed_table(
         offset: state.offset(),
         rows: table.rows().len(),
     };
-    let hovered = out.mouse.and_then(|(column, row)| geometry.row_at(column, row));
+    let hovered = out
+        .mouse
+        .and_then(|(column, row)| geometry.row_at(column, row));
     if let Some(index) = hovered {
         state.select(Some(index));
     }
@@ -810,8 +812,10 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App, drawn: &mut Vec<Tab
             table,
             usize::MAX,
             &mut state,
-            mouse,
-            drawn,
+            TableDraw {
+                mouse,
+                geometry: drawn,
+            },
         );
     }
 }
