@@ -1310,6 +1310,306 @@ pub fn database_tables(info: &Value) -> Table {
     table
 }
 
+/// One table's structure, as the shared view layer reads it.
+///
+/// The reading happens once, from the gateway's own document, so the
+/// CLI and the terminal view cannot disagree about what a table
+/// holds. The fields are what an operator checks a table for: the
+/// column's name, the type it stores, whether it may be null, and
+/// whether it is the primary key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TableStructure {
+    /// The table's name.
+    pub name: String,
+    /// How many rows it holds.
+    pub rows: u64,
+    /// Its columns, in declaration order.
+    pub columns: Vec<ColumnStructure>,
+    /// Its indexes.
+    pub indexes: Vec<IndexStructure>,
+    /// Its foreign keys.
+    pub foreign_keys: Vec<ForeignKeyStructure>,
+    /// The statement that created it, verbatim.
+    pub sql: Option<String>,
+}
+
+/// One column of a table.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ColumnStructure {
+    /// The column's name.
+    pub name: String,
+    /// Its declared type, empty when the schema gave none.
+    pub kind: String,
+    /// Whether the schema forbids a null.
+    pub not_null: bool,
+    /// Whether the column is part of the primary key.
+    pub primary_key: bool,
+    /// Its default expression, when it has one.
+    pub default: Option<String>,
+}
+
+/// One index of a table.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IndexStructure {
+    /// The index's name.
+    pub name: String,
+    /// Whether it is unique.
+    pub unique: bool,
+    /// The columns it covers, in order.
+    pub columns: Vec<String>,
+}
+
+/// One foreign key of a table.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ForeignKeyStructure {
+    /// The table it points at.
+    pub table: String,
+    /// The column it points from.
+    pub from: String,
+    /// The column it points at.
+    pub to: String,
+    /// What happens on update.
+    pub on_update: String,
+    /// What happens on delete.
+    pub on_delete: String,
+}
+
+/// The tables of a `GET /v1/databases/{name}/schema` answer.
+///
+/// One table when a name is given, every table when it is not. A name
+/// that matches nothing yields no table: a structure view that
+/// invented one would be worse than one that says there is none.
+pub fn structures(document: &Value, table: Option<&str>) -> Vec<TableStructure> {
+    document["tables"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|entry| {
+            let name = entry["name"].as_str().unwrap_or("").to_string();
+            if let Some(wanted) = table
+                && name != wanted
+            {
+                return None;
+            }
+            Some(TableStructure {
+                name,
+                rows: entry["rows"].as_u64().unwrap_or(0),
+                columns: entry["columns"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|column| ColumnStructure {
+                        name: column["name"].as_str().unwrap_or("").to_string(),
+                        kind: column["type"].as_str().unwrap_or("").to_string(),
+                        not_null: column["not_null"].as_bool().unwrap_or(false),
+                        primary_key: column["primary_key"].as_bool().unwrap_or(false),
+                        default: column["default"].as_str().map(str::to_string),
+                    })
+                    .collect(),
+                indexes: entry["indexes"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|index| IndexStructure {
+                        name: index["name"].as_str().unwrap_or("").to_string(),
+                        unique: index["unique"].as_bool().unwrap_or(false),
+                        columns: index["columns"]
+                            .as_array()
+                            .cloned()
+                            .unwrap_or_default()
+                            .iter()
+                            .filter_map(|column| column.as_str().map(str::to_string))
+                            .collect(),
+                    })
+                    .collect(),
+                foreign_keys: entry["foreign_keys"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|key| ForeignKeyStructure {
+                        table: key["table"].as_str().unwrap_or("").to_string(),
+                        from: key["from"].as_str().unwrap_or("").to_string(),
+                        to: key["to"].as_str().unwrap_or("").to_string(),
+                        on_update: key["on_update"].as_str().unwrap_or("").to_string(),
+                        on_delete: key["on_delete"].as_str().unwrap_or("").to_string(),
+                    })
+                    .collect(),
+                sql: entry["sql"].as_str().map(str::to_string),
+            })
+        })
+        .collect()
+}
+
+/// One table's columns, as the grid an operator reads.
+///
+/// The flags are words rather than blanks: a blank cell in a schema
+/// grid reads as "not known" when it means "no", and "no" is the fact
+/// that matters when a column may be null or may not be the key.
+pub fn structure_columns(table: &TableStructure) -> Table {
+    let mut grid = Table::new();
+    grid.column("column", Align::Left);
+    grid.column("type", Align::Left);
+    grid.column("not null", Align::Right);
+    grid.column("primary key", Align::Right);
+    grid.column("default", Align::Left);
+    for column in &table.columns {
+        grid.row(vec![
+            Cell::text(column.name.clone()),
+            Cell::text(if column.kind.is_empty() {
+                "none".to_string()
+            } else {
+                column.kind.clone()
+            }),
+            Cell::text(if column.not_null { "yes" } else { "no" }),
+            Cell::text(if column.primary_key { "yes" } else { "no" }),
+            Cell::text(column.default.clone().unwrap_or_default()),
+        ]);
+    }
+    grid.footer(if table.columns.len() == 1 {
+        "1 column".to_string()
+    } else {
+        format!("{} columns", table.columns.len())
+    });
+    grid
+}
+
+/// One table's indexes, as the grid an operator reads.
+pub fn structure_indexes(table: &TableStructure) -> Table {
+    let mut grid = Table::new();
+    grid.column("index", Align::Left);
+    grid.column("unique", Align::Right);
+    grid.column("columns", Align::Left);
+    for index in &table.indexes {
+        grid.row(vec![
+            Cell::text(index.name.clone()),
+            Cell::text(if index.unique { "yes" } else { "no" }),
+            Cell::text(index.columns.join(", ")),
+        ]);
+    }
+    grid.footer(if table.indexes.len() == 1 {
+        "1 index".to_string()
+    } else {
+        format!("{} indexes", table.indexes.len())
+    });
+    grid
+}
+
+/// One table's foreign keys, as the grid an operator reads.
+pub fn structure_foreign_keys(table: &TableStructure) -> Table {
+    let mut grid = Table::new();
+    grid.column("column", Align::Left);
+    grid.column("references", Align::Left);
+    grid.column("on update", Align::Left);
+    grid.column("on delete", Align::Left);
+    for key in &table.foreign_keys {
+        let target = if key.to.is_empty() {
+            key.table.clone()
+        } else {
+            format!("{}.{}", key.table, key.to)
+        };
+        grid.row(vec![
+            Cell::text(key.from.clone()),
+            Cell::text(target),
+            Cell::text(key.on_update.clone()),
+            Cell::text(key.on_delete.clone()),
+        ]);
+    }
+    grid.footer(if table.foreign_keys.len() == 1 {
+        "1 foreign key".to_string()
+    } else {
+        format!("{} foreign keys", table.foreign_keys.len())
+    });
+    grid
+}
+
+/// A database's tables and their structure, as the sections a terminal
+/// command draws.
+///
+/// One section per table: the columns are the answer, and the indexes
+/// and foreign keys follow when the table has them. A table with
+/// neither does not draw empty boxes: an empty index table reads as
+/// "this table has no indexes" only when it says so, and here it says
+/// so by not being there at all.
+pub fn structure_sections(document: &Value, table: Option<&str>) -> Vec<Section> {
+    let tables = structures(document, table);
+    if tables.is_empty() {
+        let why = match table {
+            Some(wanted) => format!("this database has no table named {wanted}"),
+            None => "this database has no table to describe".to_string(),
+        };
+        return vec![unreported("structure", &why)];
+    }
+    tables
+        .iter()
+        .map(|entry| {
+            let mut section = Section::new(entry.name.clone());
+            section.field("rows", Cell::number(entry.rows));
+            section.field("columns", Cell::number(entry.columns.len() as u64));
+            section.table(structure_columns(entry));
+            if !entry.indexes.is_empty() {
+                section.table(structure_indexes(entry));
+            }
+            if !entry.foreign_keys.is_empty() {
+                section.table(structure_foreign_keys(entry));
+            }
+            if let Some(sql) = &entry.sql {
+                section.field("created by", Cell::text(sql.clone()));
+            }
+            section
+        })
+        .collect()
+}
+
+/// The facts one table's structure carries, for a surface that draws a
+/// headline and a few facts beside one grid.
+pub fn structure_facts(table: &TableStructure) -> Vec<(String, String)> {
+    let mut facts = vec![
+        ("table".to_string(), table.name.clone()),
+        ("rows".to_string(), table.rows.to_string()),
+        (
+            "columns".to_string(),
+            if table.columns.len() == 1 {
+                "1".to_string()
+            } else {
+                table.columns.len().to_string()
+            },
+        ),
+    ];
+    if !table.indexes.is_empty() {
+        facts.push((
+            "indexes".to_string(),
+            table
+                .indexes
+                .iter()
+                .map(|index| {
+                    if index.unique {
+                        format!("{} (unique)", index.name)
+                    } else {
+                        index.name.clone()
+                    }
+                })
+                .collect::<Vec<String>>()
+                .join(", "),
+        ));
+    }
+    if !table.foreign_keys.is_empty() {
+        facts.push((
+            "foreign keys".to_string(),
+            table
+                .foreign_keys
+                .iter()
+                .map(|key| format!("{} -> {}", key.from, key.table))
+                .collect::<Vec<String>>()
+                .join(", "),
+        ));
+    }
+    facts
+}
+
 /// What one database has been doing, as the `activity` section.
 ///
 /// The p95 and the max are different facts and are labelled as such:
