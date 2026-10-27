@@ -1369,3 +1369,39 @@ fn a_long_error_is_cut_and_says_so() {
         "the error was not cut at all:\n{bar}"
     );
 }
+
+/// The action list survives a terminal with no room.
+///
+/// The popup's size is clamped into the room the terminal has, and the
+/// clamp's bounds are ordered before it is used: a pty with no window
+/// size reports none, and `u16::clamp` panics on an empty range. A
+/// view that panics over the size of its own window takes the
+/// operator's terminal with it, and the action list is opened with one
+/// keystroke.
+#[test]
+fn the_action_list_survives_a_terminal_with_no_room() {
+    for (width, height) in [(0, 0), (1, 1), (10, 3), (80, 6), (200, 40)] {
+        let mut app = app();
+        app.on_key(key(ratatui::crossterm::event::KeyCode::Char(':')));
+        let _ = screen(&mut app, width, height);
+    }
+}
+
+/// The action list names the structure read.
+///
+/// The operator looks for the action that says what a table is made of;
+/// it is in the list beside the other reads.
+#[test]
+fn the_action_list_offers_the_structure_read() {
+    let mut app = app();
+    app.on_key(key(ratatui::crossterm::event::KeyCode::Char(':')));
+    let text = screen(&mut app, 120, 40);
+    assert!(
+        text.contains("schema"),
+        "the action list does not offer the structure read:\n{text}"
+    );
+    assert!(
+        text.contains("tables"),
+        "the action list lost the table list:\n{text}"
+    );
+}
