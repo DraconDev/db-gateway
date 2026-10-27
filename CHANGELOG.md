@@ -17,6 +17,46 @@ tagged state. Deployments and rollbacks follow
 (0.x), minor versions mark feature growth and patch versions mark
 fixes; 1.0.0 waits for production acceptance.
 
+## [Unreleased]
+
+### Added
+
+- **`dg schema` says what a table is made of.** The row grid says
+  which columns a table has and what is in them; nothing said what each
+  column *is*. The new `GET /v1/databases/{name}/schema` route reports,
+  per table, every column's name, its **declared** type, its not-null
+  and primary-key flags and its default, the table's indexes (name,
+  uniqueness, the columns each covers), its foreign keys (both columns
+  and the update/delete actions), and the `CREATE` statement verbatim.
+  `?table=<name>` narrows the answer to one table, and the narrowing
+  happens on the server, so the document a pipe reads is the API's own
+  document either way.
+- **The structure is read from the file with SQLite's own PRAGMAs**,
+  not parsed out of the `CREATE` statement: a client cannot run a
+  PRAGMA (the query endpoint refuses it, because a PRAGMA can change a
+  connection's behaviour), and SQLite knows things a parser has to
+  guess -- which column of a composite key is the key, which index came
+  from a `UNIQUE` constraint, and what the declared type really is.
+  The gateway already opens the file read-only for `info`, so it reads
+  the schema the same way.
+- **One command, one view, two faces.** `dg schema <database>
+  [table]` draws the structure in a terminal and prints the gateway's
+  JSON unchanged on a pipe, and the TUI's new `schema <database>
+  [table]` palette action draws the same structure through the same
+  shared view layer (`src/views.rs`) -- the rule the rest of the TUI
+  already keeps, so the two surfaces cannot tell an operator different
+  stories about the same gateway.
+- **The structure is read-only.** No DDL of any kind: no column,
+  constraint or index is created, changed or removed by the new
+  surface, and the row grid's own behaviour is unchanged. The tables
+  listed are the operator's own; the gateway's `_dg_*` bookkeeping and
+  the replication's `_litestream*` tables stay out of the structure
+  view, while `dg info` still lists every table in the file.
+- **The route is typed in the TypeScript client**
+  (`client/src/index.ts`): `gateway.schema(name, table?)` returns a
+  validated `SchemaResponse` — columns, indexes, foreign keys and the
+  `CREATE` statement — with its own test.
+
 ## [0.9.0] — 2026-10-26
 
 ### Added
