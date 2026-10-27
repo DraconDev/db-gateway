@@ -183,7 +183,7 @@ fn framed_table(
     };
     let hovered = mouse.and_then(|(column, row)| drawn.row_at(column, row));
     if let Some(index) = hovered {
-        *state = state.select(Some(index));
+        state.select(Some(index));
     }
     let widget = table_widget(table, inner.width, max_rows)
         .row_highlight_style(crate::tui::theme::hover())
