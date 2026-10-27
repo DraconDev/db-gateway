@@ -183,7 +183,7 @@ fn framed_table(
     };
     let hovered = mouse.and_then(|(column, row)| drawn.row_at(column, row));
     if let Some(index) = hovered {
-        state.selected = Some(index);
+        *state = state.select(Some(index));
     }
     let widget = table_widget(table, inner.width, max_rows)
         .row_highlight_style(crate::tui::theme::hover())
@@ -376,6 +376,7 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
         tabs: strip,
         strip_y: Some(rows[0].y),
         body: Some(rows[1]),
+        tables: Vec::new(),
     };
     let focus = app.focus;
     // The tables the open tab drew, with their rows: a click is
@@ -652,7 +653,7 @@ fn service_tab(frame: &mut Frame, area: Rect, app: &mut App) {
 /// is the one this tab exists for, and `docs/tui.md` promises it. The test
 /// that should have caught that looked for the substring "fresh", which
 /// every screen contains in the word "refresh" on the command bar.
-fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App, tables: &mut Vec<TableGeometry>) {
+fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App, drawn: &mut Vec<TableGeometry>) {
     let block = pane(app.focus == Focus::Backups);
     let Some(backups) = &app.backups else {
         frame.render_widget(Paragraph::new("no answer yet").block(block), area);
@@ -805,7 +806,7 @@ fn backups_tab(frame: &mut Frame, area: Rect, app: &mut App, tables: &mut Vec<Ta
             usize::MAX,
             &mut state,
             mouse,
-            tables,
+            drawn,
         );
     }
 }
@@ -944,6 +945,9 @@ fn outcome_pane(frame: &mut Frame, area: Rect, outcome: &Outcome) {
         rows[0],
     );
     if let Some(table) = &outcome.table {
+        // The last action's rows are a result, not a list of targets:
+        // they are not marked by the pointer and a click on them opens
+        // nothing.
         framed_table(
             frame,
             rows[1],
@@ -951,6 +955,8 @@ fn outcome_pane(frame: &mut Frame, area: Rect, outcome: &Outcome) {
             table,
             OUTCOME_ROWS,
             &mut TableState::default(),
+            None,
+            &mut Vec::new(),
         );
     }
 }

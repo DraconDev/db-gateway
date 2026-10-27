@@ -290,6 +290,7 @@ impl App {
             focus: Focus::Databases,
             scroll: Scroll::default(),
             geometry: Geometry::default(),
+            mouse: None,
             pending: None,
             quit: false,
         }
@@ -346,7 +347,7 @@ impl App {
             return;
         }
         match mouse.kind {
-            MouseEventKind::Moved(_) | MouseEventKind::Drag(_) => {
+            MouseEventKind::Moved | MouseEventKind::Drag(_) => {
                 // The pointer's place is remembered so the row under it
                 // can be marked, and so a click without a move first
                 // still knows which row it landed on.
@@ -419,11 +420,12 @@ impl App {
             Focus::Locations => self.locations()?,
             _ => return None,
         };
-        let index = self
-            .geometry
-            .tables
-            .iter()
-            .find_map(|drawn| drawn.row_at(column, row))?;
+        // The tab's own table is the first one drawn, and it is the only
+        // one whose rows name databases. A table below it -- the last
+        // action's rows -- is not a database list, and a click there
+        // must not open whatever database happens to share its index.
+        let drawn = self.geometry.tables.first()?;
+        let index = drawn.row_at(column, row)?;
         let name = table.rows().get(index)?.first()?.parts().0.into_owned();
         // A row that names nothing usable is not a database.
         (!name.is_empty() && crate::store::validate_name(&name).is_ok()).then_some(name)
