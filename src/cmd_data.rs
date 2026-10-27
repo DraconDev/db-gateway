@@ -746,56 +746,23 @@ pub async fn batch(
     )))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_batch_at_the_cap_is_accepted_and_one_over_it_is_refused() {
-        // The cap is the API's, and the CLI reads the same number: a
-        // file of exactly 32 statements is a legal batch, and a file of
-        // 33 is refused before it is sent.
-        assert!(
-            check_statement_count(dg::execution::MAX_BATCH_STATEMENTS, "the file").is_ok(),
-            "a batch at the cap was refused"
-        );
-        let error = check_statement_count(dg::execution::MAX_BATCH_STATEMENTS + 1, "the file")
-            .expect_err("a batch over the cap was accepted");
-        assert_eq!(error.code, "too_many_statements");
-        // The message is the operator's instruction: how many the file
-        // holds, what the API accepts, and that nothing was sent.
-        let message = error.message.to_string();
-        assert!(
-            message.contains("33 statements"),
-            "the refusal does not say how many the file holds: {message}"
-        );
-        assert!(
-            message.contains("accepts 32"),
-            "the refusal does not say what the API accepts: {message}"
-        );
-        assert!(
-            message.contains("nothing was sent"),
-            "the refusal does not say that nothing was sent: {message}"
-        );
-    }
-
-    #[test]
-    fn the_client_checks_the_servers_own_cap() {
-        // One number, two places: the server admits
-        // `MAX_BATCH_STATEMENTS` statements and the CLI refuses a file
-        // of more than that, both reading the same constant. A script
-        // the server would take is never refused locally, and a script
-        // the server would reject never leaves the machine.
-        assert_eq!(dg::execution::MAX_BATCH_STATEMENTS, 32);
-        assert!(
-            check_statement_count(dg::execution::MAX_BATCH_STATEMENTS, "the file").is_ok(),
-            "a batch the server would take was refused locally"
-        );
-        assert!(
-            check_statement_count(dg::execution::MAX_BATCH_STATEMENTS + 1, "the file").is_err(),
-            "a batch the server would reject was not refused locally"
-        );
-    }
+/// What the rows browser was asked for.
+///
+/// One value rather than seven arguments: the browser's question is a
+/// single thing -- this table, this page, in this order, narrowed this
+/// way -- and passing it as one value keeps the call sites honest about
+/// what belongs together.
+pub struct RowsRequest {
+    /// The database the table is in.
+    pub name: String,
+    /// The table to read.
+    pub table: String,
+    /// Which page, counting from zero.
+    pub page: u64,
+    /// The column to sort by, and which way.
+    pub sort: Option<String>,
+    /// The condition narrowing the rows.
+    pub condition: Option<String>,
 }
 
 /// Read one table's rows, a page at a time.
@@ -808,17 +775,19 @@ mod tests {
 ///
 /// A pipe gets the gateway's own query document unchanged, so a script
 /// reads exactly what the API said. A terminal gets the grid.
-#[allow(clippy::too_many_arguments)]
 pub async fn rows(
     server: &str,
     json: bool,
     key_path: &Option<PathBuf>,
-    name: String,
-    table: String,
-    page: u64,
-    sort: Option<String>,
-    condition: Option<String>,
+    request: RowsRequest,
 ) -> Result<Option<Request>, dg::ServerError> {
+    let RowsRequest {
+        name,
+        table,
+        page,
+        sort,
+        condition,
+    } = request;
     dg::store::validate_name(&name).map_err(Application)?;
     // The table is validated against the database's own schema below, so
     // a name that is not a table never reaches a statement. This check
@@ -993,4 +962,56 @@ async fn read_count(
     .await
     .map_err(Application)?;
     dg::tui::count_total(&response).ok_or_else(|| Application(Error::internal()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_batch_at_the_cap_is_accepted_and_one_over_it_is_refused() {
+        // The cap is the API's, and the CLI reads the same number: a
+        // file of exactly 32 statements is a legal batch, and a file of
+        // 33 is refused before it is sent.
+        assert!(
+            check_statement_count(dg::execution::MAX_BATCH_STATEMENTS, "the file").is_ok(),
+            "a batch at the cap was refused"
+        );
+        let error = check_statement_count(dg::execution::MAX_BATCH_STATEMENTS + 1, "the file")
+            .expect_err("a batch over the cap was accepted");
+        assert_eq!(error.code, "too_many_statements");
+        // The message is the operator's instruction: how many the file
+        // holds, what the API accepts, and that nothing was sent.
+        let message = error.message.to_string();
+        assert!(
+            message.contains("33 statements"),
+            "the refusal does not say how many the file holds: {message}"
+        );
+        assert!(
+            message.contains("accepts 32"),
+            "the refusal does not say what the API accepts: {message}"
+        );
+        assert!(
+            message.contains("nothing was sent"),
+            "the refusal does not say that nothing was sent: {message}"
+        );
+    }
+
+    #[test]
+    fn the_client_checks_the_servers_own_cap() {
+        // One number, two places: the server admits
+        // `MAX_BATCH_STATEMENTS` statements and the CLI refuses a file
+        // of more than that, both reading the same constant. A script
+        // the server would take is never refused locally, and a script
+        // the server would reject never leaves the machine.
+        assert_eq!(dg::execution::MAX_BATCH_STATEMENTS, 32);
+        assert!(
+            check_statement_count(dg::execution::MAX_BATCH_STATEMENTS, "the file").is_ok(),
+            "a batch the server would take was refused locally"
+        );
+        assert!(
+            check_statement_count(dg::execution::MAX_BATCH_STATEMENTS + 1, "the file").is_err(),
+            "a batch the server would reject was not refused locally"
+        );
+    }
 }
