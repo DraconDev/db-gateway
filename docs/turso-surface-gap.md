@@ -22,6 +22,10 @@ browser bridge, with the live captures saved as audit evidence:
 - `docs/evidence/turso-edit-data-grid-2026-10-27.png` — the Edit Data
   → DATA tab of the same table: the type-annotated grid headers and
   the Filters / Sort / Columns toolbar.
+- `docs/evidence/rows-browser-live-2026-10-27.txt` — the live record
+  for the contents route and the rows browser: the counts every live
+  database reports, the rows grid, sorting, filtering, and both
+  refusals.
 - `docs/evidence/schema-live-2026-10-27.txt` — the live record:
   the route's answer for `inventory.products`, the CLI on a pipe and
   on a terminal, and the per-database table counts after the deploy.
@@ -288,11 +292,12 @@ seeded live gateway (outputs quoted verbatim in
 What `dg` still lacks against Turso's Edit Data browser, unchanged by
 this work:
 
-- **The grid's own browser**: `Filters`, `Sort`, the `Columns` picker,
-  the per-row checkboxes, `+ Add record` and the `1 - 50 of 50+` pager
-  are still the row grid's business, and the grid's behaviour is
-  deliberately unchanged. `dg` reads rows a page at a time through
-  `dg query` / the TUI's `open table`; it has no click grid over them.
+- **A paged, sortable, filterable row browser now exists** (added
+  2026-10-27): `dg rows` and the TUI's rows browser read a table a page
+  of ten at a time, sort by any real column and filter with a read-only
+  condition, with the footer counting the filtered set. What is still
+  absent from that browser: the `Columns` picker (showing a chosen subset
+  of columns), per-row checkboxes, and `+ Add record`.
 - **Type-annotated grid headers**: Turso prints the declared type in
   the row grid's header, beside the column name. `dg`'s row grid shows
   the column names; the type now lives in the structure view instead.
