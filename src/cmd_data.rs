@@ -882,7 +882,7 @@ pub async fn rows(
             condition.as_deref(),
         )
         .map_err(|refusal| {
-            Application(Error::new(400, "invalid_arguments", refusal.message()))
+            Application(Error::with_message(400, "invalid_arguments", refusal.message()))
         })?;
         return Ok(Some((
             Method::POST,
@@ -896,7 +896,8 @@ pub async fn rows(
         400,
         "missing_credential",
         "--key-file required",
-    )))?)?;
+    )))?)
+    .map_err(Application)?;
     let structure_path = format!("/v1/databases/{name}/schema?table={table}");
     let structure = dg::client::request(server, &key, Method::GET, &structure_path, None, None)
         .await
@@ -912,7 +913,7 @@ pub async fn rows(
     let total = match dg::views::rows_count_query(&structure, &table, condition.as_deref()) {
         Ok(count) => read_count(server, &key, &name, &count.sql).await.ok(),
         Err(refusal) => {
-            return Err(Application(Error::new(
+            return Err(Application(Error::with_message(
                 400,
                 "invalid_arguments",
                 refusal.message(),
