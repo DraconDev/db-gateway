@@ -108,6 +108,7 @@ dg mcp                 # speaks JSON-RPC on stdin/stdout
 | `GET /health/live` | none | — | `{"status":"ok"}` |
 | `POST /v1/databases` | owner | `{"name":"game_a"}` | `{"name":"game_a"}` |
 | `GET /v1/databases/{name}` | owner | — | `{"name":"…","tombstoned":false,"size_bytes":n,"created_at":epoch,"tables":[{"name":"…","rows":n},…]}` (tombstoned names report `{"name":"…","tombstoned":true,"purge_after":epoch,"size_bytes":n}` instead; unknown names are `404 database_not_found`) |
+| `GET /v1/contents` | owner | — | `{"databases":{"db":{"tables":n,"rows":n}}} ` — how many tables each live database holds and how many rows, read from each file; `null` counts when a file could not be read (the path is `/v1/contents`, not `/v1/databases/contents`, because `contents` is a legal database name and a route under that prefix would shadow it) |
 | `GET /v1/databases/{name}/schema` | owner | — | `{"database":"…","tombstoned":false,"created_at":epoch,"tables":[{"name":"…","rows":n,"columns":[{"name":"…","type":"INTEGER","not_null":bool,"primary_key":bool,"default":null|"…"}],"indexes":[{"name":"…","unique":bool,"columns":["…"]}],"foreign_keys":[{"table":"…","from":"…","to":"…","on_update":"…","on_delete":"…"}],"sql":"CREATE TABLE …"}]}` (`?table=<name>` narrows the answer to one table; the same document is returned either way) |
 | `GET /v1/databases` | any key | — | `{"databases":["game_a", …]}` (owner: all live databases; app key: only its authorized live databases) |
 | `POST /v1/keys` | owner | `{"name":"bot_a","role":"database_read_write","databases":["game_a"]}` (or role `database_read_only`) | `{"key":"<64 hex>"}` |
@@ -267,6 +268,35 @@ The tables listed are the operator's own. The gateway's bookkeeping
 route describes the operator's data, while `GET /v1/databases/{name}`
 answers "what is in the file" and lists every table in it.
 
+### What a database holds
+
+`GET /v1/contents` answers the question the traffic counters cannot:
+**is there anything in here?**
+
+Every counter in the status snapshot is in memory. `rows read`,
+`rows written`, `waits` and `last write` all begin at zero when the
+gateway starts, so a gateway that has just restarted reports seven
+databases with nothing beside them — and seven databases full of data
+look exactly like seven empty ones. The counters answer "what has this
+database been doing since boot"; they were never a statement about
+what it holds.
+
+This route reads each database's file and answers with the counts:
+
+| Field | Meaning |
+| --- | --- |
+| `tables` | How many tables the operator's data is in. The gateway's own `_dg_*` bookkeeping and the replication's `_litestream*` tables are not counted: they are not the operator's data. |
+| `rows` | The total row count across those tables. |
+
+A database whose file could not be read reports `null` rather than `0`.
+A fault must not be drawn as an empty database, which is the very
+mistake this route exists to correct.
+
+The route is **owner-only** and **read-only**. It counts every row of
+every database, so it is the most expensive read the gateway offers —
+clients should call it on a slower cadence than the status snapshot, not
+on every refresh.
+
 ### The audit trail
 
 `GET /v1/audit` answers the question an operator asks after something
@@ -405,7 +435,7 @@ idempotency key — so a write waits a minute, and a transfer phase (which
 commits nothing, but means beginning the whole transfer again) waits the
 same. The answer is what removes the doubt, so the CLI waits for it.
 
-The human views are: `dg list`, `dg info`, `dg inspect`, `dg schema`, `dg query`, `dg execute`, `dg status`, `dg watch`, `dg backup status`, `dg backup run`, `dg queries`, `dg audit`, `dg branch list`, `dg config list`, `dg key list` and `dg key tokens` (tables and dashboards), and `dg create`, `dg delete`, `dg export`, `dg import`, `dg clone`, `dg diff`, `dg branch create`, `dg branch delete`, `dg vacuum`, `dg integrity`, `dg explain`, `dg restore plan`, `dg key create`, `dg key revoke`, `dg key rotate-owner`, `dg backup verify`, `dg batch`, `dg config set`, `dg config remove` and `dg init` (a headline and the facts behind it). Piped output always stays JSON, so
+The human views are: `dg list`, `dg contents`, `dg info`, `dg inspect`, `dg schema`, `dg rows`, `dg query`, `dg execute`, `dg status`, `dg watch`, `dg backup status`, `dg backup run`, `dg queries`, `dg audit`, `dg branch list`, `dg config list`, `dg key list` and `dg key tokens` (tables and dashboards), and `dg create`, `dg delete`, `dg export`, `dg import`, `dg clone`, `dg diff`, `dg branch create`, `dg branch delete`, `dg vacuum`, `dg integrity`, `dg explain`, `dg restore plan`, `dg key create`, `dg key revoke`, `dg key rotate-owner`, `dg backup verify`, `dg batch`, `dg config set`, `dg config remove` and `dg init` (a headline and the facts behind it). Piped output always stays JSON, so
 scripts are unaffected.
 
 The one exception is `dg backup digest`, which is a REPORT rather than
@@ -466,6 +496,20 @@ CLI looks the same everywhere. The rules it follows:
 - **`dg inspect <db>` is one database**: what it holds AND what it has
   been doing. `dg info` is what a database IS; `dg inspect` is what it
   has been DOING.
+- **`dg contents` is how much each database HOLDS**: its tables and its
+  total rows, read from the files. It exists because the traffic
+  counters are in memory and a restart zeroes them, so `dg list` beside
+  a fresh gateway looks like seven empty databases.
+- **`dg rows <db> <table> [page]` is a table's DATA**: a page of rows,
+  with `--sort <column>[:asc|:desc]` and `--where <condition>` narrowing
+  it. The sorting and filtering are applied by the gateway, so the
+  footer's `rows 11-20 of N` counts the filtered set and paging is
+  correct under both. The footers also offer the keys the terminal view
+  uses (`[n] next`, `[p] prev`, `[s] structure`), so the two surfaces
+  teach the same controls. Neither the sort column nor the filter is
+  interpolated on trust: the column is checked against the table's real
+  columns, and the filter is checked by the same read-only rule the
+  query endpoint uses.
 - **`dg schema <db> [table]` is what a table is MADE OF**: each column's
   declared type, its not-null and primary-key flags, the table's indexes
   and foreign keys, and its `CREATE` statement. It reads the structure
@@ -500,6 +544,9 @@ dg --key-file owner.key batch game_a batch.json
 printf '%s\n' "SELECT count(*) FROM players;" > script.sql
 dg --key-file owner.key execute game_a script.sql
 dg --key-file owner.key inspect game_a
+dg --key-file owner.key contents                      # tables and rows per database
+dg --key-file owner.key rows game_a players           # the first page of a table's rows
+dg --key-file owner.key rows game_a players 1 --sort name:desc --where "id > 3"
 dg --key-file owner.key schema game_a                # every table's structure
 dg --key-file owner.key schema game_a players        # one table's structure
 dg --key-file owner.key queries                 # which statement is the expensive one

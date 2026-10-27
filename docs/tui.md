@@ -236,6 +236,46 @@ forbidden* — because five refusals of the same kind are one fact, not five,
 and the bar has one line for it. A message too long for the line is cut with
 an ellipsis, so a message that runs off the edge says that it did.
 
+## The rows browser
+
+Opening a table opens its **rows**: the data, ten at a time. This is a
+place the operator stays in, not a one-shot read, so the table, the page
+and the choices narrowing it are kept together — every keystroke re-asks
+the same question rather than starting over.
+
+| Key | What it does |
+|---|---|
+| `n` | The next page |
+| `p` | The previous page |
+| `o` | Cycle the sort: first column ascending, then descending, then off |
+| `f` | Edit the filter; an empty condition clears it |
+| `c` | Clear the filter and go back to the first page |
+| `s` | The table's structure — the columns, their types and their flags |
+| `esc` | Leave the browser |
+
+The footer says which slice of the answer is on screen, and how it got
+that way:
+
+```text
+rows 21-30 of 62   sorted by stock desc   filter: stock < 40   [p] prev  [n] next  [s] structure
+```
+
+`of 62` is the size of the **filtered answer**, never the table's total.
+A footer that said the table's total under a filter would make every
+page look like it was the table, and a footer that said the page length
+would make every page look like the last one.
+
+Sorting and filtering are applied **by the gateway**, in the statement,
+not by discarding rows after they arrive: otherwise page 2 of a filtered
+view would be empty while the footer claimed there was more. The sort
+column is checked against the table's real columns before it is written
+into the statement, and the filter is checked by the same read-only rule
+the query endpoint uses, so the browser cannot write — a filter that
+would modify data is refused, not run.
+
+`esc` leaves the browser and returns to the dashboard; `s` leaves for the
+table's structure. Neither quits the view.
+
 ## The keys
 
 | Key | What it does |
@@ -263,6 +303,13 @@ A table that needs explaining says so under itself. The database list's
 `wait p95` and `wait max` are different facts, and the line under the rows
 says which is which.
 
+The databases tab leads with what each database **holds** — its `tables`
+and `rows`, read from the file — and only then the traffic figures. The
+counters (`rows read*`, `rows written*`, `waits*`, `last write*`) are
+marked because they are in memory and a gateway restart zeroes them: a
+tab built only from them shows seven full databases as seven empty ones,
+which is exactly what it did before the counts were added.
+
 In the actions list: type to filter, `↑`/`↓` to choose, `enter` to
 go, `esc` to go back.
 
@@ -276,7 +323,7 @@ leaves, so the shell you return to keeps its selection and its wheel.
 | click a tab's label | Open that tab, exactly as its number key does |
 | move the pointer over a table | Mark the row under it, so a click can be seen before it is taken |
 | click a row that names a database | Open that database: its tables, with their row and column counts, appear in the last action |
-| click a table in that list | Open that table: its columns, their declared types and their flags |
+| click a table in that list | Open that table's rows in the browser: the data, a page at a time |
 | wheel over the body | Scroll the open tab; three lines a notch |
 | click a scrolled body | Back to the top of the open tab |
 
@@ -308,7 +355,7 @@ open nothing: their rows are not databases.
 | query | `query <database> <sql>` | Runs one statement; the rows appear in the last-action area |
 | tables | `tables <database>` | Lists one database's tables with row counts |
 | schema | `schema <database> [table]` | Reads a table's structure: each column's declared type, its not-null and primary-key flags, the table's indexes and foreign keys, and its `CREATE` statement |
-| open table | `open <database> <table> [page]` | Pages through one table's rows, 10 per page (Enter on the databases tab lists the action with the scrolled-to database already typed into its prompt) |
+| open table | `open <database> <table> [page]` | Opens a table in the rows browser: 10 rows a page, sortable and filterable (Enter on the databases tab lists the action with the scrolled-to database already typed into its prompt; clicking the table in an opened database does the same without typing) |
 | run sql file | `run <database> <script.sql>` | Runs a SQL file as one atomic batch, statement by statement |
 | run batch file | `batch <database> <batch.json>` | Runs a JSON batch file |
 | create database | `create <name>` | Creates an empty database |
