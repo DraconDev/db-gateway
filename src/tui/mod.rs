@@ -764,13 +764,15 @@ impl App {
                     None => columns
                         .first()
                         .map(|column| (column.clone(), crate::views::SortDirection::Ascending)),
-                    Some((column, crate::views::SortDirection::Ascending)) => Some((
-                        column.clone(),
-                        crate::views::SortDirection::Descending,
-                    )),
+                    Some((column, crate::views::SortDirection::Ascending)) => {
+                        Some((column.clone(), crate::views::SortDirection::Descending))
+                    }
                     Some(_) => None,
                 };
-                self.browser = Some(Browser { sort: next, ..browser });
+                self.browser = Some(Browser {
+                    sort: next,
+                    ..browser
+                });
                 self.pending = Some(Invocation::RefreshRows);
             }
             KeyCode::Char('f') => {
@@ -1104,9 +1106,10 @@ impl App {
             &structure,
             &browser.table,
             browser.page,
-            browser.sort.as_ref().map(|(column, direction)| {
-                (column.as_str(), *direction)
-            }),
+            browser
+                .sort
+                .as_ref()
+                .map(|(column, direction)| (column.as_str(), *direction)),
             browser.filter.as_deref(),
         ) {
             Ok(query) => query,

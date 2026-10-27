@@ -865,10 +865,9 @@ pub async fn rows(
         )))?)
         .map_err(Application)?;
         let structure_path = format!("/v1/databases/{name}/schema?table={table}");
-        let structure =
-            dg::client::request(server, &key, Method::GET, &structure_path, None, None)
-                .await
-                .map_err(Application)?;
+        let structure = dg::client::request(server, &key, Method::GET, &structure_path, None, None)
+            .await
+            .map_err(Application)?;
         if api_failed(&structure) {
             dg::shell::render_with(&structure, false, &terminal_theme(), &mut std::io::stdout())
                 .map_err(Application)?;
@@ -878,11 +877,16 @@ pub async fn rows(
             &structure,
             &table,
             page,
-            sort.as_ref().map(|(column, direction)| (column.as_str(), *direction)),
+            sort.as_ref()
+                .map(|(column, direction)| (column.as_str(), *direction)),
             condition.as_deref(),
         )
         .map_err(|refusal| {
-            Application(Error::with_message(400, "invalid_arguments", refusal.message()))
+            Application(Error::with_message(
+                400,
+                "invalid_arguments",
+                refusal.message(),
+            ))
         })?;
         return Ok(Some((
             Method::POST,
@@ -924,7 +928,8 @@ pub async fn rows(
         &structure,
         &table,
         page,
-        sort.as_ref().map(|(column, direction)| (column.as_str(), *direction)),
+        sort.as_ref()
+            .map(|(column, direction)| (column.as_str(), *direction)),
         condition.as_deref(),
     )
     .map_err(|refusal| {
@@ -984,6 +989,5 @@ async fn read_count(
     )
     .await
     .map_err(Application)?;
-    dg::tui::count_total(&response)
-        .ok_or_else(|| Application(Error::internal()))
+    dg::tui::count_total(&response).ok_or_else(|| Application(Error::internal()))
 }
