@@ -48,7 +48,7 @@ pub struct Deployment {
 pub fn router(store: Arc<Store>, deployment: Deployment) -> Router {
     Router::new()
         .route("/v1/databases", get(list).post(create))
-        .route("/v1/databases/contents", get(contents))
+        .route("/v1/contents", get(contents))
         .route("/v1/databases/{name}", get(info).delete(remove))
         .route("/v1/databases/{name}/schema", get(table_schema))
         .route("/v1/databases/{name}/clone", post(clone_route))
@@ -570,6 +570,12 @@ async fn info(
 /// the traffic counters cannot give it: they are in memory and reset
 /// when the gateway restarts, so a database full of data reads as
 /// nothing beside them. These counts come from the files.
+///
+/// The path is `/v1/contents` rather than `/v1/databases/contents`
+/// because `contents` is a legal database name: a route under
+/// `/v1/databases/` would be matched before `{name}`, so a database
+/// called `contents` would have its own info and delete routes shadowed
+/// and become unreachable. Outside `/v1/databases/`, no name can collide.
 async fn contents(
     State(store): State<Arc<Store>>,
     headers: HeaderMap,
