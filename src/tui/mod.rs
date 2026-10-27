@@ -382,12 +382,23 @@ impl App {
             }
             return;
         }
-        // Then a row that names a database: clicking a database opens it,
-        // which is what the Enter key does on the same row. The mouse
-        // and the keyboard answer the same question the same way, and
-        // an operator who learned one has learned the other.
+        // Then a row that names a database: clicking a database OPENS
+        // it, and so does the Enter key on the same row. The mouse and
+        // the keyboard answer the same question the same way, and an
+        // operator who learned one has learned the other.
         if let Some(name) = self.database_under_pointer(column, row) {
             self.open_database(&name);
+            return;
+        }
+        // Then a row of the last action's grid: the database's own
+        // contents, one row per table. Clicking a table there opens
+        // that table's structure -- the columns, their types and their
+        // flags -- which is what "opening a table" means here.
+        if let Some((database, table)) = self.table_under_pointer(column, row) {
+            self.pending = Some(Invocation::Schema {
+                name: database,
+                table: Some(table),
+            });
             return;
         }
         // Then the body: clicking it takes the keyboard there, so the wheel
@@ -433,15 +444,42 @@ impl App {
 
     /// Open a database: the doorway the Enter key opens on the same row.
     ///
-    /// The palette is filtered to the open-table action and the
-    /// database is already typed into its prompt, so the operator types
-    /// only the table. One rule, one doorway, whichever hand is on the
-    /// mouse.
+    /// Opening a database means reading its contents -- the tables it
+    /// holds, with their row and column counts -- and the last action's
+    /// area is where the answer appears. The gateway is asked for the
+    /// structure, which is the one read that says what a database is
+    /// made of, and the grid that comes back is the one a click on a
+    /// table then opens further.
     fn open_database(&mut self, name: &str) {
-        self.prompt_prefill = format!("{name} ");
-        self.filter = "open table".to_string();
-        self.mode = Mode::Palette;
-        self.highlighted = 0;
+        self.pending = Some(Invocation::Schema {
+            name: name.to_string(),
+            table: None,
+        });
+    }
+
+    /// The table a click landed on in the last action's grid.
+    ///
+    /// Only the contents grid counts: its first column holds the table
+    /// names, and its rows are the tables of the database that was
+    /// opened. A structure grid -- a table's own columns -- has nothing
+    /// to open, and the answer is None for it.
+    fn table_under_pointer(&self, column: u16, row: u16) -> Option<(String, String)> {
+        let drawn = self.geometry.outcome.as_ref()?;
+        let index = drawn.row_at(column, row)?;
+        let outcome = self.outcome.as_ref()?;
+        let table = outcome.table.as_ref()?;
+        // The contents grid is the one whose first column names tables.
+        let first_column = table.columns().first()?.0.as_str();
+        if first_column != "table" {
+            return None;
+        }
+        let name = table.rows().get(index)?.first()?.parts().0.into_owned();
+        let database = outcome
+            .facts
+            .iter()
+            .find(|(key, _)| key == "database")
+            .map(|(_, value)| value.clone())?;
+        (crate::store::validate_name(&name).is_ok()).then_some((database, name))
     }
 
     fn on_key_normal(&mut self, key: KeyEvent) {
