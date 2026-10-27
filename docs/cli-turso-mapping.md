@@ -15,6 +15,7 @@ maps each Turso CLI verb to its `dg` equivalent.
 | `turso db show <name>` | `dg info <name>` | Size, tables + row counts, created_at, tombstone state. Owner only. |
 | `turso db destroy <name>` | `dg delete <name> --confirm <name>` | Tombstones; file purged after retention. Double-type confirm. |
 | `turso db inspect <name>` | `dg inspect <name>` | What one database holds AND what it has been doing: size, tables, rows, traffic, queue waits, last write, and the freshness of its backup. `dg info` is what it IS; `dg inspect` is what it has been DOING. |
+| Edit Data → STRUCTURE | `dg schema <name> [table]` | What a table is MADE OF: each column's declared type, its not-null and primary-key flags, the table's indexes and foreign keys, and its `CREATE` statement. Read from the gateway's own SQLite file with SQLite's own PRAGMAs, so the answer is the schema's own words, not a parsed guess. Read-only, and the gateway's JSON document is what a pipe reads. |
 
 ## SQL access
 
