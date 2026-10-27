@@ -183,6 +183,71 @@ fn the_replications_own_tables_are_not_the_operators_data() {
 }
 
 #[test]
+fn the_route_answers_one_databases_tables_over_http() {
+    // The CLI prints the gateway's JSON unchanged on a pipe, so the
+    // CLI tests already read the route's document — but this pins the
+    // route itself: the method, the path, and the document's shape,
+    // with no CLI in between.
+    let fleet = Fleet::boot();
+    seed(&fleet);
+    let key = std::fs::read_to_string(&fleet.cli.key_file).expect("the key file reads");
+    let client = reqwest::blocking::Client::new();
+    let get = |path: &str| {
+        let response = client
+            .get(format!("{}{path}", fleet.cli.server))
+            .bearer_auth(key.trim())
+            .send()
+            .expect("the route answers");
+        let status = response.status().as_u16();
+        let body: Value = response.json().expect("the answer is JSON");
+        (status, body)
+    };
+    let (status, document) = get("/v1/databases/shop/schema");
+    assert_eq!(status, 200, "the route answers: {document}");
+    assert_eq!(document["database"], "shop");
+    let tables = document["tables"]
+        .as_array()
+        .expect("the document has tables");
+    assert_eq!(tables.len(), 2, "both tables are listed: {document}");
+    let products = tables
+        .iter()
+        .find(|table| table["name"] == "products")
+        .expect("products is listed");
+    let columns = products["columns"]
+        .as_array()
+        .expect("the table has columns");
+    assert_eq!(columns.len(), 3);
+    assert_eq!(columns[0]["name"], "id");
+    assert_eq!(columns[0]["type"], "INTEGER");
+    assert_eq!(columns[0]["not_null"], false);
+    assert_eq!(columns[0]["primary_key"], true);
+    assert_eq!(columns[1]["not_null"], true);
+    let indexes = products["indexes"]
+        .as_array()
+        .expect("the table has indexes");
+    assert_eq!(
+        indexes.len(),
+        1,
+        "the unique constraint's index is listed: {products}"
+    );
+    assert_eq!(indexes[0]["unique"], true);
+    // A table narrows the answer on the server.
+    let (status, one) = get("/v1/databases/shop/schema?table=orders");
+    assert_eq!(status, 200, "the narrowed route answers: {one}");
+    let names: Vec<&str> = one["tables"]
+        .as_array()
+        .expect("the narrowed document has tables")
+        .iter()
+        .map(|table| table["name"].as_str().unwrap_or(""))
+        .collect();
+    assert_eq!(names, vec!["orders"]);
+    // An unknown database is a 404 with the stable code.
+    let (status, missing) = get("/v1/databases/nosuchdb/schema");
+    assert_eq!(status, 404, "a missing database is a 404: {missing}");
+    assert_eq!(missing["error"]["code"], "database_not_found");
+}
+
+#[test]
 fn an_unknown_database_is_refused() {
     let fleet = Fleet::boot();
     let (success, stdout, stderr) = fleet.cli.run(&["schema", "nosuchdb"]);
