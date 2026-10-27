@@ -1,0 +1,53 @@
+Turso web console — Edit Data → STRUCTURE, dracon-music-dev — captured 2026-10-27 via the browser bridge (read-only; no Turso write was performed).
+
+WHAT WAS OPEN
+  Databases > dracon-music-dev > Edit Data. The table `music_users` was selected in the
+  table list. The captures are of the STRUCTURE tab of that table.
+
+CAPTURES
+  turso-structure-view-2026-10-27.png
+      The STRUCTURE tab, read-only. Shown on screen:
+        - "Table name: music_users"
+        - COLUMNS: "subject TEXT PRIMARY KEY", "created_at INTEGER NOT NULL"
+          (each column's declared type and its flags, printed beside the name)
+        - CONSTRAINTS: an "Add constraint" affordance, empty for this table
+        - INDEXES: an "Add index" affordance and an "AUTO-INDEXES" disclosure, collapsed
+        - "Copy create statements" next to the STRUCTURE tab
+      The tab strip is "DATA | STRUCTURE"; DATA shows the row grid, STRUCTURE shows
+      what this capture shows.
+
+  turso-structure-indexes-2026-10-27.png
+      The same STRUCTURE view with the AUTO-INDEXES disclosure open, which is the
+      index list for the table:
+        - "UNIQUE INDEX sqlite_autoindex_music_users_1 ... (subject)"
+      The index's name, its uniqueness and the column it covers are all visible.
+
+  turso-edit-data-grid-2026-10-27.png
+      The DATA tab of the same table, kept here because it is the surface dg's
+      STRUCTURE feature is compared against. Visible on screen:
+        - the type-annotated grid headers: "subject text" and "created_at integer"
+          (the declared type, in a dimmer style, beside each column name)
+        - the toolbar: Filters, Sort, Columns, "+ Add record", a refresh control,
+          and the "1 - 50 of 50+" pager
+        - the row grid itself, with per-row checkboxes and a per-column sort caret
+
+READ-ONLY, NO WRITES
+  The session was a read of the console's own rendered state: the page was opened and
+  the STRUCTURE / DATA tabs and the AUTO-INDEXES disclosure were expanded, and the
+  screen was captured. No record was added, edited or deleted, and no SQL was run
+  against Turso. The "Add column", "Add constraint" and "Add index" affordances were
+  left untouched — they are visible in the capture as Turso's own affordances, not as
+  anything that was exercised.
+
+WHY THESE TWO MATTERS FOR dg
+  A Turso STRUCTURE panel shows, per column: the name, the declared type, and the
+  PRIMARY KEY / NOT NULL flags; per table: the constraints and the indexes, and a
+  "Copy create statements" action. dg's new `dg schema <database> [table]` answers
+  the same question from the gateway's own SQLite file: the same per-column facts,
+  the indexes, the foreign keys, and the CREATE statement verbatim — and it is
+  read-only, where Turso's panel is an editing surface.
+
+  The DATA-tab capture is kept as the boundary: Turso's grid carries filters, sort,
+  a column picker, per-row selection and "+ Add record" in the same place as the
+  structure. dg's structure read is read-only by design and does not add, edit or
+  remove columns, constraints or indexes; the row grid's own behaviour is unchanged.
