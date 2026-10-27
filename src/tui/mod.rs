@@ -222,6 +222,14 @@ pub struct App {
     pub list: Option<Value>,
     /// The gateway's answer about the statement shapes it has run.
     pub queries: Option<Value>,
+    /// How much data each database holds: tables and rows.
+    ///
+    /// Read on its own, slower cadence than the traffic poll: counting
+    /// every row of every database means opening every file, which is
+    /// not work to do every two seconds for an idle service.
+    pub contents: Option<Value>,
+    /// When the contents were last read, so the cadence can be its own.
+    pub contents_refreshed: Option<Instant>,
     /// When the answers last arrived.
     pub refreshed: Option<Instant>,
     /// Whether the gateway answered the last refresh.
@@ -278,6 +286,8 @@ impl App {
             keys: None,
             list: None,
             queries: None,
+            contents: None,
+            contents_refreshed: None,
             refreshed: None,
             connected: false,
             error: None,
