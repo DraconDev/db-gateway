@@ -571,16 +571,32 @@ async fn info(
 /// opens one. The structure is read from the database file with
 /// SQLite's own PRAGMAs, because the query endpoint refuses PRAGMA --
 /// a fact about the schema is not a statement to run.
+///
+/// `?table=<name>` narrows the answer to one table. The narrowing
+/// happens on the server so that the document a client reads is the
+/// API's own, narrowed or not.
 async fn table_schema(
     State(store): State<Arc<Store>>,
     Path(name): Path<String>,
     headers: HeaderMap,
+    query: std::result::Result<Query<SchemaFilter>, axum::extract::rejection::QueryRejection>,
 ) -> Result<Json<Value>> {
+    let filter = query
+        .map(|Query(filter)| filter)
+        .map_err(|_| Error::invalid())?;
     work_read(store, headers, move |s, p| {
         p.owner()?;
-        Ok(Json(s.schema(&name)?))
+        Ok(Json(s.schema(&name, filter.table.as_deref())?))
     })
     .await
+}
+
+/// The one filter the structure route takes.
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SchemaFilter {
+    /// Only this table's structure.
+    table: Option<String>,
 }
 
 /// Owner-only tombstone deletion. The SQLite file is purged later

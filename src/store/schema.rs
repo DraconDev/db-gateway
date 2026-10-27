@@ -206,7 +206,11 @@ impl Store {
     /// Owner-only, like the database's own listing: the answer says
     /// what is inside a database, and the credential that may open a
     /// database is the owner's.
-    pub fn schema(&self, name: &str) -> Result<Value> {
+    ///
+    /// A table name narrows the answer to that table. The narrowing
+    /// happens here, not in the client, so the JSON a pipe reads is the
+    /// API's own document either way -- narrowed or not.
+    pub fn schema(&self, name: &str, table: Option<&str>) -> Result<Value> {
         let Some((deleted_at, purge_after, created_at)) = self.registry_entry(name)? else {
             return Err(Error::new(404, "database_not_found", "database not found"));
         };
@@ -220,7 +224,10 @@ impl Store {
                 "tables": [],
             }));
         }
-        let structures = structure(&path)?;
+        let structures = structure(&path)?
+            .into_iter()
+            .filter(|entry| table.is_none_or(|wanted| entry.name == wanted))
+            .collect::<Vec<TableStructure>>();
         Ok(json!({
             "database": name,
             "tombstoned": false,
