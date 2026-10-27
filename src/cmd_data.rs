@@ -846,7 +846,7 @@ pub async fn rows(
                     return Err(Application(Error::new(
                         400,
                         "invalid_arguments",
-                        format!("a sort direction is asc or desc, not {other}"),
+                        "a sort direction is asc or desc, not that",
                     )));
                 }
             };
@@ -862,7 +862,8 @@ pub async fn rows(
             400,
             "missing_credential",
             "--key-file required",
-        )))?)?;
+        )))?)
+        .map_err(Application)?;
         let structure_path = format!("/v1/databases/{name}/schema?table={table}");
         let structure =
             dg::client::request(server, &key, Method::GET, &structure_path, None, None)
@@ -962,7 +963,7 @@ pub async fn rows(
 /// Run a count and read the number out of it.
 async fn read_count(
     server: &str,
-    key: &dg::client::Key,
+    key: &str,
     name: &str,
     sql: &str,
 ) -> Result<u64, dg::ServerError> {
