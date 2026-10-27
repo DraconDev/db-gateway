@@ -275,7 +275,8 @@ leaves, so the shell you return to keeps its selection and its wheel.
 |---|---|
 | click a tab's label | Open that tab, exactly as its number key does |
 | move the pointer over a table | Mark the row under it, so a click can be seen before it is taken |
-| click a row that names a database | Open that database, exactly as Enter does on the same row |
+| click a row that names a database | Open that database: its tables, with their row and column counts, appear in the last action |
+| click a table in that list | Open that table: its columns, their declared types and their flags |
 | wheel over the body | Scroll the open tab; three lines a notch |
 | click a scrolled body | Back to the top of the open tab |
 
@@ -286,12 +287,18 @@ the view underneath it. The mark follows the pointer and leaves with it:
 a header is never marked, because a header is not a row, and a table the
 pointer has left keeps no mark behind.
 
-Mouse support deliberately stops at opening things. Nothing in the view
-can be *changed* by a click — the rows that change something are the
-actions list's, and those are chosen by the keyboard — because the
-destructive actions are confirmed by typing their own name and that
-confirmation must not be reachable by a misplaced pointer. The keys and
-queries tabs open nothing: their rows are not databases.
+The mouse's doorway and the keyboard's are different depths, and both
+are one gesture. A click opens the **database** and then the **table**:
+what is in it, and what its columns are. Enter opens a table's **rows**,
+with the database already typed into the prompt, so only the table name
+is left to type.
+
+Mouse support deliberately stops at reading. Nothing in the view can be
+*changed* by a click — the rows that change something are the actions
+list's, and those are chosen by the keyboard — because the destructive
+actions are confirmed by typing their own name and that confirmation
+must not be reachable by a misplaced pointer. The keys and queries tabs
+open nothing: their rows are not databases.
 
 ## The actions
 

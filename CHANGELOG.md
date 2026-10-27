@@ -22,14 +22,18 @@ fixes; 1.0.0 waits for production acceptance.
 ### Added
 
 - **The pointer opens databases, and the row under it is marked.** A
-  click on a row that names a database opens it — the same doorway the
-  Enter key opens on the same row, with the database already typed into
-  the open-table prompt. The mark follows the pointer so the operator
-  can see which row a click would take before taking it; the mark is
-  the row's own background, the cells keep the colours that carry
-  meaning, and nothing shifts when the pointer moves. The keys and
-  queries tabs open nothing, and a click never reaches a destructive
-  action.
+  click on a row that names a database opens it: the database's tables,
+  with their row and column counts, appear in the last action. Clicking
+  a table in that list opens that table — its columns, their declared
+  types and their flags — so the mouse walks from a database to a table
+  to what the table is made of. The keyboard's doorway stays where it
+  was: Enter on a database row opens a table's *rows* with the database
+  already typed in, so only the table name is left to type. The mark
+  follows the pointer so the operator can see which row a click would
+  take before taking it; the mark is the row's own background, the cells
+  keep the colours that carry meaning, and nothing shifts when the
+  pointer moves. The keys and queries tabs open nothing, and a click
+  never reaches a destructive action.
 
 ### Fixed
 
