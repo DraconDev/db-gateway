@@ -927,7 +927,13 @@ pub async fn rows(
         sort.as_ref().map(|(column, direction)| (column.as_str(), *direction)),
         condition.as_deref(),
     )
-    .map_err(|refusal| Application(Error::new(400, "invalid_arguments", refusal.message())))?;
+    .map_err(|refusal| {
+        Application(Error::with_message(
+            400,
+            "invalid_arguments",
+            refusal.message(),
+        ))
+    })?;
     let response = dg::client::request(
         server,
         &key,
@@ -976,7 +982,8 @@ async fn read_count(
         Some(serde_json::json!({"sql": sql, "args": []})),
         None,
     )
-    .await?;
+    .await
+    .map_err(Application)?;
     dg::tui::count_total(&response)
         .ok_or_else(|| Application(Error::internal()))
 }
