@@ -531,9 +531,13 @@ impl App {
         // that table's structure -- the columns, their types and their
         // flags -- which is what "opening a table" means here.
         if let Some((database, table)) = self.table_under_pointer(column, row) {
-            self.pending = Some(Invocation::Schema {
+            // Opening a table means opening its ROWS: the data is what
+            // "open" means. Its structure is one key away on the browser
+            // (`s`), so neither answer is hidden behind the other.
+            self.pending = Some(Invocation::OpenTable {
                 name: database,
-                table: Some(table),
+                table,
+                page: 0,
             });
             return;
         }
