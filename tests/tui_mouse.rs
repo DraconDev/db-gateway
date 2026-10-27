@@ -365,3 +365,66 @@ fn clicking_a_credential_opens_nothing() {
     );
     assert!(app.prompt_prefill.is_empty(), "the prompt was filled");
 }
+
+/// Clicking a table in the opened database opens that table.
+///
+/// The database's contents are one row per table, and the grid's first
+/// column holds the table's name. Clicking that row opens the table's
+/// structure: its columns, their types and their flags.
+#[test]
+fn clicking_a_table_in_an_opened_database_opens_that_table() {
+    let mut app = app();
+    // The database was opened: the last action holds its contents.
+    let document = json!({
+        "database": "demo",
+        "tombstoned": false,
+        "created_at": 1_700_000_000,
+        "tables": [
+            {"name": "products", "rows": 60,
+             "columns": [{"name": "id", "type": "INTEGER", "not_null": false, "primary_key": true, "default": null}],
+             "indexes": [], "foreign_keys": [], "sql": "CREATE TABLE products (id INTEGER PRIMARY KEY)"},
+            {"name": "orders", "rows": 12,
+             "columns": [{"name": "id", "type": "INTEGER", "not_null": false, "primary_key": true, "default": null}],
+             "indexes": [], "foreign_keys": [], "sql": "CREATE TABLE orders (id INTEGER PRIMARY KEY)"}
+        ]
+    });
+    app.outcome = Some(dg::tui::schema_outcome("demo", None, &document));
+    let (text, _t) = frame(&mut app, 120, 40);
+    let (column, row) =
+        column_of(&text, "orders").unwrap_or_else(|| panic!("no orders row:\n{text}"));
+    app.on_mouse(click(column, row));
+    assert_eq!(
+        app.take_pending(),
+        Some(Invocation::Schema {
+            name: "demo".to_string(),
+            table: Some("orders".to_string())
+        }),
+        "the click on a table did not open that table"
+    );
+}
+
+/// A click on a table's own structure opens nothing.
+///
+/// A structure grid's rows are columns, and a column is not a table.
+#[test]
+fn clicking_a_column_opens_nothing() {
+    let mut app = app();
+    let document = json!({
+        "database": "demo",
+        "tombstoned": false,
+        "created_at": 1_700_000_000,
+        "tables": [
+            {"name": "products", "rows": 60,
+             "columns": [{"name": "sku", "type": "TEXT", "not_null": true, "primary_key": false, "default": null}],
+             "indexes": [], "foreign_keys": [], "sql": "CREATE TABLE products (sku TEXT NOT NULL)"}
+        ]
+    });
+    app.outcome = Some(dg::tui::schema_outcome("demo", Some("products"), &document));
+    let (text, _t) = frame(&mut app, 120, 40);
+    let (column, row) = column_of(&text, "sku").unwrap_or_else(|| panic!("no sku row:\n{text}"));
+    app.on_mouse(click(column, row));
+    assert!(
+        app.take_pending().is_none(),
+        "a click on a column opened something"
+    );
+}
