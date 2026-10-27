@@ -492,13 +492,9 @@ impl App {
                 self.highlighted = 0;
             }
             // The row grid is one keystroke from the databases tab:
-            // Enter opens the palette on the open-table action, with
-            // the database under the scroll already typed into the
-            // action's prompt. The filter names the action so the
-            // palette lists it first and selectable; choosing it
-            // drops into the prompt with the database prefilled, so
-            // the operator types only the table (and optionally the
-            // page). Typing anything else clears the prefill first.
+            // Enter opens the database the row names, exactly as a
+            // click on that row does. The answer is the database's
+            // contents, and a table in it opens further from there.
             KeyCode::Enter => {
                 if self.focus == Focus::Databases {
                     let names = self.database_names();
@@ -1264,7 +1260,14 @@ pub async fn run(server: &str, key: &str, options: Options) -> Result<()> {
                             app.run_invocation(invocation).await;
                         }
                     }
-                    Some(Event::Mouse(mouse)) => app.on_mouse(mouse),
+                    Some(Event::Mouse(mouse)) => {
+                        app.on_mouse(mouse);
+                        // A click can queue an action -- opening a
+                        // database -- and it runs like any other.
+                        if let Some(invocation) = app.take_pending() {
+                            app.run_invocation(invocation).await;
+                        }
+                    }
                     Some(_) => {}
                     // The reader thread is gone: there is nothing left
                     // to wait for.
