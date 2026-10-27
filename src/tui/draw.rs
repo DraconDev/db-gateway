@@ -917,8 +917,14 @@ fn status_line(frame: &mut Frame, area: Rect, app: &App) {
 /// monochrome terminal.
 fn palette(frame: &mut Frame, area: Rect, app: &App) {
     let actions = app.filtered_actions();
-    let height = (actions.len() as u16 + 4).clamp(5, area.height.saturating_sub(2));
-    let width = area.width.saturating_sub(6).clamp(30, 100);
+    // The popup's size is clamped into the room there is, and the
+    // clamp's bounds are ordered first: `u16::clamp` panics when the
+    // range is empty, and a terminal with no room (a pty with no
+    // window size, or a window shorter than the popup's minimum)
+    // makes the range empty. A view that panics over its own window
+    // size takes the operator's terminal with it.
+    let height = clamp_into(actions.len() as u16 + 4, 5, area.height.saturating_sub(2));
+    let width = clamp_into(area.width.saturating_sub(6), 30, 100);
     let popup = centered(area, width, height);
     // The title column is MEASURED, not assumed. It used to be a fixed
     // sixteen characters, and "rotate owner key" is exactly sixteen, so
@@ -979,7 +985,7 @@ fn palette(frame: &mut Frame, area: Rect, app: &App) {
 
 /// A prompt, over the dashboard.
 fn prompt(frame: &mut Frame, area: Rect, label: &str, input: &str) {
-    let width = area.width.saturating_sub(6).clamp(30, 100);
+    let width = clamp_into(area.width.saturating_sub(6), 30, 100);
     let popup = centered(area, width, 3);
     let line = Line::from(vec![
         Span::styled(format!("{label}: "), crate::tui::theme::heading()),
@@ -1000,6 +1006,22 @@ fn prompt(frame: &mut Frame, area: Rect, label: &str, input: &str) {
 }
 
 /// A box in the middle of an area.
+/// A value inside a range, with the range's bounds ordered first.
+///
+/// `u16::clamp` panics when the range is empty (`min > max`). A
+/// popup measured against a terminal with no room -- a pty with no
+/// window size, a window narrower than the popup's minimum -- has
+/// exactly such a range, and a view that panics over the size of its
+/// own window takes the operator's terminal with it. When the range is
+/// empty the value is zero: there is no room for the popup, and the
+/// popup is drawn in none.
+fn clamp_into(value: u16, min: u16, max: u16) -> u16 {
+    if max < min {
+        return 0;
+    }
+    value.clamp(min, max)
+}
+
 fn centered(area: Rect, width: u16, height: u16) -> Rect {
     let width = width.min(area.width);
     let height = height.min(area.height);
