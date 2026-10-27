@@ -215,7 +215,8 @@ fn the_database_list_shows_every_database_the_gateway_lists() {
     // view says so with zeroes rather than leaving it out.
     let list = json!({"databases": ["demo", "quiet"]});
     let status = status();
-    let table = dg::views::databases(&list, &status);
+    let contents = json!({"databases": {"demo": {"tables": 2, "rows": 30}}});
+    let table = dg::views::databases(&list, &status, &contents);
     let mut out = Vec::new();
     table
         .write(&mut out, &Theme::fixed(false, true))
