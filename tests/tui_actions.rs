@@ -17,6 +17,7 @@ fn every_action_is_in_the_catalogue_once() {
         ActionKind::Refresh,
         ActionKind::Query,
         ActionKind::Tables,
+        ActionKind::Schema,
         ActionKind::OpenTable,
         ActionKind::ExecuteFile,
         ActionKind::BatchFile,
@@ -61,6 +62,12 @@ fn the_actions_ask_the_gateway_for_what_the_api_documents() {
             "demo",
             Method::GET,
             "/v1/databases/demo",
+        ),
+        (
+            ActionKind::Schema,
+            "demo products",
+            Method::GET,
+            "/v1/databases/demo/schema?table=products",
         ),
         (
             ActionKind::OpenTable,
