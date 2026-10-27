@@ -322,6 +322,48 @@ pub fn databases(list: &Value, status: &Value) -> Table {
     traffic_table(&names, status)
 }
 
+/// How much data each database holds, as the grid an operator reads.
+///
+/// One row per database: its table count and its total row count, read
+/// from the files. A database whose file could not be read says
+/// `unknown` rather than `0`, because a fault must not be drawn as an
+/// empty database -- which is the very mistake this view exists to
+/// correct.
+pub fn contents(document: &Value) -> Table {
+    let mut table = Table::new();
+    table.column("database", Align::Left);
+    table.column("tables", Align::Right);
+    table.column("rows", Align::Right);
+    let mut names: Vec<&String> = document["databases"]
+        .as_object()
+        .map(|entries| entries.keys().collect())
+        .unwrap_or_default();
+    names.sort();
+    for name in &names {
+        let entry = &document["databases"][name.as_str()];
+        table.row(vec![
+            Cell::styled((*name).clone(), Style::Cyan),
+            count_cell(&entry["tables"]),
+            count_cell(&entry["rows"]),
+        ]);
+    }
+    table.footer(if names.len() == 1 {
+        "1 database".to_string()
+    } else {
+        format!("{} databases", names.len())
+    });
+    table
+}
+
+/// One count from the contents answer: a number, or `unknown` when the
+/// file could not be read.
+fn count_cell(value: &Value) -> Cell {
+    match value.as_u64() {
+        Some(count) => Cell::number(count),
+        None => Cell::styled("unknown", Style::Dim),
+    }
+}
+
 /// One traffic table over a list of database names.
 ///
 /// Every figure is shown. There used to be a narrower variant for the

@@ -379,6 +379,14 @@ enum Command {
     Watch,
     /// List database names visible to the credential (owner sees all).
     List,
+    /// How much data each database holds: its tables and its rows.
+    ///
+    /// `dg list` says which databases exist and the traffic counters
+    /// say what they have been DOING, but those counters are in memory
+    /// and reset when the gateway restarts, so a database full of data
+    /// can read as nothing beside them. This reads the files and says
+    /// what the databases HOLD.
+    Contents,
     /// Inspect one database: what it holds and what it has been doing.
     ///
     /// `dg info` is what a database is; `dg inspect` is what it has been
