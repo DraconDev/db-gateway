@@ -294,6 +294,7 @@ reachable by a misplaced pointer.
 | refresh | — | Reads the service again |
 | query | `query <database> <sql>` | Runs one statement; the rows appear in the last-action area |
 | tables | `tables <database>` | Lists one database's tables with row counts |
+| schema | `schema <database> [table]` | Reads a table's structure: each column's declared type, its not-null and primary-key flags, the table's indexes and foreign keys, and its `CREATE` statement |
 | open table | `open <database> <table> [page]` | Pages through one table's rows, 10 per page (Enter on the databases tab lists the action with the scrolled-to database already typed into its prompt) |
 | run sql file | `run <database> <script.sql>` | Runs a SQL file as one atomic batch, statement by statement |
 | run batch file | `batch <database> <batch.json>` | Runs a JSON batch file |

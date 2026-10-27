@@ -500,6 +500,8 @@ dg --key-file owner.key batch game_a batch.json
 printf '%s\n' "SELECT count(*) FROM players;" > script.sql
 dg --key-file owner.key execute game_a script.sql
 dg --key-file owner.key inspect game_a
+dg --key-file owner.key schema game_a                # every table's structure
+dg --key-file owner.key schema game_a players        # one table's structure
 dg --key-file owner.key queries                 # which statement is the expensive one
 dg --key-file owner.key queries --database game_a
 dg --key-file owner.key audit --principal bot_a # what did that credential do
