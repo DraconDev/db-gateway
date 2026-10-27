@@ -381,6 +381,14 @@ impl App {
             }
             return;
         }
+        // Then a row that names a database: clicking a database opens it,
+        // which is what the Enter key does on the same row. The mouse
+        // and the keyboard answer the same question the same way, and
+        // an operator who learned one has learned the other.
+        if let Some(name) = self.database_under_pointer(column, row) {
+            self.open_database(&name);
+            return;
+        }
         // Then the body: clicking it takes the keyboard there, so the wheel
         // and the arrow keys act on the tab the operator clicked into.
         if let Some(body) = self.geometry.body
@@ -396,6 +404,42 @@ impl App {
                 *offset = 0;
             }
         }
+    }
+
+    /// The database a click landed on, if it landed on one.
+    ///
+    /// The name is read from the row the operator clicked, in the table
+    /// the tab drew, so the answer is the name that was on screen. A
+    /// click on a table that does not name databases -- the keys, the
+    /// queries -- opens nothing: those rows are not databases, and the
+    /// view never reaches a destructive action from a click.
+    fn database_under_pointer(&self, column: u16, row: u16) -> Option<String> {
+        let table = match self.focus {
+            Focus::Databases => self.databases()?,
+            Focus::Locations => self.locations()?,
+            _ => return None,
+        };
+        let index = self
+            .geometry
+            .tables
+            .iter()
+            .find_map(|drawn| drawn.row_at(column, row))?;
+        let name = table.rows().get(index)?.first()?.parts().0.into_owned();
+        // A row that names nothing usable is not a database.
+        (!name.is_empty() && crate::store::validate_name(&name).is_ok()).then_some(name)
+    }
+
+    /// Open a database: the doorway the Enter key opens on the same row.
+    ///
+    /// The palette is filtered to the open-table action and the
+    /// database is already typed into its prompt, so the operator types
+    /// only the table. One rule, one doorway, whichever hand is on the
+    /// mouse.
+    fn open_database(&mut self, name: &str) {
+        self.prompt_prefill = format!("{name} ");
+        self.filter = "open table".to_string();
+        self.mode = Mode::Palette;
+        self.highlighted = 0;
     }
 
     fn on_key_normal(&mut self, key: KeyEvent) {
@@ -419,13 +463,9 @@ impl App {
                 if self.focus == Focus::Databases {
                     let names = self.database_names();
                     let index = (self.scroll.databases as usize).min(names.len().saturating_sub(1));
-                    self.prompt_prefill = match names.get(index) {
-                        Some(name) => format!("{name} "),
-                        None => String::new(),
-                    };
-                    self.filter = "open table".to_string();
-                    self.mode = Mode::Palette;
-                    self.highlighted = 0;
+                    if let Some(name) = names.get(index) {
+                        self.open_database(name);
+                    }
                 }
             }
             KeyCode::Tab => self.focus = self.focus.next(),
