@@ -27,6 +27,7 @@ mod disk;
 mod lifecycle;
 mod metrics;
 mod queries;
+mod schema;
 mod transfers;
 
 pub use self::admission::{
