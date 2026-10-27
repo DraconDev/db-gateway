@@ -43,6 +43,42 @@ async function withServer(run) {
   }
 }
 
+test('the schema route answers a table\'s structure', async () => {
+  await withServer(async (gateway, address) => {
+    await gateway.createDatabase('shop');
+    await gateway.database('shop').execute(
+      'CREATE TABLE products (id INTEGER PRIMARY KEY, sku TEXT NOT NULL, price_cents INTEGER DEFAULT 0)',
+    );
+    await gateway.database('shop').execute(
+      'CREATE TABLE orders (id INTEGER PRIMARY KEY, product_id INTEGER REFERENCES products(id) ON DELETE CASCADE)',
+    );
+
+    const schema = await gateway.schema('shop');
+    assert.equal(schema.database, 'shop');
+    assert.deepEqual(schema.tables.map((t) => t.name), ['orders', 'products']);
+    const products = schema.tables.find((t) => t.name === 'products');
+    assert.deepEqual(products.columns.map((c) => c.name), ['id', 'sku', 'price_cents']);
+    assert.equal(products.columns[0].type, 'INTEGER');
+    assert.equal(products.columns[0].primary_key, true);
+    assert.equal(products.columns[1].not_null, true);
+    assert.equal(products.columns[2].default, '0');
+    const orders = schema.tables.find((t) => t.name === 'orders');
+    assert.equal(orders.foreign_keys[0].from, 'product_id');
+    assert.equal(orders.foreign_keys[0].table, 'products');
+    assert.equal(orders.foreign_keys[0].on_delete, 'CASCADE');
+
+    // A table narrows the answer, on the server.
+    const one = await gateway.schema('shop', 'products');
+    assert.deepEqual(one.tables.map((t) => t.name), ['products']);
+
+    // A scoped app key may not read a database's structure: the route
+    // is owner-only, like the listing beside it.
+    const ro = await gateway.issueKey({ name: 'reader', role: 'database_read_only', databases: ['shop'] });
+    const roGw = new Gateway(`http://${address}`, ro.key);
+    await assert.rejects(roGw.schema('shop'), (e) => e instanceof GatewayError && e.code === 'forbidden');
+  });
+});
+
 test('typed management: create/list/info/keys/delete plus denials', async () => {
   await withServer(async (gateway, address) => {
     assert.deepEqual(await gateway.createDatabase('shop'), { name: 'shop' });
