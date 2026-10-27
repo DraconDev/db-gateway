@@ -71,6 +71,12 @@ pub enum Mode {
         invocation: Invocation,
         phrase: String,
     },
+    /// The condition narrowing the rows browser.
+    ///
+    /// Its own mode rather than a palette prompt: the text is a SQL
+    /// condition, it is edited rather than typed from scratch, and its
+    /// Enter re-reads the SAME table instead of running an action.
+    Filter,
 }
 
 /// Which tab has the keyboard.
@@ -459,6 +465,7 @@ impl App {
             Mode::Normal => self.on_key_normal(key),
             Mode::Palette => self.on_key_palette(key),
             Mode::Prompt { .. } | Mode::Confirm { .. } => self.on_key_input(key),
+            Mode::Filter => self.on_key_filter(key),
         }
     }
 
@@ -763,11 +770,9 @@ impl App {
                 self.pending = Some(Invocation::RefreshRows);
             }
             KeyCode::Char('f') => {
-                self.mode = Mode::Palette;
-                self.filter.clear();
-                self.highlighted = 0;
-                // The filter is typed in the prompt, prefilled with what
-                // is already narrowing the rows so it can be edited.
+                self.mode = Mode::Filter;
+                // The condition is EDITED, not retyped: it opens with
+                // what is already narrowing the rows.
                 self.input = browser.filter.clone().unwrap_or_default();
             }
             KeyCode::Char('c') => {
@@ -808,6 +813,44 @@ impl App {
                 self.prompt_prefill.clear();
             }
             KeyCode::Enter => self.choose(),
+            _ => {}
+        }
+    }
+
+    /// The keys of the filter prompt.
+    ///
+    /// Enter applies the condition to the table already on screen and
+    /// re-reads it; an empty condition clears the filter, which is how
+    /// the operator gets the whole table back. Esc abandons the edit and
+    /// leaves the rows as they were.
+    fn on_key_filter(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.mode = Mode::Normal;
+                self.input.clear();
+            }
+            KeyCode::Backspace => {
+                self.input.pop();
+            }
+            KeyCode::Char(character) => self.input.push(character),
+            KeyCode::Enter => {
+                let Some(browser) = self.browser.clone() else {
+                    self.mode = Mode::Normal;
+                    self.input.clear();
+                    return;
+                };
+                let typed = self.input.trim().to_string();
+                self.mode = Mode::Normal;
+                self.input.clear();
+                self.browser = Some(Browser {
+                    filter: (!typed.is_empty()).then_some(typed),
+                    // A new condition selects a different set, so the
+                    // page it was on means nothing: back to the first.
+                    page: 0,
+                    ..browser
+                });
+                self.pending = Some(Invocation::RefreshRows);
+            }
             _ => {}
         }
     }
