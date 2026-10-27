@@ -894,6 +894,128 @@ impl App {
         self.refreshed = Some(Instant::now());
     }
 
+    /// Read one page of a table into the browser.
+    ///
+    /// Three reads, because the browser needs three facts and the
+    /// gateway answers each in its own words: the table's structure
+    /// (which columns exist, so a sort names a real one), the count
+    /// under the current filter (so the footer's `of N` is the answer's
+    /// size and not the table's), and the page itself.
+    ///
+    /// The count is read BEFORE the page so the footer describes the
+    /// page that is about to appear. If the count fails, the page is
+    /// still shown and the footer says the total is unknown, rather than
+    /// the whole read failing over a number.
+    pub async fn open_browser(&mut self, mut browser: Browser) {
+        let structure_path = format!("/v1/databases/{}/schema", browser.database);
+        let structure = match self.fetch(&structure_path).await {
+            Ok(value) => value,
+            Err(error) => {
+                self.outcome = Some(Outcome {
+                    headline: "the table could not be opened".to_string(),
+                    facts: vec![
+                        ("database".to_string(), browser.database.clone()),
+                        ("table".to_string(), browser.table.clone()),
+                    ],
+                    table: None,
+                    error: Some(error.message.to_string()),
+                });
+                return;
+            }
+        };
+        // The count, under the same filter the page will use. A refusal
+        // here is not fatal: the page is still worth showing.
+        let count = match crate::views::rows_count_query(
+            &structure,
+            &browser.table,
+            browser.filter.as_deref(),
+        ) {
+            Ok(query) => self.query_sql(&browser.database, &query.sql).await.ok(),
+            Err(refusal) => {
+                self.outcome = Some(Outcome {
+                    headline: "the table could not be opened".to_string(),
+                    facts: Vec::new(),
+                    table: None,
+                    error: Some(refusal.message()),
+                });
+                return;
+            }
+        };
+        if let Some(counted) = count.as_ref().and_then(count_total) {
+            browser.total = counted;
+        }
+        let page = match crate::views::rows_query(
+            &structure,
+            &browser.table,
+            browser.page,
+            browser.sort.as_ref().map(|(column, direction)| {
+                (column.as_str(), *direction)
+            }),
+            browser.filter.as_deref(),
+        ) {
+            Ok(query) => query,
+            Err(refusal) => {
+                self.outcome = Some(Outcome {
+                    headline: "the table could not be opened".to_string(),
+                    facts: Vec::new(),
+                    table: None,
+                    error: Some(refusal.message()),
+                });
+                return;
+            }
+        };
+        match self.query_sql(&browser.database, &page.sql).await {
+            Ok(response) => {
+                self.outcome = Some(browser_outcome(&browser, &response));
+                self.browser = Some(browser);
+            }
+            Err(error) => {
+                self.outcome = Some(Outcome {
+                    headline: "the table could not be read".to_string(),
+                    facts: Vec::new(),
+                    table: None,
+                    error: Some(error.message.to_string()),
+                });
+            }
+        }
+    }
+
+    /// Run one statement against one database, as a read.
+    async fn query_sql(&self, database: &str, sql: &str) -> Result<Value> {
+        let body = serde_json::json!({"sql": sql, "args": []});
+        let value = client::request(
+            &self.server,
+            &self.key,
+            reqwest::Method::POST,
+            &format!("/v1/databases/{database}/query"),
+            Some(&body),
+            None,
+        )
+        .await?;
+        if let Some(error) = value.get("error") {
+            let code = error["code"].as_str().unwrap_or("error");
+            let message = error["message"].as_str().unwrap_or("refused");
+            return Err(Error::with_message(
+                400,
+                "api_error",
+                format!("{code}: {message}"),
+            ));
+        }
+        Ok(value)
+    }
+
+    /// Read the page again with whatever the browser now says.
+    ///
+    /// Every control in the browser -- a page, a sort, a filter -- is a
+    /// change to the same question, so each one re-reads through this
+    /// one path rather than each assembling its own request.
+    async fn reread_page(&mut self) {
+        let Some(browser) = self.browser.clone() else {
+            return;
+        };
+        self.open_browser(browser).await;
+    }
+
     /// Whether the contents are due to be read again.
     ///
     /// They are on their own clock because they cost their own work:
@@ -933,6 +1055,19 @@ impl App {
 
     /// Run the action the operator chose.
     pub async fn run_invocation(&mut self, invocation: Invocation) {
+        // A table opened for its rows goes to the browser, which needs
+        // several reads and keeps state between them. It is handled
+        // before the one-request actions for that reason.
+        if let Invocation::OpenTable { name, table, page } = &invocation {
+            let browser = Browser {
+                database: name.clone(),
+                table: table.clone(),
+                page: *page,
+                ..Browser::new(name, table)
+            };
+            self.open_browser(browser).await;
+            return;
+        }
         let outcome = match &invocation {
             Invocation::Quit => {
                 self.quit = true;
