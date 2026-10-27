@@ -297,11 +297,8 @@ impl Store {
     /// deadline and the creation time otherwise. The lookup is written
     /// once, because the database's own listing and its structure both
     /// have to answer the same question about the same name.
-    pub(crate) fn registry_entry(
-        &self,
-        name: &str,
-    ) -> Result<Option<(Option<i64>, Option<i64>, i64)>> {
-        let row: Option<(Option<i64>, Option<i64>, i64)> = self
+    pub(crate) fn registry_entry(&self, name: &str) -> Result<Option<RegistryEntry>> {
+        let row: Option<RegistryEntry> = self
             .meta()?
             .query_row(
                 "SELECT deleted_at, purge_after, created_at FROM databases WHERE name=?",
