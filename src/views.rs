@@ -293,12 +293,15 @@ fn location_state(entry: &Value) -> (String, Style) {
 ///
 /// The names come from the service's own counters, so this is the
 /// dashboard's answer to "which of my databases is doing the work".
+/// It carries no contents: this is the traffic view, and the counts of
+/// what a database HOLDS belong on the databases tab where the
+/// operator compares them.
 pub fn per_database_table(status: &Value) -> Table {
     let names: Vec<String> = status["databases"]
         .as_object()
         .map(|usage| usage.keys().cloned().collect())
         .unwrap_or_default();
-    traffic_table(&names, status)
+    traffic_table(&names, status, &Value::Null)
 }
 
 /// The database list with each database's traffic.
