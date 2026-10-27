@@ -191,7 +191,8 @@ fn the_databases_tab_shows_contents_and_labels_its_counters() {
         .expect("the table writes");
     let text = String::from_utf8(out).expect("the table is text");
     // What the database holds, from its file.
-    let headings = text.lines().next().unwrap_or("");
+    // The first line is the box border; the header is the line after it.
+    let headings = text.lines().nth(1).unwrap_or("");
     for column in ["tables", "rows"] {
         assert!(
             headings.contains(column),
@@ -232,7 +233,8 @@ fn the_status_dashboard_keeps_its_unstarred_columns() {
         .write(&mut out, &dg::render::Theme::fixed(false, true))
         .expect("the table writes");
     let text = String::from_utf8(out).expect("the table is text");
-    let headings = text.lines().next().unwrap_or("");
+    // The first line is the box border; the header is the line after it.
+    let headings = text.lines().nth(1).unwrap_or("");
     assert!(
         headings.contains("rows read"),
         "the dashboard lost its read column: {headings}"
