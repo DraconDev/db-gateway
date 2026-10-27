@@ -962,7 +962,7 @@ pub fn schema_outcome(name: &str, table: Option<&str>, response: &Value) -> Outc
         return error;
     }
     let structures = views::structures(response, table);
-    let Some(first) = structures.first() else {
+    if structures.is_empty() {
         let wanted = match table {
             Some(wanted) => format!("no table named {wanted} in {name}"),
             None => format!("{name} has no table to describe"),
@@ -973,12 +973,34 @@ pub fn schema_outcome(name: &str, table: Option<&str>, response: &Value) -> Outc
             table: None,
             error: Some(wanted),
         };
-    };
-    Outcome {
-        headline: format!("structure of {} in {name}", first.name),
-        facts: views::structure_facts(first),
-        table: Some(views::structure_columns(first)),
-        error: None,
+    }
+    // A whole database is opened by its contents: one row per table.
+    // One named table is opened by its own structure: the columns, their
+    // types and their flags. The two are different questions, and the
+    // grid answers the one that was asked.
+    match table {
+        None => {
+            let rows: u64 = structures.iter().map(|entry| entry.rows).sum();
+            Outcome {
+                headline: format!("{name} holds {} tables", structures.len()),
+                facts: vec![
+                    ("database".to_string(), name.to_string()),
+                    ("tables".to_string(), structures.len().to_string()),
+                    ("rows".to_string(), rows.to_string()),
+                ],
+                table: Some(views::structure_contents(&structures)),
+                error: None,
+            }
+        }
+        Some(_) => {
+            let first = &structures[0];
+            Outcome {
+                headline: format!("structure of {} in {name}", first.name),
+                facts: views::structure_facts(first),
+                table: Some(views::structure_columns(first)),
+                error: None,
+            }
+        }
     }
 }
 

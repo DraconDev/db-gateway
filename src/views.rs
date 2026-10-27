@@ -1449,6 +1449,38 @@ pub fn structures(document: &Value, table: Option<&str>) -> Vec<TableStructure> 
 /// The flags are words rather than blanks: a blank cell in a schema
 /// grid reads as "not known" when it means "no", and "no" is the fact
 /// that matters when a column may be null or may not be the key.
+/// A database's tables, as the grid an operator reads when they open it.
+///
+/// One row per table: how many rows it holds, how many columns, how
+/// many indexes and how many foreign keys. It is the answer to "what
+/// is in this database", one level above a table's own structure, and
+/// it is the grid a click on a table lands in: the first column holds
+/// the table's name.
+pub fn structure_contents(tables: &[TableStructure]) -> Table {
+    let mut grid = Table::new();
+    grid.column("table", Align::Left);
+    grid.column("rows", Align::Right);
+    grid.column("columns", Align::Right);
+    grid.column("indexes", Align::Right);
+    grid.column("foreign keys", Align::Right);
+    for table in tables {
+        grid.row(vec![
+            Cell::text(table.name.clone()),
+            Cell::number(table.rows),
+            Cell::number(table.columns.len() as u64),
+            Cell::number(table.indexes.len() as u64),
+            Cell::number(table.foreign_keys.len() as u64),
+        ]);
+    }
+    grid.footer(if tables.len() == 1 {
+        "1 table".to_string()
+    } else {
+        format!("{} tables", tables.len())
+    });
+    grid
+}
+
+/// One table's columns, as the grid an operator reads.
 pub fn structure_columns(table: &TableStructure) -> Table {
     let mut grid = Table::new();
     grid.column("column", Align::Left);
