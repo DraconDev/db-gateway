@@ -988,7 +988,7 @@ impl App {
             &self.key,
             reqwest::Method::POST,
             &format!("/v1/databases/{database}/query"),
-            Some(&body),
+            Some(body),
             None,
         )
         .await?;
