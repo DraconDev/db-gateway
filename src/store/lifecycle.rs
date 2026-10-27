@@ -135,6 +135,12 @@ fn database_size_bytes(path: &Path) -> u64 {
 
 /// Where one registered database lives on disk.
 ///
+/// The registry's row for one database.
+///
+/// The tombstone deadline and the creation time: the two facts every
+/// view of a database needs, whether the name is live or deleted.
+pub type RegistryEntry = (Option<i64>, Option<i64>, i64);
+
 /// The path is the file the gateway would open for that name, so it is the
 /// answer to "where is this database" rather than a directory the database
 /// might be in. `exists` is separate from `size_bytes` on purpose: a
