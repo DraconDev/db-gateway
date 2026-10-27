@@ -332,6 +332,53 @@ pub async fn info(
     )))
 }
 
+/// The structure of one database's tables: every column with its type,
+/// its flags and its default, plus the table's indexes and foreign
+/// keys.
+///
+/// One table when a name is given, every table when it is not. The
+/// answer comes from the shared view layer, so the terminal drawing
+/// and the terminal view read the same document the same way.
+pub async fn schema(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
+    name: String,
+    table: Option<String>,
+) -> Result<Option<Request>, dg::ServerError> {
+    dg::store::validate_name(&name).map_err(Application)?;
+    let path = format!("/v1/databases/{name}/schema");
+    if json || !std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+        // The JSON is the API's document, unchanged: a pipe reads the
+        // same thing a terminal does, minus the drawing.
+        return Ok(Some((
+            Method::GET,
+            path,
+            None,
+            None,
+            dg::client::Semantics::Read,
+        )));
+    }
+    let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
+        400,
+        "missing_credential",
+        "--key-file required",
+    )))?)
+    .map_err(Application)?;
+    let document = dg::client::request(server, &key, Method::GET, &path, None, None)
+        .await
+        .map_err(Application)?;
+    if api_failed(&document) {
+        dg::shell::render_with(&document, false, &terminal_theme(), &mut std::io::stdout())
+            .map_err(Application)?;
+        return Err(Application(api_error()));
+    }
+    let sections = dg::views::structure_sections(&document, table.as_deref());
+    let mut out = std::io::stdout();
+    dg::render::write_sections(&mut out, &terminal_theme(), &sections).map_err(Application)?;
+    Ok(None)
+}
+
 /// The creation time as a person reads it, with the raw value kept
 /// alongside it: the human form is for reading, the epoch is for
 /// comparing.
