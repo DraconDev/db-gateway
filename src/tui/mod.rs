@@ -935,7 +935,11 @@ impl App {
     pub fn databases(&self) -> Option<render::Table> {
         let list = self.list.as_ref()?;
         let status = self.status.clone().unwrap_or(Value::Null);
-        Some(views::databases(list, &status))
+        // The contents are a separate read, and an absent one is not an
+        // error: the traffic columns are still a real answer, and the
+        // counts say "unknown" rather than the tab going blank.
+        let contents = self.contents.clone().unwrap_or(Value::Null);
+        Some(views::databases(list, &status, &contents))
     }
 
     /// The sorted database names the databases tab shows.

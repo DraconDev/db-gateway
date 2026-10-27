@@ -310,7 +310,7 @@ pub fn per_database_table(status: &Value) -> Table {
 ///
 /// The columns are the dashboard's own, so the terminal view's
 /// database list and the CLI's dashboard are the same table.
-pub fn databases(list: &Value, status: &Value) -> Table {
+pub fn databases(list: &Value, status: &Value, contents: &Value) -> Table {
     let mut names: Vec<String> = list["databases"]
         .as_array()
         .cloned()
@@ -319,7 +319,7 @@ pub fn databases(list: &Value, status: &Value) -> Table {
         .map(|name| name.as_str().unwrap_or("").to_string())
         .collect();
     names.sort();
-    traffic_table(&names, status)
+    traffic_table(&names, status, contents)
 }
 
 /// How much data each database holds, as the grid an operator reads.
@@ -370,19 +370,31 @@ fn count_cell(value: &Value) -> Cell {
 /// terminal view's database *pane*, when the tiled layout gave each
 /// answer a fraction of the screen; the view is tabbed now, so the
 /// database list is a whole tab and has the width for all of them.
-fn traffic_table(names: &[String], status: &Value) -> Table {
+///
+/// The `tables` and `rows` columns are WHAT THE DATABASE HOLDS, read
+/// from its file; the traffic columns beside them say what it has been
+/// DOING. The two were confused once, and the confusion was expensive:
+/// every traffic counter is in memory and a restart zeroes it, so a
+/// gateway that had just restarted drew seven full databases as seven
+/// empty ones. The traffic block is now headed and footnoted as
+/// since-restart, and the counts that come from the files sit first.
+fn traffic_table(names: &[String], status: &Value, contents: &Value) -> Table {
     let mut table = Table::new();
     table.column("database", Align::Left);
-    table.column("rows read", Align::Right);
-    table.column("rows written", Align::Right);
-    table.column("waits", Align::Right);
-    table.column("wait p95", Align::Right);
-    table.column("wait max", Align::Right);
-    table.column("last write", Align::Left);
+    // What it holds: from the files, so a restart cannot zero it.
+    table.column("tables", Align::Right);
+    table.column("rows", Align::Right);
     // How big the file is. The traffic columns say what the database has
     // been doing; this says what it costs to keep. A hosted console puts
     // the two side by side, and an operator watching disk wants both.
     table.column("size", Align::Right);
+    // What it has been doing SINCE THE GATEWAY RESTARTED. In memory.
+    table.column("read*", Align::Right);
+    table.column("written*", Align::Right);
+    table.column("waits*", Align::Right);
+    table.column("wait p95", Align::Right);
+    table.column("wait max", Align::Right);
+    table.column("last write*", Align::Left);
     for name in names {
         let entry = &status["databases"][name.as_str()];
         let waits = entry["queue_waits"].as_u64().unwrap_or(0);
@@ -398,18 +410,25 @@ fn traffic_table(names: &[String], status: &Value) -> Table {
             Some(bytes) => Cell::text(render::human_bytes(bytes)),
             None => Cell::text("—"),
         };
+        let held = &contents["databases"][name.as_str()];
         table.row(vec![
             Cell::styled(name.clone(), Style::Cyan),
+            count_cell(&held["tables"]),
+            count_cell(&held["rows"]),
+            size,
             Cell::number(entry["rows_read"].as_u64().unwrap_or(0)),
             Cell::number(entry["rows_written"].as_u64().unwrap_or(0)),
             Cell::number(waits),
             figures_cells.p95,
             figures_cells.max,
             last_write,
-            size,
         ]);
     }
-    table.footer("wait p95 is this database's own recent waits; wait max is its worst single wait");
+    table.footer(
+        "tables/rows are what the database holds; columns marked * are since the gateway restarted, \
+         and a restart zeroes them. wait p95 is this database's own recent waits; wait max is its \
+         worst single wait",
+    );
     table
 }
 
