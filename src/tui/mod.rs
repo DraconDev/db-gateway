@@ -894,6 +894,36 @@ pub fn tables_outcome(name: &str, response: &Value) -> Outcome {
     }
 }
 
+/// The outcome of reading one table's structure.
+///
+/// Pure so a test can read what the operator would read without a
+/// gateway: the grid is the shared [`views::structure_columns`]
+/// reading, and the facts say which table it is about.
+pub fn schema_outcome(name: &str, table: Option<&str>, response: &Value) -> Outcome {
+    if let Some(error) = refusal(response) {
+        return error;
+    }
+    let structures = views::structures(response, table);
+    let Some(first) = structures.first() else {
+        let wanted = match table {
+            Some(wanted) => format!("no table named {wanted} in {name}"),
+            None => format!("{name} has no table to describe"),
+        };
+        return Outcome {
+            headline: "there is no structure to show".to_string(),
+            facts: vec![("database".to_string(), name.to_string())],
+            table: None,
+            error: Some(wanted),
+        };
+    };
+    Outcome {
+        headline: format!("structure of {} in {name}", first.name),
+        facts: views::structure_facts(first),
+        table: Some(views::structure_columns(first)),
+        error: None,
+    }
+}
+
 /// The outcome of paging through one table's rows.
 ///
 /// Pure for the same reason: the grid the operator pages is built
@@ -958,6 +988,9 @@ fn refusal(response: &Value) -> Option<Outcome> {
 fn outcome_of(invocation: &Invocation, statements: &[String], response: &Value) -> Outcome {
     if let Invocation::Tables { name } = invocation {
         return tables_outcome(name, response);
+    }
+    if let Invocation::Schema { name, table } = invocation {
+        return schema_outcome(name, table.as_deref(), response);
     }
     if let Invocation::OpenTable { name, table, page } = invocation {
         return open_table_outcome(name, table, *page, response);
