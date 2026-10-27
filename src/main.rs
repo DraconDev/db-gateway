@@ -418,6 +418,30 @@ enum Command {
         /// One table to describe; every table when left out.
         table: Option<String>,
     },
+    /// Read one table's rows, a page at a time.
+    ///
+    /// The rows browser: the table's actual data, with a footer saying
+    /// which slice of the answer is on screen. `--sort` orders it and
+    /// `--where` narrows it, both applied by the gateway, so the footer's
+    /// total is the filtered count and not the table's.
+    Rows {
+        /// Database the table is in.
+        name: String,
+        /// Table to read.
+        table: String,
+        /// Which page, counting from zero.
+        #[arg(default_value_t = 0)]
+        page: u64,
+        /// Column to sort by, optionally with a direction.
+        ///
+        /// `stock` sorts ascending; `stock:desc` sorts descending. A
+        /// column that is not in the table is refused.
+        #[arg(long)]
+        sort: Option<String>,
+        /// A read-only SQL condition narrowing the rows, e.g. `stock < 20`.
+        #[arg(long = "where")]
+        condition: Option<String>,
+    },
     /// Clone a database into a new one via the SQLite backup API.
     Clone {
         /// Existing database to copy from.
@@ -1066,6 +1090,13 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         }
         Command::List => cmd_data::list(&server, json, &key_path).await?,
         Command::Contents => cmd_data::contents(&server, json, &key_path).await?,
+        Command::Rows {
+            name,
+            table,
+            page,
+            sort,
+            condition,
+        } => cmd_data::rows(&server, json, &key_path, name, table, page, sort, condition).await?,
         Command::Inspect { name } => cmd_data::inspect(&server, json, &key_path, name).await?,
         Command::Info { name } => cmd_data::info(&server, json, &key_path, name).await?,
         Command::Schema { name, table } => {

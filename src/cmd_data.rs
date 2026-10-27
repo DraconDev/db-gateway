@@ -797,3 +797,184 @@ mod tests {
         );
     }
 }
+
+/// Read one table's rows, a page at a time.
+///
+/// The rows browser on the command line. It reads the table's structure
+/// first, because the sort column has to be checked against the table's
+/// real columns before it can be written into the statement -- and then
+/// the count and the page, so the footer's `of N` is the size of the
+/// filtered answer rather than the table's total.
+///
+/// A pipe gets the gateway's own query document unchanged, so a script
+/// reads exactly what the API said. A terminal gets the grid.
+#[allow(clippy::too_many_arguments)]
+pub async fn rows(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
+    name: String,
+    table: String,
+    page: u64,
+    sort: Option<String>,
+    condition: Option<String>,
+) -> Result<Option<Request>, dg::ServerError> {
+    dg::store::validate_name(&name).map_err(Application)?;
+    // The table is validated against the database's own schema below, so
+    // a name that is not a table never reaches a statement. This check
+    // only keeps the obvious garbage out of the URL.
+    if table.is_empty()
+        || !table
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '_')
+        || table.starts_with(|character: char| character.is_ascii_digit())
+    {
+        return Err(Application(Error::new(
+            400,
+            "invalid_arguments",
+            "a table name is letters, digits and underscores, and does not start with a digit",
+        )));
+    }
+    let sort = match sort {
+        None => None,
+        Some(wanted) => {
+            let (column, direction) = match wanted.split_once(':') {
+                None => (wanted.as_str(), dg::views::SortDirection::Ascending),
+                Some((column, "asc")) => (column, dg::views::SortDirection::Ascending),
+                Some((column, "desc")) => (column, dg::views::SortDirection::Descending),
+                Some((_, other)) => {
+                    return Err(Application(Error::new(
+                        400,
+                        "invalid_arguments",
+                        format!("a sort direction is asc or desc, not {other}"),
+                    )));
+                }
+            };
+            Some((column.to_string(), direction))
+        }
+    };
+    let machine = json || !std::io::IsTerminal::is_terminal(&std::io::stdout());
+    if machine {
+        // A pipe reads the page as the gateway's own document. The sort
+        // and the filter still have to be validated, which means reading
+        // the structure -- so this is not a single request either.
+        let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
+            400,
+            "missing_credential",
+            "--key-file required",
+        )))?)?;
+        let structure_path = format!("/v1/databases/{name}/schema?table={table}");
+        let structure =
+            dg::client::request(server, &key, Method::GET, &structure_path, None, None)
+                .await
+                .map_err(Application)?;
+        if api_failed(&structure) {
+            dg::shell::render_with(&structure, false, &terminal_theme(), &mut std::io::stdout())
+                .map_err(Application)?;
+            return Err(Application(api_error()));
+        }
+        let query = dg::views::rows_query(
+            &structure,
+            &table,
+            page,
+            sort.as_ref().map(|(column, direction)| (column.as_str(), *direction)),
+            condition.as_deref(),
+        )
+        .map_err(|refusal| {
+            Application(Error::new(400, "invalid_arguments", refusal.message()))
+        })?;
+        return Ok(Some((
+            Method::POST,
+            format!("/v1/databases/{name}/query"),
+            Some(serde_json::json!({"sql": query.sql, "args": []})),
+            None,
+            dg::client::Semantics::Read,
+        )));
+    }
+    let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
+        400,
+        "missing_credential",
+        "--key-file required",
+    )))?)?;
+    let structure_path = format!("/v1/databases/{name}/schema?table={table}");
+    let structure = dg::client::request(server, &key, Method::GET, &structure_path, None, None)
+        .await
+        .map_err(Application)?;
+    if api_failed(&structure) {
+        dg::shell::render_with(&structure, false, &terminal_theme(), &mut std::io::stdout())
+            .map_err(Application)?;
+        return Err(Application(api_error()));
+    }
+    // The count under the same filter, so the footer is the answer's own
+    // size. A count that fails is not fatal: the page is still worth
+    // printing, and the footer then says the total is unknown.
+    let total = match dg::views::rows_count_query(&structure, &table, condition.as_deref()) {
+        Ok(count) => read_count(server, &key, &name, &count.sql).await.ok(),
+        Err(refusal) => {
+            return Err(Application(Error::new(
+                400,
+                "invalid_arguments",
+                refusal.message(),
+            )));
+        }
+    };
+    let query = dg::views::rows_query(
+        &structure,
+        &table,
+        page,
+        sort.as_ref().map(|(column, direction)| (column.as_str(), *direction)),
+        condition.as_deref(),
+    )
+    .map_err(|refusal| Application(Error::new(400, "invalid_arguments", refusal.message())))?;
+    let response = dg::client::request(
+        server,
+        &key,
+        Method::POST,
+        &format!("/v1/databases/{name}/query"),
+        Some(serde_json::json!({"sql": query.sql, "args": []})),
+        None,
+    )
+    .await
+    .map_err(Application)?;
+    if api_failed(&response) {
+        dg::shell::render_with(&response, false, &terminal_theme(), &mut std::io::stdout())
+            .map_err(Application)?;
+        return Err(Application(api_error()));
+    }
+    let browser = dg::tui::Browser {
+        database: name.clone(),
+        table: table.clone(),
+        page,
+        sort,
+        filter: condition,
+        total: total.unwrap_or(0),
+    };
+    let outcome = dg::tui::browser_outcome(&browser, &response);
+    let mut out = std::io::stdout();
+    if let Some(table) = &outcome.table {
+        table
+            .write(&mut out, &terminal_theme())
+            .map_err(Application)?;
+    }
+    Ok(None)
+}
+
+/// Run a count and read the number out of it.
+async fn read_count(
+    server: &str,
+    key: &dg::client::Key,
+    name: &str,
+    sql: &str,
+) -> Result<u64, dg::ServerError> {
+    let response = dg::client::request(
+        server,
+        key,
+        Method::POST,
+        &format!("/v1/databases/{name}/query"),
+        Some(serde_json::json!({"sql": sql, "args": []})),
+        None,
+    )
+    .await?;
+    dg::tui::count_total(&response)
+        .ok_or_else(|| Application(Error::internal()))
+}
