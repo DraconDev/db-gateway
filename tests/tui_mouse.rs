@@ -7,6 +7,7 @@
 //! operator sees. Each test therefore draws, reads where a thing really
 //! landed, and clicks that cell.
 
+use dg::tui::actions::Invocation;
 use dg::tui::{App, Focus, Mode};
 use ratatui::{
     Terminal,
@@ -325,8 +326,8 @@ fn a_pointer_over_the_header_marks_no_row() {
 /// Clicking a database opens it.
 ///
 /// The mouse answers the same question the keyboard does: the row that
-/// names a database opens the doorway that reads it, with the database
-/// already typed in.
+/// names a database opens that database, and the answer is the
+/// database's contents -- the tables it holds.
 #[test]
 fn clicking_a_database_opens_it() {
     let mut app = app();
@@ -335,17 +336,12 @@ fn clicking_a_database_opens_it() {
         column_of(&text, "other").unwrap_or_else(|| panic!("no other row:\n{text}"));
     app.on_mouse(click(column, row));
     assert_eq!(
-        app.mode,
-        Mode::Palette,
-        "the click did not open the actions"
-    );
-    assert_eq!(
-        app.filter, "open table",
-        "the action list is not the one that opens a table"
-    );
-    assert_eq!(
-        app.prompt_prefill, "other ",
-        "the clicked database is not the one in the prompt"
+        app.take_pending(),
+        Some(Invocation::Schema {
+            name: "other".to_string(),
+            table: None
+        }),
+        "the click did not queue the database's opening"
     );
 }
 
