@@ -555,8 +555,10 @@ fn databases_tab(frame: &mut Frame, area: Rect, app: &mut App, tables: &mut Vec<
         &traffic,
         usize::MAX,
         &mut state,
-        mouse,
-        tables,
+        TableDraw {
+            mouse,
+            geometry: tables,
+        },
     );
 }
 
@@ -597,8 +599,10 @@ fn locations_tab(frame: &mut Frame, area: Rect, app: &mut App, tables: &mut Vec<
         &locations,
         usize::MAX,
         &mut state,
-        mouse,
-        tables,
+        TableDraw {
+            mouse,
+            geometry: tables,
+        },
     );
 }
 
@@ -839,8 +843,10 @@ fn keys_tab(frame: &mut Frame, area: Rect, app: &mut App, tables: &mut Vec<Table
                 &table,
                 usize::MAX,
                 &mut state,
-                mouse,
-                tables,
+                TableDraw {
+                    mouse,
+                    geometry: tables,
+                },
             );
         }
         None => {
@@ -875,8 +881,10 @@ fn queries_tab(frame: &mut Frame, area: Rect, app: &mut App, tables: &mut Vec<Ta
                 &table,
                 usize::MAX,
                 &mut state,
-                mouse,
-                tables,
+                TableDraw {
+                    mouse,
+                    geometry: tables,
+                },
             );
         }
         None => {
@@ -964,8 +972,10 @@ fn outcome_pane(frame: &mut Frame, area: Rect, outcome: &Outcome) {
             table,
             OUTCOME_ROWS,
             &mut TableState::default(),
-            None,
-            &mut Vec::new(),
+            TableDraw {
+                mouse: None,
+                geometry: &mut Vec::new(),
+            },
         );
     }
 }
