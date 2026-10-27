@@ -62,6 +62,48 @@ pub async fn list(
     )))
 }
 
+/// How much data each database holds: its tables and its rows.
+///
+/// The traffic counters say what a database has been doing, and they
+/// are in memory: a restart resets them, so a database full of data
+/// reads as nothing beside them. This reads the files and says what
+/// the databases hold.
+pub async fn contents(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
+) -> Result<Option<Request>, dg::ServerError> {
+    if !json && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+        let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
+            400,
+            "missing_credential",
+            "--key-file required",
+        )))?)
+        .map_err(Application)?;
+        let result = dg::client::request(server, &key, Method::GET, "/v1/contents", None, None)
+            .await
+            .map_err(Application)?;
+        if api_failed(&result) {
+            dg::shell::render_with(&result, false, &terminal_theme(), &mut std::io::stdout())
+                .map_err(Application)?;
+            return Err(Application(api_error()));
+        }
+        let table = dg::views::contents(&result);
+        let mut out = std::io::stdout();
+        table
+            .write(&mut out, &terminal_theme())
+            .map_err(Application)?;
+        return Ok(None);
+    }
+    Ok(Some((
+        Method::GET,
+        "/v1/contents".into(),
+        None,
+        None,
+        dg::client::Semantics::Read,
+    )))
+}
+
 /// The per-database live view: what this database holds and what it
 /// has been doing.
 ///

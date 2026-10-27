@@ -1065,6 +1065,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             cmd_queries::list(&server, json, &key_path, database.as_deref()).await?
         }
         Command::List => cmd_data::list(&server, json, &key_path).await?,
+        Command::Contents => cmd_data::contents(&server, json, &key_path).await?,
         Command::Inspect { name } => cmd_data::inspect(&server, json, &key_path, name).await?,
         Command::Info { name } => cmd_data::info(&server, json, &key_path, name).await?,
         Command::Schema { name, table } => {
