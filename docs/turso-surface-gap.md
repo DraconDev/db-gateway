@@ -13,6 +13,17 @@ browser bridge, with the live captures saved as audit evidence:
   screenshot (`dracon-music-dev`, a database with tables).
 - `docs/evidence/turso-audit-logs-2026-10-26.txt` — Audit Logs page
   text (columns, all 23 entries).
+- `docs/evidence/turso-structure-view-2026-10-27.png` — the Edit Data
+  → STRUCTURE tab (`dracon-music-dev`, table `music_users`): the
+  columns with their declared types and flags, the constraints and the
+  indexes sections.
+- `docs/evidence/turso-structure-indexes-2026-10-27.png` — the same
+  view with the index list open.
+- `docs/evidence/turso-edit-data-grid-2026-10-27.png` — the Edit Data
+  → DATA tab of the same table: the type-annotated grid headers and
+  the Filters / Sort / Columns toolbar.
+- `docs/evidence/turso-structure-2026-10-27.txt` — the capture note
+  for the three captures above, with the read-only record.
 
 The `turso` CLI is not logged in in this environment
 (`turso db show …` answers "You are not logged in, please login with
