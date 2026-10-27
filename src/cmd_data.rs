@@ -347,7 +347,32 @@ pub async fn schema(
     table: Option<String>,
 ) -> Result<Option<Request>, dg::ServerError> {
     dg::store::validate_name(&name).map_err(Application)?;
-    let path = format!("/v1/databases/{name}/schema");
+    // The table name narrows the answer on the server, so the document
+    // a pipe reads is the API's own document either way.
+    let path = match &table {
+        Some(wanted) if wanted.is_empty() => {
+            return Err(Application(Error::new(
+                400,
+                "invalid_arguments",
+                "a table name is letters, digits and underscores",
+            )));
+        }
+        Some(wanted) => {
+            if !wanted
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '_')
+                || wanted.starts_with(|character: char| character.is_ascii_digit())
+            {
+                return Err(Application(Error::new(
+                    400,
+                    "invalid_arguments",
+                    "a table name is letters, digits and underscores, and does not start with a digit",
+                )));
+            }
+            format!("/v1/databases/{name}/schema?table={wanted}")
+        }
+        None => format!("/v1/databases/{name}/schema"),
+    };
     if json || !std::io::IsTerminal::is_terminal(&std::io::stdout()) {
         // The JSON is the API's document, unchanged: a pipe reads the
         // same thing a terminal does, minus the drawing.
