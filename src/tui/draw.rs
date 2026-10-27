@@ -561,12 +561,7 @@ fn databases_tab(frame: &mut Frame, area: Rect, app: &mut App, tables: &mut Vec<
 /// arrived is a different thing again, and is named as such: blaming
 /// the gateway for a question nobody has answered yet is its own kind
 /// of wrong.
-fn locations_tab(
-    frame: &mut Frame,
-    area: Rect,
-    app: &mut App,
-    tables: &mut Vec<TableGeometry>,
-) {
+fn locations_tab(frame: &mut Frame, area: Rect, app: &mut App, tables: &mut Vec<TableGeometry>) {
     let block = pane(app.focus == Focus::Locations);
     let Some(locations) = app.locations() else {
         let note = if app.status.is_none() {

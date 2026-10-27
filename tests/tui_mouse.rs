@@ -98,6 +98,16 @@ fn click(column: u16, row: u16) -> MouseEvent {
     }
 }
 
+/// A pointer that moved to a cell.
+fn move_to(column: u16, row: u16) -> MouseEvent {
+    MouseEvent {
+        kind: MouseEventKind::Moved,
+        column,
+        row,
+        modifiers: ratatui::crossterm::event::KeyModifiers::NONE,
+    }
+}
+
 fn wheel_events(kind: MouseEventKind) -> MouseEvent {
     MouseEvent {
         kind,
@@ -256,4 +266,106 @@ fn a_click_never_starts_an_action() {
             );
         }
     }
+}
+
+/// The row under the pointer is marked.
+///
+/// The pointer says which row a click would take, so the operator can
+/// see it before taking it. The mark is the row's own background, so
+/// the test reads the background of the cells of the row the pointer
+/// is over, and of the row above it: one is marked, the other is not.
+#[test]
+fn the_row_under_the_pointer_is_marked() {
+    let mut app = app();
+    let (text, _t) = frame(&mut app, 120, 40);
+    let (column, row) = column_of(&text, "demo").unwrap_or_else(|| panic!("no demo row:\n{text}"));
+    let (other_column, other_row) =
+        column_of(&text, "other").unwrap_or_else(|| panic!("no other row:\n{text}"));
+
+    app.on_mouse(move_to(column, row));
+    let (_text, terminal) = frame(&mut app, 120, 40);
+    let buffer = terminal.backend().buffer();
+    let marked = buffer.cell((column, row)).expect("the cell is there");
+    let unmarked = buffer
+        .cell((other_column, other_row))
+        .expect("the cell is there");
+    assert_eq!(
+        marked.style().bg,
+        dg::tui::theme::ACCENT,
+        "the row under the pointer is not marked"
+    );
+    assert_ne!(
+        unmarked.style().bg,
+        dg::tui::theme::ACCENT,
+        "a row the pointer is not over is marked as well"
+    );
+}
+
+/// The pointer that leaves the table leaves no mark behind.
+///
+/// A mark that stays where the pointer has been would say the pointer
+/// is somewhere it is not.
+#[test]
+fn a_pointer_over_the_header_marks_no_row() {
+    let mut app = app();
+    let (text, _t) = frame(&mut app, 120, 40);
+    let (column, row) =
+        column_of(&text, "database").unwrap_or_else(|| panic!("no header:\n{text}"));
+    app.on_mouse(move_to(column, row));
+    let (_text, terminal) = frame(&mut app, 120, 40);
+    let buffer = terminal.backend().buffer();
+    let cell = buffer.cell((column, row)).expect("the cell is there");
+    assert_ne!(
+        cell.style().bg,
+        dg::tui::theme::ACCENT,
+        "the header is marked as if it were a row"
+    );
+}
+
+/// Clicking a database opens it.
+///
+/// The mouse answers the same question the keyboard does: the row that
+/// names a database opens the doorway that reads it, with the database
+/// already typed in.
+#[test]
+fn clicking_a_database_opens_it() {
+    let mut app = app();
+    let (text, _t) = frame(&mut app, 120, 40);
+    let (column, row) =
+        column_of(&text, "other").unwrap_or_else(|| panic!("no other row:\n{text}"));
+    app.on_mouse(click(column, row));
+    assert_eq!(
+        app.mode,
+        Mode::Palette,
+        "the click did not open the actions"
+    );
+    assert_eq!(
+        app.filter, "open table",
+        "the action list is not the one that opens a table"
+    );
+    assert_eq!(
+        app.prompt_prefill, "other ",
+        "the clicked database is not the one in the prompt"
+    );
+}
+
+/// A click on the keys tab opens nothing.
+///
+/// The keys are not databases, and a click never reaches a destructive
+/// action: the view's rule holds for the mouse as much as for the
+/// keyboard.
+#[test]
+fn clicking_a_credential_opens_nothing() {
+    let mut app = app();
+    app.focus = Focus::Keys;
+    let (text, _t) = frame(&mut app, 120, 40);
+    let (column, row) =
+        column_of(&text, "robot").unwrap_or_else(|| panic!("no robot row:\n{text}"));
+    app.on_mouse(click(column, row));
+    assert_eq!(
+        app.mode,
+        Mode::Normal,
+        "a click on a credential opened something"
+    );
+    assert!(app.prompt_prefill.is_empty(), "the prompt was filled");
 }
