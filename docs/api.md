@@ -108,6 +108,7 @@ dg mcp                 # speaks JSON-RPC on stdin/stdout
 | `GET /health/live` | none | — | `{"status":"ok"}` |
 | `POST /v1/databases` | owner | `{"name":"game_a"}` | `{"name":"game_a"}` |
 | `GET /v1/databases/{name}` | owner | — | `{"name":"…","tombstoned":false,"size_bytes":n,"created_at":epoch,"tables":[{"name":"…","rows":n},…]}` (tombstoned names report `{"name":"…","tombstoned":true,"purge_after":epoch,"size_bytes":n}` instead; unknown names are `404 database_not_found`) |
+| `GET /v1/databases/{name}/schema` | owner | — | `{"database":"…","tombstoned":false,"created_at":epoch,"tables":[{"name":"…","rows":n,"columns":[{"name":"…","type":"INTEGER","not_null":bool,"primary_key":bool,"default":null|"…"}],"indexes":[{"name":"…","unique":bool,"columns":["…"]}],"foreign_keys":[{"table":"…","from":"…","to":"…","on_update":"…","on_delete":"…"}],"sql":"CREATE TABLE …"}]}` (`?table=<name>` narrows the answer to one table; the same document is returned either way) |
 | `GET /v1/databases` | any key | — | `{"databases":["game_a", …]}` (owner: all live databases; app key: only its authorized live databases) |
 | `POST /v1/keys` | owner | `{"name":"bot_a","role":"database_read_write","databases":["game_a"]}` (or role `database_read_only`) | `{"key":"<64 hex>"}` |
 | `GET /v1/keys` | owner | — | `{"keys":[{"name":"…","role":"…","databases":[…]}]}` (hashes never shown; the owner row is listed) |
@@ -223,6 +224,48 @@ The shape log lives in the gateway's memory. It answers a present-tense
 question — which statement is heavy *right now* — so a restart costs it
 nothing and it starts empty again. The audit trail below is the one
 that has to outlive a restart, and it does.
+
+### A table's structure
+
+`GET /v1/databases/{name}/schema` answers the question the row grid
+cannot: **what is this table made of?** The grid says which columns a
+table has and what is in them; the structure says what each column *is*.
+
+| Field | Meaning |
+| --- | --- |
+| `columns[].name` | The column's name, in declaration order. |
+| `columns[].type` | The **declared** type, as written in the schema (`""` when the column was declared without one). It is the schema's own word, not a guess. |
+| `columns[].not_null` | Whether the schema forbids a null in that column. |
+| `columns[].primary_key` | Whether the column is part of the primary key (a composite key marks every one of its columns). |
+| `columns[].default` | The default expression, verbatim, or `null` when the column has none. |
+| `indexes[]` | Each index: its name, whether it is unique, and the columns it covers. An index over an expression has no column names and says so. |
+| `foreign_keys[]` | Each foreign key: the table it points at, the column it points from, the column it points at, and the `on_update` / `on_delete` actions. |
+| `sql` | The `CREATE` statement that made the table, verbatim. |
+
+The answer is read **server-side, from the database file, with SQLite's
+own PRAGMAs** — `table_info`, `index_list`, `index_info`,
+`foreign_key_list`. It cannot be read by a client: the query endpoint
+refuses `PRAGMA`, because a PRAGMA can change a connection's behaviour
+and this answer is a fact about the schema, not a statement to run. The
+gateway already opens the file read-only for `info`, so it reads the
+schema the same way.
+
+Reading the PRAGMAs beats parsing the `CREATE` statement: SQLite knows
+which column of a composite key is the key, which index came from a
+`UNIQUE` constraint, and what the declared type really is. A parser has
+to guess all three.
+
+`?table=<name>` narrows the answer to one table, **on the server**: the
+document a pipe reads is the API's own document, narrowed or not.
+
+The route is **owner-only**, like the database's own listing: the answer
+says what is inside a database, and the credential that may open a
+database is the owner's.
+
+The tables listed are the operator's own. The gateway's bookkeeping
+(`_dg_*`) and the replication's (`_litestream*`) stay out of it: this
+route describes the operator's data, while `GET /v1/databases/{name}`
+answers "what is in the file" and lists every table in it.
 
 ### The audit trail
 
