@@ -739,6 +739,18 @@ impl App {
             }
             Err(error) => failures.push(error.message.to_string()),
         }
+        // The contents are read on their own, slower cadence: counting
+        // every row of every database opens every file, and an idle
+        // service should not pay for that every two seconds. A failure
+        // here is NOT counted as a failed read of the dashboard: the
+        // view is complete without it, and the contents columns say
+        // "unknown" rather than the whole service reading as down.
+        if self.contents_due() {
+            if let Ok(value) = self.fetch("/v1/contents").await {
+                self.contents = Some(value);
+            }
+            self.contents_refreshed = Some(Instant::now());
+        }
         // The gateway is reachable when it answered anything at all: a
         // refused backup list does not mean the service is down.
         self.connected = answered > 0;
@@ -760,6 +772,20 @@ impl App {
             ))
         };
         self.refreshed = Some(Instant::now());
+    }
+
+    /// Whether the contents are due to be read again.
+    ///
+    /// They are on their own clock because they cost their own work:
+    /// the traffic counters come from memory, and the contents come
+    /// from opening every database file and counting its rows. A
+    /// shorter period than this would make an idle view do disk work it
+    /// has no reason to do.
+    pub fn contents_due(&self) -> bool {
+        match self.contents_refreshed {
+            None => true,
+            Some(at) => at.elapsed() >= CONTENTS_PERIOD,
+        }
     }
 
     /// One read of the gateway.
