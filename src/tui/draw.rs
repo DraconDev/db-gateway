@@ -337,6 +337,12 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             &format!("type {phrase} to go ahead"),
             &app.input,
         ),
+        Mode::Filter => prompt(
+            frame,
+            area,
+            "filter (a read-only condition, empty clears it)",
+            &app.input,
+        ),
         Mode::Normal => {}
     }
 }
