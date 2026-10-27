@@ -21,6 +21,8 @@ pub enum ActionKind {
     Query,
     /// List one database's tables with their row counts.
     Tables,
+    /// Read one database's table structure: columns, types, indexes.
+    Schema,
     /// Page through one table's rows, newest page first by row order.
     OpenTable,
     /// Run a SQL file as one atomic batch.
@@ -86,6 +88,14 @@ pub const CATALOG: &[Action] = &[
         kind: ActionKind::Tables,
         title: "tables",
         hint: "tables <database>",
+        arguments: true,
+        confirmation: false,
+        destructive: false,
+    },
+    Action {
+        kind: ActionKind::Schema,
+        title: "schema",
+        hint: "schema <database> [table]",
         arguments: true,
         confirmation: false,
         destructive: false,
@@ -207,6 +217,11 @@ pub enum Invocation {
     Query { name: String, sql: String },
     /// List one database's tables.
     Tables { name: String },
+    /// Read one database's table structure.
+    Schema {
+        name: String,
+        table: Option<String>,
+    },
     /// Page through one table's rows.
     OpenTable {
         name: String,
