@@ -344,6 +344,23 @@ impl ActionKind {
                 crate::store::validate_name(&name)?;
                 Ok(Invocation::Tables { name })
             }
+            ActionKind::Schema => {
+                need(1, "a schema needs a database")?;
+                let name = parts[0].to_string();
+                crate::store::validate_name(&name)?;
+                let table = match parts.get(1) {
+                    Some(wanted) => {
+                        if !valid_table(wanted) {
+                            return Err(invalid(
+                                "a table name is letters, digits and underscores, and does not start with a digit",
+                            ));
+                        }
+                        Some(wanted.to_string())
+                    }
+                    None => None,
+                };
+                Ok(Invocation::Schema { name, table })
+            }
             ActionKind::OpenTable => {
                 need(2, "an open table needs a database and a table")?;
                 let name = parts[0].to_string();
@@ -491,6 +508,20 @@ impl Invocation {
                 body: None,
                 semantics: Semantics::Read,
             },
+            Invocation::Schema { name, table } => {
+                // The table narrows the answer on the server, so the
+                // document the view reads is the API's own either way.
+                let path = match table {
+                    Some(wanted) => format!("/v1/databases/{name}/schema?table={wanted}"),
+                    None => format!("/v1/databases/{name}/schema"),
+                };
+                Request {
+                    method: Method::GET,
+                    path,
+                    body: None,
+                    semantics: Semantics::Read,
+                }
+            }
             Invocation::OpenTable { name, table, page } => {
                 let offset = page.saturating_mul(TABLE_PAGE_SIZE);
                 let sql = format!(
