@@ -912,7 +912,13 @@ fn outcome_lines(outcome: &Outcome) -> u16 {
 const OUTCOME_ROWS: usize = 10;
 
 /// What the last action did.
-fn outcome_pane(frame: &mut Frame, area: Rect, outcome: &Outcome) {
+fn outcome_pane(
+    frame: &mut Frame,
+    area: Rect,
+    outcome: &Outcome,
+    mouse: Option<(u16, u16)>,
+    geometry: &mut Option<TableGeometry>,
+) {
     if area.height == 0 {
         return;
     }
@@ -962,9 +968,11 @@ fn outcome_pane(frame: &mut Frame, area: Rect, outcome: &Outcome) {
         rows[0],
     );
     if let Some(table) = &outcome.table {
-        // The last action's rows are a result, not a list of targets:
-        // they are not marked by the pointer and a click on them opens
-        // nothing.
+        // The last action's grid is a target: the database's contents
+        // list its tables, and clicking one opens that table. The mark
+        // follows the pointer here too, so the row a click would take
+        // is visible before the click.
+        let mut drawn = Vec::new();
         framed_table(
             frame,
             rows[1],
@@ -973,10 +981,11 @@ fn outcome_pane(frame: &mut Frame, area: Rect, outcome: &Outcome) {
             OUTCOME_ROWS,
             &mut TableState::default(),
             TableDraw {
-                mouse: None,
-                geometry: &mut Vec::new(),
+                mouse,
+                geometry: &mut drawn,
             },
         );
+        *geometry = drawn.into_iter().next();
     }
 }
 
