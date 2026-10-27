@@ -2600,6 +2600,12 @@ pub struct RowsQuery {
     pub sql: String,
 }
 
+impl std::fmt::Debug for RowsQuery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RowsQuery").field("sql", &self.sql).finish()
+    }
+}
+
 /// Which way a sort runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SortDirection {
