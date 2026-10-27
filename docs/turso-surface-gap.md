@@ -215,6 +215,81 @@ with the exact commands and outputs quoted.
 The per-database Analytics/Top Queries scoping has no one-shot `dg`
 equivalent beyond `dg queries --database <name>` and `dg status`.
 
+### 5.1 The STRUCTURE tab, and what dg now answers of it
+
+Turso side, captured 2026-10-27 in the browser, read-only:
+
+- `docs/evidence/turso-structure-view-2026-10-27.png` — the
+  `STRUCTURE` tab of `dracon-music-dev` → table `music_users`. On
+  screen: `Table name: music_users`; **COLUMNS** —
+  `subject TEXT PRIMARY KEY` and `created_at INTEGER NOT NULL`, each
+  column's declared type and flags printed beside its name;
+  **CONSTRAINTS** (empty for this table, with an `Add constraint`
+  affordance); **INDEXES** (an `Add index` affordance and an
+  `AUTO-INDEXES` disclosure, collapsed); and a `Copy create
+  statements` action beside the tab.
+- `docs/evidence/turso-structure-indexes-2026-10-27.png` — the same
+  view with the index list open: `UNIQUE INDEX
+  sqlite_autoindex_music_users_1 ... (subject)`.
+- `docs/evidence/turso-edit-data-grid-2026-10-27.png` — the `DATA` tab
+  of the same table, kept because it is the surface the structure is
+  compared against: the type-annotated grid headers (`subject text`,
+  `created_at integer` — the declared type in a dimmer style beside
+  each column name), the `Filters` / `Sort` / `Columns` toolbar, the
+  `+ Add record` action, the pager (`1 - 50 of 50+`) and the per-row
+  checkboxes.
+- `docs/evidence/turso-structure-2026-10-27.txt` — the capture note:
+  what was open, what each capture shows, and the read-only record
+  (no record was added, edited or deleted; no SQL was run against
+  Turso; the `Add column` / `Add constraint` / `Add index`
+  affordances were left untouched).
+
+What `dg` covers now, added 2026-10-27 and exercised against the
+seeded live gateway (outputs quoted in §9):
+
+- **The per-column facts**: `dg schema <db> [table]` gives each
+  column's name, its **declared** type, and its `not_null` and
+  `primary_key` flags — the same facts Turso prints beside the column
+  name, read from SQLite's own `PRAGMA table_info` rather than parsed
+  out of the `CREATE` statement, so a composite key and a `UNIQUE`
+  constraint's index are facts and not guesses.
+- **The index list**: `PRAGMA index_list` / `index_info` give each
+  index's name, its uniqueness and the columns it covers — the
+  `AUTO-INDEXES` list, in the same facts.
+- **The foreign keys**: `PRAGMA foreign_key_list` gives the target
+  table, both columns and the `on_update` / `on_delete` actions. Turso
+  shows these under CONSTRAINTS; `dg` shows them read-only.
+- **The `CREATE` statement**: kept verbatim per table, so
+  `Copy create statements` is a copy away.
+- **One surface, two faces**: the TUI's `schema <db> [table]` palette
+  action draws the same structure through the same shared view layer
+  (`src/views.rs`), so the terminal view and the terminal view cannot
+  tell an operator different stories — the same rule the rest of the
+  TUI already keeps.
+- **Read-only, and machine-readable**: the new surface performs no
+  DDL of any kind; a pipe reads the gateway's own JSON document
+  unchanged.
+
+What `dg` still lacks against Turso's Edit Data browser, unchanged by
+this work:
+
+- **The grid's own browser**: `Filters`, `Sort`, the `Columns` picker,
+  the per-row checkboxes, `+ Add record` and the `1 - 50 of 50+` pager
+  are still the row grid's business, and the grid's behaviour is
+  deliberately unchanged. `dg` reads rows a page at a time through
+  `dg query` / the TUI's `open table`; it has no click grid over them.
+- **Type-annotated grid headers**: Turso prints the declared type in
+  the row grid's header, beside the column name. `dg`'s row grid shows
+  the column names; the type now lives in the structure view instead.
+- **Editing the structure**: Turso's panel edits columns, constraints
+  and indexes in place (`Add column`, `Add constraint`, `Add index`).
+  `dg`'s structure view is read-only by design; changing a schema is
+  a `CREATE` / `ALTER` statement run through the query path, which is
+  where `dg` keeps every write.
+- **The remaining §1–§3 and account surfaces** are unchanged: usage
+  history, per-database network bytes, and everything about billing,
+  plans, organisations and invoices stays out of scope.
+
 ## 6. Turso CLI verbs
 
 Turso side: `turso db --help`, captured 2026-10-26 (the CLI is not
