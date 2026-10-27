@@ -19,6 +19,18 @@ fixes; 1.0.0 waits for production acceptance.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The action list no longer panics on a terminal with no room.** The
+  popup's size was clamped into the room the terminal has, and the
+  clamp's bounds were not ordered before it was used: a pty with no
+  window size (or a window narrower than the popup's minimum) made the
+  range empty, and `u16::clamp` panics on an empty range. The action
+  list is opened with one keystroke, so the view could die — and take
+  the operator's terminal with it — before anything was read. The
+  bounds are ordered now, and the popup is drawn in the room there is,
+  which may be none.
+
 ### Added
 
 - **`dg schema` says what a table is made of.** The row grid says
