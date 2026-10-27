@@ -612,6 +612,14 @@ impl App {
     }
 
     fn on_key_normal(&mut self, key: KeyEvent) {
+        // The rows browser owns the keyboard while it is open: its keys
+        // are about the table on screen, and they would collide with the
+        // dashboard's (`r` refreshes the dashboard, but here it means
+        // "re-read these rows"). Esc leaves the browser first, so a
+        // keystroke meant for the table cannot quit the whole view.
+        if self.browser.is_some() && self.browser_key(&key) {
+            return;
+        }
         match key.code {
             KeyCode::Char('q') => self.quit = true,
             KeyCode::Char('r') => self.pending = Some(Invocation::Refresh),
@@ -672,6 +680,107 @@ impl App {
         let offset = self.scroll.of(self.focus);
         let moved = (*offset as i32 + lines).max(0) as u16;
         *offset = moved;
+    }
+
+    /// The rows browser's own keys. Returns whether the key belonged to
+    /// the browser.
+    ///
+    /// Every one of these changes the QUESTION the browser is asking --
+    /// which page, which order, what narrows it -- so each queues a
+    /// re-read through one path. The table and the database never
+    /// change here: `s` is how the operator leaves for the structure,
+    /// and Esc how they leave entirely.
+    fn browser_key(&mut self, key: &KeyEvent) -> bool {
+        let Some(browser) = self.browser.clone() else {
+            return false;
+        };
+        match key.code {
+            KeyCode::Esc => {
+                self.browser = None;
+                self.outcome = None;
+            }
+            KeyCode::Char('q') => {
+                // A browser is a place; leaving it is Esc. `q` still
+                // quits the view, which is what it means everywhere.
+                self.quit = true;
+            }
+            KeyCode::Char('n') => {
+                if !browser.has_next() {
+                    return true;
+                }
+                self.browser = Some(Browser {
+                    page: browser.page + 1,
+                    ..browser
+                });
+                self.pending = Some(Invocation::RefreshRows);
+            }
+            KeyCode::Char('p') => {
+                if !browser.has_previous() {
+                    return true;
+                }
+                self.browser = Some(Browser {
+                    page: browser.page - 1,
+                    ..browser
+                });
+                self.pending = Some(Invocation::RefreshRows);
+            }
+            // The structure of the table on screen: the door the browser
+            // keeps beside it, rather than making the operator go back
+            // out to the palette and type the name again.
+            KeyCode::Char('s') => {
+                self.pending = Some(Invocation::Schema {
+                    name: browser.database.clone(),
+                    table: Some(browser.table.clone()),
+                });
+                self.browser = None;
+            }
+            // A sort cycles: unordered, ascending, descending, unordered
+            // again -- so one key both sorts and un-sorts.
+            KeyCode::Char('o') => {
+                let columns: Vec<String> = self
+                    .outcome
+                    .as_ref()
+                    .and_then(|outcome| outcome.table.as_ref())
+                    .map(|table| {
+                        table
+                            .columns()
+                            .iter()
+                            .map(|(name, _)| name.clone())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let next = match &browser.sort {
+                    None => columns
+                        .first()
+                        .map(|column| (column.clone(), crate::views::SortDirection::Ascending)),
+                    Some((column, crate::views::SortDirection::Ascending)) => Some((
+                        column.clone(),
+                        crate::views::SortDirection::Descending,
+                    )),
+                    Some(_) => None,
+                };
+                self.browser = Some(Browser { sort: next, ..browser });
+                self.pending = Some(Invocation::RefreshRows);
+            }
+            KeyCode::Char('f') => {
+                self.mode = Mode::Palette;
+                self.filter.clear();
+                self.highlighted = 0;
+                // The filter is typed in the prompt, prefilled with what
+                // is already narrowing the rows so it can be edited.
+                self.input = browser.filter.clone().unwrap_or_default();
+            }
+            KeyCode::Char('c') => {
+                self.browser = Some(Browser {
+                    filter: None,
+                    page: 0,
+                    ..browser
+                });
+                self.pending = Some(Invocation::RefreshRows);
+            }
+            _ => return false,
+        }
+        true
     }
 
     fn on_key_palette(&mut self, key: KeyEvent) {
