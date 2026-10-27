@@ -843,10 +843,13 @@ pub async fn rows(
                 Some((column, "asc")) => (column, dg::views::SortDirection::Ascending),
                 Some((column, "desc")) => (column, dg::views::SortDirection::Descending),
                 Some((_, other)) => {
-                    return Err(Application(Error::new(
+                    // The direction the operator typed is echoed back so
+                    // the message says what to change.
+                    let message = format!("a sort direction is asc or desc, not {other}");
+                    return Err(Application(Error::with_message(
                         400,
                         "invalid_arguments",
-                        "a sort direction is asc or desc, not that",
+                        message,
                     )));
                 }
             };
