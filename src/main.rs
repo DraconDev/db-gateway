@@ -1096,7 +1096,16 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             page,
             sort,
             condition,
-        } => cmd_data::rows(&server, json, &key_path, name, table, page, sort, condition).await?,
+        } => {
+            let request = cmd_data::RowsRequest {
+                name,
+                table,
+                page,
+                sort,
+                condition,
+            };
+            cmd_data::rows(&server, json, &key_path, request).await?
+        }
         Command::Inspect { name } => cmd_data::inspect(&server, json, &key_path, name).await?,
         Command::Info { name } => cmd_data::info(&server, json, &key_path, name).await?,
         Command::Schema { name, table } => {
