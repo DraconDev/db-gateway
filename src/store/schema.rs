@@ -42,6 +42,27 @@ pub fn user_tables(conn: &Connection) -> Result<Vec<String>> {
     Ok(tables)
 }
 
+/// One database file's table count and total row count.
+///
+/// Read-only, from the file itself, so the answer is the file's own
+/// state rather than a counter's memory of it. The tables are the
+/// operator's: the gateway's bookkeeping and the replication's stay out,
+/// by the same rule the structure view uses.
+pub fn contents_of(path: &Path) -> Result<(u64, u64)> {
+    let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|_| Error::internal())?;
+    let tables = operator_tables(&conn)?;
+    let mut rows: u64 = 0;
+    for name in &tables {
+        let quoted = quote(name);
+        let count: i64 = conn.query_row(&format!("SELECT count(*) FROM {quoted}"), [], |row| {
+            row.get(0)
+        })?;
+        rows = rows.saturating_add(count.max(0) as u64);
+    }
+    Ok((tables.len() as u64, rows))
+}
+
 /// The tables whose structure an operator reads.
 ///
 /// The gateway's own bookkeeping (`_dg_`) and the replication's
@@ -218,6 +239,32 @@ fn quote(name: &str) -> String {
 }
 
 impl Store {
+    /// How many tables each live database holds, and how many rows.
+    ///
+    /// This is the answer to "is there anything in here", which the
+    /// traffic counters cannot give: those are in-memory and reset when
+    /// the gateway restarts, so a database full of data reads as all
+    /// zeros beside them. The counts come from the files themselves.
+    ///
+    /// The tables counted are the operator's own, by the same rule the
+    /// structure view uses, so "3 tables" here and the three tables the
+    /// structure lists are the same three. A database whose file is
+    /// missing is reported as unknown rather than as zero: a fault must
+    /// not be drawn as an empty database.
+    pub fn contents(&self) -> Result<Value> {
+        let mut databases = serde_json::Map::new();
+        for name in self.list_all()? {
+            let path = self.root.join(format!("{name}.sqlite"));
+            let entry = match contents_of(&path) {
+                Ok((tables, rows)) => json!({"tables": tables, "rows": rows}),
+                // The file is not readable: say so, do not claim empty.
+                Err(_) => json!({"tables": null, "rows": null}),
+            };
+            databases.insert(name, entry);
+        }
+        Ok(json!({"databases": databases}))
+    }
+
     /// The structure of one database's tables.
     ///
     /// Owner-only, like the database's own listing: the answer says

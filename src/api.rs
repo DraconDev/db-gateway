@@ -48,6 +48,7 @@ pub struct Deployment {
 pub fn router(store: Arc<Store>, deployment: Deployment) -> Router {
     Router::new()
         .route("/v1/databases", get(list).post(create))
+        .route("/v1/databases/contents", get(contents))
         .route("/v1/databases/{name}", get(info).delete(remove))
         .route("/v1/databases/{name}/schema", get(table_schema))
         .route("/v1/databases/{name}/clone", post(clone_route))
@@ -558,6 +559,24 @@ async fn info(
     work_read(store, headers, move |s, p| {
         p.owner()?;
         Ok(Json(s.info(&name)?))
+    })
+    .await
+}
+
+/// How much data each live database holds: its table count and its
+/// total row count, read from its file.
+///
+/// Owner-only, like the listing beside it. The answer exists because
+/// the traffic counters cannot give it: they are in memory and reset
+/// when the gateway restarts, so a database full of data reads as
+/// nothing beside them. These counts come from the files.
+async fn contents(
+    State(store): State<Arc<Store>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    work_read(store, headers, move |s, p| {
+        p.owner()?;
+        Ok(Json(s.contents()?))
     })
     .await
 }
