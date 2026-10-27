@@ -49,6 +49,7 @@ pub fn router(store: Arc<Store>, deployment: Deployment) -> Router {
     Router::new()
         .route("/v1/databases", get(list).post(create))
         .route("/v1/databases/{name}", get(info).delete(remove))
+        .route("/v1/databases/{name}/schema", get(table_schema))
         .route("/v1/databases/{name}/clone", post(clone_route))
         .route("/v1/databases/{name}/export", post(export))
         .route(
@@ -557,6 +558,27 @@ async fn info(
     work_read(store, headers, move |s, p| {
         p.owner()?;
         Ok(Json(s.info(&name)?))
+    })
+    .await
+}
+
+/// The structure of one database's tables: every column with its
+/// declared type, its not-null and primary-key flags, and the table's
+/// indexes and foreign keys.
+///
+/// Read-only and owner-only, like the listing beside it: the answer
+/// says what is inside a database, and only the owner's credential
+/// opens one. The structure is read from the database file with
+/// SQLite's own PRAGMAs, because the query endpoint refuses PRAGMA --
+/// a fact about the schema is not a statement to run.
+async fn table_schema(
+    State(store): State<Arc<Store>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    work_read(store, headers, move |s, p| {
+        p.owner()?;
+        Ok(Json(s.schema(&name)?))
     })
     .await
 }

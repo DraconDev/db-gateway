@@ -255,19 +255,7 @@ impl Store {
     /// bound it (no loop-edge opcodes) and is deliberately absent.
     pub fn info(&self, name: &str) -> Result<serde_json::Value> {
         validate_name(name)?;
-        let row: Option<(Option<i64>, Option<i64>, Option<i64>)> = self
-            .meta()?
-            .query_row(
-                "SELECT deleted_at, purge_after, created_at FROM databases WHERE name=?",
-                [name],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            )
-            .map(Some)
-            .or_else(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => Ok(None),
-                other => Err(other),
-            })?;
-        let Some((deleted_at, purge_after, created_at)) = row else {
+        let Some((deleted_at, purge_after, created_at)) = self.registry_entry(name)? else {
             return Err(Error::new(404, "database_not_found", "database not found"));
         };
         let path = self.root.join(format!("{name}.sqlite"));
@@ -282,10 +270,9 @@ impl Store {
         }
         let db = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
             .map_err(|_| Error::internal())?;
-        let tables: Vec<String> = db
-            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND lower(substr(name,1,4))!='_dg_' ORDER BY name")?
-            .query_map([], |r| r.get(0))?
-            .collect::<std::result::Result<_, _>>()?;
+        // The same list the structure view uses, so `dg info` and
+        // `dg schema` cannot disagree about which tables a database has.
+        let tables = super::schema::user_tables(&db)?;
         let mut detail = Vec::with_capacity(tables.len());
         for table in tables {
             let quoted = table.replace('"', "\"\"");
@@ -302,6 +289,28 @@ impl Store {
             "created_at": created_at,
             "tables": detail,
         }))
+    }
+
+    /// The registry's row for one database.
+    ///
+    /// `None` when the name was never registered; the tombstone
+    /// deadline and the creation time otherwise. The lookup is written
+    /// once, because the database's own listing and its structure both
+    /// have to answer the same question about the same name.
+    pub(crate) fn registry_entry(&self, name: &str) -> Result<Option<(Option<i64>, Option<i64>, i64)>> {
+        let row: Option<(Option<i64>, Option<i64>, i64)> = self
+            .meta()?
+            .query_row(
+                "SELECT deleted_at, purge_after, created_at FROM databases WHERE name=?",
+                [name],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .map(Some)
+            .or_else(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                other => Err(other),
+            })?;
+        Ok(row)
     }
 
     pub fn create(&self, name: &str) -> Result<()> {
