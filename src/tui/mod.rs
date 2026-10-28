@@ -503,11 +503,28 @@ impl App {
                 self.mouse = Some((mouse.column, mouse.row));
                 self.on_click(mouse.column, mouse.row);
             }
-            // Three lines a notch is what a terminal wheel usually carries,
-            // and scrolling faster than the keyboard's single line is what
-            // makes a long table usable with a trackpad.
-            MouseEventKind::ScrollUp => self.scroll_by(-3),
-            MouseEventKind::ScrollDown => self.scroll_by(3),
+            // The wheel moves a page in the rows browser, and scrolls the
+            // open tab elsewhere. A browser has pages, not a scrollbar:
+            // scrolling it would move content that is already the whole
+            // page, while the operator meant "show me the next one".
+            MouseEventKind::ScrollUp => {
+                if self.browser.is_some() {
+                    self.browser_page(false);
+                } else {
+                    // Three lines a notch is what a terminal wheel
+                    // usually carries, and scrolling faster than the
+                    // keyboard's single line is what makes a long table
+                    // usable with a trackpad.
+                    self.scroll_by(-3);
+                }
+            }
+            MouseEventKind::ScrollDown => {
+                if self.browser.is_some() {
+                    self.browser_page(true);
+                } else {
+                    self.scroll_by(3);
+                }
+            }
             _ => {}
         }
     }
@@ -712,6 +729,29 @@ impl App {
         *offset = moved;
     }
 
+    /// Move the rows browser one page forward or back.
+    ///
+    /// One path for the wheel and the arrows, so the two cannot disagree
+    /// about whether a page exists or what happens at either end.
+    fn browser_page(&mut self, forward: bool) {
+        let Some(browser) = self.browser.clone() else {
+            return;
+        };
+        if forward && !browser.has_next() {
+            return;
+        }
+        if !forward && !browser.has_previous() {
+            return;
+        }
+        let page = if forward {
+            browser.page + 1
+        } else {
+            browser.page - 1
+        };
+        self.browser = Some(Browser { page, ..browser });
+        self.pending = Some(Invocation::RefreshRows);
+    }
+
     /// The rows browser's own keys. Returns whether the key belonged to
     /// the browser.
     ///
@@ -795,6 +835,31 @@ impl App {
                 self.browser = Some(Browser {
                     filter: None,
                     page: 0,
+                    ..browser
+                });
+                self.pending = Some(Invocation::RefreshRows);
+            }
+            // The arrow keys and the page keys move a page, which is what
+            // they do everywhere else in a paged view. They used to fall
+            // through to the dashboard's scroll, which moved a scrollbar
+            // the browser does not have instead of the page the operator
+            // was looking at.
+            KeyCode::Down | KeyCode::Right | KeyCode::PageDown => {
+                if !browser.has_next() {
+                    return true;
+                }
+                self.browser = Some(Browser {
+                    page: browser.page + 1,
+                    ..browser
+                });
+                self.pending = Some(Invocation::RefreshRows);
+            }
+            KeyCode::Up | KeyCode::Left | KeyCode::PageUp => {
+                if !browser.has_previous() {
+                    return true;
+                }
+                self.browser = Some(Browser {
+                    page: browser.page - 1,
                     ..browser
                 });
                 self.pending = Some(Invocation::RefreshRows);
