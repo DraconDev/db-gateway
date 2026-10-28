@@ -2455,13 +2455,13 @@ pub async fn run(server: &str, key: &str, options: Options) -> Result<()> {
             }
         }
     });
-    let screen = screen::CrosstermScreen::new().map_err(|_| Error::internal())?;
+    let mut screen = screen::CrosstermScreen::new().map_err(|_| Error::internal())?;
     // Take ownership before entry: enabling raw mode or writing the
     // alternate-screen sequence can partially succeed and then fail.
     // The guard gives the terminal back for that error as well as for a
     // normal exit, later error, or panic in a draw function.
+    screen::Screen::enter(&mut screen).map_err(|_| Error::internal())?;
     let mut guard = screen::Guard::new(screen);
-    guard.enter().map_err(|_| Error::internal())?;
     // The first tick is a full period away: the view reads the service
     // once when it opens, and the ticker takes it from there. A ticker
     // that fired at once would read everything twice.
