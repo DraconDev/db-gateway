@@ -1819,7 +1819,7 @@ impl App {
                         )
                     })
                     .collect::<serde_json::Map<String, Value>>();
-                self.contents = Some(serde_json::json!({"databases": databases}));
+                let _ = databases; // MUTATION: stale counts kept on a failed read
                 Some(error.message.to_string())
             }
         }
