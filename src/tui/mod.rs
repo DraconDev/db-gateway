@@ -607,7 +607,9 @@ impl App {
                 } else if !self.body_under_pointer(mouse.column, mouse.row) {
                     return;
                 } else if self.browser.is_some() {
-                    self.browser_page(false);
+                    if !self.browser_scroll_rows(-3) {
+                        self.browser_page(false);
+                    }
                 } else {
                     // Three lines a notch is what a terminal wheel
                     // usually carries, and scrolling faster than the
@@ -622,7 +624,9 @@ impl App {
                 } else if !self.body_under_pointer(mouse.column, mouse.row) {
                     return;
                 } else if self.browser.is_some() {
-                    self.browser_page(true);
+                    if !self.browser_scroll_rows(3) {
+                        self.browser_page(true);
+                    }
                 } else {
                     self.scroll_by(3);
                 }
@@ -980,6 +984,39 @@ impl App {
         }
     }
 
+    /// Scroll within the fetched page when the terminal cannot show all
+    /// of its rows. Returns whether the page needed an in-place scroll.
+    fn browser_scroll_rows(&mut self, step: isize) -> bool {
+        let visible = self
+            .geometry
+            .outcome
+            .as_ref()
+            .map(|geometry| usize::from(geometry.area.height.saturating_sub(1)));
+        let Some(visible) = visible else {
+            return false;
+        };
+        let Some(total) = self
+            .outcome
+            .as_ref()
+            .and_then(|outcome| outcome.table.as_ref())
+            .map(|table| table.rows().len())
+        else {
+            return false;
+        };
+        if total <= visible {
+            return false;
+        }
+        let Some(browser) = self.browser.as_mut() else {
+            return false;
+        };
+        let max_offset = total.saturating_sub(visible);
+        browser.row_offset = browser
+            .row_offset
+            .saturating_add_signed(step)
+            .min(max_offset);
+        true
+    }
+
     /// Move the rows browser one page forward or back.
     ///
     /// One path for the wheel and the arrows, so the two cannot disagree
@@ -1097,27 +1134,55 @@ impl App {
                 });
                 self.pending = Some(Invocation::RefreshRows);
             }
-            // The arrow keys and the page keys move a page, which is what
-            // they do everywhere else in a paged view. They used to fall
-            // through to the dashboard's scroll, which moved a scrollbar
-            // the browser does not have instead of the page the operator
-            // was looking at.
-            KeyCode::Down | KeyCode::Right | KeyCode::PageDown => {
+            // A terminal that clips this fetched page scrolls within it;
+            // when all of its rows fit, the arrows continue to move query
+            // pages. PageUp/PageDown and left/right always move query pages.
+            KeyCode::Down => {
+                if self.browser_scroll_rows(1) {
+                    return true;
+                }
                 if !browser.has_next() {
                     return true;
                 }
                 self.browser = Some(Browser {
                     page: browser.page + 1,
+                    row_offset: 0,
                     ..browser
                 });
                 self.pending = Some(Invocation::RefreshRows);
             }
-            KeyCode::Up | KeyCode::Left | KeyCode::PageUp => {
+            KeyCode::Right | KeyCode::PageDown => {
+                if !browser.has_next() {
+                    return true;
+                }
+                self.browser = Some(Browser {
+                    page: browser.page + 1,
+                    row_offset: 0,
+                    ..browser
+                });
+                self.pending = Some(Invocation::RefreshRows);
+            }
+            KeyCode::Up => {
+                if self.browser_scroll_rows(-1) {
+                    return true;
+                }
                 if !browser.has_previous() {
                     return true;
                 }
                 self.browser = Some(Browser {
                     page: browser.page - 1,
+                    row_offset: 0,
+                    ..browser
+                });
+                self.pending = Some(Invocation::RefreshRows);
+            }
+            KeyCode::Left | KeyCode::PageUp => {
+                if !browser.has_previous() {
+                    return true;
+                }
+                self.browser = Some(Browser {
+                    page: browser.page - 1,
+                    row_offset: 0,
                     ..browser
                 });
                 self.pending = Some(Invocation::RefreshRows);
