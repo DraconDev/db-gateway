@@ -380,3 +380,45 @@ fn a_click_after_list_scroll_selects_the_table_at_that_visible_row() {
     );
     assert_eq!(app.take_pending(), Some(Invocation::RefreshRows));
 }
+
+#[test]
+fn the_wheel_over_the_table_list_moves_the_table_selection() {
+    use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
+    use unicode_width::UnicodeWidthStr;
+
+    let mut app = app();
+    app.page = Some(tall_page(30));
+    let mut browser = dg::tui::Browser::new("inventory", "table_00");
+    browser.total = Some(30);
+    app.browser = Some(browser);
+    let text = screen(&mut app, 100, 16);
+    let (column, row) = text
+        .lines()
+        .enumerate()
+        .find_map(|(row, line)| {
+            let byte = line.find("table_00")?;
+            Some((line[..byte].width() as u16, row as u16))
+        })
+        .expect("the first table should be visible");
+
+    app.on_mouse(MouseEvent {
+        kind: MouseEventKind::ScrollDown,
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    });
+    assert_eq!(
+        app.page
+            .as_ref()
+            .and_then(DatabasePage::current)
+            .map(|table| table.name.as_str()),
+        Some("table_03"),
+        "the wheel over the table list should move the selection by three rows"
+    );
+    assert_eq!(
+        app.browser.as_ref().map(|browser| browser.page),
+        Some(0),
+        "the list wheel paged the values pane behind the cursor"
+    );
+    assert_eq!(app.take_pending(), Some(Invocation::RefreshRows));
+}
