@@ -31,7 +31,6 @@ use draw::Geometry;
 use ratatui::crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, MouseButton, MouseEvent, MouseEventKind,
 };
-use screen::Screen;
 use serde_json::Value;
 use std::time::{Duration, Instant};
 

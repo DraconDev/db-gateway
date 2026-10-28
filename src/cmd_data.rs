@@ -930,6 +930,7 @@ pub async fn rows(
         database: name.clone(),
         table: table.clone(),
         page,
+        row_offset: 0,
         sort,
         filter: condition,
         total,

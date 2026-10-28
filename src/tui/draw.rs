@@ -513,9 +513,9 @@ fn database_page(frame: &mut Frame, area: Rect, app: &mut App) {
     if let Some(outcome) = app.outcome.clone() {
         let room = usize::from(columns[1].height.saturating_sub(4)).max(4);
         let compact = if columns[1].height < 20 {
-            app.browser.as_mut().and_then(|browser| {
-                compact_rows_pane(frame, columns[1], &outcome, browser, mouse)
-            })
+            app.browser
+                .as_mut()
+                .and_then(|browser| compact_rows_pane(frame, columns[1], &outcome, browser, mouse))
         } else {
             None
         };
@@ -590,9 +590,9 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
         if let Some(outcome) = app.outcome.clone() {
             let room = usize::from(rows[1].height.saturating_sub(10)).max(6);
             let compact = if rows[1].height < 20 {
-                app.browser.as_mut().and_then(|browser| {
-                    compact_rows_pane(frame, rows[1], &outcome, browser, mouse)
-                })
+                app.browser
+                    .as_mut()
+                    .and_then(|browser| compact_rows_pane(frame, rows[1], &outcome, browser, mouse))
             } else {
                 None
             };
