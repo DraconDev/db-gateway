@@ -462,6 +462,8 @@ fn the_arrow_keys_and_the_wheel_move_a_page() {
     use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
     let mut app = app();
     app.browser = Some(browser());
+    app.outcome = Some(browser_outcome(&browser(), &page()));
+    let _ = screen(&mut app, 120, 40);
     app.on_key(key(KeyCode::Down));
     assert_eq!(
         app.browser.as_ref().map(|b| b.page),
@@ -506,6 +508,32 @@ fn the_arrow_keys_and_the_wheel_move_a_page() {
         "the wheel stopped scrolling the dashboard"
     );
     let _ = MouseButton::Left;
+}
+
+#[test]
+fn wheel_events_outside_the_body_do_not_change_the_browser_page() {
+    use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
+
+    let mut app = app();
+    app.browser = Some(browser());
+    app.outcome = Some(browser_outcome(&browser(), &page()));
+    let _ = screen(&mut app, 120, 40);
+
+    // The top bar, tab strip, and bottom status line are not body controls.
+    for row in [0, 1, 39] {
+        app.on_mouse(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: 10,
+            row,
+            modifiers: KeyModifiers::NONE,
+        });
+    }
+    assert_eq!(app.browser.as_ref().map(|browser| browser.page), Some(0));
+    assert_eq!(
+        app.take_pending(),
+        None,
+        "a wheel outside the body queued a data reread"
+    );
 }
 
 /// An unread count is not an empty answer.
