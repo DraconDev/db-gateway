@@ -245,9 +245,9 @@ the same question rather than starting over.
 
 | Key | What it does |
 |---|---|
-| `n` | The next page |
-| `p` | The previous page |
-| `o` | Cycle the sort: first column ascending, then descending, then off |
+| `n`, `↓` / `→` / `pgdn`, or the wheel down | The next page |
+| `p`, `↑` / `←` / `pgup`, or the wheel up | The previous page |
+| `o` | Choose the sort column by name; `stock:desc` reverses, an empty answer clears it |
 | `f` | Edit the filter; an empty condition clears it |
 | `c` | Clear the filter and go back to the first page |
 | `s` | The table's structure — the columns, their types and their flags |
@@ -264,6 +264,19 @@ rows 21-30 of 62   sorted by stock desc   filter: stock < 40   [p] prev  [n] nex
 A footer that said the table's total under a filter would make every
 page look like it was the table, and a footer that said the page length
 would make every page look like the last one.
+
+The sort column is **named, not assumed**. It used to cycle off the
+first column, which on a typical table is the `id` — the rowid alias — so
+"sorted by id asc" reordered nothing (the unsorted page is already in
+rowid order) and every other column was unreachable from the view. `o`
+now opens a prompt listing the table's real columns, and the name is
+validated against that schema before it can reach a statement: a column
+the table does not have is refused, not interpolated.
+
+The arrow keys and the wheel page the browser rather than scrolling it:
+a browser has pages, not a scrollbar, so scrolling would move content
+that is already the whole page while the operator meant "show me the
+next one".
 
 Sorting and filtering are applied **by the gateway**, in the statement,
 not by discarding rows after they arrive: otherwise page 2 of a filtered
@@ -302,6 +315,14 @@ on screen and a table that already fits does not scroll at all.
 A table that needs explaining says so under itself. The database list's
 `wait p95` and `wait max` are different facts, and the line under the rows
 says which is which.
+
+The counts are read on their own, slower clock than the two-second
+traffic poll: counting every row of every database means opening every
+file, which is not work to do every two seconds for an idle service. The
+slower clock is NOT a promise that the figures are fresh when the
+operator asks, so `r` and opening a database both re-read them — a count
+answered from a cache up to 30 seconds old is exactly the stale figure
+this tab exists to stop showing.
 
 The databases tab leads with what each database **holds** — its `tables`
 and `rows`, read from the file — and only then the traffic figures. The
