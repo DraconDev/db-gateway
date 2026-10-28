@@ -53,6 +53,25 @@ fn page() -> DatabasePage {
     }
 }
 
+/// A database with enough tables to extend beyond a short screen.
+fn tall_page(count: usize) -> DatabasePage {
+    let table = page().tables[0].clone();
+    let mut tables: Vec<_> = (0..count)
+        .map(|index| {
+            let mut table = table.clone();
+            table.name = format!("table_{index:02}");
+            table
+        })
+        .collect();
+    tables.sort_by(|a, b| a.name.cmp(&b.name));
+    DatabasePage {
+        database: "inventory".to_string(),
+        tables,
+        selected: 0,
+        list_scroll: 0,
+    }
+}
+
 fn app() -> App {
     App::new("http://127.0.0.1:7432".to_string(), "0".repeat(64))
 }
@@ -284,4 +303,30 @@ fn a_click_on_a_table_name_selects_it() {
         "the click did not select the clicked table"
     );
     assert_eq!(app.take_pending(), Some(Invocation::RefreshRows));
+}
+
+#[test]
+fn moving_past_the_visible_list_keeps_the_selection_on_screen() {
+    let mut app = app();
+    app.page = Some(tall_page(30));
+    for _ in 0..15 {
+        app.on_key(key(KeyCode::Down));
+    }
+
+    let text = screen(&mut app, 100, 16);
+    let selected_name = app
+        .page
+        .as_ref()
+        .and_then(DatabasePage::current)
+        .map(|table| table.name.as_str());
+    assert_eq!(selected_name, Some("table_15"));
+    assert!(
+        text.lines().any(|line| line.contains("▸ table_15")),
+        "the selected table must stay visible in the scrolling list; scroll={}\n{text}",
+        app.page.as_ref().map_or(0, |page| page.list_scroll)
+    );
+    assert!(
+        app.page.as_ref().is_some_and(|page| page.list_scroll > 0),
+        "the list viewport did not follow the selected table"
+    );
 }
