@@ -35,7 +35,7 @@ fn page() -> serde_json::Value {
 
 fn browser() -> Browser {
     Browser {
-        total: 62,
+        total: Some(62),
         ..Browser::new("shop", "products")
     }
 }
@@ -100,7 +100,7 @@ fn a_page_past_the_end_says_no_rows_match_rather_than_zeroes() {
 #[test]
 fn an_empty_answer_says_so() {
     let browser = Browser {
-        total: 0,
+        total: Some(0),
         ..Browser::new("shop", "products")
     };
     let footer = browser.page_footer();
@@ -116,7 +116,7 @@ fn the_sort_and_the_filter_are_named_in_the_footer() {
     let browser = Browser {
         sort: Some(("stock".to_string(), dg::views::SortDirection::Descending)),
         filter: Some("stock < 20".to_string()),
-        total: 4,
+        total: Some(4),
         ..Browser::new("shop", "products")
     };
     let footer = browser.page_footer();
@@ -477,4 +477,35 @@ fn the_arrow_keys_and_the_wheel_move_a_page() {
         "the wheel stopped scrolling the dashboard"
     );
     let _ = MouseButton::Left;
+}
+
+/// An unread count is not an empty answer.
+///
+/// The count and the page are separate reads. When the count fails the
+/// page is still shown, and the footer must say the total is unknown --
+/// "no rows match" would deny rows sitting directly above it.
+#[test]
+fn an_unread_count_says_so_rather_than_no_rows_match() {
+    let unknown = Browser {
+        total: None,
+        ..Browser::new("shop", "products")
+    };
+    let footer = unknown.page_footer();
+    assert!(
+        !footer.contains("no rows match"),
+        "an unread count was drawn as an empty answer: {footer}"
+    );
+    assert!(
+        !footer.contains(" of "),
+        "an unread count was invented: {footer}"
+    );
+    assert!(
+        footer.contains("rows from 1"),
+        "the footer does not say where the page starts: {footer}"
+    );
+    // And no next page is promised from a total nobody read.
+    assert!(
+        !unknown.has_next(),
+        "a next page was promised without a total"
+    );
 }
