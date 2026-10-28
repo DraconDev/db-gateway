@@ -1224,11 +1224,22 @@ fn a_narrow_terminal_still_names_every_tab() {
     // is showing. A sixth tab made the strip longer than an eighty-column
     // terminal, so the promise broke exactly where it is most useful --
     // and a tab nobody can see is a tab nobody opens.
+    //
+    // The strip WRAPS rather than clipping, so at forty columns the six
+    // names need two lines. The promise is that every name is on screen, not
+    // that they all fit on one line: the second line used to cut "backups"
+    // to "backup" and drop the last three tabs entirely.
     let mut app = app();
     for width in [40, 80, 100, 120, 191] {
         let text = screen(&mut app, width, 40);
-        // The strip is the second line: the top bar is the first.
-        let strip = text.lines().nth(1).unwrap_or("");
+        // The strip is everything between the top bar and the body frame,
+        // however many lines it needed.
+        let strip = text
+            .lines()
+            .skip(1)
+            .take_while(|line| !line.starts_with('┌'))
+            .collect::<Vec<_>>()
+            .join("\n");
         for name in [
             "databases",
             "service",
