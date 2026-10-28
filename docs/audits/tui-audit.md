@@ -138,7 +138,10 @@ for an answer of 24 rows and paging disagreed with the count.
 `views::rows_count_query` under the active filter and uses that count; the
 structure total is used only when there is no filter.
 
-**Test.** `tests/tui_refresh.rs::database_page_keeps_its_rows_browser_page_when_reloading`.
+**Tests.** `tests/tui_refresh.rs::database_page_counts_rows_under_the_active_filter`
+(a filtered page of a 60-row table whose filter selects 24 must report
+`total == 24`; disabling the count read makes it fail with the structure's
+60), `::database_page_keeps_its_rows_browser_page_when_reloading`.
 
 ### F3 — Re-reading the database page threw away the browser's page (medium)
 
@@ -377,7 +380,7 @@ The rendered frames are in `docs/evidence/tui-audit-runtime.txt`.
 
 | Gate | Command | Result |
 |---|---|---|
-| Workspace tests | `cargo test --workspace --all-targets` | 91 suites, 663 passed, 0 failed |
+| Workspace tests | `cargo test --workspace --all-targets` | 91 suites, 664 passed, 0 failed |
 | Formatting | `cargo fmt --check` | clean |
 | Lints | `cargo clippy --workspace --all-targets -- -D warnings` | no issues, no suppressions added |
 | TUI suites | `cargo test --locked --test tui_layout --test tui_page --test tui_browser --test tui_mouse --test tui_refresh --test tui_terminal --test tui_actions --test tui_schema --test tui_tables --test tui_view` | pass |
