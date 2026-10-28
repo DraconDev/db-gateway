@@ -405,6 +405,35 @@ fn clicking_a_table_in_an_opened_database_opens_that_table() {
     );
 }
 
+#[test]
+fn clicking_a_mixed_case_table_name_opens_it() {
+    let mut app = app();
+    let document = json!({
+        "database": "demo",
+        "tombstoned": false,
+        "created_at": 1_700_000_000,
+        "tables": [{
+            "name": "UserData", "rows": 3,
+            "columns": [{"name": "id", "type": "INTEGER", "not_null": false, "primary_key": true, "default": null}],
+            "indexes": [], "foreign_keys": [], "sql": "CREATE TABLE UserData (id INTEGER PRIMARY KEY)"
+        }]
+    });
+    app.outcome = Some(dg::tui::schema_outcome("demo", None, &document));
+    let (text, _terminal) = frame(&mut app, 120, 40);
+    let (column, row) =
+        column_of(&text, "UserData").unwrap_or_else(|| panic!("no UserData row:\n{text}"));
+    app.on_mouse(click(column, row));
+    assert_eq!(
+        app.take_pending(),
+        Some(Invocation::OpenTable {
+            name: "demo".to_string(),
+            table: "UserData".to_string(),
+            page: 0
+        }),
+        "a valid mixed-case SQLite table was rejected by the click path"
+    );
+}
+
 /// A click on a table's own structure opens nothing.
 ///
 /// A structure grid's rows are columns, and a column is not a table.
