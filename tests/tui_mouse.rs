@@ -431,3 +431,56 @@ fn clicking_a_column_opens_nothing() {
         "a click on a column opened something"
     );
 }
+
+/// A click on a table row opens it at a real terminal size.
+///
+/// Every other mouse test draws a 120x40 or smaller screen. An
+/// operator's terminal is wider and taller, and the outcome pane's
+/// height is computed from the content it holds -- so a layout that
+/// works small can put the table rows somewhere else large. This pins
+/// the size an operator actually uses, with a database list the size of
+/// a real one.
+#[test]
+fn a_table_row_is_clickable_at_a_real_terminal_size() {
+    let mut app = app();
+    // Seven databases, as a seeded gateway has.
+    app.list = Some(json!({"databases": [
+        "billing_dev_pilot", "inventory", "ledger", "notes", "orders", "sessions", "verify_probe"
+    ]}));
+    // The contents of a database that was just opened.
+    let document = json!({
+        "database": "inventory",
+        "tombstoned": false,
+        "created_at": 1_700_000_000,
+        "tables": [
+            {"name": "products", "rows": 60,
+             "columns": [{"name": "id", "type": "INTEGER", "not_null": false, "primary_key": true, "default": null}],
+             "indexes": [], "foreign_keys": [], "sql": "CREATE TABLE products (id INTEGER PRIMARY KEY)"},
+            {"name": "stock_moves", "rows": 121,
+             "columns": [{"name": "id", "type": "INTEGER", "not_null": false, "primary_key": true, "default": null}],
+             "indexes": [], "foreign_keys": [], "sql": "CREATE TABLE stock_moves (id INTEGER PRIMARY KEY)"},
+            {"name": "suppliers", "rows": 20,
+             "columns": [{"name": "id", "type": "INTEGER", "not_null": false, "primary_key": true, "default": null}],
+             "indexes": [], "foreign_keys": [], "sql": "CREATE TABLE suppliers (id INTEGER PRIMARY KEY)"}
+        ]
+    });
+    app.outcome = Some(dg::tui::schema_outcome("inventory", None, &document));
+
+    for (width, height) in [(192, 54), (130, 48), (100, 40), (230, 60)] {
+        let (text, _t) = frame(&mut app, width, height);
+        for table in ["products", "stock_moves", "suppliers"] {
+            let (column, row) = column_of(&text, table)
+                .unwrap_or_else(|| panic!("{table} is not drawn at {width}x{height}:\n{text}"));
+            app.on_mouse(click(column, row));
+            assert_eq!(
+                app.take_pending(),
+                Some(Invocation::OpenTable {
+                    name: "inventory".to_string(),
+                    table: table.to_string(),
+                    page: 0
+                }),
+                "clicking {table} at {width}x{height} did not open its rows"
+            );
+        }
+    }
+}
