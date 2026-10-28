@@ -121,3 +121,40 @@ Neither reached SQL. The table was still there afterwards.
 
        The wheel does the same; without a browser open it still scrolls
        the dashboard.
+
+8. THE CASE-FOLDING REGRESSION, AND ITS FIX.
+
+   Making the set-operation scan literal-aware (so `sku = 'UNION'` is
+   accepted) dropped the uppercasing in the same edit. SQL keywords are
+   not case-sensitive, so the scan then compared uppercase keywords
+   against raw text and let the lowercase spellings through. Live, before
+   the fix:
+
+     $ dg rows inventory products 0 --where "1=1) union select id,sku,... from products where (1=1"
+     {"columns":["id","sku",...],"rows":[[1,"SKU-1001",...   <-- ACCEPTED
+
+   and the TUI drew the returned rows under a footer still claiming
+   `rows 1-10 of 60`. Writes remained refused (the write-keyword scan was
+   already case-insensitive), so this was forged reads, not data loss --
+   but it is exactly what `filter_is_safe` says cannot happen.
+
+   The fix restores case folding after the literal stripping, so both
+   halves hold. Verified live, every spelling, current build:
+
+     1=1 union select 1             REFUSED
+     1=1 UnIoN select 1             REFUSED
+     1=1 INTERSECT select 1         REFUSED
+     1=1 intersect select 1         REFUSED
+     1=1 except select 1            REFUSED
+     1=1 EXCEPT select 1            REFUSED
+
+     sku = 'UNION'                  accepted
+     sku = 'union'                  accepted
+     note = 'INTERSECT'             accepted
+
+   The suite missed this because every set-operation literal in the
+   tests was uppercase. tests/rows_query.rs now pins all three case forms
+   of all three keywords (plain and with a closing paren), and
+   tests/cli_rows.rs::a_lowercase_set_operation_is_refused_end_to_end
+   pins it through the CLI with the table still readable afterwards.
+   Reverting the one-line fold makes those tests fail.
