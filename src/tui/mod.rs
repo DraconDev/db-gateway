@@ -263,6 +263,8 @@ pub struct Browser {
     pub table: String,
     /// Which page, counting from zero.
     pub page: u64,
+    /// First row of this fetched page visible in a short terminal.
+    pub row_offset: usize,
     /// The column it is sorted by, and which way.
     pub sort: Option<(String, crate::views::SortDirection)>,
     /// The condition narrowing the rows, when there is one.
@@ -287,6 +289,7 @@ impl Browser {
             database: database.to_string(),
             table: table.to_string(),
             page: 0,
+            row_offset: 0,
             sort: None,
             filter: None,
             total: None,
@@ -996,7 +999,11 @@ impl App {
         } else {
             browser.page - 1
         };
-        self.browser = Some(Browser { page, ..browser });
+        self.browser = Some(Browser {
+            page,
+            row_offset: 0,
+            ..browser
+        });
         self.pending = Some(Invocation::RefreshRows);
     }
 
@@ -1028,6 +1035,7 @@ impl App {
                 }
                 self.browser = Some(Browser {
                     page: browser.page + 1,
+                    row_offset: 0,
                     ..browser
                 });
                 self.pending = Some(Invocation::RefreshRows);
@@ -1038,6 +1046,7 @@ impl App {
                 }
                 self.browser = Some(Browser {
                     page: browser.page - 1,
+                    row_offset: 0,
                     ..browser
                 });
                 self.pending = Some(Invocation::RefreshRows);
@@ -1083,6 +1092,7 @@ impl App {
                 self.browser = Some(Browser {
                     filter: None,
                     page: 0,
+                    row_offset: 0,
                     ..browser
                 });
                 self.pending = Some(Invocation::RefreshRows);
@@ -1174,8 +1184,11 @@ impl App {
                 self.browser = Some(Browser {
                     filter: (!typed.is_empty()).then_some(typed),
                     // A new condition selects a different set, so the
-                    // page it was on means nothing: back to the first.
+                    // page and the visible window it was on mean nothing:
+                    // back to the first page and row.
                     page: 0,
+                    row_offset: 0,
+                    total: None,
                     ..browser
                 });
                 self.pending = Some(Invocation::RefreshRows);
@@ -1233,6 +1246,7 @@ impl App {
                     // A new order makes the old page meaningless: the
                     // rows on it are not the rows page N now holds.
                     page: 0,
+                    row_offset: 0,
                     ..browser
                 });
                 self.pending = Some(Invocation::RefreshRows);
