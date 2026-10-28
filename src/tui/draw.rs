@@ -430,7 +430,19 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
         let mut geometry = None;
         let mouse = app.mouse;
         if let Some(outcome) = app.outcome.clone() {
-            outcome_pane(frame, rows[1], &outcome, mouse, &mut geometry);
+            // The browser draws as many rows as the screen holds, under
+            // no "last action" label: this is the thing the operator
+            // opened, not a note about it.
+            let room = usize::from(rows[1].height.saturating_sub(10)).max(6);
+            outcome_pane_with(
+                frame,
+                rows[1],
+                &outcome,
+                mouse,
+                &mut geometry,
+                room,
+                "opened",
+            );
         }
         app.geometry.outcome = geometry;
         return;
@@ -988,6 +1000,28 @@ fn outcome_pane(
     mouse: Option<(u16, u16)>,
     geometry: &mut Option<TableGeometry>,
 ) {
+    // How many rows the grid may draw. The browser's page holds ten, and
+    // that is the cap; the "last action" pane is a note under the
+    // dashboard and draws a shorter slice of whatever it was given.
+    outcome_pane_with(frame, area, outcome, mouse, geometry, OUTCOME_ROWS, "last action");
+}
+
+/// The outcome pane, with its row cap and its title chosen.
+///
+/// `max_rows` is how much of the grid may be drawn; the browser passes
+/// the room it has, the dashboard passes the fixed note-size slice. The
+/// title says what the pane is: a one-shot answer is a "last action", an
+/// opened table is just the table.
+#[allow(clippy::too_many_arguments)]
+fn outcome_pane_with(
+    frame: &mut Frame,
+    area: Rect,
+    outcome: &Outcome,
+    mouse: Option<(u16, u16)>,
+    geometry: &mut Option<TableGeometry>,
+    max_rows: usize,
+    facts_title: &str,
+) {
     if area.height == 0 {
         return;
     }
@@ -1024,7 +1058,7 @@ fn outcome_pane(
             // The caption sits under the rows, so a table with a footer needs
             // one more line than one without.
             let caption = u16::from(table.footer_text().is_some());
-            (table.rows().len().min(OUTCOME_ROWS) as u16) + 3 + caption
+            (table.rows().len().min(max_rows) as u16) + 3 + caption
         })
         .unwrap_or(0);
     let rows = Layout::vertical([
@@ -1033,7 +1067,7 @@ fn outcome_pane(
     ])
     .split(area);
     frame.render_widget(
-        Paragraph::new(Text::from(lines)).block(pane_titled("last action")),
+        Paragraph::new(Text::from(lines)).block(pane_titled(facts_title)),
         rows[0],
     );
     if let Some(table) = &outcome.table {
@@ -1047,7 +1081,7 @@ fn outcome_pane(
             rows[1],
             pane_titled("rows"),
             table,
-            OUTCOME_ROWS,
+            max_rows,
             &mut TableState::default(),
             TableDraw {
                 mouse,
