@@ -238,10 +238,13 @@ an ellipsis, so a message that runs off the edge says that it did.
 
 ## The rows browser
 
-Opening a table opens its **rows**: the data, ten at a time. This is a
-place the operator stays in, not a one-shot read, so the table, the page
-and the choices narrowing it are kept together — every keystroke re-asks
-the same question rather than starting over.
+Opening a table opens its **rows**: the data, ten at a time. The table
+takes the WHOLE screen while it is open — it is the thing you opened, not
+a note about it under a dashboard. `esc` puts the dashboard back.
+
+This is a place the operator stays in, not a one-shot read, so the table,
+the page and the choices narrowing it are kept together — every keystroke
+re-asks the same question rather than starting over.
 
 | Key | What it does |
 |---|---|
