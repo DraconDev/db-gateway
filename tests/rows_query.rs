@@ -233,3 +233,28 @@ fn every_refusal_says_which_question_was_wrong() {
     );
     assert!(RowsRefusal::BadFilter.message().contains("read-only"));
 }
+
+#[test]
+fn a_set_operation_inside_a_literal_is_still_a_read() {
+    // The set-operation scan runs over the expression with its literals
+    // removed, the way the write scan does. `sku = 'UNION'` compares a
+    // column against a string; refusing it would make this rule reject a
+    // legitimate filter that the read-only rule accepts.
+    for safe in ["sku = 'UNION'", "name = 'DELETE'", "note = 'INTERSECT'"] {
+        let query = rows_query(&structure(), "products", 0, None, Some(safe))
+            .unwrap_or_else(|refusal| panic!("{safe:?} was refused: {refusal:?}"));
+        assert!(query.sql.contains(safe), "{}", query.sql);
+    }
+    // A real set operation still is not a condition.
+    for unsafe_filter in [
+        "1=1 UNION SELECT 1",
+        "1=1 INTERSECT SELECT 1",
+        "1=1 EXCEPT SELECT 1",
+    ] {
+        assert_eq!(
+            rows_query(&structure(), "products", 0, None, Some(unsafe_filter)).unwrap_err(),
+            RowsRefusal::BadFilter,
+            "this was accepted: {unsafe_filter:?}"
+        );
+    }
+}
