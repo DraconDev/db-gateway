@@ -165,6 +165,30 @@ fn clicking_a_tab_label_switches_to_that_tab() {
     }
 }
 
+/// A click on a wrapped strip's second line still opens that tab.
+///
+/// At forty columns six tab names need two lines. The geometry that resolves
+/// a click used to record only one row, so the tabs that wrapped onto the
+/// second line were drawn but unreachable by pointer -- a label an operator
+/// can see and cannot click. Each label now carries its own row.
+#[test]
+fn clicking_a_tab_on_the_second_strip_line_opens_it() {
+    let mut app = app();
+    let (text, _t) = frame(&mut app, 40, 40);
+    let (column, row) = column_of(&text, "6 locations")
+        .unwrap_or_else(|| panic!("the wrapped strip does not show the last tab:\n{text}"));
+    assert!(
+        row > 1,
+        "the strip did not wrap, so this proves nothing:\n{text}"
+    );
+    app.on_mouse(click(column, row));
+    assert_eq!(
+        app.focus,
+        Focus::Locations,
+        "a click on the strip's second line did not open its tab:\n{text}"
+    );
+}
+
 /// A click on the strip but between labels does nothing.
 ///
 /// The separators between labels are not targets; a click that lands on one
