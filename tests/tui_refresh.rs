@@ -31,11 +31,31 @@ struct Partial {
     in_flight: AtomicUsize,
     /// The most that were ever in flight at once.
     peak: AtomicUsize,
+    /// How many times each path was read, so a re-read is observable.
+    hits: std::sync::Mutex<std::collections::HashMap<String, usize>>,
+}
+
+impl Partial {
+    /// How many times a path has been read.
+    fn hits(&self, path: &str) -> usize {
+        *self
+            .hits
+            .lock()
+            .expect("the counter is not poisoned")
+            .get(path)
+            .unwrap_or(&0)
+    }
 }
 
 /// Answer a read, or refuse it.
 async fn read(State(state): State<Arc<Partial>>, request: Request<axum::body::Body>) -> Response {
     let path = request.uri().path().to_string();
+    *state
+        .hits
+        .lock()
+        .expect("the counter is not poisoned")
+        .entry(path.clone())
+        .or_insert(0) += 1;
     let now = state.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
     state.peak.fetch_max(now, Ordering::SeqCst);
     // The other reads need a moment to arrive, or they cannot overlap and
@@ -59,6 +79,7 @@ async fn start(answer: Vec<&str>) -> (String, Arc<Partial>) {
         answer: answer.into_iter().map(str::to_string).collect(),
         in_flight: AtomicUsize::new(0),
         peak: AtomicUsize::new(0),
+        hits: std::sync::Mutex::new(std::collections::HashMap::new()),
     });
     let router = Router::new().fallback(read).with_state(state.clone());
     let listener = TcpListener::bind("127.0.0.1:0")
