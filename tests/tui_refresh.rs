@@ -62,6 +62,12 @@ async fn read(State(state): State<Arc<Partial>>, request: Request<axum::body::Bo
     // the peak says nothing.
     tokio::time::sleep(Duration::from_millis(150)).await;
     state.in_flight.fetch_sub(1, Ordering::SeqCst);
+    // The contents endpoint is the optional, slower sixth read. This
+    // fixture's allow/deny list exercises the five concurrent dashboard
+    // reads, so it returns an empty but valid contents document by default.
+    if path == "/v1/contents" {
+        return (StatusCode::OK, axum::Json(json!({"databases": {}}))).into_response();
+    }
     if state.answer.contains(&path) {
         (StatusCode::OK, axum::Json(json!({"version": "0.4.1"}))).into_response()
     } else {
