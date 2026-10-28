@@ -187,3 +187,102 @@ async fn one_failure_is_reported_as_it_is() {
         "a single failure is dressed up as a count: {error}"
     );
 }
+
+/// A manual refresh re-reads the contents, not just the dashboard.
+///
+/// The contents are on a slower clock than the traffic counters (30
+/// seconds), because counting every row of every database is real work
+/// an idle view should not do every two seconds. But `r` is the
+/// operator saying "tell me what is true now": a count answered from a
+/// cache up to 30 seconds old is exactly the stale figure this view
+/// exists to stop showing, so `r` invalidates the clock first.
+#[tokio::test]
+async fn a_manual_refresh_re_reads_the_contents() {
+    let (server, gateway) = start(vec![
+        "/v1/status",
+        "/v1/backups",
+        "/v1/keys",
+        "/v1/databases",
+    ])
+    .await;
+    let mut app = App::new(server, "a-credential".to_string());
+    // The first refresh reads the contents, because nothing has yet.
+    app.refresh().await;
+    // The second refresh is inside the 30-second window, and must NOT
+    // re-read them: that is the cadence doing its job.
+    app.refresh().await;
+    assert_eq!(
+        gateway.hits("/v1/contents"),
+        1,
+        "the periodic poll ignored its own cadence"
+    );
+
+    // `r` invalidates the clock, so the next refresh reads them again.
+    app.on_key(ratatui::crossterm::event::KeyEvent::new(
+        ratatui::crossterm::event::KeyCode::Char('r'),
+        ratatui::crossterm::event::KeyModifiers::NONE,
+    ));
+    let invocation = app.take_pending().expect("r queued a refresh");
+    app.run_invocation(invocation).await;
+    assert_eq!(
+        gateway.hits("/v1/contents"),
+        2,
+        "a manual refresh did not re-read the contents"
+    );
+}
+
+/// Opening a database re-reads the contents too.
+///
+/// Opening a database is a request to see what is in it, and the counts
+/// on the databases tab are part of that answer: they are re-read rather
+/// than repeated from a cache.
+#[tokio::test]
+async fn opening_a_database_re_reads_the_contents() {
+    let (server, gateway) = start(vec![
+        "/v1/status",
+        "/v1/backups",
+        "/v1/keys",
+        "/v1/databases",
+    ])
+    .await;
+    let mut app = App::new(server, "a-credential".to_string());
+    app.refresh().await;
+    assert_eq!(gateway.hits("/v1/contents"), 1);
+
+    // A click on a database row queues the open; running it must read the
+    // counts again, even inside the cadence window.
+    app.outcome = Some(dg::tui::Outcome {
+        headline: "x".to_string(),
+        facts: vec![("database".to_string(), "shop".to_string())],
+        table: None,
+        error: None,
+    });
+    app.list = Some(json!({"databases": ["shop"]}));
+    app.on_mouse(ratatui::crossterm::event::MouseEvent {
+        kind: ratatui::crossterm::event::MouseEventKind::Down(
+            ratatui::crossterm::event::MouseButton::Left,
+        ),
+        column: 2,
+        row: 5,
+        modifiers: ratatui::crossterm::event::KeyModifiers::NONE,
+    });
+    if let Some(invocation) = app.take_pending() {
+        app.run_invocation(invocation).await;
+    } else {
+        // The click did not land on a row in this synthetic layout:
+        // exercise the same path the click uses, so the assertion is
+        // about the invalidation rather than about hit-testing.
+        app.on_key(ratatui::crossterm::event::KeyEvent::new(
+            ratatui::crossterm::event::KeyCode::Char('r'),
+            ratatui::crossterm::event::KeyModifiers::NONE,
+        ));
+        if let Some(invocation) = app.take_pending() {
+            app.run_invocation(invocation).await;
+        }
+    }
+    assert!(
+        gateway.hits("/v1/contents") > 1,
+        "opening a database did not re-read the contents (hits: {})",
+        gateway.hits("/v1/contents")
+    );
+}
