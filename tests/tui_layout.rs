@@ -1225,7 +1225,7 @@ fn a_narrow_terminal_still_names_every_tab() {
     // terminal, so the promise broke exactly where it is most useful --
     // and a tab nobody can see is a tab nobody opens.
     let mut app = app();
-    for width in [80, 100, 120, 191] {
+    for width in [40, 80, 100, 120, 191] {
         let text = screen(&mut app, width, 40);
         // The strip is the second line: the top bar is the first.
         let strip = text.lines().nth(1).unwrap_or("");
