@@ -264,3 +264,46 @@ fn the_last_page_has_no_next_page_to_offer() {
         "the last page does not offer the previous one: {text}"
     );
 }
+
+/// A lowercase set operation is refused end to end.
+///
+/// SQL keywords are not case-sensitive, so `union` is the same operation
+/// as `UNION`. This case is written end to end because the unit tests
+/// once pinned only the uppercase spelling: the suite was green while
+/// `--where "1=1) union select ..."` reached SQLite, and the browser drew
+/// rows that were not in the table under a footer claiming to describe it.
+#[test]
+fn a_lowercase_set_operation_is_refused_end_to_end() {
+    let fleet = Fleet::boot();
+    seed(&fleet);
+    for attempt in [
+        "1=1) union select id,sku,stock from products where (1=1",
+        "1=1 union select 1",
+        "1=1 intersect select 1",
+        "1=1 except select 1",
+    ] {
+        let (success, stdout, stderr) = fleet
+            .cli
+            .run(&["rows", "shop", "products", "0", "--where", attempt]);
+        assert!(
+            !success,
+            "a set-operation filter was accepted ({attempt:?}): {stdout}"
+        );
+        assert!(
+            stdout.contains("read-only") || stderr.contains("read-only"),
+            "the refusal does not say why ({attempt:?}): stdout={stdout} stderr={stderr}"
+        );
+    }
+    // The table is untouched, and its rows are still its own.
+    let info = fleet.cli.ok("info", &["info", "shop"]);
+    assert_eq!(
+        info["tables"][0]["name"], "products",
+        "the table did not survive: {info}"
+    );
+    let document = rows(&fleet, "still readable", &[]);
+    assert_eq!(
+        ids(&document),
+        (1..=10).collect::<Vec<i64>>(),
+        "the ordinary read no longer returns the table's rows"
+    );
+}

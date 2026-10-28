@@ -669,10 +669,11 @@ impl App {
 
     fn on_key_normal(&mut self, key: KeyEvent) {
         // The rows browser owns the keyboard while it is open: its keys
-        // are about the table on screen, and they would collide with the
-        // dashboard's (`r` refreshes the dashboard, but here it means
-        // "re-read these rows"). Esc leaves the browser first, so a
-        // keystroke meant for the table cannot quit the whole view.
+        // are about the table on screen. `r` is NOT one of them -- it
+        // falls through to the dashboard's refresh, which also re-reads
+        // the contents -- so a browser stays open across it. Esc leaves
+        // the browser first, so a keystroke meant for the table cannot
+        // quit the whole view.
         if self.browser.is_some() && self.browser_key(&key) {
             return;
         }
