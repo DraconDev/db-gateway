@@ -438,10 +438,12 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
                 frame,
                 rows[1],
                 &outcome,
-                mouse,
-                &mut geometry,
-                room,
-                "opened",
+                PaneShape {
+                    mouse,
+                    geometry: &mut geometry,
+                    max_rows: room,
+                    facts_title: "opened",
+                },
             );
         }
         app.geometry.outcome = geometry;
@@ -1000,36 +1002,43 @@ fn outcome_pane(
     mouse: Option<(u16, u16)>,
     geometry: &mut Option<TableGeometry>,
 ) {
-    // How many rows the grid may draw. The browser's page holds ten, and
-    // that is the cap; the "last action" pane is a note under the
-    // dashboard and draws a shorter slice of whatever it was given.
+    // The dashboard's note: a fixed slice, however tall the pane is.
     outcome_pane_with(
         frame,
         area,
         outcome,
-        mouse,
-        geometry,
-        OUTCOME_ROWS,
-        "last action",
+        PaneShape {
+            mouse,
+            geometry,
+            max_rows: OUTCOME_ROWS,
+            facts_title: "last action",
+        },
     );
 }
 
-/// The outcome pane, with its row cap and its title chosen.
+/// How an outcome pane is drawn: its cap, its title, its pointer.
 ///
-/// `max_rows` is how much of the grid may be drawn; the browser passes
-/// the room it has, the dashboard passes the fixed note-size slice. The
-/// title says what the pane is: a one-shot answer is a "last action", an
-/// opened table is just the table.
-#[allow(clippy::too_many_arguments)]
-fn outcome_pane_with(
-    frame: &mut Frame,
-    area: Rect,
-    outcome: &Outcome,
+/// One value rather than four arguments, and the two modes differ in
+/// exactly these fields: the dashboard draws a short "last action" note,
+/// and the rows browser draws the whole screen of the table it opened.
+struct PaneShape<'a> {
+    /// Where the pointer is, so the row under it is marked.
     mouse: Option<(u16, u16)>,
-    geometry: &mut Option<TableGeometry>,
+    /// Where the grid's geometry is recorded, for click resolution.
+    geometry: &'a mut Option<TableGeometry>,
+    /// How many rows the grid may draw.
     max_rows: usize,
-    facts_title: &str,
-) {
+    /// What the facts box is called.
+    facts_title: &'a str,
+}
+
+fn outcome_pane_with(frame: &mut Frame, area: Rect, outcome: &Outcome, shape: PaneShape<'_>) {
+    let PaneShape {
+        mouse,
+        geometry,
+        max_rows,
+        facts_title,
+    } = shape;
     if area.height == 0 {
         return;
     }
