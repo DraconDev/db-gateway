@@ -259,7 +259,7 @@ fn a_set_operation_inside_a_literal_is_still_a_read() {
             // all-upper still fails here.
             format!(
                 "{}{}",
-                &keyword[..1].to_uppercase(),
+                keyword[..1].to_uppercase(),
                 keyword[1..].to_lowercase()
             ),
         ] {
