@@ -132,6 +132,9 @@ fn the_page_is_drawn_with_the_list_and_the_values() {
         "stock_moves",
         "suppliers",
         "values",
+        "click select table",
+        "enter open rows",
+        "esc back",
     ] {
         assert!(
             text.contains(expected),

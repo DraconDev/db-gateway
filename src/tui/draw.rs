@@ -1262,15 +1262,28 @@ fn status_line(frame: &mut Frame, area: Rect, app: &App) {
     used += tabs.width();
     spans.push(Span::styled(" tabs", crate::tui::theme::key_label()));
     used += " tabs".width();
-    // Key, then what it does. Ordered by how often it is reached for.
-    const HINTS: [(&str, &str); 5] = [
-        ("tab", "next tab"),
-        ("↑↓", "scroll"),
-        (":", "commands"),
-        ("r", "refresh"),
-        ("q", "quit"),
-    ];
-    for (key, label) in HINTS.iter() {
+    // Key, then what it does. The page gets the controls that matter
+    // there: arrow keys move through tables, a click selects one directly,
+    // and Enter opens its rows. Calling table selection "scroll" would
+    // hide what the arrows actually do on this screen.
+    let hints: [(&str, &str); 5] = if app.page.is_some() {
+        [
+            ("↑↓", "tables"),
+            ("click", "select table"),
+            ("enter", "open rows"),
+            ("esc", "back"),
+            ("q", "quit"),
+        ]
+    } else {
+        [
+            ("tab", "next tab"),
+            ("↑↓", "scroll"),
+            (":", "commands"),
+            ("r", "refresh"),
+            ("q", "quit"),
+        ]
+    };
+    for (key, label) in hints.iter() {
         spans.push(Span::styled("  ", crate::tui::theme::status()));
         spans.push(Span::styled(*key, crate::tui::theme::key()));
         spans.push(Span::styled(

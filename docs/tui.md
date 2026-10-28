@@ -257,8 +257,8 @@ kept the whole screen — had room for a summary, not for a table.
 
 | Key | What it does |
 |---|---|
-| `↓`, or click a name | Select the next table in the list |
-| `↑`, or click a name | Select the previous table by choosing it directly |
+| `↓` / `↑` | Move to the next / previous table |
+| Click a table name | Select that table directly |
 | `enter` | Open the selected table in the rows browser |
 | `s` | The selected table's structure |
 | `esc` | Back to the dashboard |

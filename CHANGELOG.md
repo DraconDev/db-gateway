@@ -47,8 +47,7 @@ fixes; 1.0.0 waits for production acceptance.
   which is what "open" means; the structure is one key away.
 
   Opening a database opens a **page**: its tables down the left, the
-  selected table's values filling the rest of the screen, with `j`/`k` (or
-  a click on a name) moving between tables and `enter` opening one in the
+  selected table's values filling the rest of the screen, with arrow keys or a click on a name to select a table and `enter` opening one in the
   rows browser. `esc` returns to the dashboard.
 
   A page rather than a pane, because a database is a place you go and a
