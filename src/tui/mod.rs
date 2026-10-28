@@ -614,7 +614,7 @@ impl App {
             return;
         }
         // On the database page, a click on a table in the list selects
-        // it -- the same move `j`/`k` make.
+        // it -- the same move the arrow keys make.
         if self.page.is_some()
             && let Some(index) = self
                 .geometry
@@ -847,7 +847,7 @@ impl App {
                 self.outcome = None;
             }
             KeyCode::Char('q') => self.quit = true,
-            KeyCode::Char('j') | KeyCode::Down => {
+            KeyCode::Down => {
                 if page.selected + 1 >= page.tables.len() {
                     return true;
                 }
@@ -857,7 +857,7 @@ impl App {
                 });
                 self.pending = Some(Invocation::RefreshRows);
             }
-            KeyCode::Char('k') | KeyCode::Up => {
+            KeyCode::Up => {
                 if page.selected == 0 {
                     return true;
                 }

@@ -152,24 +152,24 @@ fn the_page_is_drawn_with_the_list_and_the_values() {
 }
 
 #[test]
-fn j_and_k_move_the_selection_and_ask_for_that_tables_rows() {
+fn arrow_keys_move_the_selection_and_load_that_tables_rows() {
     let mut app = app();
     app.page = Some(page());
-    app.on_key(key(KeyCode::Char('j')));
+    app.on_key(key(KeyCode::Down));
     assert_eq!(
         app.page
             .as_ref()
             .and_then(|p| p.current())
             .map(|t| t.name.as_str()),
         Some("stock_moves"),
-        "j did not move the selection"
+        "Down did not move the selection"
     );
     assert_eq!(
         app.take_pending(),
         Some(Invocation::RefreshRows),
         "moving the list did not queue the new table's rows"
     );
-    app.on_key(key(KeyCode::Char('k')));
+    app.on_key(key(KeyCode::Up));
     assert_eq!(
         app.page
             .as_ref()
@@ -177,6 +177,23 @@ fn j_and_k_move_the_selection_and_ask_for_that_tables_rows() {
             .map(|t| t.name.as_str()),
         Some("products")
     );
+}
+
+#[test]
+fn vim_keys_do_not_move_the_selection() {
+    let mut app = app();
+    app.page = Some(page());
+    app.on_key(key(KeyCode::Char('j')));
+    app.on_key(key(KeyCode::Char('k')));
+    assert_eq!(
+        app.page
+            .as_ref()
+            .and_then(|p| p.current())
+            .map(|t| t.name.as_str()),
+        Some("products"),
+        "the page should use intuitive arrow navigation, not Vim keys"
+    );
+    assert_eq!(app.take_pending(), None);
 }
 
 #[test]
@@ -229,8 +246,8 @@ fn an_empty_database_says_so_instead_of_drawing_an_empty_page() {
 
 /// A click on a table name in the list selects that table.
 ///
-/// The mouse and `j`/`k` move the same list: an operator who reaches for
-/// either gets the same result, and the values on the right follow.
+/// Clicking a table in the list selects it directly, and the values on
+/// the right follow.
 #[test]
 fn a_click_on_a_table_name_selects_it() {
     use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};

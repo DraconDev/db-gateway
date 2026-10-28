@@ -458,7 +458,7 @@ fn database_page(frame: &mut Frame, area: Rect, app: &mut App) {
     let visible = usize::from(columns[0].height.saturating_sub(2)).max(1);
     let start = page.list_scroll.min(page.tables.len().saturating_sub(1));
     // Where the list's rows really are, so a click on a table name
-    // selects that table -- the mouse and `j`/`k` move the same list.
+    // selects that table -- the mouse and arrow keys move the same list.
     let list_inner = Block::default().borders(Borders::ALL).inner(columns[0]);
     app.geometry.page_list = Some(PageList {
         area: list_inner,
