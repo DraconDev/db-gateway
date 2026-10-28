@@ -341,8 +341,8 @@ that breaks it fails the build rather than an operator.
 
 ## Explicit dispositions
 
-- **Twelve data files under `docs/evidence/tui-live-2026-10-25-raw/` and the
-  older `docs/evidence/tui-view-2026-10-22.txt` stay historical.** They predate
+- **The seven captures under `docs/evidence/tui-live-2026-10-25-raw/` and
+  the older `docs/evidence/tui-view-2026-10-22.txt` stay historical.** They predate
   the tabbed layout, and `docs/tui.md` says so where it links them. Rewriting a
   capture would destroy the only record of what that build drew.
 - **The `_dg_*` and `_litestream*` tables stay hidden from the structure view**
