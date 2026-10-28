@@ -497,7 +497,10 @@ impl Invocation {
     /// same rules the CLI refuses it by.
     pub fn request(&self) -> Result<Request> {
         let request = match self {
-            Invocation::Refresh | Invocation::RefreshRows | Invocation::OpenDatabase | Invocation::Quit => {
+            Invocation::Refresh
+            | Invocation::RefreshRows
+            | Invocation::OpenDatabase { .. }
+            | Invocation::Quit => {
                 return Err(invalid("this action makes no request"));
             }
             Invocation::Query { name, sql } => Request {
