@@ -1396,13 +1396,13 @@ fn status_line(frame: &mut Frame, area: Rect, app: &App) {
     used += tabs.width();
     spans.push(Span::styled(" tabs", crate::tui::theme::key_label()));
     used += " tabs".width();
-    // Key, then what it does. The page gets the controls that matter
-    // there: arrow keys move through tables, a click selects one directly,
-    // and Enter opens its rows. Calling table selection "scroll" would
-    // hide what the arrows actually do on this screen.
+    // Key, then what it does. The database page moves the left-hand table
+    // list with arrows or a wheel over that list; a wheel over values can
+    // scroll rows. The rows browser scrolls a clipped page locally and uses
+    // n/p or page keys to change the query page.
     let hints: [(&str, &str); 5] = if app.page.is_some() {
         [
-            ("↑↓/wheel", "tables"),
+            ("↑↓/wheel", "tables/rows"),
             ("click", "select"),
             ("enter", "open rows"),
             ("esc", "back"),
@@ -1410,9 +1410,9 @@ fn status_line(frame: &mut Frame, area: Rect, app: &App) {
         ]
     } else if app.browser.is_some() {
         [
-            ("↑↓/wheel", "page rows"),
-            ("o", "sort"),
-            ("f", "filter"),
+            ("↑↓/wheel", "rows/page"),
+            ("n/p", "page"),
+            ("o/f", "sort/filter"),
             ("esc", "back"),
             ("q", "quit"),
         ]
