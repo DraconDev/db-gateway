@@ -578,11 +578,12 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
     // not notes about a place: the dashboard is what you leave behind,
     // and Esc comes back to it.
     if app.page.is_some() {
-        let rows = Layout::vertical([Constraint::Length(1), Constraint::Min(4)]).split(area);
-        let strip = tabs(frame, rows[0], app);
+        let strip = tab_strip(frame, area, app);
+        let rows = Layout::vertical([Constraint::Length(strip.height), Constraint::Min(4)])
+            .split(area);
         app.geometry = Geometry {
-            tabs: strip,
-            strip_y: Some(rows[0].y),
+            tabs: strip.tabs,
+            strip: Some(strip.area),
             body: Some(rows[1]),
             tables: Vec::new(),
             page_list: None,
@@ -592,11 +593,12 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
         return;
     }
     if app.browser.is_some() && app.outcome.is_some() {
-        let rows = Layout::vertical([Constraint::Length(1), Constraint::Min(4)]).split(area);
-        let strip = tabs(frame, rows[0], app);
+        let strip = tab_strip(frame, area, app);
+        let rows = Layout::vertical([Constraint::Length(strip.height), Constraint::Min(4)])
+            .split(area);
         app.geometry = Geometry {
-            tabs: strip,
-            strip_y: Some(rows[0].y),
+            tabs: strip.tabs,
+            strip: Some(strip.area),
             body: Some(rows[1]),
             tables: Vec::new(),
             page_list: None,
@@ -637,16 +639,16 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
         .as_ref()
         .map(|outcome| outcome_lines(outcome) + 2)
         .unwrap_or(0);
+    let strip = tab_strip(frame, area, app);
     let rows = Layout::vertical([
-        Constraint::Length(1),
+        Constraint::Length(strip.height),
         Constraint::Min(4),
         Constraint::Length(outcome_height),
     ])
     .split(area);
-    let strip = tabs(frame, rows[0], app);
     app.geometry = Geometry {
-        tabs: strip,
-        strip_y: Some(rows[0].y),
+        tabs: strip.tabs,
+        strip: Some(strip.area),
         body: Some(rows[1]),
         tables: Vec::new(),
         page_list: None,
@@ -719,7 +721,8 @@ fn tabs(frame: &mut Frame, area: Rect, app: &App) -> (Vec<TabGeometry>, u16) {
     } else {
         names_only
     };
-    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let mut current: Vec<Span<'static>> = Vec::new();
     let mut cells: Vec<TabGeometry> = Vec::new();
     let mut column: u16 = 0;
     let mut row: u16 = area.y;
@@ -740,7 +743,7 @@ fn tabs(frame: &mut Frame, area: Rect, app: &App) -> (Vec<TabGeometry>, u16) {
         } else {
             label.clone()
         };
-        // The separator belongs to the label before it, so a wrap never
+        // The separator belongs with the label before it, so a wrap never
         // starts a line with a hanging bar.
         let separator = usize::from(index + 1 < labels.len());
         let width = text.width() as u16;
@@ -750,7 +753,9 @@ fn tabs(frame: &mut Frame, area: Rect, app: &App) -> (Vec<TabGeometry>, u16) {
         // than the whole terminal is drawn clipped on its own line rather
         // than looping forever.
         if column > 0 && column.saturating_add(needed) > area.width && row < last_row {
-            spans.push(Span::styled("\n", style));
+            // The trailing separator of the previous line goes with the
+            // line it belongs to.
+            lines.push(Line::from(std::mem::take(&mut current)));
             row = row.saturating_add(1);
             column = 0;
         }
@@ -764,14 +769,15 @@ fn tabs(frame: &mut Frame, area: Rect, app: &App) -> (Vec<TabGeometry>, u16) {
                 width: visible,
             });
         }
-        spans.push(Span::styled(text, style));
+        current.push(Span::styled(text, style));
         column = column.saturating_add(width);
         if separator == 1 {
-            spans.push(Span::styled("│", crate::tui::theme::border()));
+            current.push(Span::styled("│", crate::tui::theme::border()));
             column = column.saturating_add(1);
         }
     }
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+    lines.push(Line::from(current));
+    frame.render_widget(Paragraph::new(Text::from(lines)), area);
     (cells, row.saturating_add(1).saturating_sub(area.y))
 }
 
