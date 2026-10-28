@@ -613,6 +613,27 @@ impl App {
             }
             return;
         }
+        // On the database page, a click on a table in the list selects
+        // it -- the same move `j`/`k` make.
+        if self.page.is_some()
+            && let Some(index) = self
+                .geometry
+                .page_list
+                .as_ref()
+                .and_then(|list| list.row_at(column, row))
+        {
+            if let Some(page) = self.page.clone()
+                && index < page.tables.len()
+                && index != page.selected
+            {
+                self.page = Some(DatabasePage {
+                    selected: index,
+                    ..page
+                });
+                self.pending = Some(Invocation::RefreshRows);
+            }
+            return;
+        }
         // Then a row that names a database: clicking a database OPENS
         // it. The keyboard's doorway to a table's rows is Enter; the
         // mouse's doorway to the database itself is the click.
@@ -624,6 +645,9 @@ impl App {
         // contents, one row per table. Clicking a table there opens
         // that table's structure -- the columns, their types and their
         // flags -- which is what "opening a table" means here.
+        if self.page.is_some() {
+            return;
+        }
         if let Some((database, table)) = self.table_under_pointer(column, row) {
             // Opening a table means opening its ROWS: the data is what
             // "open" means. Its structure is one key away on the browser
