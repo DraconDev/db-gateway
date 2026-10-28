@@ -39,8 +39,9 @@ fixes; 1.0.0 waits for production acceptance.
   `dg rows <database> <table> [page]` answers **what is in a table**:
   the data, ten rows a page, with `--sort <column>[:asc|:desc]` and
   `--where <condition>`. The TUI's browser is the same read with keys —
-  `n`/`p` for pages, `o` to cycle the sort, `f` to edit the filter, `c`
-  to clear it, `s` for the table's structure, `esc` to leave — and its
+  `n`/`p` (or the arrows and the wheel) for pages, `o` to name the sort
+  column, `f` to edit the filter, `c` to clear it, `s` for the table's
+  structure, `esc` to leave — and its
   footer says `rows 21-30 of 62` with the sort and filter named beside
   it. Clicking a table in an opened database now lands in the rows,
   which is what "open" means; the structure is one key away.
@@ -53,6 +54,14 @@ fixes; 1.0.0 waits for production acceptance.
   rule the query endpoint uses — a filter that would modify data is
   refused, not run. Both surfaces draw through the shared view layer, so
   they cannot tell different stories.
+
+  The sort column is **named, not assumed**: it used to cycle off the
+  first column, which on a typical table is the `id` (the rowid alias),
+  so "sorted by id asc" reordered nothing and every other column was
+  unreachable from the view. The counts are also re-read on `r` and when
+  a database is opened: the 30-second cadence keeps an idle view from
+  counting every row on every poll, but it is not a promise that the
+  figures are fresh when the operator asks.
 
 - **The pointer opens databases, and the row under it is marked.** A
   click on a row that names a database opens it: the database's tables,
