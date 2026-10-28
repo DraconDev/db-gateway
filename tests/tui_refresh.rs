@@ -312,11 +312,10 @@ async fn opening_a_database_re_reads_the_contents() {
         .expect("the click on the database row queued nothing");
     assert_eq!(
         invocation,
-        dg::tui::actions::Invocation::Schema {
-            name: "shop".to_string(),
-            table: None
+        dg::tui::actions::Invocation::OpenDatabase {
+            name: "shop".to_string()
         },
-        "the click did not queue the database's opening"
+        "the click did not queue the database's page"
     );
     app.run_invocation(invocation).await;
     assert_eq!(
