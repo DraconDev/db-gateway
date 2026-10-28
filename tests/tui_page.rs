@@ -329,4 +329,54 @@ fn moving_past_the_visible_list_keeps_the_selection_on_screen() {
         app.page.as_ref().is_some_and(|page| page.list_scroll > 0),
         "the list viewport did not follow the selected table"
     );
+
+    // Growing the terminal makes every table fit again; the list should
+    // release its old scroll rather than leave the first names hidden.
+    let expanded = screen(&mut app, 100, 45);
+    assert!(
+        expanded.lines().any(|line| line.contains("▸ table_15")),
+        "the selection disappeared after growing the terminal:\n{expanded}"
+    );
+    assert_eq!(
+        app.page.as_ref().map(|page| page.list_scroll),
+        Some(0),
+        "the old list offset was not clamped after resize"
+    );
+}
+
+#[test]
+fn a_click_after_list_scroll_selects_the_table_at_that_visible_row() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    use unicode_width::UnicodeWidthStr;
+
+    let mut app = app();
+    app.page = Some(tall_page(30));
+    for _ in 0..15 {
+        app.on_key(key(KeyCode::Down));
+    }
+    let text = screen(&mut app, 100, 16);
+    let _ = app.take_pending();
+    let (column, row) = text
+        .lines()
+        .enumerate()
+        .find_map(|(row, line)| {
+            let byte = line.find("table_12")?;
+            Some((line[..byte].width() as u16, row as u16))
+        })
+        .expect("table_12 should be visible after scrolling the table list");
+    app.on_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    });
+    assert_eq!(
+        app.page
+            .as_ref()
+            .and_then(DatabasePage::current)
+            .map(|table| table.name.as_str()),
+        Some("table_12"),
+        "clicking a scrolled list row selected the wrong table"
+    );
+    assert_eq!(app.take_pending(), Some(Invocation::RefreshRows));
 }
