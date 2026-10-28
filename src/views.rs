@@ -2744,6 +2744,66 @@ fn quote_identifier(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
 
+/// An expression with its quoted text and comments blanked out.
+///
+/// The keyword scans look at what SQLite will actually parse as code: a
+/// string literal or a comment is data, and a word inside one is not a
+/// keyword. Blanking rather than deleting keeps the rest of the text in
+/// the same order, so a scan cannot be fooled by a literal that closes
+/// a quote and starts code -- the quote handling below follows SQLite's
+/// own rule of a doubled quote inside a literal.
+fn strip_literals(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' | '"' | '`' => {
+                // Skip to the closing quote, honouring a doubled quote.
+                while let Some(inner) = chars.next() {
+                    if inner == c {
+                        if chars.peek() == Some(&c) {
+                            chars.next();
+                            continue;
+                        }
+                        break;
+                    }
+                }
+                out.push(' ');
+            }
+            '[' => {
+                // SQLite's bracket quoting has no escape: it ends at `]`.
+                for inner in chars.by_ref() {
+                    if inner == ']' {
+                        break;
+                    }
+                }
+                out.push(' ');
+            }
+            '-' if chars.peek() == Some(&'-') => {
+                for inner in chars.by_ref() {
+                    if inner == '\n' {
+                        break;
+                    }
+                }
+                out.push(' ');
+            }
+            '/' if chars.peek() == Some(&'*') => {
+                chars.next();
+                let mut previous = '\0';
+                for inner in chars.by_ref() {
+                    if previous == '*' && inner == '/' {
+                        break;
+                    }
+                    previous = inner;
+                }
+                out.push(' ');
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// Whether a filter is a read-only condition and not a statement.
 ///
 /// A filter may not contain a statement separator, a comment (which can
@@ -2761,9 +2821,15 @@ fn filter_is_safe(when: &str) -> bool {
     // below only looks for writes; `UNION`, `INTERSECT` and `EXCEPT` are
     // reads, and each one would append a result set the operator did
     // not ask for.
-    let upper = when.to_ascii_uppercase();
+    //
+    // The scan runs over the expression with its literals and comments
+    // REMOVED, the way the write scan does: `sku = 'UNION'` is a
+    // comparison against a string, and refusing it would make this rule
+    // disagree with the read-only rule about the same text -- the two
+    // would reject different halves of the same legitimate filter.
+    let bare = strip_literals(when);
     for operation in ["UNION", "INTERSECT", "EXCEPT"] {
-        if upper.contains(operation) {
+        if bare.contains(operation) {
             return false;
         }
     }
