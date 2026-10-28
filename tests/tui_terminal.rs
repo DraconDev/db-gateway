@@ -168,7 +168,10 @@ fn explicit_tui_refuses_redirected_input_before_taking_over_the_terminal() {
         fleet.cli.key_file.display()
     );
     let (success, output) = pty_command(&command, b"", 900);
-    assert!(!success, "explicit tui should refuse redirected stdin:\n{output:?}");
+    assert!(
+        !success,
+        "explicit tui should refuse redirected stdin:\n{output:?}"
+    );
     assert!(
         output.contains("not_a_terminal"),
         "explicit tui did not report the terminal-input prerequisite:\n{output:?}"
