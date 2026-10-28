@@ -2836,7 +2836,7 @@ fn filter_is_safe(when: &str) -> bool {
     //    which drew fabricated rows under a footer claiming to describe
     //    the table. The write scan has always folded case; this one has
     //    to as well, or the two disagree about the same statement.
-    let bare = strip_literals(when).to_ascii_uppercase();
+    let bare = strip_literals(when);
     for operation in ["UNION", "INTERSECT", "EXCEPT"] {
         if bare.contains(operation) {
             return false;
