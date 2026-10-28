@@ -269,6 +269,12 @@ impl Browser {
             // claiming the rows on screen do not exist.
             None => parts.push(format!("rows from {}", self.first_row())),
             Some(0) => parts.push("no rows match".to_string()),
+            // A page past the end has no last row to name: drawing
+            // "rows 91-0 of 60" reads as a bug in the table rather than
+            // as "you are past the end of it".
+            Some(total) if self.first_row() > total => {
+                parts.push(format!("no rows this far: the table has {total}"));
+            }
             Some(total) => parts.push(format!(
                 "rows {}-{} of {}",
                 self.first_row(),

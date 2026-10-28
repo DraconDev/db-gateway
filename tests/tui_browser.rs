@@ -509,3 +509,29 @@ fn an_unread_count_says_so_rather_than_no_rows_match() {
         "a next page was promised without a total"
     );
 }
+
+/// A page past the end says so instead of drawing `rows 91-0 of 60`.
+///
+/// The footer is the view's claim about what the table holds; a range
+/// that runs backwards reads as a fault in the table rather than as
+/// "there is nothing this far".
+#[test]
+fn a_page_past_the_end_does_not_draw_a_backwards_range() {
+    let past = Browser {
+        page: 9,
+        ..browser()
+    };
+    let footer = past.page_footer();
+    assert!(
+        !footer.contains("91-0"),
+        "the footer drew a backwards range: {footer}"
+    );
+    assert!(
+        footer.contains("no rows this far"),
+        "the footer does not say the page is past the end: {footer}"
+    );
+    assert!(
+        footer.contains("60"),
+        "the footer does not say how many rows there are: {footer}"
+    );
+}
