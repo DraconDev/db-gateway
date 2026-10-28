@@ -151,7 +151,7 @@ fn the_page_is_drawn_with_the_list_and_the_values() {
         "stock_moves",
         "suppliers",
         "values",
-        "click select table",
+        "click select",
         "enter open rows",
         "esc back",
     ] {

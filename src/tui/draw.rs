@@ -1281,9 +1281,17 @@ fn status_line(frame: &mut Frame, area: Rect, app: &App) {
     // hide what the arrows actually do on this screen.
     let hints: [(&str, &str); 5] = if app.page.is_some() {
         [
-            ("↑↓", "tables"),
-            ("click", "select table"),
+            ("↑↓/wheel", "tables"),
+            ("click", "select"),
             ("enter", "open rows"),
+            ("esc", "back"),
+            ("q", "quit"),
+        ]
+    } else if app.browser.is_some() {
+        [
+            ("↑↓/wheel", "page rows"),
+            ("o", "sort"),
+            ("f", "filter"),
             ("esc", "back"),
             ("q", "quit"),
         ]
