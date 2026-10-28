@@ -604,7 +604,7 @@ impl App {
                 if self.page_list_under_pointer(mouse.column, mouse.row) {
                     self.move_page_selection(-3);
                 } else if !self.body_under_pointer(mouse.column, mouse.row) {
-                    return;
+                    // The wheel over the chrome is not the body's.
                 } else if self.browser.is_some() {
                     if !self.browser_scroll_rows(-3) {
                         self.browser_page(false);
@@ -621,7 +621,7 @@ impl App {
                 if self.page_list_under_pointer(mouse.column, mouse.row) {
                     self.move_page_selection(3);
                 } else if !self.body_under_pointer(mouse.column, mouse.row) {
-                    return;
+                    // The wheel over the chrome is not the body's.
                 } else if self.browser.is_some() {
                     if !self.browser_scroll_rows(3) {
                         self.browser_page(true);
