@@ -465,6 +465,143 @@ async fn database_page_keeps_its_rows_browser_page_when_reloading() {
     );
 }
 
+/// A database page's filtered rows are counted under that filter.
+///
+/// The database's own structure says how many rows the TABLE has. That is
+/// the right total for an unfiltered page and the wrong one for a filtered
+/// page: the footer would promise sixty rows for an answer of twenty-four,
+/// and paging would disagree with the count it printed.
+#[tokio::test]
+async fn database_page_counts_rows_under_the_active_filter() {
+    async fn answer(
+        State(state): State<Arc<FilteredGateway>>,
+        request: Request<axum::body::Body>,
+    ) -> Response {
+        let path = request.uri().path().to_string();
+        if path == "/v1/databases/shop/schema" {
+            return (
+                StatusCode::OK,
+                axum::Json(json!({
+                    "database": "shop",
+                    "tombstoned": false,
+                    "created_at": 1_700_000_000,
+                    "tables": [{
+                        "name": "products",
+                        "rows": 60,
+                        "columns": [{
+                            "name": "stock", "type": "INTEGER",
+                            "not_null": false, "primary_key": false, "default": null
+                        }],
+                        "indexes": [], "foreign_keys": [],
+                        "sql": "CREATE TABLE products (stock INTEGER)"
+                    }]
+                })),
+            )
+                .into_response();
+        }
+        if path == "/v1/databases/shop/query" {
+            let body: Value = serde_json::from_slice(
+                &axum::body::to_bytes(request.into_body(), 1 << 20)
+                    .await
+                    .expect("the body is readable"),
+            )
+            .expect("the body is JSON");
+            let sql = body["sql"].as_str().unwrap_or_default().to_string();
+            if sql.starts_with("SELECT count(*)") {
+                state.counted.fetch_add(1, Ordering::SeqCst);
+                return (
+                    StatusCode::OK,
+                    axum::Json(json!({
+                        "columns": ["count(*)"], "rows": [[24]], "rows_affected": 0
+                    })),
+                )
+                    .into_response();
+            }
+            return (
+                StatusCode::OK,
+                axum::Json(json!({
+                    "columns": ["stock"],
+                    "rows": (0..10).map(|i| json!([100 - i])).collect::<Vec<_>>(),
+                    "rows_affected": 0
+                })),
+            )
+                .into_response();
+        }
+        let body = match path.as_str() {
+            "/v1/contents" => json!({"databases": {"shop": {"tables": 1, "rows": 60}}}),
+            "/v1/status" => json!({"version": "0.9.0"}),
+            "/v1/backups" | "/v1/keys" | "/v1/queries" => json!({}),
+            "/v1/databases" => json!({"databases": ["shop"]}),
+            _ => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    axum::Json(json!({"error": {"code": "not_found", "message": "no route"}})),
+                )
+                    .into_response();
+            }
+        };
+        (StatusCode::OK, axum::Json(body)).into_response()
+    }
+
+    struct FilteredGateway {
+        counted: AtomicUsize,
+    }
+
+    let state = Arc::new(FilteredGateway {
+        counted: AtomicUsize::new(0),
+    });
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("the listener binds");
+    let address = listener.local_addr().expect("the address is known");
+    let router = Router::new().fallback(answer).with_state(state.clone());
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, router).await;
+    });
+
+    let mut app = App::new(format!("http://{address}"), "a-credential".to_string());
+    app.page = Some(dg::tui::DatabasePage {
+        database: "shop".to_string(),
+        tables: vec![dg::views::TableStructure {
+            name: "products".to_string(),
+            rows: 60,
+            columns: vec![dg::views::ColumnStructure {
+                name: "stock".to_string(),
+                kind: "INTEGER".to_string(),
+                not_null: false,
+                primary_key: false,
+                default: None,
+            }],
+            indexes: Vec::new(),
+            foreign_keys: Vec::new(),
+            sql: Some("CREATE TABLE products (stock INTEGER)".to_string()),
+        }],
+        selected: 0,
+        list_scroll: 0,
+    });
+    app.browser = Some(dg::tui::Browser {
+        filter: Some("stock > 60".to_string()),
+        ..dg::tui::Browser::new("shop", "products")
+    });
+
+    app.run_invocation(dg::tui::actions::Invocation::RefreshRows)
+        .await;
+
+    assert_eq!(
+        state.counted.load(Ordering::SeqCst),
+        1,
+        "the filtered page did not count what the filter selects"
+    );
+    let browser = app.browser.expect("the browser stays open");
+    assert_eq!(
+        browser.total,
+        Some(24),
+        "the footer total is the table's size, not the filtered answer's"
+    );
+    assert_eq!(browser.filter.as_deref(), Some("stock > 60"));
+    assert_eq!(browser.page, 0);
+}
+
 #[tokio::test]
 async fn manual_refresh_clears_a_one_time_key_result() {
     let (server, _) = start_contents_gateway().await;
