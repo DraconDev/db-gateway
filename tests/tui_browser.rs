@@ -377,7 +377,16 @@ fn a_sort_direction_is_optional_and_empty_clears_it() {
         "the :desc direction was not taken"
     );
     // An empty answer clears it: the table goes back to its own order.
+    // The prompt opens with the current sort, so it is edited down to
+    // empty rather than typed from scratch.
     app.on_key(key(KeyCode::Char('o')));
+    assert_eq!(
+        app.input, "stock:desc",
+        "the prompt did not open with the current sort to edit"
+    );
+    for _ in 0.."stock:desc".len() {
+        app.on_key(key(KeyCode::Backspace));
+    }
     app.on_key(key(KeyCode::Enter));
     assert!(
         app.browser.as_ref().and_then(|b| b.sort.clone()).is_none(),
