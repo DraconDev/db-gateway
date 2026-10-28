@@ -17,7 +17,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     render::{self, Block as ViewBlock, Section, Style as ViewStyle, Table as ViewTable},
-    tui::{App, Focus, Mode, Outcome},
+    tui::{App, Browser, Focus, Mode, Outcome},
     views,
 };
 use std::time::Instant;
@@ -512,17 +512,28 @@ fn database_page(frame: &mut Frame, area: Rect, app: &mut App) {
     let mouse = app.mouse;
     if let Some(outcome) = app.outcome.clone() {
         let room = usize::from(columns[1].height.saturating_sub(4)).max(4);
-        outcome_pane_with(
-            frame,
-            columns[1],
-            &outcome,
-            PaneShape {
-                mouse,
-                geometry: &mut geometry,
-                max_rows: room,
-                facts_title: "values",
-            },
-        );
+        let compact = if columns[1].height < 20 {
+            app.browser.as_mut().and_then(|browser| {
+                compact_rows_pane(frame, columns[1], &outcome, browser, mouse)
+            })
+        } else {
+            None
+        };
+        if compact.is_some() {
+            geometry = compact;
+        } else {
+            outcome_pane_with(
+                frame,
+                columns[1],
+                &outcome,
+                PaneShape {
+                    mouse,
+                    geometry: &mut geometry,
+                    max_rows: room,
+                    facts_title: "values",
+                },
+            );
+        }
     } else {
         let block = Block::default()
             .borders(Borders::ALL)
@@ -578,17 +589,28 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
         let mouse = app.mouse;
         if let Some(outcome) = app.outcome.clone() {
             let room = usize::from(rows[1].height.saturating_sub(10)).max(6);
-            outcome_pane_with(
-                frame,
-                rows[1],
-                &outcome,
-                PaneShape {
-                    mouse,
-                    geometry: &mut geometry,
-                    max_rows: room,
-                    facts_title: "opened",
-                },
-            );
+            let compact = if rows[1].height < 20 {
+                app.browser.as_mut().and_then(|browser| {
+                    compact_rows_pane(frame, rows[1], &outcome, browser, mouse)
+                })
+            } else {
+                None
+            };
+            if compact.is_some() {
+                geometry = compact;
+            } else {
+                outcome_pane_with(
+                    frame,
+                    rows[1],
+                    &outcome,
+                    PaneShape {
+                        mouse,
+                        geometry: &mut geometry,
+                        max_rows: room,
+                        facts_title: "opened",
+                    },
+                );
+            }
         }
         app.geometry.outcome = geometry;
         return;
