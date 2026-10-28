@@ -200,12 +200,17 @@ pub struct Browser {
     pub sort: Option<(String, crate::views::SortDirection)>,
     /// The condition narrowing the rows, when there is one.
     pub filter: Option<String>,
-    /// How many rows the current filter selects.
+    /// How many rows the current filter selects, when the count could be
+    /// read.
     ///
     /// The table's own total under the filter, not the page's length:
     /// `rows 11-20 of N` is a statement about the whole answer, and a
     /// footer that said 10 would make every page look like the last.
-    pub total: u64,
+    ///
+    /// `None` is a DIFFERENT fact from `Some(0)`: the count could not be
+    /// read. Drawing that as "no rows match" would deny rows that are on
+    /// the screen right above the footer.
+    pub total: Option<u64>,
 }
 
 impl Browser {
@@ -217,7 +222,7 @@ impl Browser {
             page: 0,
             sort: None,
             filter: None,
-            total: 0,
+            total: None,
         }
     }
 
@@ -232,15 +237,23 @@ impl Browser {
     /// The last row number on this page, or zero when the page is past
     /// the end of the answer.
     pub fn last_row(&self) -> u64 {
-        if self.total == 0 || self.first_row() > self.total {
-            return 0;
+        match self.total {
+            Some(0) | None => 0,
+            Some(total) if self.first_row() > total => 0,
+            Some(total) => (self.first_row() + crate::views::ROWS_PAGE - 1).min(total),
         }
-        (self.first_row() + crate::views::ROWS_PAGE - 1).min(self.total)
     }
 
     /// Whether there is a page after this one.
+    ///
+    /// An unread total says nothing about a next page, so no next page
+    /// is offered: promising one that may not exist is worse than
+    /// leaving the operator to press `n` and see.
     pub fn has_next(&self) -> bool {
-        self.last_row() != 0 && self.last_row() < self.total
+        match self.total {
+            Some(total) => self.last_row() != 0 && self.last_row() < total,
+            None => false,
+        }
     }
 
     /// Whether there is a page before this one.
@@ -251,15 +264,17 @@ impl Browser {
     /// The footer that says which slice of the answer is on screen.
     pub fn page_footer(&self) -> String {
         let mut parts = Vec::new();
-        if self.total == 0 {
-            parts.push("no rows match".to_string());
-        } else {
-            parts.push(format!(
+        match self.total {
+            // The count could not be read: say that, rather than
+            // claiming the rows on screen do not exist.
+            None => parts.push(format!("rows from {}", self.first_row())),
+            Some(0) => parts.push("no rows match".to_string()),
+            Some(total) => parts.push(format!(
                 "rows {}-{} of {}",
                 self.first_row(),
                 self.last_row(),
-                self.total
-            ));
+                total
+            )),
         }
         if let Some((column, direction)) = &self.sort {
             let arrow = match direction {
@@ -1232,7 +1247,7 @@ impl App {
             }
         };
         if let Some(counted) = count.as_ref().and_then(count_total) {
-            browser.total = counted;
+            browser.total = Some(counted);
         }
         let page = match crate::views::rows_query(
             &structure,
