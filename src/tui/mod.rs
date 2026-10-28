@@ -181,6 +181,50 @@ pub struct Outcome {
     pub error: Option<String>,
 }
 
+/// A database open as its own page.
+///
+/// This is the screen an operator gets by opening a database: the
+/// database's tables listed down the side, and the selected table's rows
+/// filling the rest. It is a PAGE, not a pane under the dashboard --
+/// a database is a place you go, and a place has room for the thing you
+/// came to look at.
+///
+/// The page holds its own state so moving between its tables is a local
+/// move: the table list does not have to be re-read to change which
+/// table's rows are on the right.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DatabasePage {
+    /// The database this page is showing.
+    pub database: String,
+    /// Its tables, as the structure route answered, in name order.
+    pub tables: Vec<crate::views::TableStructure>,
+    /// Which table's rows are on the right.
+    pub selected: usize,
+    /// The scroll of the table list on the left.
+    pub list_scroll: usize,
+}
+
+impl DatabasePage {
+    /// The table whose rows the page is showing.
+    pub fn current(&self) -> Option<&crate::views::TableStructure> {
+        self.tables.get(self.selected)
+    }
+
+    /// Move the selection by a step, clamped to the list.
+    pub fn move_selection(&mut self, step: isize) {
+        if self.tables.is_empty() {
+            return;
+        }
+        let last = self.tables.len().saturating_sub(1);
+        let next = if step.is_negative() {
+            self.selected.saturating_sub(step.unsigned_abs())
+        } else {
+            (self.selected + step as usize).min(last)
+        };
+        self.selected = next.min(last);
+    }
+}
+
 /// A table open in the rows browser.
 ///
 /// The browser is a place the operator can stay in, not a one-shot read:
@@ -401,6 +445,8 @@ pub struct App {
     pub prompt_prefill: String,
     /// The last action's outcome.
     pub outcome: Option<Outcome>,
+    /// The database page, when a database is open as its own screen.
+    pub page: Option<DatabasePage>,
     /// The rows browser, when a table is open in it.
     ///
     /// It holds what the operator is looking at -- which table, which
@@ -451,6 +497,7 @@ impl App {
             input: String::new(),
             prompt_prefill: String::new(),
             outcome: None,
+            page: None,
             browser: None,
             focus: Focus::Databases,
             scroll: Scroll::default(),
