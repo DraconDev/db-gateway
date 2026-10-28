@@ -640,7 +640,7 @@ impl App {
                 .find(|(_, start, width)| column >= *start && column < start.saturating_add(*width))
                 .map(|(focus, _, _)| *focus);
             if let Some(focus) = hit {
-                self.focus = focus;
+                self.focus_on(focus);
             }
             return;
         }
@@ -704,6 +704,26 @@ impl App {
                 // top: a click is a request to read from the beginning.
                 *offset = 0;
             }
+        }
+    }
+
+    /// Move the keyboard to a tab, clearing a one-time key result when
+    /// leaving the tab on which it was shown.
+    fn focus_on(&mut self, focus: Focus) {
+        if self.focus != focus {
+            self.clear_secret_outcome();
+            self.focus = focus;
+        }
+    }
+
+    /// Clear an outcome that carries a raw one-time credential.
+    fn clear_secret_outcome(&mut self) {
+        if self
+            .outcome
+            .as_ref()
+            .is_some_and(|outcome| outcome.facts.iter().any(|(name, _)| name == "key"))
+        {
+            self.outcome = None;
         }
     }
 
@@ -828,8 +848,8 @@ impl App {
                     self.highlighted = 0;
                 }
             }
-            KeyCode::Tab => self.focus = self.focus.next(),
-            KeyCode::BackTab => self.focus = self.focus.previous(),
+            KeyCode::Tab => self.focus_on(self.focus.next()),
+            KeyCode::BackTab => self.focus_on(self.focus.previous()),
             // The tab strip prints these numbers, so they have to work.
             // A numbered hint that does not do anything is worse than no
             // hint: it teaches the operator a key that fails. The range
@@ -839,7 +859,7 @@ impl App {
             KeyCode::Char(digit @ '1'..='9') => {
                 let number = digit as usize - '1' as usize + 1;
                 if let Some(focus) = Focus::from_number(number) {
-                    self.focus = focus;
+                    self.focus_on(focus);
                 }
             }
             KeyCode::Up => self.scroll_by(-1),
@@ -1761,6 +1781,7 @@ impl App {
                 return;
             }
             Invocation::Refresh => {
+                self.clear_secret_outcome();
                 // Both the `r` key and the command palette arrive here;
                 // a manual refresh means counts are re-read regardless of
                 // their background polling deadline.

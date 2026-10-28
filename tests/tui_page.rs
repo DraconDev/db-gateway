@@ -251,6 +251,25 @@ fn esc_returns_to_the_dashboard() {
 }
 
 #[test]
+fn leaving_a_tab_clears_a_one_time_credential_outcome() {
+    let mut app = app();
+    app.focus = dg::tui::Focus::Keys;
+    app.outcome = Some(dg::tui::Outcome {
+        headline: "issued robot".to_string(),
+        facts: vec![("key".to_string(), "one-time-secret".to_string())],
+        table: None,
+        error: None,
+    });
+
+    app.on_key(key(KeyCode::Tab));
+    assert_eq!(app.focus, dg::tui::Focus::Queries);
+    assert!(
+        app.outcome.is_none(),
+        "a raw credential remained visible after leaving its result tab"
+    );
+}
+
+#[test]
 fn an_empty_database_says_so_instead_of_drawing_an_empty_page() {
     // A database with no tables is not a page with nothing on it: the
     // operator needs to be told there is nothing in it.

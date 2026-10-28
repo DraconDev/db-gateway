@@ -425,6 +425,24 @@ async fn palette_refresh_invalidates_contents_inside_the_cadence_window() {
 }
 
 #[tokio::test]
+async fn manual_refresh_clears_a_one_time_key_result() {
+    let (server, _) = start_contents_gateway().await;
+    let mut app = App::new(server, "a-credential".to_string());
+    app.outcome = Some(dg::tui::Outcome {
+        headline: "issued robot".to_string(),
+        facts: vec![("key".to_string(), "one-time-secret".to_string())],
+        table: None,
+        error: None,
+    });
+    app.run_invocation(dg::tui::actions::Invocation::Refresh)
+        .await;
+    assert!(
+        app.outcome.is_none(),
+        "manual refresh left the raw one-time key on screen"
+    );
+}
+
+#[tokio::test]
 async fn a_successful_write_refreshes_database_contents_after_the_write() {
     let (server, state) = start_contents_gateway().await;
     let mut app = App::new(server, "a-credential".to_string());
