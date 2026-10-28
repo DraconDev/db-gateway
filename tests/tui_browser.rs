@@ -209,6 +209,35 @@ fn the_browser_is_drawn_with_its_rows_and_its_footer() {
 }
 
 #[test]
+fn a_short_rows_browser_screen_keeps_the_whole_fetched_page_visible() {
+    // The query page and its footer both promise ten rows. Hiding the
+    // bottom rows to make room for repeated headings makes those records
+    // unreachable before the browser advances to the next page.
+    let browser = browser();
+    let rows = (1..=10)
+        .map(|index| json!([format!("ROW-{index:02}")]))
+        .collect::<Vec<_>>();
+    let answer = json!({
+        "columns": ["id"],
+        "rows": rows,
+        "rows_affected": 0
+    });
+    let mut app = app();
+    app.browser = Some(browser.clone());
+    app.outcome = Some(browser_outcome(&browser, &answer));
+
+    let text = screen(&mut app, 120, 16);
+    for index in 1..=10 {
+        let row = format!("ROW-{index:02}");
+        assert!(
+            text.contains(&row),
+            "the browser footer promises a ten-row page, but {row} is not visible:\n{text}"
+        );
+    }
+    assert!(text.contains("rows 1-10 of 62"), "{text}");
+}
+
+#[test]
 fn n_and_p_move_the_page_and_queue_one_reread() {
     let mut app = app();
     app.browser = Some(browser());
