@@ -932,7 +932,7 @@ pub async fn rows(
         page,
         sort,
         filter: condition,
-        total: total.unwrap_or(0),
+        total,
     };
     let outcome = dg::tui::browser_outcome(&browser, &response);
     let mut out = std::io::stdout();
