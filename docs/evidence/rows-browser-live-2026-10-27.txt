@@ -90,3 +90,34 @@ $ dg rows inventory products --where "1=1; DROP TABLE products"
  at most 512 characters"}
 
 Neither reached SQL. The table was still there afterwards.
+
+7. THE THREE AUDIT FIXES, verified live on the same gateway.
+
+   (a) The contents are re-read on `r` and when a database is opened.
+       The 30-second cadence exists to stop an IDLE view counting every
+       row on every two-second poll; it is not a promise that the counts
+       are fresh when the operator asks. Proven by writing a row behind
+       the running view:
+
+         view opened, tab says rows = 202
+         wrote a row: server now says 203
+         after pressing r, tab says rows = 203
+
+       (The two probe rows were deleted afterwards; inventory is back to
+       201 rows.)
+
+   (b) The sort column is chosen by name, not assumed. It used to cycle
+       off the first column -- on this table `id`, the rowid alias, which
+       reordered nothing because the unsorted page is already in rowid
+       order. Live: pressing `o` opens a prompt listing the table's real
+       columns, typing `stock:desc` gives
+
+         rows 1-10 of 60   sorted by stock desc   [n] next  [s] structure
+
+   (c) The arrow keys and the wheel page the browser. Live: from that
+       sorted first page, pressing the down arrow gives
+
+         rows 11-20 of 60   sorted by stock desc   [p] prev  [n] next  [s] structure
+
+       The wheel does the same; without a browser open it still scrolls
+       the dashboard.
