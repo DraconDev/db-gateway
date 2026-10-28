@@ -158,6 +158,27 @@ fn pty_command(command: &str, keys: &[u8], settle_ms: u64) -> (bool, String) {
     (status.success(), output)
 }
 
+#[test]
+fn explicit_tui_refuses_redirected_input_before_taking_over_the_terminal() {
+    let fleet = Fleet::boot();
+    let command = format!(
+        "stty rows 40 cols 120 && {} tui --server {} --key-file {} </dev/null",
+        env!("CARGO_BIN_EXE_dg"),
+        fleet.cli.server,
+        fleet.cli.key_file.display()
+    );
+    let (success, output) = pty_command(&command, b"", 900);
+    assert!(!success, "explicit tui should refuse redirected stdin:\n{output:?}");
+    assert!(
+        output.contains("not_a_terminal"),
+        "explicit tui did not report the terminal-input prerequisite:\n{output:?}"
+    );
+    assert!(
+        !output.contains("\u{1b}[?1049h"),
+        "explicit tui took over stdout without an interactive stdin:\n{output:?}"
+    );
+}
+
 // Bare `dg` used to print the subcommand list and exit 2, so a person who
 // typed the program's name got a menu rather than the screen it describes.
 // Now it opens the view — but only where there is a terminal to take over.

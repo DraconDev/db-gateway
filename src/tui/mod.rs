@@ -771,7 +771,7 @@ impl App {
             .iter()
             .find(|(key, _)| key == "database")
             .map(|(_, value)| value.clone())?;
-        (crate::store::validate_name(&name).is_ok()).then_some((database, name))
+        crate::tui::actions::valid_table(&name).then_some((database, name))
     }
 
     fn on_key_normal(&mut self, key: KeyEvent) {
