@@ -422,8 +422,8 @@ fn database_page(frame: &mut Frame, area: Rect, app: &mut App) {
         .unwrap_or(0)
         + 4;
     let list_width = (widest as u16).clamp(16, area.width.saturating_sub(30).max(16));
-    let columns = Layout::horizontal([Constraint::Length(list_width), Constraint::Min(20)])
-        .split(area);
+    let columns =
+        Layout::horizontal([Constraint::Length(list_width), Constraint::Min(20)]).split(area);
     // The list: one line per table, with its row count, the selected one
     // marked. The mark is a symbol as well as a colour, so it survives a
     // monochrome terminal.
@@ -480,7 +480,10 @@ fn database_page(frame: &mut Frame, area: Rect, app: &mut App) {
             .borders(Borders::ALL)
             .border_style(crate::tui::theme::border())
             .title(Span::styled(" values ", crate::tui::theme::heading()));
-        frame.render_widget(Paragraph::new("reading the table...").block(block), columns[1]);
+        frame.render_widget(
+            Paragraph::new("reading the table...").block(block),
+            columns[1],
+        );
     }
     app.geometry.outcome = geometry;
 }

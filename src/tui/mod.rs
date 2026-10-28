@@ -1332,10 +1332,7 @@ impl App {
     /// between its tables needs only the rows -- the page does not
     /// re-read what it already holds.
     pub async fn open_database_page(&mut self, name: &str) {
-        let structure = match self
-            .fetch(&format!("/v1/databases/{name}/schema"))
-            .await
-        {
+        let structure = match self.fetch(&format!("/v1/databases/{name}/schema")).await {
             Ok(value) => value,
             Err(error) => {
                 self.outcome = Some(Outcome {
