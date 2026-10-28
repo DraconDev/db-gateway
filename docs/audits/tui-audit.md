@@ -377,7 +377,7 @@ The rendered frames are in `docs/evidence/tui-audit-runtime.txt`.
 
 | Gate | Command | Result |
 |---|---|---|
-| Workspace tests | `cargo test --workspace --all-targets` | 91 suites, 662 passed, 0 failed |
+| Workspace tests | `cargo test --workspace --all-targets` | 91 suites, 663 passed, 0 failed |
 | Formatting | `cargo fmt --check` | clean |
 | Lints | `cargo clippy --workspace --all-targets -- -D warnings` | no issues, no suppressions added |
 | TUI suites | `cargo test --locked --test tui_layout --test tui_page --test tui_browser --test tui_mouse --test tui_refresh --test tui_terminal --test tui_actions --test tui_schema --test tui_tables --test tui_view` | pass |
