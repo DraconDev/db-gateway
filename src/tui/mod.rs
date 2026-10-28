@@ -219,9 +219,32 @@ impl DatabasePage {
         let next = if step.is_negative() {
             self.selected.saturating_sub(step.unsigned_abs())
         } else {
-            (self.selected + step as usize).min(last)
+            self.selected.saturating_add(step as usize).min(last)
         };
         self.selected = next.min(last);
+    }
+
+    /// Keep the selected table visible in the list's available rows.
+    ///
+    /// The viewport is a property of the terminal size, so the renderer
+    /// calls this after measuring the list. Moving the selection can then
+    /// never leave its highlight offscreen; resizing the terminal clamps
+    /// the old scroll to the new viewport as part of the same rule.
+    pub fn keep_selection_visible(&mut self, visible_rows: usize) {
+        let Some(last) = self.tables.len().checked_sub(1) else {
+            self.selected = 0;
+            self.list_scroll = 0;
+            return;
+        };
+        let visible_rows = visible_rows.max(1);
+        self.selected = self.selected.min(last);
+        let max_scroll = self.tables.len().saturating_sub(visible_rows);
+        self.list_scroll = self.list_scroll.min(max_scroll);
+        if self.selected < self.list_scroll {
+            self.list_scroll = self.selected;
+        } else if self.selected >= self.list_scroll.saturating_add(visible_rows) {
+            self.list_scroll = self.selected.saturating_add(1).saturating_sub(visible_rows);
+        }
     }
 }
 

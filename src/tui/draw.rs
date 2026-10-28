@@ -435,7 +435,7 @@ fn top_bar(frame: &mut Frame, area: Rect, app: &App) {
 /// dashboard cannot do that -- it has room for a summary, not for a
 /// table -- which is why opening a database is a page and not a note.
 fn database_page(frame: &mut Frame, area: Rect, app: &mut App) {
-    let Some(page) = app.page.clone() else {
+    let Some(mut page) = app.page.clone() else {
         return;
     };
     // The list is as wide as its widest line, within reason: a table name
@@ -456,7 +456,15 @@ fn database_page(frame: &mut Frame, area: Rect, app: &mut App) {
     // monochrome terminal.
     let mut lines: Vec<Line<'static>> = Vec::new();
     let visible = usize::from(columns[0].height.saturating_sub(2)).max(1);
-    let start = page.list_scroll.min(page.tables.len().saturating_sub(1));
+    // The table list can be taller than its viewport. Keep the selection
+    // visible before drawing, and persist the measured scroll so mouse
+    // clicks on this frame map back to the same table indices.
+    page.keep_selection_visible(visible);
+    let start = page.list_scroll;
+    if let Some(current) = app.page.as_mut() {
+        current.selected = page.selected;
+        current.list_scroll = start;
+    }
     // Where the list's rows really are, so a click on a table name
     // selects that table -- the mouse and arrow keys move the same list.
     let list_inner = Block::default().borders(Borders::ALL).inner(columns[0]);
