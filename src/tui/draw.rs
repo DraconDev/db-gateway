@@ -30,10 +30,10 @@ use std::time::Instant;
 /// body rectangle, so a click is resolved against what was actually drawn.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Geometry {
-    /// One `(focus, start column, width)` per drawn tab label, in order.
-    pub tabs: Vec<(Focus, u16, u16)>,
-    /// The strip line. Clicks on this row are tab clicks.
-    pub strip_y: Option<u16>,
+    /// One entry per drawn tab label, in order.
+    pub tabs: Vec<TabGeometry>,
+    /// The strip's whole area. Clicks inside it are tab clicks.
+    pub strip: Option<Rect>,
     /// The body rectangle of the open tab.
     pub body: Option<Rect>,
     /// Every table drawn in the open tab, with the rows it holds.
@@ -49,6 +49,23 @@ pub struct Geometry {
     /// It is a target of its own: the database's contents list its
     /// tables there, and clicking one opens that table.
     pub outcome: Option<TableGeometry>,
+}
+
+/// One drawn tab label: which tab, and the cells it occupies.
+///
+/// The strip may wrap onto more than one line on a narrow terminal, so a
+/// label carries its own row as well as its columns. A click is resolved
+/// against these recorded cells rather than a second layout guess.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TabGeometry {
+    /// The tab this label opens.
+    pub focus: Focus,
+    /// The label's first column.
+    pub column: u16,
+    /// The label's first row.
+    pub row: u16,
+    /// How many cells the label occupies.
+    pub width: u16,
 }
 
 /// A database page's table list, where it was drawn.
@@ -671,7 +688,7 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
 /// counts are the summary -- how much is in a tab -- and the names are the
 /// promise that every tab exists. A tab that cannot be seen is a tab that
 /// cannot be opened, so the sixth tab is never the one that gets cut off.
-fn tabs(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Focus, u16, u16)> {
+fn tabs(frame: &mut Frame, area: Rect, app: &App) -> (Vec<TabGeometry>, u16) {
     // The one list of tabs. The strip, the number keys and the command
     // bar's range are all built from it, so they cannot drift apart --
     // and they did drift, when the bar said "1-4" with five tabs on the
@@ -692,19 +709,23 @@ fn tabs(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Focus, u16, u16)> {
         .collect();
     let with_counts = strip_labels(&all, &counts, true);
     let names_only = strip_labels(&all, &counts, false);
+    // The counts are the summary and the names are the promise, so the
+    // counts go before the names do. Whenever the names themselves need
+    // more than one line, they get the lines rather than being clipped:
+    // a tab nobody can see is a tab nobody opens, and the strip used to
+    // cut "backups" in half at forty columns.
     let labels = if strip_width(&with_counts, app.focus) <= area.width as usize {
         with_counts
-    } else if strip_width(&names_only, app.focus) <= area.width as usize {
-        names_only
     } else {
-        // Even the names alone do not fit: there is no honest way to draw
-        // six tabs on one short line, so the line is clipped and the
-        // number keys still reach the tabs that are not named.
-        with_counts
+        names_only
     };
     let mut spans: Vec<Span<'static>> = Vec::new();
-    let mut cells: Vec<(Focus, u16, u16)> = Vec::new();
-    let mut used: u16 = 0;
+    let mut cells: Vec<TabGeometry> = Vec::new();
+    let mut column: u16 = 0;
+    let mut row: u16 = area.y;
+    // Only the rows the area actually has: the strip is not allowed to
+    // grow over the tab body it sits above.
+    let last_row = area.y.saturating_add(area.height.max(1)).saturating_sub(1);
     for (index, (focus, label)) in labels.iter().enumerate() {
         let active = *focus == app.focus;
         let style = if active {
@@ -719,25 +740,39 @@ fn tabs(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Focus, u16, u16)> {
         } else {
             label.clone()
         };
-        // Record the cells this label will occupy, so a click resolves to
-        // what is really on screen rather than to a second layout guess.
-        // The width is measured from the text as drawn, caret included, so
-        // the caret's own cell is part of the hit area rather than a gap.
+        // The separator belongs to the label before it, so a wrap never
+        // starts a line with a hanging bar.
+        let separator = usize::from(index + 1 < labels.len());
         let width = text.width() as u16;
-        let column = area.x.saturating_add(used);
-        if column < area.x.saturating_add(area.width) {
-            let visible = width.min(area.x.saturating_add(area.width).saturating_sub(column));
-            cells.push((*focus, column, visible));
+        let needed = width.saturating_add(separator as u16);
+        // A label that does not fit on the rest of this line starts the
+        // next one -- but only when it fits there. A single label wider
+        // than the whole terminal is drawn clipped on its own line rather
+        // than looping forever.
+        if column > 0 && column.saturating_add(needed) > area.width && row < last_row {
+            spans.push(Span::styled("\n", style));
+            row = row.saturating_add(1);
+            column = 0;
         }
-        used = used.saturating_add(width);
+        let start = area.x.saturating_add(column);
+        if row <= last_row && column < area.width {
+            let visible = width.min(area.width.saturating_sub(column));
+            cells.push(TabGeometry {
+                focus: *focus,
+                column: start,
+                row,
+                width: visible,
+            });
+        }
         spans.push(Span::styled(text, style));
-        if index + 1 < labels.len() {
+        column = column.saturating_add(width);
+        if separator == 1 {
             spans.push(Span::styled("│", crate::tui::theme::border()));
-            used = used.saturating_add(1);
+            column = column.saturating_add(1);
         }
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
-    cells
+    (cells, row.saturating_add(1).saturating_sub(area.y))
 }
 
 /// The strip's labels, with their counts or without them.
