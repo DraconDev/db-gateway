@@ -728,8 +728,7 @@ impl App {
     /// leaving the tab on which it was shown.
     fn focus_on(&mut self, focus: Focus) {
         if self.focus != focus {
-            self.clear_secret_outcome();
-            self.focus = focus;
+            self.focus = focus; // MUTATION: secret not cleared
         }
     }
 
@@ -1909,7 +1908,7 @@ impl App {
                 return;
             }
             Invocation::Refresh => {
-                self.clear_secret_outcome();
+                // MUTATION: secret not cleared on refresh
                 // Both the `r` key and the command palette arrive here;
                 // a manual refresh means counts are re-read regardless of
                 // their background polling deadline.
