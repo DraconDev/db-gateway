@@ -599,18 +599,22 @@ impl App {
             // scrolling it would move content that is already the whole
             // page, while the operator meant "show me the next one".
             MouseEventKind::ScrollUp => {
-                if self.browser.is_some() {
+                if self.page_list_under_pointer(mouse.column, mouse.row) {
+                    self.move_page_selection(-3);
+                } else if self.browser.is_some() {
                     self.browser_page(false);
                 } else {
                     // Three lines a notch is what a terminal wheel
                     // usually carries, and scrolling faster than the
-                    // keyboard's single line is what makes a long table
+                    // keyboard's single line is what makes a long tab
                     // usable with a trackpad.
                     self.scroll_by(-3);
                 }
             }
             MouseEventKind::ScrollDown => {
-                if self.browser.is_some() {
+                if self.page_list_under_pointer(mouse.column, mouse.row) {
+                    self.move_page_selection(3);
+                } else if self.browser.is_some() {
                     self.browser_page(true);
                 } else {
                     self.scroll_by(3);
@@ -914,6 +918,29 @@ impl App {
             _ => return false,
         }
         true
+    }
+
+    /// Whether the pointer is over the database page's table list.
+    fn page_list_under_pointer(&self, column: u16, row: u16) -> bool {
+        self.page.is_some()
+            && self
+                .geometry
+                .page_list
+                .as_ref()
+                .is_some_and(|list| list.contains(column, row))
+    }
+
+    /// Move the page's selected table by a wheel gesture.
+    fn move_page_selection(&mut self, step: isize) {
+        let Some(mut page) = self.page.clone() else {
+            return;
+        };
+        let previous = page.selected;
+        page.move_selection(step);
+        if page.selected != previous {
+            self.page = Some(page);
+            self.pending = Some(Invocation::RefreshRows);
+        }
     }
 
     /// Move the rows browser one page forward or back.

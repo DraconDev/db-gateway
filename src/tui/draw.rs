@@ -63,12 +63,17 @@ pub struct PageList {
 }
 
 impl PageList {
+    /// Whether a cell is inside the list's drawn viewport.
+    pub fn contains(&self, column: u16, row: u16) -> bool {
+        column >= self.area.x
+            && column < self.area.x.saturating_add(self.area.width)
+            && row >= self.area.y
+            && row < self.area.y.saturating_add(self.area.height)
+    }
+
     /// The table index under a cell, if the cell is on a table row.
     pub fn row_at(&self, column: u16, row: u16) -> Option<usize> {
-        if column < self.area.x || column >= self.area.x.saturating_add(self.area.width) {
-            return None;
-        }
-        if row < self.area.y || row >= self.area.y.saturating_add(self.area.height) {
+        if !self.contains(column, row) {
             return None;
         }
         let index = self.start + usize::from(row - self.area.y);
