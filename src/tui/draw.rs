@@ -408,6 +408,33 @@ fn top_bar(frame: &mut Frame, area: Rect, app: &App) {
 /// the strip is what pays it: every tab is always named, always numbered, and
 /// always one keypress away.
 fn body(frame: &mut Frame, area: Rect, app: &mut App) {
+    // A table opened in the rows browser takes the WHOLE body. It used
+    // to be drawn in the same little "last action" pane as a one-shot
+    // answer, under a dashboard that kept the rest of the screen -- so
+    // "open this table" looked like a note about the table rather than
+    // the table. Opening something means it is what you are looking at;
+    // Esc puts the dashboard back.
+    if app.browser.is_some() && app.outcome.is_some() {
+        let rows = Layout::vertical([Constraint::Length(1), Constraint::Min(4)]).split(area);
+        let strip = tabs(frame, rows[0], app);
+        app.geometry = Geometry {
+            tabs: strip,
+            strip_y: Some(rows[0].y),
+            body: Some(rows[1]),
+            tables: Vec::new(),
+            outcome: None,
+        };
+        // The grid is the clickable part here, so its geometry is the
+        // one recorded: a click on a row of rows data opens nothing, but
+        // the pointer must still mark the row it is over.
+        let mut geometry = None;
+        let mouse = app.mouse;
+        if let Some(outcome) = app.outcome.clone() {
+            outcome_pane(frame, rows[1], &outcome, mouse, &mut geometry);
+        }
+        app.geometry.outcome = geometry;
+        return;
+    }
     let outcome_height = app
         .outcome
         .as_ref()
