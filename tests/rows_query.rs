@@ -245,16 +245,48 @@ fn a_set_operation_inside_a_literal_is_still_a_read() {
             .unwrap_or_else(|refusal| panic!("{safe:?} was refused: {refusal:?}"));
         assert!(query.sql.contains(safe), "{}", query.sql);
     }
-    // A real set operation still is not a condition.
-    for unsafe_filter in [
-        "1=1 UNION SELECT 1",
-        "1=1 INTERSECT SELECT 1",
-        "1=1 EXCEPT SELECT 1",
+    // A real set operation still is not a condition -- in EVERY case
+    // form. SQL keywords are not case-sensitive, so `union` is the same
+    // operation as `UNION`. Pinning only the uppercase spelling is how a
+    // case-folding regression slipped through once: the suite was green
+    // while `--where "1=1) union select ..."` reached SQLite and the
+    // browser drew rows that were not in the table.
+    for keyword in ["UNION", "INTERSECT", "EXCEPT"] {
+        for spelling in [
+            keyword.to_string(),
+            keyword.to_lowercase(),
+            // Mixed case, so a scan that folds only all-lower or
+            // all-upper still fails here.
+            format!(
+                "{}{}",
+                &keyword[..1].to_uppercase(),
+                keyword[1..].to_lowercase()
+            ),
+        ] {
+            for template in [
+                format!("1=1 {spelling} SELECT 1"),
+                format!("1=1) {spelling} SELECT 1 FROM t WHERE (1=1"),
+            ] {
+                assert_eq!(
+                    rows_query(&structure(), "products", 0, None, Some(&template)).unwrap_err(),
+                    RowsRefusal::BadFilter,
+                    "this was accepted: {template:?}"
+                );
+            }
+        }
+    }
+    // And the literal form stays accepted in every case form too, or the
+    // fix for the above would break the thing it was protecting.
+    for literal in [
+        "sku = 'UNION'",
+        "sku = 'union'",
+        "sku = 'UnIoN'",
+        "note = 'INTERSECT'",
+        "note = 'intersect'",
     ] {
-        assert_eq!(
-            rows_query(&structure(), "products", 0, None, Some(unsafe_filter)).unwrap_err(),
-            RowsRefusal::BadFilter,
-            "this was accepted: {unsafe_filter:?}"
+        assert!(
+            rows_query(&structure(), "products", 0, None, Some(literal)).is_ok(),
+            "a literal was refused: {literal:?}"
         );
     }
 }
