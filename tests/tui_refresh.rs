@@ -11,14 +11,14 @@
 //! which is the case the old rule got wrong.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use axum::Router;
 use axum::extract::State;
 use axum::http::{Request, StatusCode};
 use axum::response::{IntoResponse, Response};
-use serde_json::json;
+use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
 use dg::tui::App;
@@ -323,4 +323,162 @@ async fn opening_a_database_re_reads_the_contents() {
         2,
         "opening a database did not re-read the contents"
     );
+}
+
+struct ContentsGateway {
+    reads: AtomicUsize,
+    rows: AtomicUsize,
+    fail: AtomicBool,
+}
+
+async fn contents_gateway(
+    State(state): State<Arc<ContentsGateway>>,
+    request: Request<axum::body::Body>,
+) -> Response {
+    let path = request.uri().path();
+    if path == "/v1/contents" {
+        state.reads.fetch_add(1, Ordering::SeqCst);
+        if state.fail.load(Ordering::SeqCst) {
+            return (
+                StatusCode::FORBIDDEN,
+                axum::Json(json!({
+                    "error": {"code": "contents_unavailable", "message": "counts refused"}
+                })),
+            )
+                .into_response();
+        }
+        return (
+            StatusCode::OK,
+            axum::Json(json!({
+                "databases": {
+                    "shop": {"tables": 1, "rows": state.rows.load(Ordering::SeqCst)}
+                }
+            })),
+        )
+            .into_response();
+    }
+    if path == "/v1/databases/shop/query" && request.method() == axum::http::Method::POST {
+        state.rows.fetch_add(1, Ordering::SeqCst);
+        return (
+            StatusCode::OK,
+            axum::Json(json!({
+                "columns": [], "rows": [], "rows_affected": 1
+            })),
+        )
+            .into_response();
+    }
+    let body = match path {
+        "/v1/status" => json!({"version": "0.9.0"}),
+        "/v1/backups" | "/v1/keys" | "/v1/queries" => json!({}),
+        "/v1/databases" => json!({"databases": ["shop"]}),
+        _ => {
+            return (
+                StatusCode::NOT_FOUND,
+                axum::Json(json!({"error": {"code": "not_found", "message": "no route"}})),
+            )
+                .into_response();
+        }
+    };
+    (StatusCode::OK, axum::Json(body)).into_response()
+}
+
+async fn start_contents_gateway() -> (String, Arc<ContentsGateway>) {
+    let state = Arc::new(ContentsGateway {
+        reads: AtomicUsize::new(0),
+        rows: AtomicUsize::new(4),
+        fail: AtomicBool::new(false),
+    });
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("the listener binds");
+    let address = listener.local_addr().expect("the address is known");
+    let router = Router::new()
+        .fallback(contents_gateway)
+        .with_state(state.clone());
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, router).await;
+    });
+    (format!("http://{address}"), state)
+}
+
+#[tokio::test]
+async fn palette_refresh_invalidates_contents_inside_the_cadence_window() {
+    let (server, state) = start_contents_gateway().await;
+    let mut app = App::new(server, "a-credential".to_string());
+    app.refresh().await;
+    app.refresh().await;
+    assert_eq!(state.reads.load(Ordering::SeqCst), 1);
+
+    app.run_invocation(dg::tui::actions::Invocation::Refresh)
+        .await;
+    assert_eq!(
+        state.reads.load(Ordering::SeqCst),
+        2,
+        "the palette refresh reused counts inside the 30-second window"
+    );
+}
+
+#[tokio::test]
+async fn a_successful_write_refreshes_database_contents_after_the_write() {
+    let (server, state) = start_contents_gateway().await;
+    let mut app = App::new(server, "a-credential".to_string());
+    app.refresh().await;
+    assert_eq!(
+        app.contents.as_ref().unwrap()["databases"]["shop"]["rows"],
+        4
+    );
+    assert_eq!(state.reads.load(Ordering::SeqCst), 1);
+
+    let invocation = dg::tui::actions::ActionKind::Query
+        .parse("shop INSERT INTO products VALUES (5)")
+        .expect("the write query parses");
+    app.run_invocation(invocation).await;
+
+    assert_eq!(
+        state.reads.load(Ordering::SeqCst),
+        2,
+        "the successful database write did not trigger a contents read"
+    );
+    assert_eq!(
+        app.contents.as_ref().unwrap()["databases"]["shop"]["rows"],
+        5,
+        "the dashboard kept the pre-write count"
+    );
+}
+
+#[tokio::test]
+async fn a_failed_contents_read_shows_unknown_counts_and_retries() {
+    let (server, state) = start_contents_gateway().await;
+    let mut app = App::new(server, "a-credential".to_string());
+    app.refresh().await;
+    assert_eq!(
+        app.contents.as_ref().unwrap()["databases"]["shop"]["rows"],
+        4
+    );
+
+    state.fail.store(true, Ordering::SeqCst);
+    app.contents_stale();
+    app.refresh().await;
+    assert_eq!(
+        app.contents.as_ref().unwrap()["databases"]["shop"]["rows"],
+        Value::Null,
+        "failed refresh kept stale counts instead of marking them unknown"
+    );
+    assert!(app.contents_due(), "the failed read was marked fresh");
+    assert!(
+        app.error
+            .as_deref()
+            .is_some_and(|error| error.contains("counts refused")),
+        "the failed contents read was hidden: {:?}",
+        app.error
+    );
+
+    state.fail.store(false, Ordering::SeqCst);
+    app.refresh().await;
+    assert_eq!(
+        app.contents.as_ref().unwrap()["databases"]["shop"]["rows"],
+        4,
+        "the next refresh did not retry the failed counts read"
+    );
+    assert_eq!(state.reads.load(Ordering::SeqCst), 3);
 }
