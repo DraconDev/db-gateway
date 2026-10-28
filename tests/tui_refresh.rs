@@ -425,6 +425,47 @@ async fn palette_refresh_invalidates_contents_inside_the_cadence_window() {
 }
 
 #[tokio::test]
+async fn database_page_keeps_its_rows_browser_page_when_reloading() {
+    let (server, _) = start_contents_gateway().await;
+    let mut app = App::new(server, "a-credential".to_string());
+    app.page = Some(dg::tui::DatabasePage {
+        database: "shop".to_string(),
+        tables: vec![dg::views::TableStructure {
+            name: "products".to_string(),
+            rows: 25,
+            columns: vec![dg::views::ColumnStructure {
+                name: "id".to_string(),
+                kind: "INTEGER".to_string(),
+                not_null: false,
+                primary_key: true,
+                default: None,
+            }],
+            indexes: Vec::new(),
+            foreign_keys: Vec::new(),
+            sql: Some("CREATE TABLE products (id INTEGER PRIMARY KEY)".to_string()),
+        }],
+        selected: 0,
+        list_scroll: 0,
+    });
+    app.browser = Some(dg::tui::Browser {
+        total: Some(25),
+        ..dg::tui::Browser::new("shop", "products")
+    });
+
+    app.on_key(ratatui::crossterm::event::KeyEvent::new(
+        ratatui::crossterm::event::KeyCode::Char('n'),
+        ratatui::crossterm::event::KeyModifiers::NONE,
+    ));
+    let invocation = app.take_pending().expect("n queues a page read");
+    app.run_invocation(invocation).await;
+    assert_eq!(
+        app.browser.as_ref().map(|browser| browser.page),
+        Some(1),
+        "reloading the database page discarded its rows-browser page"
+    );
+}
+
+#[tokio::test]
 async fn manual_refresh_clears_a_one_time_key_result() {
     let (server, _) = start_contents_gateway().await;
     let mut app = App::new(server, "a-credential".to_string());
