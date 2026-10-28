@@ -10,8 +10,9 @@ dg --key-file owner.key
 
 `dg tui` still works and is the explicit spelling — the two are the
 same view, so a script that already runs `dg tui` does not have to
-change. A bare `dg` only opens the view when stdout AND stdin are a
-terminal and `--json` was not given. Otherwise it behaves exactly as it
+change. Both spellings require stdout AND stdin to be terminals before
+taking over the screen. A bare `dg` only opens the view when `--json`
+was not given. Otherwise it behaves exactly as it
 did when the subcommand was required: the usage goes to **stderr**,
 stdout stays empty, the text is plain (no colour escapes, even when
 `CLICOLOR_FORCE` or `FORCE_COLOR` is set), and the exit code is 2 —
@@ -37,8 +38,12 @@ read four things and wrong the moment it read five, and the view then said
 *unreachable* while the gateway was answering. The rule is counted from the
 answers now, so a sixth read cannot leave it behind.
 
-The view reads those five things together rather than one after another, so
-a gateway that hangs costs one read's budget rather than five.
+The five dashboard reads run together rather than one after another, so
+a gateway that hangs costs one read's budget rather than five. Database
+contents are a sixth, optional read on a slower cadence because counting
+rows opens every database file. When that read fails, the counts become
+unknown and the error is reported; the gateway remains reachable if any of
+the five dashboard reads answered.
 
 | Tab | Key | What it answers |
 |---|---|---|
@@ -231,9 +236,10 @@ needs constantly are always on screen with the key visually distinct from the
 label.
 
 The error, when there is one, is at the end of that line. It says what
-happened rather than listing every failure — *four of five reads failed:
-forbidden* — because five refusals of the same kind are one fact, not five,
-and the bar has one line for it. A message too long for the line is cut with
+happened rather than listing every failure — for example, *four of five
+reads failed: forbidden* during a normal poll. When the slower contents
+read is due, it is included as the sixth read. Five refusals of the same
+kind are one fact, not five, and the bar has one line for it. A message too long for the line is cut with
 an ellipsis, so a message that runs off the edge says that it did.
 
 ## The database page
@@ -258,6 +264,8 @@ kept the whole screen — had room for a summary, not for a table.
 | Key | What it does |
 |---|---|
 | `↓` / `↑`, or wheel over the list | Move to the next / previous tables (three per wheel notch) |
+| `n` / `p` | Move the selected table's values to the next / previous query page |
+| Wheel over the values | Scroll a clipped row window, or page the values when all rows fit |
 | Click a table name | Select that table directly |
 | `enter` | Open the selected table in the rows browser |
 | `s` | The selected table's structure |
@@ -306,10 +314,11 @@ now opens a prompt listing the table's real columns, and the name is
 validated against that schema before it can reach a statement: a column
 the table does not have is refused, not interpolated.
 
-The arrow keys and the wheel page the browser rather than scrolling it:
-a browser has pages, not a scrollbar, so scrolling would move content
-that is already the whole page while the operator meant "show me the
-next one".
+When the terminal can show all ten fetched rows, the arrow keys and wheel
+move between query pages. When the terminal is too short, they scroll the
+visible window within the fetched page instead; the footer says which rows
+are visible, and every fetched row remains reachable. `n`/`p`, left/right,
+and page up/down always move between query pages.
 
 Sorting and filtering are applied **by the gateway**, in the statement,
 not by discarding rows after they arrive: otherwise page 2 of a filtered
@@ -465,16 +474,21 @@ gives (`src/execution.rs`).
   read-only query that cannot reach the gateway is reported as an
   unavailable gateway; only a statement that writes is reported as a
   write whose outcome is in doubt.
-- It does not leave your terminal broken. The alternate screen and
-  raw mode are always given back, including when the view panics
+- It does not leave your terminal broken. The restoration guard owns the
+  terminal before entry begins, so raw mode and the alternate screen are
+  given back even if entry only partially succeeds or the view panics
   (`src/tui/screen.rs`).
+- It does not keep a one-time credential on screen after the operator
+  leaves its result tab or manually refreshes. The key remains visible
+  while the operator stays on that result so it can be copied.
 
 ## When the terminal is not a terminal
 
-The view refuses to start when stdout is not a terminal, and says so.
-A bare `dg` in that position prints the usage to stderr and exits 2
-instead — the behaviour it had before the view was the default, down to
-the stream — and `dg tui` reports `not_a_terminal` with the same advice. For machine output, use the one-shot commands with
+The view refuses to start when either stdin or stdout is not a terminal,
+and says so before taking over the screen. A bare `dg` in that position
+prints the usage to stderr and exits 2 instead — the behaviour it had
+before the view was the default, down to the stream — and `dg tui` reports
+`not_a_terminal` with the same advice. For machine output, use the one-shot commands with
 `--json`: their output is unchanged by any of this.
 
 ## Related
