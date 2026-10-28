@@ -690,7 +690,23 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
 /// counts are the summary -- how much is in a tab -- and the names are the
 /// promise that every tab exists. A tab that cannot be seen is a tab that
 /// cannot be opened, so the sixth tab is never the one that gets cut off.
-fn tabs(frame: &mut Frame, area: Rect, app: &App) -> (Vec<TabGeometry>, u16) {
+/// The strip as drawn: where it landed, and every label on it.
+struct Strip {
+    /// One entry per drawn label, with the cells it occupies.
+    tabs: Vec<TabGeometry>,
+    /// The whole strip, however many lines it needed.
+    area: Rect,
+    /// How many lines it took.
+    height: u16,
+}
+
+/// Draw the tab strip and report where it landed.
+///
+/// The strip's height is measured before the body is laid out, because a
+/// narrow terminal needs more than one line for six names and the body must
+/// not be drawn underneath them. Measuring first is what lets the strip wrap
+/// instead of cutting a tab's name in half.
+fn tab_strip(frame: &mut Frame, area: Rect, app: &App) -> Strip {
     // The one list of tabs. The strip, the number keys and the command
     // bar's range are all built from it, so they cannot drift apart --
     // and they did drift, when the bar said "1-4" with five tabs on the
@@ -709,76 +725,140 @@ fn tabs(frame: &mut Frame, area: Rect, app: &App) -> (Vec<TabGeometry>, u16) {
             Focus::Service | Focus::Backups => None,
         })
         .collect();
+    // The counts are the summary and the names are the promise, so the
+    // counts go before the names do. The names are never dropped: a tab
+    // nobody can see is a tab nobody opens, so they wrap instead. The
+    // strip used to cut "backups" in half at forty columns.
     let with_counts = strip_labels(&all, &counts, true);
     let names_only = strip_labels(&all, &counts, false);
-    // The counts are the summary and the names are the promise, so the
-    // counts go before the names do. Whenever the names themselves need
-    // more than one line, they get the lines rather than being clipped:
-    // a tab nobody can see is a tab nobody opens, and the strip used to
-    // cut "backups" in half at forty columns.
     let labels = if strip_width(&with_counts, app.focus) <= area.width as usize {
         with_counts
     } else {
         names_only
     };
+    let texts = strip_texts(&labels, app.focus);
+    let wanted = strip_lines(&texts, area.width.max(1));
+    // The strip never eats the body: at least four lines have to be left
+    // for the thing the tabs switch between.
+    let max_height = area.height.saturating_sub(4).max(1);
+    let height = wanted.min(max_height).min(area.height.max(1));
+    let strip_area = Rect {
+        y: area.y,
+        height,
+        ..area
+    };
+    let tabs = draw_strip(frame, strip_area, &texts);
+    Strip {
+        tabs,
+        area: strip_area,
+        height,
+    }
+}
+
+/// One label of the strip as it will be drawn.
+struct StripLabel {
+    /// The tab this label opens.
+    focus: Focus,
+    /// The text, with the active tab's caret.
+    text: String,
+    /// Whether a separator follows this label.
+    separator: bool,
+    /// Whether this is the open tab.
+    active: bool,
+}
+
+impl StripLabel {
+    /// The cells the label occupies, its separator included.
+    fn width(&self) -> u16 {
+        (self.text.width() as u16).saturating_add(u16::from(self.separator))
+    }
+}
+
+/// The labels as drawn: the active tab's caret, and what follows each one.
+fn strip_texts(labels: &[(Focus, String)], active: Focus) -> Vec<StripLabel> {
+    labels
+        .iter()
+        .enumerate()
+        .map(|(index, (focus, label))| StripLabel {
+            focus: *focus,
+            // Underlined means active, so the marker survives a monochrome
+            // terminal; the caret is a second, plainer signal.
+            text: if *focus == active {
+                format!("▸{label}")
+            } else {
+                label.clone()
+            },
+            // The separator belongs to the label before it, so a wrap
+            // never starts a line with a hanging bar.
+            separator: index + 1 < labels.len(),
+            active: *focus == active,
+        })
+        .collect()
+}
+
+/// How many lines a strip needs at a given width.
+///
+/// A label wider than the whole line gets a line of its own and is clipped
+/// there: there is nothing narrower to wrap it to, and looping over it
+/// forever would be worse than a cut.
+fn strip_lines(texts: &[StripLabel], width: u16) -> u16 {
+    let width = width.max(1);
+    let mut lines: u16 = 1;
+    let mut column: u16 = 0;
+    for label in texts {
+        let needed = label.width();
+        if column > 0 && column.saturating_add(needed) > width {
+            lines = lines.saturating_add(1);
+            column = 0;
+        }
+        column = column.saturating_add(needed);
+    }
+    lines
+}
+
+/// Paint the strip into `area`, wrapping at its width.
+///
+/// The cells each label occupies are recorded as they are drawn, so a click
+/// is resolved against what is really on screen -- on whichever line the
+/// label landed, since a narrow terminal puts the tabs on several.
+fn draw_strip(frame: &mut Frame, area: Rect, texts: &[StripLabel]) -> Vec<TabGeometry> {
     let mut lines: Vec<Line<'static>> = Vec::new();
     let mut current: Vec<Span<'static>> = Vec::new();
     let mut cells: Vec<TabGeometry> = Vec::new();
     let mut column: u16 = 0;
     let mut row: u16 = area.y;
-    // Only the rows the area actually has: the strip is not allowed to
-    // grow over the tab body it sits above.
     let last_row = area.y.saturating_add(area.height.max(1)).saturating_sub(1);
-    for (index, (focus, label)) in labels.iter().enumerate() {
-        let active = *focus == app.focus;
-        let style = if active {
-            crate::tui::theme::tab_active()
-        } else {
-            crate::tui::theme::tab()
-        };
-        // Underlined means active, so the marker survives a monochrome
-        // terminal; the caret is a second, plainer signal.
-        let text = if active {
-            format!("▸{label}")
-        } else {
-            label.clone()
-        };
-        // The separator belongs with the label before it, so a wrap never
-        // starts a line with a hanging bar.
-        let separator = usize::from(index + 1 < labels.len());
-        let width = text.width() as u16;
-        let needed = width.saturating_add(separator as u16);
-        // A label that does not fit on the rest of this line starts the
-        // next one -- but only when it fits there. A single label wider
-        // than the whole terminal is drawn clipped on its own line rather
-        // than looping forever.
+    for label in texts {
+        let needed = label.width();
         if column > 0 && column.saturating_add(needed) > area.width && row < last_row {
-            // The trailing separator of the previous line goes with the
-            // line it belongs to.
             lines.push(Line::from(std::mem::take(&mut current)));
             row = row.saturating_add(1);
             column = 0;
         }
-        let start = area.x.saturating_add(column);
+        let style = if label.active {
+            crate::tui::theme::tab_active()
+        } else {
+            crate::tui::theme::tab()
+        };
+        let text_width = label.text.width() as u16;
         if row <= last_row && column < area.width {
-            let visible = width.min(area.width.saturating_sub(column));
             cells.push(TabGeometry {
-                focus: *focus,
-                column: start,
+                focus: label.focus,
+                column: area.x.saturating_add(column),
                 row,
-                width: visible,
+                width: text_width.min(area.width.saturating_sub(column)),
             });
         }
-        current.push(Span::styled(text, style));
-        column = column.saturating_add(width);
-        if separator == 1 {
+        current.push(Span::styled(label.text.clone(), style));
+        column = column.saturating_add(text_width);
+        if label.separator {
             current.push(Span::styled("│", crate::tui::theme::border()));
             column = column.saturating_add(1);
         }
     }
     lines.push(Line::from(current));
     frame.render_widget(Paragraph::new(Text::from(lines)), area);
-    (cells, row.saturating_add(1).saturating_sub(area.y))
+    cells
 }
 
 /// The strip's labels, with their counts or without them.

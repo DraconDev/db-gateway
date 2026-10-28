@@ -637,14 +637,25 @@ impl App {
     /// Act on a left click at one cell.
     fn on_click(&mut self, column: u16, row: u16) {
         // The strip first: a label is a tab switch, which is the one thing a
-        // click on a tab bar is expected to do.
-        if self.geometry.strip_y == Some(row) {
+        // click on a tab bar is expected to do. The strip may be several
+        // lines on a narrow terminal, so each label carries its own row.
+        let strip = self.geometry.strip;
+        if strip.is_some_and(|area| {
+            row >= area.y
+                && row < area.y.saturating_add(area.height)
+                && column >= area.x
+                && column < area.x.saturating_add(area.width)
+        }) {
             let hit = self
                 .geometry
                 .tabs
                 .iter()
-                .find(|(_, start, width)| column >= *start && column < start.saturating_add(*width))
-                .map(|(focus, _, _)| *focus);
+                .find(|label| {
+                    label.row == row
+                        && column >= label.column
+                        && column < label.column.saturating_add(label.width)
+                })
+                .map(|label| label.focus);
             if let Some(focus) = hit {
                 self.focus_on(focus);
             }
