@@ -42,11 +42,38 @@ pub struct Geometry {
     /// that is not on screen is never a target. The header takes the
     /// first line of the area, so a row's own line is one below it.
     pub tables: Vec<TableGeometry>,
+    /// The database page's table list, when one is open.
+    pub page_list: Option<PageList>,
     /// The last action's own grid, when it has one.
     ///
     /// It is a target of its own: the database's contents list its
     /// tables there, and clicking one opens that table.
     pub outcome: Option<TableGeometry>,
+}
+
+/// A database page's table list, where it was drawn.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PageList {
+    /// The list's inner rectangle, the border excluded.
+    pub area: Rect,
+    /// The first table drawn: the list's scroll.
+    pub start: usize,
+    /// How many tables the list holds.
+    pub rows: usize,
+}
+
+impl PageList {
+    /// The table index under a cell, if the cell is on a table row.
+    pub fn row_at(&self, column: u16, row: u16) -> Option<usize> {
+        if column < self.area.x || column >= self.area.x.saturating_add(self.area.width) {
+            return None;
+        }
+        if row < self.area.y || row >= self.area.y.saturating_add(self.area.height) {
+            return None;
+        }
+        let index = self.start + usize::from(row - self.area.y);
+        (index < self.rows).then_some(index)
+    }
 }
 
 /// One drawn table: where its rows are, and which rows they are.
@@ -430,6 +457,14 @@ fn database_page(frame: &mut Frame, area: Rect, app: &mut App) {
     let mut lines: Vec<Line<'static>> = Vec::new();
     let visible = usize::from(columns[0].height.saturating_sub(2)).max(1);
     let start = page.list_scroll.min(page.tables.len().saturating_sub(1));
+    // Where the list's rows really are, so a click on a table name
+    // selects that table -- the mouse and `j`/`k` move the same list.
+    let list_inner = Block::default().borders(Borders::ALL).inner(columns[0]);
+    app.geometry.page_list = Some(PageList {
+        area: list_inner,
+        start,
+        rows: page.tables.len(),
+    });
     for (index, table) in page.tables.iter().enumerate().skip(start).take(visible) {
         let selected = index == page.selected;
         let style = if selected {
@@ -509,6 +544,7 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
             strip_y: Some(rows[0].y),
             body: Some(rows[1]),
             tables: Vec::new(),
+            page_list: None,
             outcome: None,
         };
         database_page(frame, rows[1], app);
@@ -522,6 +558,7 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
             strip_y: Some(rows[0].y),
             body: Some(rows[1]),
             tables: Vec::new(),
+            page_list: None,
             outcome: None,
         };
         let mut geometry = None;
@@ -560,6 +597,7 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
         strip_y: Some(rows[0].y),
         body: Some(rows[1]),
         tables: Vec::new(),
+        page_list: None,
         outcome: None,
     };
     let focus = app.focus;
