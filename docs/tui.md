@@ -64,6 +64,13 @@ exists. A tab nobody can see is a tab nobody opens, so the sixth one is never
 the one that gets cut off — and the number keys still reach every tab
 whatever the width.
 
+When the names themselves no longer fit on one line, the strip **wraps onto
+as many lines as they need** and the body is laid out below it. It used to be
+single-line-only, so at forty columns it drew `3 backup`, dropped `keys`,
+`queries` and `locations` entirely, and covered labels that were never
+painted. Every name is drawn, and a click on any of the strip's lines opens
+the tab it names.
+
 The view shows **one tab at a time** rather than tiling every answer. Tiling
 forces each answer into a fraction of the width, which squeezes a wide table
 and cuts a long list; a tab gives the whole body to the thing being read. The
