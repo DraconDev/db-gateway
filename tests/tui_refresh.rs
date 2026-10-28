@@ -246,8 +246,11 @@ async fn opening_a_database_re_reads_the_contents() {
     ])
     .await;
     let mut app = App::new(server, "a-credential".to_string());
-    app.list = Some(json!({"databases": ["shop"]}));
     app.refresh().await;
+    // The stub answers /v1/databases with a fixed body, so the list is
+    // set AFTER the refresh: this test is about the click path, not
+    // about what that stub returns.
+    app.list = Some(json!({"databases": ["shop"]}));
     assert_eq!(gateway.hits("/v1/contents"), 1);
 
     // A frame is DRAWN first, because the click handler resolves cells
@@ -277,7 +280,25 @@ async fn opening_a_database_re_reads_the_contents() {
             break;
         }
     }
-    let (column, row) = hit.expect("the database row was not drawn");
+    let (column, row) = match hit {
+        Some(found) => found,
+        None => {
+            // Show what was drawn, so a failure says why.
+            let mut screen = String::new();
+            for y in 0..40u16 {
+                for x in 0..120u16 {
+                    screen.push_str(
+                        &buffer
+                            .cell((x, y))
+                            .map(|cell| cell.symbol().to_string())
+                            .unwrap_or_default(),
+                    );
+                }
+                screen.push('\n');
+            }
+            panic!("the database row was not drawn:\n{screen}");
+        }
+    };
     app.on_mouse(ratatui::crossterm::event::MouseEvent {
         kind: ratatui::crossterm::event::MouseEventKind::Down(
             ratatui::crossterm::event::MouseButton::Left,
