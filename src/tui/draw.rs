@@ -399,6 +399,92 @@ fn top_bar(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
+/// A database as its own page: its tables on the left, their rows on the
+/// right.
+///
+/// This is the shape an operator expects from a database browser: the
+/// list of what is in the database stays put while the values of the
+/// selected table fill the rest of the screen. A pane under the
+/// dashboard cannot do that -- it has room for a summary, not for a
+/// table -- which is why opening a database is a page and not a note.
+fn database_page(frame: &mut Frame, area: Rect, app: &mut App) {
+    let Some(page) = app.page.clone() else {
+        return;
+    };
+    // The list is as wide as its widest line, within reason: a table name
+    // can be long, and a list that eats the screen leaves no room for the
+    // values it exists to show.
+    let widest = page
+        .tables
+        .iter()
+        .map(|table| table.name.chars().count())
+        .max()
+        .unwrap_or(0)
+        + 4;
+    let list_width = (widest as u16).clamp(16, area.width.saturating_sub(30).max(16));
+    let columns = Layout::horizontal([Constraint::Length(list_width), Constraint::Min(20)])
+        .split(area);
+    // The list: one line per table, with its row count, the selected one
+    // marked. The mark is a symbol as well as a colour, so it survives a
+    // monochrome terminal.
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let visible = usize::from(columns[0].height.saturating_sub(2)).max(1);
+    let start = page.list_scroll.min(page.tables.len().saturating_sub(1));
+    for (index, table) in page.tables.iter().enumerate().skip(start).take(visible) {
+        let selected = index == page.selected;
+        let style = if selected {
+            crate::tui::theme::selection()
+        } else {
+            crate::tui::theme::paint(ViewStyle::Plain)
+        };
+        lines.push(Line::from(vec![
+            Span::styled(if selected { "▸ " } else { "  " }, style),
+            Span::styled(
+                format!("{:<width$}", table.name, width = list_width as usize - 3),
+                style,
+            ),
+            Span::styled(format!("{:>5}", table.rows), paint_style(ViewStyle::Dim)),
+        ]));
+    }
+    frame.render_widget(
+        Paragraph::new(Text::from(lines)).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(crate::tui::theme::border_focused())
+                .title(Span::styled(
+                    format!(" {} ", page.database),
+                    crate::tui::theme::heading(),
+                )),
+        ),
+        columns[0],
+    );
+    // The values: the selected table's rows, with the footer that says
+    // which slice of the answer it is.
+    let mut geometry = None;
+    let mouse = app.mouse;
+    if let Some(outcome) = app.outcome.clone() {
+        let room = usize::from(columns[1].height.saturating_sub(4)).max(4);
+        outcome_pane_with(
+            frame,
+            columns[1],
+            &outcome,
+            PaneShape {
+                mouse,
+                geometry: &mut geometry,
+                max_rows: room,
+                facts_title: "values",
+            },
+        );
+    } else {
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(crate::tui::theme::border())
+            .title(Span::styled(" values ", crate::tui::theme::heading()));
+        frame.render_widget(Paragraph::new("reading the table...").block(block), columns[1]);
+    }
+    app.geometry.outcome = geometry;
+}
+
 /// The tab strip, then the body of the tab that is showing.
 ///
 /// The view shows one tab at a time rather than tiling every answer. A tile
@@ -408,12 +494,23 @@ fn top_bar(frame: &mut Frame, area: Rect, app: &App) {
 /// the strip is what pays it: every tab is always named, always numbered, and
 /// always one keypress away.
 fn body(frame: &mut Frame, area: Rect, app: &mut App) {
-    // A table opened in the rows browser takes the WHOLE body. It used
-    // to be drawn in the same little "last action" pane as a one-shot
-    // answer, under a dashboard that kept the rest of the screen -- so
-    // "open this table" looked like a note about the table rather than
-    // the table. Opening something means it is what you are looking at;
-    // Esc puts the dashboard back.
+    // A database open as its own page, or a table open in the rows
+    // browser, takes the WHOLE body. Both are places the operator went,
+    // not notes about a place: the dashboard is what you leave behind,
+    // and Esc comes back to it.
+    if app.page.is_some() {
+        let rows = Layout::vertical([Constraint::Length(1), Constraint::Min(4)]).split(area);
+        let strip = tabs(frame, rows[0], app);
+        app.geometry = Geometry {
+            tabs: strip,
+            strip_y: Some(rows[0].y),
+            body: Some(rows[1]),
+            tables: Vec::new(),
+            outcome: None,
+        };
+        database_page(frame, rows[1], app);
+        return;
+    }
     if app.browser.is_some() && app.outcome.is_some() {
         let rows = Layout::vertical([Constraint::Length(1), Constraint::Min(4)]).split(area);
         let strip = tabs(frame, rows[0], app);
@@ -424,15 +521,9 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
             tables: Vec::new(),
             outcome: None,
         };
-        // The grid is the clickable part here, so its geometry is the
-        // one recorded: a click on a row of rows data opens nothing, but
-        // the pointer must still mark the row it is over.
         let mut geometry = None;
         let mouse = app.mouse;
         if let Some(outcome) = app.outcome.clone() {
-            // The browser draws as many rows as the screen holds, under
-            // no "last action" label: this is the thing the operator
-            // opened, not a note about it.
             let room = usize::from(rows[1].height.saturating_sub(10)).max(6);
             outcome_pane_with(
                 frame,
