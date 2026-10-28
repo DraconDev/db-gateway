@@ -1003,7 +1003,15 @@ fn outcome_pane(
     // How many rows the grid may draw. The browser's page holds ten, and
     // that is the cap; the "last action" pane is a note under the
     // dashboard and draws a shorter slice of whatever it was given.
-    outcome_pane_with(frame, area, outcome, mouse, geometry, OUTCOME_ROWS, "last action");
+    outcome_pane_with(
+        frame,
+        area,
+        outcome,
+        mouse,
+        geometry,
+        OUTCOME_ROWS,
+        "last action",
+    );
 }
 
 /// The outcome pane, with its row cap and its title chosen.

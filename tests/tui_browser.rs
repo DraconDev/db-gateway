@@ -535,3 +535,46 @@ fn a_page_past_the_end_does_not_draw_a_backwards_range() {
         "the footer does not say how many rows there are: {footer}"
     );
 }
+
+/// An opened table takes the screen, not a note under the dashboard.
+///
+/// It used to be drawn in the same small "last action" pane a one-shot
+/// answer gets, under a dashboard that kept the rest of the screen --
+/// so "open this table" read as information ABOUT the table rather than
+/// as the table. Opening something means it is what you are looking at.
+#[test]
+fn an_opened_table_takes_the_whole_screen() {
+    let mut app = app();
+    app.browser = Some(browser());
+    app.outcome = Some(browser_outcome(&browser(), &page()));
+    let text = screen(&mut app, 130, 45);
+    // The pane is the opened table, not a "last action" note.
+    assert!(
+        text.contains("opened"),
+        "the opened table is not labelled as opened:\n{text}"
+    );
+    assert!(
+        !text.contains("last action"),
+        "an opened table is still drawn as a last-action note:\n{text}"
+    );
+    // The dashboard's own table is not on screen: the table IS the screen.
+    assert!(
+        !text.contains("database") || !text.contains("rows read*"),
+        "the dashboard is still drawn around the opened table:\n{text}"
+    );
+    // And its rows and footer are there.
+    assert!(text.contains("rows 1-10 of 62"), "{text}");
+    assert!(text.contains("AAA"), "the rows are not drawn:\n{text}");
+}
+
+/// Esc puts the dashboard back.
+#[test]
+fn leaving_the_browser_returns_the_dashboard() {
+    let mut app = app();
+    app.browser = Some(browser());
+    app.outcome = Some(browser_outcome(&browser(), &page()));
+    let opened = screen(&mut app, 130, 45);
+    assert!(opened.contains("opened"));
+    app.on_key(key(KeyCode::Esc));
+    assert!(app.browser.is_none(), "Esc did not leave the browser");
+}
