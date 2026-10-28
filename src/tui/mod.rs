@@ -601,6 +601,8 @@ impl App {
             MouseEventKind::ScrollUp => {
                 if self.page_list_under_pointer(mouse.column, mouse.row) {
                     self.move_page_selection(-3);
+                } else if !self.body_under_pointer(mouse.column, mouse.row) {
+                    return;
                 } else if self.browser.is_some() {
                     self.browser_page(false);
                 } else {
@@ -614,6 +616,8 @@ impl App {
             MouseEventKind::ScrollDown => {
                 if self.page_list_under_pointer(mouse.column, mouse.row) {
                     self.move_page_selection(3);
+                } else if !self.body_under_pointer(mouse.column, mouse.row) {
+                    return;
                 } else if self.browser.is_some() {
                     self.browser_page(true);
                 } else {
@@ -918,6 +922,16 @@ impl App {
             _ => return false,
         }
         true
+    }
+
+    /// Whether the pointer is inside the tab's drawn body.
+    fn body_under_pointer(&self, column: u16, row: u16) -> bool {
+        self.geometry.body.is_some_and(|area| {
+            column >= area.x
+                && column < area.x.saturating_add(area.width)
+                && row >= area.y
+                && row < area.y.saturating_add(area.height)
+        })
     }
 
     /// Whether the pointer is over the database page's table list.
