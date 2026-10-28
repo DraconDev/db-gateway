@@ -1238,14 +1238,16 @@ impl App {
     /// Run the action the operator chose.
     pub async fn run_invocation(&mut self, invocation: Invocation) {
         // An action that invalidated the contents clock gets its counts
-        // re-read here, before the action's own work. The invalidation
-        // is how `r` and "open a database" ask for current figures; the
-        // read happens in one place so no path can forget it.
-        if self.contents_due() {
+        // re-read before its own work, so opening a database shows
+        // current figures rather than ones cached up to 30 seconds ago.
+        // `Refresh` is excluded because refreshing ALREADY reads them;
+        // doing it here as well would read every database twice for one
+        // keystroke.
+        if !matches!(invocation, Invocation::Refresh) && self.contents_due() {
             if let Ok(value) = self.fetch("/v1/contents").await {
                 self.contents = Some(value);
-                self.contents_refreshed = Some(Instant::now());
             }
+            self.contents_refreshed = Some(Instant::now());
         }
         // A table opened for its rows goes to the browser, which needs
         // several reads and keeps state between them. It is handled
