@@ -579,8 +579,8 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
     // and Esc comes back to it.
     if app.page.is_some() {
         let strip = tab_strip(frame, area, app);
-        let rows = Layout::vertical([Constraint::Length(strip.height), Constraint::Min(4)])
-            .split(area);
+        let rows =
+            Layout::vertical([Constraint::Length(strip.height), Constraint::Min(4)]).split(area);
         app.geometry = Geometry {
             tabs: strip.tabs,
             strip: Some(strip.area),
@@ -594,8 +594,8 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
     }
     if app.browser.is_some() && app.outcome.is_some() {
         let strip = tab_strip(frame, area, app);
-        let rows = Layout::vertical([Constraint::Length(strip.height), Constraint::Min(4)])
-            .split(area);
+        let rows =
+            Layout::vertical([Constraint::Length(strip.height), Constraint::Min(4)]).split(area);
         app.geometry = Geometry {
             tabs: strip.tabs,
             strip: Some(strip.area),
