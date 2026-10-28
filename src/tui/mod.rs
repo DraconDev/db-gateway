@@ -591,6 +591,10 @@ impl App {
     /// made of, and the grid that comes back is the one a click on a
     /// table then opens further.
     fn open_database(&mut self, name: &str) {
+        // Opening a database is a request to see what is in it, and the
+        // counts on the databases tab are part of that answer: they are
+        // re-read rather than repeated from a cache.
+        self.contents_stale();
         self.pending = Some(Invocation::Schema {
             name: name.to_string(),
             table: None,
@@ -633,7 +637,13 @@ impl App {
         }
         match key.code {
             KeyCode::Char('q') => self.quit = true,
-            KeyCode::Char('r') => self.pending = Some(Invocation::Refresh),
+            KeyCode::Char('r') => {
+                // A manual refresh reads the whole dashboard, contents
+                // included: the operator asked what is true now, and the
+                // slow cadence is not an answer to that.
+                self.contents_stale();
+                self.pending = Some(Invocation::Refresh);
+            }
             KeyCode::Char(':') => {
                 self.mode = Mode::Palette;
                 self.filter.clear();
@@ -1187,6 +1197,19 @@ impl App {
             None => true,
             Some(at) => at.elapsed() >= CONTENTS_PERIOD,
         }
+    }
+
+    /// Make the next refresh read the contents, whatever the clock says.
+    ///
+    /// The 30-second cadence exists to stop an IDLE view counting every
+    /// row on every two-second poll. It is not a promise that the counts
+    /// are fresh when the operator asks: `r` and opening a database are
+    /// the operator saying "tell me what is true now", and a count that
+    /// answers from a cache up to 30 seconds old is exactly the stale
+    /// figure this view exists to stop showing. Both paths therefore
+    /// invalidate the clock first.
+    pub fn contents_stale(&mut self) {
+        self.contents_refreshed = None;
     }
 
     /// One read of the gateway.
