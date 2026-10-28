@@ -46,6 +46,12 @@ fixes; 1.0.0 waits for production acceptance.
   it. Clicking a table in an opened database now lands in the rows,
   which is what "open" means; the structure is one key away.
 
+  An opened table takes the **whole screen** while it is open, and `esc`
+  puts the dashboard back. It used to be drawn in the small "last action"
+  pane a one-shot answer gets, under a dashboard that kept the rest of
+  the screen — so opening a table read as information *about* the table
+  rather than as the table.
+
   Sorting and filtering happen **in the statement, on the gateway**,
   never by discarding rows after they arrive: otherwise page 2 of a
   filtered view would be empty while the footer promised more. The sort
