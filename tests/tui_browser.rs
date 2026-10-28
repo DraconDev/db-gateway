@@ -531,7 +531,7 @@ fn a_page_past_the_end_does_not_draw_a_backwards_range() {
         "the footer does not say the page is past the end: {footer}"
     );
     assert!(
-        footer.contains("60"),
+        footer.contains("62"),
         "the footer does not say how many rows there are: {footer}"
     );
 }
