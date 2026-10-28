@@ -1276,6 +1276,105 @@ fn outcome_pane_with(frame: &mut Frame, area: Rect, outcome: &Outcome, shape: Pa
     }
 }
 
+/// A rows table that gives a short terminal as many fetched rows as fit.
+///
+/// The full pane spends separate framed lines on the headline, database,
+/// table, and row frame. Below 20 body lines that hides part of the fetched
+/// page while its footer still promises those rows. This form keeps the
+/// identity in one line and scrolls the fetched page in place when even
+/// that compact view cannot show every row.
+fn compact_rows_pane(
+    frame: &mut Frame,
+    area: Rect,
+    outcome: &Outcome,
+    browser: &mut Browser,
+    mouse: Option<(u16, u16)>,
+) -> Option<TableGeometry> {
+    let source = outcome.table.as_ref()?;
+    if area.height < 3 {
+        return None;
+    }
+    let title_area = Rect {
+        x: area.x,
+        y: area.y,
+        width: area.width,
+        height: 1,
+    };
+    let table_area = Rect {
+        x: area.x,
+        y: area.y.saturating_add(1),
+        width: area.width,
+        height: area.height.saturating_sub(2),
+    };
+    let footer_area = Rect {
+        x: area.x,
+        y: area.y.saturating_add(area.height.saturating_sub(1)),
+        width: area.width,
+        height: 1,
+    };
+    let total = source.rows().len();
+    let visible = usize::from(table_area.height.saturating_sub(1));
+    browser.row_offset = browser.row_offset.min(total.saturating_sub(visible));
+    let start = browser.row_offset;
+    let end = start.saturating_add(visible).min(total);
+
+    let mut title = outcome.headline.clone();
+    for (name, value) in &outcome.facts {
+        title.push_str(" · ");
+        title.push_str(name);
+        title.push_str(": ");
+        title.push_str(value);
+    }
+    let title_style = Style::default()
+        .fg(if outcome.error.is_some() {
+            crate::tui::theme::NEGATIVE
+        } else {
+            crate::tui::theme::POSITIVE
+        })
+        .add_modifier(Modifier::BOLD);
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(title, title_style))),
+        title_area,
+    );
+
+    let mut window = ViewTable::new();
+    for (name, alignment) in source.columns() {
+        window.column(name.clone(), *alignment);
+    }
+    for row in source.rows().iter().skip(start).take(visible) {
+        window.row(row.clone());
+    }
+    let geometry = TableGeometry {
+        area: table_area,
+        offset: start,
+        rows: total,
+    };
+    let mut state = TableState::default();
+    if let Some(index) = mouse.and_then(|(column, row)| geometry.row_at(column, row)) {
+        state.select(Some(index - start));
+    }
+    let table = table_widget(&window, table_area.width, visible)
+        .row_highlight_style(crate::tui::theme::hover())
+        .highlight_spacing(ratatui::widgets::HighlightSpacing::Never);
+    frame.render_stateful_widget(table, table_area, &mut state);
+
+    let mut footer = source.footer_text().unwrap_or_default().to_string();
+    if end.saturating_sub(start) < total {
+        let visible_range = format!("visible {}-{} of {} fetched", start + 1, end, total);
+        if footer.is_empty() {
+            footer = visible_range;
+        } else {
+            footer.push_str(" · ");
+            footer.push_str(&visible_range);
+        }
+    }
+    frame.render_widget(
+        Paragraph::new(footer).style(crate::tui::theme::status()),
+        footer_area,
+    );
+    Some(geometry)
+}
+
 /// The bar along the bottom: what the operator can do, and what went
 /// wrong.
 ///
