@@ -422,3 +422,71 @@ fn the_wheel_over_the_table_list_moves_the_table_selection() {
     );
     assert_eq!(app.take_pending(), Some(Invocation::RefreshRows));
 }
+
+#[test]
+fn the_wheel_over_values_pages_rows_without_changing_the_table() {
+    use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
+
+    let mut app = app();
+    app.page = Some(tall_page(30));
+    let mut browser = dg::tui::Browser::new("inventory", "table_00");
+    browser.total = Some(30);
+    app.browser = Some(browser);
+    let _ = screen(&mut app, 100, 16);
+
+    app.on_mouse(MouseEvent {
+        kind: MouseEventKind::ScrollDown,
+        column: 80,
+        row: 4,
+        modifiers: KeyModifiers::NONE,
+    });
+    assert_eq!(
+        app.page
+            .as_ref()
+            .and_then(DatabasePage::current)
+            .map(|table| table.name.as_str()),
+        Some("table_00"),
+        "the values wheel changed the selected table"
+    );
+    assert_eq!(app.browser.as_ref().map(|browser| browser.page), Some(1));
+    assert_eq!(app.take_pending(), Some(Invocation::RefreshRows));
+}
+
+#[test]
+fn the_table_list_wheel_stops_at_the_last_table() {
+    use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
+    use unicode_width::UnicodeWidthStr;
+
+    let mut app = app();
+    let mut page = tall_page(30);
+    page.selected = 29;
+    app.page = Some(page);
+    let mut browser = dg::tui::Browser::new("inventory", "table_29");
+    browser.total = Some(30);
+    app.browser = Some(browser);
+    let text = screen(&mut app, 100, 16);
+    let (column, row) = text
+        .lines()
+        .enumerate()
+        .find_map(|(row, line)| {
+            let byte = line.find("table_29")?;
+            Some((line[..byte].width() as u16, row as u16))
+        })
+        .expect("the selected last table should be visible");
+
+    app.on_mouse(MouseEvent {
+        kind: MouseEventKind::ScrollDown,
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    });
+    assert_eq!(
+        app.page
+            .as_ref()
+            .and_then(DatabasePage::current)
+            .map(|table| table.name.as_str()),
+        Some("table_29")
+    );
+    assert_eq!(app.browser.as_ref().map(|browser| browser.page), Some(0));
+    assert_eq!(app.take_pending(), None);
+}
