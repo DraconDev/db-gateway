@@ -77,6 +77,14 @@ pub enum Mode {
     /// condition, it is edited rather than typed from scratch, and its
     /// Enter re-reads the SAME table instead of running an action.
     Filter,
+    /// The column the rows browser sorts by.
+    ///
+    /// Its own mode for the same reason as the filter: the operator
+    /// names a column of the table on screen, and Enter re-reads that
+    /// same table. The name is validated against the table's real
+    /// columns by the statement builder, so a name that is not a column
+    /// is refused rather than interpolated.
+    Sort,
 }
 
 /// Which tab has the keyboard.
@@ -466,6 +474,7 @@ impl App {
             Mode::Palette => self.on_key_palette(key),
             Mode::Prompt { .. } | Mode::Confirm { .. } => self.on_key_input(key),
             Mode::Filter => self.on_key_filter(key),
+            Mode::Sort => self.on_key_sort(key),
         }
     }
 
@@ -755,35 +764,26 @@ impl App {
                 });
                 self.browser = None;
             }
-            // A sort cycles: unordered, ascending, descending, unordered
-            // again -- so one key both sorts and un-sorts.
+            // The sort column is CHOSEN, not assumed. It used to cycle
+            // off the first column, which on a typical table is the id
+            // (the rowid alias) -- so "sorted by id asc" reordered
+            // nothing, because the unsorted page is already in rowid
+            // order, and every other column was unreachable from the
+            // view. The operator names the column instead, and the
+            // gateway validates it against the table's real columns
+            // before it can reach a statement.
             KeyCode::Char('o') => {
-                let columns: Vec<String> = self
-                    .outcome
+                self.mode = Mode::Sort;
+                // The prompt opens with what is already sorting, so an
+                // existing sort is edited rather than retyped.
+                self.input = browser
+                    .sort
                     .as_ref()
-                    .and_then(|outcome| outcome.table.as_ref())
-                    .map(|table| {
-                        table
-                            .columns()
-                            .iter()
-                            .map(|(name, _)| name.clone())
-                            .collect()
+                    .map(|(column, direction)| match direction {
+                        crate::views::SortDirection::Ascending => column.clone(),
+                        crate::views::SortDirection::Descending => format!("{column}:desc"),
                     })
                     .unwrap_or_default();
-                let next = match &browser.sort {
-                    None => columns
-                        .first()
-                        .map(|column| (column.clone(), crate::views::SortDirection::Ascending)),
-                    Some((column, crate::views::SortDirection::Ascending)) => {
-                        Some((column.clone(), crate::views::SortDirection::Descending))
-                    }
-                    Some(_) => None,
-                };
-                self.browser = Some(Browser {
-                    sort: next,
-                    ..browser
-                });
-                self.pending = Some(Invocation::RefreshRows);
             }
             KeyCode::Char('f') => {
                 self.mode = Mode::Filter;
@@ -862,6 +862,63 @@ impl App {
                     filter: (!typed.is_empty()).then_some(typed),
                     // A new condition selects a different set, so the
                     // page it was on means nothing: back to the first.
+                    page: 0,
+                    ..browser
+                });
+                self.pending = Some(Invocation::RefreshRows);
+            }
+            _ => {}
+        }
+    }
+
+    /// The keys of the sort prompt.
+    ///
+    /// The operator names a column, optionally with `:desc` for a
+    /// descending sort. An empty answer clears the sort, which is how the
+    /// table goes back to its own order. Enter re-reads the table already
+    /// on screen; the name is checked against the table's real columns by
+    /// the statement builder, so a name that is not a column comes back
+    /// as a refusal rather than reaching SQL.
+    fn on_key_sort(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.mode = Mode::Normal;
+                self.input.clear();
+            }
+            KeyCode::Backspace => {
+                self.input.pop();
+            }
+            KeyCode::Char(character) => self.input.push(character),
+            KeyCode::Enter => {
+                let Some(browser) = self.browser.clone() else {
+                    self.mode = Mode::Normal;
+                    self.input.clear();
+                    return;
+                };
+                let typed = self.input.trim().to_string();
+                self.mode = Mode::Normal;
+                self.input.clear();
+                let sort = match typed.is_empty() {
+                    true => None,
+                    false => {
+                        let (column, direction) = match typed.split_once(':') {
+                            None => (typed.as_str(), crate::views::SortDirection::Ascending),
+                            Some((column, "desc")) => {
+                                (column, crate::views::SortDirection::Descending)
+                            }
+                            // Any other suffix is part of the column name:
+                            // it will not match a real column, and the
+                            // builder refuses it with the refusal that
+                            // names it.
+                            Some(_) => (typed.as_str(), crate::views::SortDirection::Ascending),
+                        };
+                        Some((column.to_string(), direction))
+                    }
+                };
+                self.browser = Some(Browser {
+                    sort,
+                    // A new order makes the old page meaningless: the
+                    // rows on it are not the rows page N now holds.
                     page: 0,
                     ..browser
                 });

@@ -343,6 +343,31 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             "filter (a read-only condition, empty clears it)",
             &app.input,
         ),
+        Mode::Sort => {
+            // The columns the operator can name, so the prompt says what
+            // is available instead of asking them to remember it.
+            let columns: Vec<&str> = app
+                .outcome
+                .as_ref()
+                .and_then(|outcome| outcome.table.as_ref())
+                .map(|table| {
+                    table
+                        .columns()
+                        .iter()
+                        .map(|(name, _)| name.as_str())
+                        .collect()
+                })
+                .unwrap_or_default();
+            prompt(
+                frame,
+                area,
+                &format!(
+                    "sort by column [{}] (:desc reverses; empty clears)",
+                    columns.join(", ")
+                ),
+                &app.input,
+            )
+        }
         Mode::Normal => {}
     }
 }
