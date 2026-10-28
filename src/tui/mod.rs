@@ -726,6 +726,12 @@ impl App {
         // the contents -- so a browser stays open across it. Esc leaves
         // the browser first, so a keystroke meant for the table cannot
         // quit the whole view.
+        // The database page owns the keyboard while it is open: its keys
+        // are about THIS database, and the table list is what they move
+        // through.
+        if self.page.is_some() && self.page_key(&key) {
+            return;
+        }
         if self.browser.is_some() && self.browser_key(&key) {
             return;
         }
@@ -795,6 +801,72 @@ impl App {
         let offset = self.scroll.of(self.focus);
         let moved = (*offset as i32 + lines).max(0) as u16;
         *offset = moved;
+    }
+
+    /// The database page's own keys. Returns whether the key belonged to
+    /// the page.
+    ///
+    /// The list on the left is the thing that moves: `up`/`down` walk the
+    /// tables and the selected table's rows are read as they change, so
+    /// the values on the right always belong to the name on the left.
+    /// `enter` opens the selected table in the rows browser (which is
+    /// where paging, sorting and filtering live); `esc` leaves the
+    /// database for the dashboard.
+    fn page_key(&mut self, key: &KeyEvent) -> bool {
+        let Some(page) = self.page.clone() else {
+            return false;
+        };
+        match key.code {
+            KeyCode::Esc => {
+                self.page = None;
+                self.browser = None;
+                self.outcome = None;
+            }
+            KeyCode::Char('q') => self.quit = true,
+            KeyCode::Char('j') | KeyCode::Down => {
+                if page.selected + 1 >= page.tables.len() {
+                    return true;
+                }
+                self.page = Some(DatabasePage {
+                    selected: page.selected + 1,
+                    ..page
+                });
+                self.pending = Some(Invocation::RefreshRows);
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if page.selected == 0 {
+                    return true;
+                }
+                self.page = Some(DatabasePage {
+                    selected: page.selected - 1,
+                    ..page
+                });
+                self.pending = Some(Invocation::RefreshRows);
+            }
+            // The table on the right, opened in the rows browser: paging,
+            // sorting and filtering are that screen's job.
+            KeyCode::Enter => {
+                if let Some(table) = page.current() {
+                    self.pending = Some(Invocation::OpenTable {
+                        name: page.database.clone(),
+                        table: table.name.clone(),
+                        page: 0,
+                    });
+                    self.page = None;
+                }
+            }
+            KeyCode::Char('s') => {
+                if let Some(table) = page.current() {
+                    self.pending = Some(Invocation::Schema {
+                        name: page.database.clone(),
+                        table: Some(table.name.clone()),
+                    });
+                    self.page = None;
+                }
+            }
+            _ => return false,
+        }
+        true
     }
 
     /// Move the rows browser one page forward or back.
@@ -1470,6 +1542,12 @@ impl App {
     /// change to the same question, so each one re-reads through this
     /// one path rather than each assembling its own request.
     async fn reread_page(&mut self) {
+        // With a database page open, the "page" being re-read is that
+        // page's selected table: the list moved, not a browser page.
+        if self.page.is_some() {
+            self.load_selected_table().await;
+            return;
+        }
         let Some(browser) = self.browser.clone() else {
             return;
         };
