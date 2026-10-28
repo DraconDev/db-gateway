@@ -1030,7 +1030,7 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         }
         Command::Tui { refresh } => {
             // The view takes the terminal over, so it needs one.
-            if !std::io::stdout().is_terminal() {
+            if !std::io::stdout().is_terminal() || !std::io::stdin().is_terminal() {
                 return Err(Application(Error::new(
                     400,
                     "not_a_terminal",
