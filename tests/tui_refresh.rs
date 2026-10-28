@@ -246,43 +246,61 @@ async fn opening_a_database_re_reads_the_contents() {
     ])
     .await;
     let mut app = App::new(server, "a-credential".to_string());
+    app.list = Some(json!({"databases": ["shop"]}));
     app.refresh().await;
     assert_eq!(gateway.hits("/v1/contents"), 1);
 
-    // A click on a database row queues the open; running it must read the
-    // counts again, even inside the cadence window.
-    app.outcome = Some(dg::tui::Outcome {
-        headline: "x".to_string(),
-        facts: vec![("database".to_string(), "shop".to_string())],
-        table: None,
-        error: None,
-    });
-    app.list = Some(json!({"databases": ["shop"]}));
+    // A frame is DRAWN first, because the click handler resolves cells
+    // against the geometry the drawing code recorded: without a frame
+    // there is no layout, the click lands on nothing, and the test would
+    // be proving the fallback path rather than the one an operator takes.
+    let backend = ratatui::backend::TestBackend::new(120, 40);
+    let mut terminal = ratatui::Terminal::new(backend).expect("a test terminal");
+    terminal
+        .draw(|frame| dg::tui::draw::draw(frame, &mut app))
+        .expect("the view draws");
+
+    // The database row, read off the drawn frame rather than assumed.
+    let buffer = terminal.backend().buffer();
+    let mut hit = None;
+    for y in 0..40u16 {
+        let line: String = (0..120u16)
+            .map(|x| {
+                buffer
+                    .cell((x, y))
+                    .map(|cell| cell.symbol().to_string())
+                    .unwrap_or_default()
+            })
+            .collect();
+        if line.contains("shop") && !line.contains("database") {
+            hit = Some((line.find("shop").unwrap() as u16, y));
+            break;
+        }
+    }
+    let (column, row) = hit.expect("the database row was not drawn");
     app.on_mouse(ratatui::crossterm::event::MouseEvent {
         kind: ratatui::crossterm::event::MouseEventKind::Down(
             ratatui::crossterm::event::MouseButton::Left,
         ),
-        column: 2,
-        row: 5,
+        column,
+        row,
         modifiers: ratatui::crossterm::event::KeyModifiers::NONE,
     });
-    if let Some(invocation) = app.take_pending() {
-        app.run_invocation(invocation).await;
-    } else {
-        // The click did not land on a row in this synthetic layout:
-        // exercise the same path the click uses, so the assertion is
-        // about the invalidation rather than about hit-testing.
-        app.on_key(ratatui::crossterm::event::KeyEvent::new(
-            ratatui::crossterm::event::KeyCode::Char('r'),
-            ratatui::crossterm::event::KeyModifiers::NONE,
-        ));
-        if let Some(invocation) = app.take_pending() {
-            app.run_invocation(invocation).await;
-        }
-    }
-    assert!(
-        gateway.hits("/v1/contents") > 1,
-        "opening a database did not re-read the contents (hits: {})",
-        gateway.hits("/v1/contents")
+    let invocation = app
+        .take_pending()
+        .expect("the click on the database row queued nothing");
+    assert_eq!(
+        invocation,
+        dg::tui::actions::Invocation::Schema {
+            name: "shop".to_string(),
+            table: None
+        },
+        "the click did not queue the database's opening"
+    );
+    app.run_invocation(invocation).await;
+    assert_eq!(
+        gateway.hits("/v1/contents"),
+        2,
+        "opening a database did not re-read the contents"
     );
 }
