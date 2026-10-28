@@ -238,6 +238,45 @@ fn a_short_rows_browser_screen_keeps_the_whole_fetched_page_visible() {
 }
 
 #[test]
+fn the_smallest_rows_browser_scrolls_the_fetched_page_without_losing_rows() {
+    let browser = browser();
+    let rows = (1..=10)
+        .map(|index| json!([format!("ROW-{index:02}")]))
+        .collect::<Vec<_>>();
+    let answer = json!({"columns": ["id"], "rows": rows, "rows_affected": 0});
+    let mut app = app();
+    app.browser = Some(browser.clone());
+    app.outcome = Some(browser_outcome(&browser, &answer));
+
+    let first = screen(&mut app, 120, 12);
+    assert!(
+        first.contains("ROW-01"),
+        "the first row is hidden:\n{first}"
+    );
+    assert!(
+        !first.contains("ROW-10"),
+        "a viewport that cannot fit the page pretends all rows are visible:\n{first}"
+    );
+    assert!(
+        first.contains("visible 1-") && first.contains("of 10 fetched"),
+        "the footer does not disclose the clipped page window:\n{first}"
+    );
+
+    for _ in 0..8 {
+        app.on_key(key(KeyCode::Down));
+    }
+    let last = screen(&mut app, 120, 12);
+    assert!(
+        last.contains("ROW-10"),
+        "scrolling within the fetched page cannot reach its final row:\n{last}"
+    );
+    assert!(
+        last.contains("visible 5-10 of 10 fetched"),
+        "the footer does not describe the final visible window:\n{last}"
+    );
+}
+
+#[test]
 fn n_and_p_move_the_page_and_queue_one_reread() {
     let mut app = app();
     app.browser = Some(browser());
