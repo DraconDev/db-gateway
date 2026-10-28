@@ -1241,7 +1241,7 @@ impl App {
         // re-read here, before the action's own work. The invalidation
         // is how `r` and "open a database" ask for current figures; the
         // read happens in one place so no path can forget it.
-        if !self.contents_due() || self.contents_refreshed.is_none() {
+        if self.contents_due() {
             if let Ok(value) = self.fetch("/v1/contents").await {
                 self.contents = Some(value);
                 self.contents_refreshed = Some(Instant::now());
