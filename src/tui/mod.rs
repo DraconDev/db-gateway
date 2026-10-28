@@ -1596,16 +1596,26 @@ impl App {
         }
     }
 
-    /// Run one statement against one database, as a read.
+    /// Run one statement against one database, using its SQL semantics.
+    ///
+    /// A query is a POST whether it reads or writes. Build the same typed
+    /// request the command palette uses so a generated SELECT receives the
+    /// read timeout and an unavailable read is never reported as a possible
+    /// committed write.
     async fn query_sql(&self, database: &str, sql: &str) -> Result<Value> {
-        let body = serde_json::json!({"sql": sql, "args": []});
-        let value = client::request(
+        let request = Invocation::Query {
+            name: database.to_string(),
+            sql: sql.to_string(),
+        }
+        .request()?;
+        let value = client::request_with_semantics(
             &self.server,
             &self.key,
-            reqwest::Method::POST,
-            &format!("/v1/databases/{database}/query"),
-            Some(body),
+            request.method,
+            &request.path,
+            request.body,
             None,
+            request.semantics,
         )
         .await?;
         if let Some(error) = value.get("error") {
