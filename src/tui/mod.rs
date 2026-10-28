@@ -1477,10 +1477,10 @@ impl App {
         }
         // The contents are read on their own, slower cadence: counting
         // every row of every database opens every file, and an idle
-        // service should not pay for that every two seconds. A failure
-        // here is NOT counted as a failed read of the dashboard: the
-        // view is complete without it, and the contents columns say
-        // "unknown" rather than the whole service reading as down.
+        // service should not pay for that every two seconds. A failed
+        // contents read is reported and leaves those counts unknown, but
+        // it does not affect reachability: `connected` is based on the
+        // five primary dashboard reads.
         if self.contents_due()
             && let Some(error) = self.refresh_contents().await
         {
