@@ -236,6 +236,36 @@ forbidden* — because five refusals of the same kind are one fact, not five,
 and the bar has one line for it. A message too long for the line is cut with
 an ellipsis, so a message that runs off the edge says that it did.
 
+## The database page
+
+Opening a database opens a **page**, not a pane: its tables down the
+left, and the selected table's values filling the rest of the screen.
+
+```text
+┌ inventory ───┐┌ values ──────────────────────────────────────
+│▸ products  60││products in inventory
+│  stock_moves││┌ rows ───────────────────────────────────────
+│  suppliers  │││id   sku        name      price_cents  stock
+│             │││1    SKU-1001   item 1    537            3
+│             │││...
+│             ││rows 1-10 of 60   [n] next  [s] structure
+```
+
+A database is a place you go, so it gets a page with room for the thing
+you came to look at. The earlier shape — a note under a dashboard that
+kept the whole screen — had room for a summary, not for a table.
+
+| Key | What it does |
+|---|---|
+| `j` / `↓`, or a click on a name | Select the next table in the list |
+| `k` / `↑` | Select the previous table |
+| `enter` | Open the selected table in the rows browser |
+| `s` | The selected table's structure |
+| `esc` | Back to the dashboard |
+
+The list and the values always agree: moving the selection reads that
+table's rows, so the name on the left is the data on the right.
+
 ## The rows browser
 
 Opening a table opens its **rows**: the data, ten at a time. The table

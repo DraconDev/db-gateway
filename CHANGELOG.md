@@ -46,11 +46,16 @@ fixes; 1.0.0 waits for production acceptance.
   it. Clicking a table in an opened database now lands in the rows,
   which is what "open" means; the structure is one key away.
 
-  An opened table takes the **whole screen** while it is open, and `esc`
-  puts the dashboard back. It used to be drawn in the small "last action"
-  pane a one-shot answer gets, under a dashboard that kept the rest of
-  the screen — so opening a table read as information *about* the table
-  rather than as the table.
+  Opening a database opens a **page**: its tables down the left, the
+  selected table's values filling the rest of the screen, with `j`/`k` (or
+  a click on a name) moving between tables and `enter` opening one in the
+  rows browser. `esc` returns to the dashboard.
+
+  A page rather than a pane, because a database is a place you go and a
+  place needs room for the thing you came to look at: the earlier shapes
+  — a note under the dashboard, then a full-width grid with no table list
+  — either had room only for a summary or made the reader go back to the
+  dashboard to change table.
 
   Sorting and filtering happen **in the statement, on the gateway**,
   never by discarding rows after they arrive: otherwise page 2 of a
