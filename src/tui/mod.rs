@@ -1383,11 +1383,10 @@ impl App {
         // here is NOT counted as a failed read of the dashboard: the
         // view is complete without it, and the contents columns say
         // "unknown" rather than the whole service reading as down.
-        if self.contents_due() {
-            if let Ok(value) = self.fetch("/v1/contents").await {
-                self.contents = Some(value);
-            }
-            self.contents_refreshed = Some(Instant::now());
+        if self.contents_due()
+            && let Some(error) = self.refresh_contents().await
+        {
+            failures.push(error);
         }
         // The gateway is reachable when it answered anything at all: a
         // refused backup list does not mean the service is down.
@@ -1639,6 +1638,35 @@ impl App {
         self.open_browser(browser).await;
     }
 
+    /// Read the database counts, or replace them with explicit unknowns.
+    ///
+    /// A failed read must not leave an old count on screen as if it were
+    /// current, and it must not advance the success clock: a later poll
+    /// should retry it. The caller reports the error in its own context.
+    async fn refresh_contents(&mut self) -> Option<String> {
+        match self.fetch("/v1/contents").await {
+            Ok(value) => {
+                self.contents = Some(value);
+                self.contents_refreshed = Some(Instant::now());
+                None
+            }
+            Err(error) => {
+                let databases = self
+                    .database_names()
+                    .into_iter()
+                    .map(|name| {
+                        (
+                            name,
+                            serde_json::json!({"tables": Value::Null, "rows": Value::Null}),
+                        )
+                    })
+                    .collect::<serde_json::Map<String, Value>>();
+                self.contents = Some(serde_json::json!({"databases": databases}));
+                Some(error.message.to_string())
+            }
+        }
+    }
+
     /// Whether the contents are due to be read again.
     ///
     /// They are on their own clock because they cost their own work:
@@ -1691,17 +1719,18 @@ impl App {
 
     /// Run the action the operator chose.
     pub async fn run_invocation(&mut self, invocation: Invocation) {
+        // A database import is a content change even though it uses the
+        // chunked transfer path rather than a single Request.
+        let mut contents_changed = matches!(&invocation, Invocation::ImportDatabase { .. });
         // An action that invalidated the contents clock gets its counts
         // re-read before its own work, so opening a database shows
         // current figures rather than ones cached up to 30 seconds ago.
-        // `Refresh` is excluded because refreshing ALREADY reads them;
-        // doing it here as well would read every database twice for one
-        // keystroke.
-        if !matches!(invocation, Invocation::Refresh) && self.contents_due() {
-            if let Ok(value) = self.fetch("/v1/contents").await {
-                self.contents = Some(value);
-            }
-            self.contents_refreshed = Some(Instant::now());
+        // Manual Refresh handles invalidation in its branch below.
+        if !matches!(invocation, Invocation::Refresh)
+            && self.contents_due()
+            && let Some(error) = self.refresh_contents().await
+        {
+            self.error = Some(error);
         }
         // A table opened for its rows goes to the browser, which needs
         // several reads and keeps state between them. It is handled
@@ -1722,6 +1751,10 @@ impl App {
                 return;
             }
             Invocation::Refresh => {
+                // Both the `r` key and the command palette arrive here;
+                // a manual refresh means counts are re-read regardless of
+                // their background polling deadline.
+                self.contents_stale();
                 self.refresh().await;
                 return;
             }
@@ -1786,6 +1819,15 @@ impl App {
                         return;
                     }
                 };
+                // Any successful write through a database route may
+                // change its table/row counts; the refresh after this
+                // request will re-read them. Key-management writes do not
+                // invalidate database contents.
+                if request.semantics == client::Semantics::Write
+                    && request.path.starts_with("/v1/databases")
+                {
+                    contents_changed = true;
+                }
                 // The statements the request carried, read from the
                 // request itself: the view describes what was sent, not
                 // what the file says now.
@@ -1829,7 +1871,11 @@ impl App {
                 outcome_of(&invocation, &statements, &response)
             }
         };
+        let succeeded = outcome.error.is_none();
         self.outcome = Some(outcome);
+        if contents_changed && succeeded {
+            self.contents_stale();
+        }
         self.refresh().await;
     }
 
