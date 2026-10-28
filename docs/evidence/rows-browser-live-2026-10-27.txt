@@ -158,3 +158,42 @@ Neither reached SQL. The table was still there afterwards.
    tests/cli_rows.rs::a_lowercase_set_operation_is_refused_end_to_end
    pins it through the CLI with the table still readable afterwards.
    Reverting the one-line fold makes those tests fail.
+
+9. AN OPENED TABLE NOW TAKES THE SCREEN.
+
+   Reported as "still not opening" with a screenshot showing the
+   databases tab and a small `last action` pane reading
+   `inventory holds 3 tables`. The click WAS working -- it opened the
+   database and the table -- but the result was drawn in the same small
+   note-sized pane a one-shot answer gets, under a dashboard that kept
+   the rest of the screen. To an operator that reads as information
+   ABOUT the table, not as the table opening.
+
+   Fixed: while a table is open in the browser, its pane takes the whole
+   body under the tab strip, titled `opened`, and Esc puts the dashboard
+   back. Verified live at 130x50 (pty, seeded gateway):
+
+     0| dg http://127.0.0.1:7432 · read 0s ago · connected
+     1|▸ 1 databases (7) │ 2 service │ ... │ 6 locations (7)
+     2|┌ opened ─────────────────────────────────────────────
+     3|│products in inventory
+     4|│database: inventory
+     5|│table: products
+     7|┌ rows ───────────────────────────────────────────────
+     8|│id   sku        name      price_cents   stock   category   updated_at
+     9|│1    SKU-1001   item 1    537           3       cat-1      2026-10-21T10:00:00Z
+     ...
+    18|│10   SKU-1010   item 10   870           30      cat-3      2026-10-21T10:00:00Z
+    19|│rows 1-10 of 60   [n] next  [s] structure
+
+   And in that full-screen view, live: `n` -> `rows 11-20 of 60`,
+   Down -> `rows 21-30 of 60`, `o` + `stock:desc` ->
+   `rows 1-10 of 60   sorted by stock desc`, `s` -> `structure of
+   products in inventory`.
+
+   The click path itself was verified exhaustively before this change --
+   every table row, every column of the row, at 100x40, 130x48, 130x54,
+   192x54, 190x60 and 230x60, with and without preceding motion events
+   and with press+release -- and it opened the rows every time. The
+   defect was what the opened table LOOKED like, not whether the click
+   worked.
