@@ -1,0 +1,43 @@
+A real `dg tui` session against a real gateway.
+Captured by scripts/capture-tui-evidence.sh: the raw pty
+stream is in the .log beside this file, and the screen
+below is what the terminal showed after the query ran.
+
+ dg http://127.0.0.1:40809 · read 0s ago · connected
+ 1 databases (2) │ 2 service │▸ 3 backups │ 4 keys (1) │ 5 queries (6) │ 6 locations (2)
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│backup                                                                                                                │
+│root: /tmp/dg-tui-capture-MBcrZV/dg-backups                                                                           │
+│freshness objective: 5m 0s                                                                                            │
+│snapshot cadence: 1h 0m                                                                                               │
+│sets: 1                                                                                                               │
+│coverage                                                                                                              │
+│newest set: 1 of 2 live databases                                                                                     │
+│missing: other                                                                                                        │
+│registry: yes                                                                                                         │
+│replica                                                                                                               │
+│reported: this host publishes no off-host copy status                                                                 │
+│restore drill                                                                                                         │
+│reported: this host publishes no restore drill result                                                                 │
+│point-in-time restore                                                                                                 │
+│reported: this host publishes no restore points                                                                       │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ per-database ────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│database   state     newest set         age       lag                                                                 │
+│demo       behind    2026-10-28 19:54   5s        5s                                                                  │
+│other      unknown   —                  unknown   —                                                                   │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ published sets ──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│set                coverage from          databases   registry                                                        │
+│20261028T195434Z   2026-10-28 19:54 UTC   1           yes                                                             │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ last action ─────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│3 rows                                                                                                                │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ rows ────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│id   name                                                                                                             │
+│1    aria                                                                                                             │
+│2    bo                                                                                                               │
+│3    cy                                                                                                               │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+1-6 tabs  tab next tab  ↑↓ scroll  : commands  r refresh  q quit
