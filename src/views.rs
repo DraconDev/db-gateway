@@ -2822,12 +2822,21 @@ fn filter_is_safe(when: &str) -> bool {
     // reads, and each one would append a result set the operator did
     // not ask for.
     //
-    // The scan runs over the expression with its literals and comments
-    // REMOVED, the way the write scan does: `sku = 'UNION'` is a
-    // comparison against a string, and refusing it would make this rule
-    // disagree with the read-only rule about the same text -- the two
-    // would reject different halves of the same legitimate filter.
-    let bare = strip_literals(when);
+    // Two things this scan must do, and dropping either one is a real
+    // hole:
+    //
+    // 1. It runs over the expression with its literals and comments
+    //    REMOVED, the way the write scan does: `sku = 'UNION'` compares
+    //    a column against a string, and refusing it would make this rule
+    //    disagree with the read-only rule about the same text.
+    // 2. It is CASE-INSENSITIVE. SQL keywords are not case-sensitive, so
+    //    `union` and `UnIoN` are the same operation as `UNION`. A scan
+    //    that compared uppercase keywords against the raw text accepted
+    //    the lowercase spellings and let a set operation reach SQLite --
+    //    which drew fabricated rows under a footer claiming to describe
+    //    the table. The write scan has always folded case; this one has
+    //    to as well, or the two disagree about the same statement.
+    let bare = strip_literals(when).to_ascii_uppercase();
     for operation in ["UNION", "INTERSECT", "EXCEPT"] {
         if bare.contains(operation) {
             return false;
