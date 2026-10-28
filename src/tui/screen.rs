@@ -100,6 +100,18 @@ impl<S: Screen> Guard<S> {
         }
     }
 
+    /// Enter the terminal while the guard already owns restoration.
+    ///
+    /// `Screen::enter` may change raw mode or write part of an escape
+    /// sequence before returning an error. Owning it first ensures Drop
+    /// restores even a partially completed entry.
+    pub fn enter(&mut self) -> io::Result<()> {
+        match self.screen.as_mut() {
+            Some(screen) => screen.enter(),
+            None => Ok(()),
+        }
+    }
+
     /// Give the screen back now.
     pub fn release(&mut self) -> io::Result<()> {
         let Some(screen) = self.screen.as_mut() else {
@@ -157,6 +169,42 @@ mod tests {
         fn draw(&mut self, _render: impl FnOnce(&mut Frame)) -> io::Result<()> {
             Ok(())
         }
+    }
+
+    struct FailsDuringEnter {
+        calls: Arc<Mutex<Vec<&'static str>>>,
+    }
+
+    impl Screen for FailsDuringEnter {
+        fn enter(&mut self) -> io::Result<()> {
+            self.calls.lock().unwrap().push("partial-enter");
+            Err(io::Error::other("terminal write failed"))
+        }
+
+        fn restore(&mut self) -> io::Result<()> {
+            self.calls.lock().unwrap().push("restore");
+            Ok(())
+        }
+
+        fn draw(&mut self, _render: impl FnOnce(&mut Frame)) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_partial_entry_failure_still_gives_the_terminal_back() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        {
+            let mut guard = Guard::new(FailsDuringEnter {
+                calls: calls.clone(),
+            });
+            assert!(guard.enter().is_err(), "the simulated entry did not fail");
+        }
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec!["partial-enter", "restore"],
+            "a partially entered terminal was not restored"
+        );
     }
 
     #[test]
