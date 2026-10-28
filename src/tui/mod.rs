@@ -1549,7 +1549,9 @@ impl App {
         };
         // The page is set BEFORE the rows are read, so the screen the
         // operator sees is the page with a table being loaded into it,
-        // rather than the dashboard with an unexplained delay.
+        // rather than the dashboard with an unexplained delay. This is a
+        // fresh visit, not a continuation of a previous browser query.
+        self.browser = None;
         self.page = Some(page);
         self.outcome = None;
         self.load_selected_table().await;
@@ -1576,11 +1578,48 @@ impl App {
                 })).collect::<Vec<_>>(),
             })]
         });
-        let mut browser = Browser::new(&database, &name);
-        // The count under no filter is the table's own size, which the
-        // structure already told us -- no second read for it.
-        browser.total = Some(table.rows);
-        let query = match crate::views::rows_query(&structure, &name, 0, None, None) {
+        let mut browser = self
+            .browser
+            .clone()
+            .filter(|browser| browser.database == database && browser.table == name)
+            .unwrap_or_else(|| Browser::new(&database, &name));
+        // The unfiltered count is already in the structure. A filter needs
+        // its own count so the footer describes the selected set rather
+        // than the table's unfiltered total.
+        browser.total = if browser.filter.is_none() {
+            Some(table.rows)
+        } else {
+            None
+        };
+        if browser.filter.is_some() {
+            let count = match crate::views::rows_count_query(
+                &structure,
+                &name,
+                browser.filter.as_deref(),
+            ) {
+                Ok(query) => self.query_sql(&database, &query.sql).await.ok(),
+                Err(refusal) => {
+                    self.outcome = Some(Outcome {
+                        headline: "the table could not be read".to_string(),
+                        facts: Vec::new(),
+                        table: None,
+                        error: Some(refusal.message()),
+                    });
+                    return;
+                }
+            };
+            browser.total = count.as_ref().and_then(count_total);
+        }
+        let query = match crate::views::rows_query(
+            &structure,
+            &name,
+            browser.page,
+            browser
+                .sort
+                .as_ref()
+                .map(|(column, direction)| (column.as_str(), *direction)),
+            browser.filter.as_deref(),
+        ) {
             Ok(query) => query,
             Err(refusal) => {
                 self.outcome = Some(Outcome {
