@@ -219,6 +219,8 @@ pub enum Invocation {
     Tables { name: String },
     /// Read one database's table structure.
     Schema { name: String, table: Option<String> },
+    /// Open a database as its own page: its tables and their rows.
+    OpenDatabase { name: String },
     /// Read the browser's page again, after a page, sort or filter
     /// changed. It is not a question the operator asks directly: it is
     /// the browser re-asking its own, and it carries no arguments
@@ -495,7 +497,7 @@ impl Invocation {
     /// same rules the CLI refuses it by.
     pub fn request(&self) -> Result<Request> {
         let request = match self {
-            Invocation::Refresh | Invocation::RefreshRows | Invocation::Quit => {
+            Invocation::Refresh | Invocation::RefreshRows | Invocation::OpenDatabase | Invocation::Quit => {
                 return Err(invalid("this action makes no request"));
             }
             Invocation::Query { name, sql } => Request {

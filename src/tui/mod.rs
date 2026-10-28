@@ -689,9 +689,8 @@ impl App {
         // counts on the databases tab are part of that answer: they are
         // re-read rather than repeated from a cache.
         self.contents_stale();
-        self.pending = Some(Invocation::Schema {
+        self.pending = Some(Invocation::OpenDatabase {
             name: name.to_string(),
-            table: None,
         });
     }
 
@@ -1253,6 +1252,107 @@ impl App {
         self.refreshed = Some(Instant::now());
     }
 
+    /// Open a database as its own page.
+    ///
+    /// Two reads, in the order the page needs them: the database's
+    /// structure (what tables exist, and their columns) and then the
+    /// first table's rows. The structure is kept on the page, so moving
+    /// between its tables needs only the rows -- the page does not
+    /// re-read what it already holds.
+    pub async fn open_database_page(&mut self, name: &str) {
+        let structure = match self
+            .fetch(&format!("/v1/databases/{name}/schema"))
+            .await
+        {
+            Ok(value) => value,
+            Err(error) => {
+                self.outcome = Some(Outcome {
+                    headline: "the database could not be opened".to_string(),
+                    facts: vec![("database".to_string(), name.to_string())],
+                    table: None,
+                    error: Some(error.message.to_string()),
+                });
+                return;
+            }
+        };
+        let mut tables = crate::views::structures(&structure, None);
+        tables.sort_by(|a, b| a.name.cmp(&b.name));
+        if tables.is_empty() {
+            self.outcome = Some(Outcome {
+                headline: format!("{name} has no tables"),
+                facts: vec![("database".to_string(), name.to_string())],
+                table: None,
+                error: None,
+            });
+            return;
+        }
+        let page = DatabasePage {
+            database: name.to_string(),
+            tables,
+            selected: 0,
+            list_scroll: 0,
+        };
+        // The page is set BEFORE the rows are read, so the screen the
+        // operator sees is the page with a table being loaded into it,
+        // rather than the dashboard with an unexplained delay.
+        self.page = Some(page);
+        self.outcome = None;
+        self.load_selected_table().await;
+    }
+
+    /// Read the selected table's rows into the open database page.
+    async fn load_selected_table(&mut self) {
+        let Some(page) = self.page.clone() else {
+            return;
+        };
+        let Some(table) = page.current() else {
+            return;
+        };
+        let database = page.database.clone();
+        let name = table.name.clone();
+        let structure = serde_json::json!({
+            "database": database,
+            "tables": [serde_json::json!({
+                "name": name,
+                "rows": table.rows,
+                "columns": table.columns.iter().map(|column| serde_json::json!({
+                    "name": column.name,
+                    "type": column.kind,
+                })).collect::<Vec<_>>(),
+            })]
+        });
+        let mut browser = Browser::new(&database, &name);
+        // The count under no filter is the table's own size, which the
+        // structure already told us -- no second read for it.
+        browser.total = Some(table.rows);
+        let query = match crate::views::rows_query(&structure, &name, 0, None, None) {
+            Ok(query) => query,
+            Err(refusal) => {
+                self.outcome = Some(Outcome {
+                    headline: "the table could not be read".to_string(),
+                    facts: Vec::new(),
+                    table: None,
+                    error: Some(refusal.message()),
+                });
+                return;
+            }
+        };
+        match self.query_sql(&database, &query.sql).await {
+            Ok(response) => {
+                self.outcome = Some(browser_outcome(&browser, &response));
+                self.browser = Some(browser);
+            }
+            Err(error) => {
+                self.outcome = Some(Outcome {
+                    headline: "the table could not be read".to_string(),
+                    facts: Vec::new(),
+                    table: None,
+                    error: Some(error.message.to_string()),
+                });
+            }
+        }
+    }
+
     /// Read one page of a table into the browser.
     ///
     /// Three reads, because the browser needs three facts and the
@@ -1464,6 +1564,10 @@ impl App {
             }
             Invocation::RefreshRows => {
                 self.reread_page().await;
+                return;
+            }
+            Invocation::OpenDatabase { name } => {
+                self.open_database_page(name).await;
                 return;
             }
             Invocation::ExportDatabase { name, out } => {
