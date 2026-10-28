@@ -226,3 +226,42 @@ fn an_empty_database_says_so_instead_of_drawing_an_empty_page() {
     let text = screen(&mut app, 120, 40);
     assert!(text.contains("has no tables"), "{text}");
 }
+
+/// A click on a table name in the list selects that table.
+///
+/// The mouse and `j`/`k` move the same list: an operator who reaches for
+/// either gets the same result, and the values on the right follow.
+#[test]
+fn a_click_on_a_table_name_selects_it() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut app = app();
+    app.page = Some(page());
+    // Draw first: the click is resolved against the drawn layout.
+    let text = screen(&mut app, 130, 45);
+    let (column, row) = {
+        let mut found = None;
+        for (y, line) in text.lines().enumerate() {
+            if let Some(byte) = line.find("suppliers") {
+                use unicode_width::UnicodeWidthStr;
+                found = Some((line[..byte].width() as u16, y as u16));
+                break;
+            }
+        }
+        found.expect("the suppliers row was not drawn")
+    };
+    app.on_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    });
+    assert_eq!(
+        app.page
+            .as_ref()
+            .and_then(|p| p.current())
+            .map(|t| t.name.as_str()),
+        Some("suppliers"),
+        "the click did not select the clicked table"
+    );
+    assert_eq!(app.take_pending(), Some(Invocation::RefreshRows));
+}

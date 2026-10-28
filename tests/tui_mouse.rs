@@ -337,11 +337,10 @@ fn clicking_a_database_opens_it() {
     app.on_mouse(click(column, row));
     assert_eq!(
         app.take_pending(),
-        Some(Invocation::Schema {
-            name: "other".to_string(),
-            table: None
+        Some(Invocation::OpenDatabase {
+            name: "other".to_string()
         }),
-        "the click did not queue the database's opening"
+        "the click did not queue the database's page"
     );
 }
 
