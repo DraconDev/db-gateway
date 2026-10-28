@@ -327,31 +327,145 @@ fn an_empty_filter_clears_it() {
     );
 }
 
+/// The sort column is chosen by name, not assumed.
+///
+/// It used to cycle off the first column, which on a typical table is
+/// the id -- the rowid alias -- so the "sort" reordered nothing and every
+/// other column was unreachable from the view. The operator names the
+/// column instead, and a name that is not a column is refused by the
+/// statement builder rather than interpolated into SQL.
 #[test]
-fn the_sort_cycles_through_ascending_descending_and_off() {
+fn the_sort_column_is_chosen_by_name() {
     let mut app = app();
     app.browser = Some(browser());
     app.outcome = Some(browser_outcome(&browser(), &page()));
-    // First press sorts by the first column, ascending.
     app.on_key(key(KeyCode::Char('o')));
+    assert_eq!(app.mode, Mode::Sort, "o did not open the sort prompt");
+    // Type a column that is NOT the first one.
+    for character in "stock".chars() {
+        app.on_key(key(KeyCode::Char(character)));
+    }
+    app.on_key(key(KeyCode::Enter));
+    assert_eq!(app.mode, Mode::Normal, "Enter did not close the prompt");
     let sorted = app.browser.clone().expect("the browser is open");
     assert_eq!(
         sorted.sort,
-        Some(("id".to_string(), dg::views::SortDirection::Ascending))
+        Some(("stock".to_string(), dg::views::SortDirection::Ascending)),
+        "the named column was not the one sorted"
     );
-    app.take_pending();
-    // Second press reverses it.
-    app.on_key(key(KeyCode::Char('o')));
-    let reversed = app.browser.clone().expect("the browser is open");
     assert_eq!(
-        reversed.sort,
-        Some(("id".to_string(), dg::views::SortDirection::Descending))
+        sorted.page, 0,
+        "a new sort kept the old page, which now holds different rows"
     );
-    app.take_pending();
-    // Third press takes the sort off again.
+    assert_eq!(app.take_pending(), Some(Invocation::RefreshRows));
+}
+
+/// A sort direction can be given, and an empty answer clears the sort.
+#[test]
+fn a_sort_direction_is_optional_and_empty_clears_it() {
+    let mut app = app();
+    app.browser = Some(browser());
+    app.outcome = Some(browser_outcome(&browser(), &page()));
     app.on_key(key(KeyCode::Char('o')));
+    for character in "stock:desc".chars() {
+        app.on_key(key(KeyCode::Char(character)));
+    }
+    app.on_key(key(KeyCode::Enter));
+    assert_eq!(
+        app.browser.as_ref().and_then(|b| b.sort.clone()),
+        Some(("stock".to_string(), dg::views::SortDirection::Descending)),
+        "the :desc direction was not taken"
+    );
+    // An empty answer clears it: the table goes back to its own order.
+    app.on_key(key(KeyCode::Char('o')));
+    app.on_key(key(KeyCode::Enter));
     assert!(
         app.browser.as_ref().and_then(|b| b.sort.clone()).is_none(),
-        "the sort did not cycle off"
+        "an empty sort answer did not clear the sort"
     );
+}
+
+/// A column that is not in the table is refused by the shared builder.
+///
+/// The view passes the name through; the builder is what refuses it,
+/// against the schema's real columns, so the refusal is the same one the
+/// CLI gets.
+#[test]
+fn a_sort_on_a_missing_column_is_refused_by_the_builder() {
+    let structure = json!({
+        "database": "shop",
+        "tables": [{
+            "name": "products", "rows": 3,
+            "columns": [{"name": "id", "type": "INTEGER", "not_null": false, "primary_key": true, "default": null}],
+            "indexes": [], "foreign_keys": [], "sql": "CREATE TABLE products (id INTEGER PRIMARY KEY)"
+        }]
+    });
+    let refused = dg::views::rows_query(
+        &structure,
+        "products",
+        0,
+        Some(("stock", dg::views::SortDirection::Ascending)),
+        None,
+    );
+    assert_eq!(
+        refused.unwrap_err(),
+        dg::views::RowsRefusal::NoSuchColumn("stock".to_string()),
+        "a column the table does not have reached the statement"
+    );
+}
+
+/// The arrow keys and the wheel move a page.
+///
+/// A browser has pages, not a scrollbar: the arrows used to fall through
+/// to the dashboard's scroll, which moved something the operator was not
+/// looking at.
+#[test]
+fn the_arrow_keys_and_the_wheel_move_a_page() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut app = app();
+    app.browser = Some(browser());
+    app.on_key(key(KeyCode::Down));
+    assert_eq!(
+        app.browser.as_ref().map(|b| b.page),
+        Some(1),
+        "the down arrow did not move a page"
+    );
+    assert_eq!(app.take_pending(), Some(Invocation::RefreshRows));
+    app.on_key(key(KeyCode::Up));
+    assert_eq!(app.browser.as_ref().map(|b| b.page), Some(0));
+    app.take_pending();
+
+    // The wheel: same direction, same result.
+    app.on_mouse(MouseEvent {
+        kind: MouseEventKind::ScrollDown,
+        column: 10,
+        row: 10,
+        modifiers: KeyModifiers::NONE,
+    });
+    assert_eq!(
+        app.browser.as_ref().map(|b| b.page),
+        Some(1),
+        "the wheel did not move a page"
+    );
+    app.take_pending();
+    app.on_mouse(MouseEvent {
+        kind: MouseEventKind::ScrollUp,
+        column: 10,
+        row: 10,
+        modifiers: KeyModifiers::NONE,
+    });
+    assert_eq!(app.browser.as_ref().map(|b| b.page), Some(0));
+    // Without a browser the wheel still scrolls the open tab.
+    app.browser = None;
+    app.on_mouse(MouseEvent {
+        kind: MouseEventKind::ScrollDown,
+        column: 10,
+        row: 10,
+        modifiers: KeyModifiers::NONE,
+    });
+    assert!(
+        app.scroll.databases > 0,
+        "the wheel stopped scrolling the dashboard"
+    );
+    let _ = MouseButton::Left;
 }
