@@ -1,0 +1,26 @@
+Turso web console — Audit Logs page, dracondev org — read live 2026-10-29 via the
+Chrome bridge. This capture is deliberately a CHANGED finding, not a refresh:
+the page now reports 6 entries where the 2026-10-26 capture reported 23.
+
+Columns: Author, Event, Origin, Timestamp. Every entry is "Created Database
+Token" by dracondev, all via dashboard:
+
+  Oct 28, 2026 13:16:50   dashboard
+  Oct 27, 2026 08:51:15   dashboard
+  Oct 27, 2026 08:51:14   dashboard
+  Oct 27, 2026 00:40:40   dashboard
+  Oct 26, 2026 12:56:54   dashboard
+  Oct 26, 2026 12:49:15   dashboard
+
+Page chrome: "Showing 1-6 of 6 items", "50 per page", "1 of 1", with First /
+Previous / Next / Last page buttons all DISABLED (el-41 'Next page' is
+disabled). So the console reports six total entries and no further pages — this
+is the whole log, not a filtered or paginated view. No date-range control is
+present on the page.
+
+Why this matters to the comparison: the 2026-10-26 capture listed 23 entries,
+including 21 CLI-created tokens from Oct 24 (21:19:22 down to 13:40:09). Those
+Oct 24 entries are no longer visible at all, and the page says 6 items exist —
+not "showing 1-6 of 23". The console's audit log therefore has a retention
+window that dropped three-day-old entries, while `dg audit` is append-only on
+the operator's own disk and keeps its trail indefinitely.
