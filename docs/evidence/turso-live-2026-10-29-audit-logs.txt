@@ -20,7 +20,13 @@ present on the page.
 
 Why this matters to the comparison: the 2026-10-26 capture listed 23 entries,
 including 21 CLI-created tokens from Oct 24 (21:19:22 down to 13:40:09). Those
-Oct 24 entries are no longer visible at all, and the page says 6 items exist —
-not "showing 1-6 of 23". The console's audit log therefore has a retention
-window that dropped three-day-old entries, while `dg audit` is append-only on
-the operator's own disk and keeps its trail indefinitely.
+Oct 24 entries — five days old at the time of this read — are no longer visible
+at all, and the page says 6 items exist, not "showing 1-6 of 23". So the
+console's audit log dropped them by a TIME-based retention window.
+
+`dg audit` is bounded differently: `src/store/audit.rs` keeps `MAX_ENTRIES` =
+2000 entries and rewrites its trail file above `MAX_FILE_BYTES` = 4 MiB,
+dropping the OLDEST. That is a COUNT/SIZE bound, not a time bound, so a quiet
+box keeps its trail indefinitely and a busy one turns over. The honest statement
+is "Turso's log dropped five-day-old entries by age; dg's drops by count and
+size" — not "dg keeps everything".
