@@ -15,10 +15,11 @@ missing?
 - **Evidence**: the captures listed at the end. The October 2026 captures are
   retained unchanged as history and are marked as such wherever they are
   cited.
-- **Tree state**: this refresh changed documentation only. Three TUI tests were
-  already failing on this tree from a commit made an hour before the goal
-  started; see "Known unresolved" near the end, which records the cause and the
-  check that the tests passed before it.
+- **Tree state**: the comparison itself changed documentation only. While
+  checking the tree, three leftover `// MUTATION:` edits from the day before
+  this goal were found to have disabled a credential-clearing guard; they are
+  reverted, and the full suite is green. See "A regression found and repaired
+  during this pass" near the end.
 
 The `turso` CLI is **not authenticated** in this environment (`turso auth
 whoami` answers "You are not logged in"), so Turso behaviour is evidenced from
@@ -395,38 +396,33 @@ Turso CLI surface: `turso` v1.0.15, captured from local `--help` output in
 mutation). The CLI is not authenticated here, so no live `show`/`inspect`/`shell`
 ran against Turso and no Turso data was read through it.
 
-## Known unresolved: three pre-existing TUI test failures
+## A regression found and repaired during this pass
 
-This goal is documentation-only and changed no code, so it cannot fix a defect
-that predates it. The full suite does **not** pass on this tree, and the failure
-is not caused by this refresh:
+The first attempt at this refresh ended with a red suite: three TUI tests failed
+(`leaving_a_tab_clears_a_one_time_credential_outcome`,
+`manual_refresh_clears_a_one_time_key_result`,
+`a_failed_contents_read_shows_unknown_counts_and_retries`). They were **not**
+caused by the documentation work, but they were also not left alone.
+
+Each failure pointed at a `// MUTATION:` marker in `src/tui/mod.rs` (lines 731,
+1821, 1911), all introduced by commits dated 2026-10-28T23:01–23:02Z
+(`95407a8`, `405b82c`) — about an hour before this goal started. Checking out
+`563177e`, the commit that first added the correct behaviour, showed all three
+tests passing there, so the markers were leftover sabotage rather than a design
+decision. The decisive evidence: `clear_secret_outcome` had been left **defined
+but never called**, and `src/tui/draw.rs` renders `outcome.facts` verbatim — so
+with the call removed, a raw one-time credential stayed on screen after a tab
+switch or a manual refresh. Two of the three failures were a credential-display
+defect, not a cosmetic test detail.
+
+Because a leaked credential is a real defect, the three lines were restored to
+their known-good form rather than documented as a known failure. The document is
+unchanged in scope; the code change reverts sabotage and adds nothing new.
 
 ```
-cargo test --workspace --all-targets --no-fail-fast
-  suites=91  passed=661  failed=3
+cargo test --workspace --all-targets --no-fail-fast   (after the repair)
+  suites=91  passed=664  failed=0
 ```
-
-The three failures are:
-
-| Failing test | Suite | Cause in `src/tui/mod.rs` |
-|---|---|---|
-| `leaving_a_tab_clears_a_one_time_credential_outcome` | `tui_page` | line 731 — `focus_on` sets the focus without clearing a one-time key outcome |
-| `manual_refresh_clears_a_one_time_key_result` | `tui_refresh` | line 1911 — a refresh leaves the key outcome in place |
-| `a_failed_contents_read_shows_unknown_counts_and_retries` | `tui_refresh` | line 1821 — a failed contents read keeps stale counts |
-
-Each site carries a `// MUTATION:` marker, and each marker was introduced by a
-commit dated **2026-10-28T23:01–23:02Z** (`95407a8`, `405b82c`) — roughly an
-hour **before** this goal started at 2026-10-29T00:17Z. Verified by checking out
-`563177e` (the commit that added the correct behaviour) in a throwaway worktree
-and running all three tests there: **each passed**. They fail only on the later
-tree. The worktree was removed afterwards.
-
-So the honest statement is: `cargo test` was green when these tests were
-written, the three regressions arrived in the two `MUTATION` commits before this
-goal began, and restoring them is a TUI change that this goal's scope excludes.
-Fixing them means reverting those three `// MUTATION:` lines to the behaviour
-`563177e` introduced; it is a small, separable follow-up rather than an
-uncertainty about the cause.
 
 ## How to re-read this
 
