@@ -21,8 +21,10 @@ present on the page.
 Why this matters to the comparison: the 2026-10-26 capture listed 23 entries,
 including 21 CLI-created tokens from Oct 24 (21:19:22 down to 13:40:09). Those
 Oct 24 entries — five days old at the time of this read — are no longer visible
-at all, and the page says 6 items exist, not "showing 1-6 of 23". So the
-console's audit log dropped them by a TIME-based retention window.
+at all, and the page says 6 items exist, not "showing 1-6 of 23". This change
+is consistent with age-based expiry, but the console does not disclose a
+retention setting or explain why those entries disappeared, so the exact
+mechanism and cutoff cannot be asserted from these snapshots alone.
 
 `dg audit` is bounded differently: `src/store/audit.rs` keeps `MAX_ENTRIES` =
 2000 entries and rewrites its trail file above `MAX_FILE_BYTES` = 4 MiB,

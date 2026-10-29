@@ -254,12 +254,14 @@ Cost: low — the confirmation is strong — but a "do not delete this" flag is
 cheap insurance for a database you cannot lose. Fix: a registry flag checked by
 the delete route. In-architecture.
 
-### Gap 8 — Audit retention differs, and Turso's is time-based (low; `dg` is better)
+### Gap 8 — Turso's visible audit history is shorter, but its retention rule is undisclosed (low)
 
 Read live on 2026-10-29: Turso's Audit Logs page reports **"Showing 1-6 of 6
 items"** with all paging buttons disabled. The 2026-10-26 capture of the same
 page listed **23 entries**, including 21 CLI-created tokens from Oct 24. Those
-five-day-old entries are gone, and the console does not say it dropped them.
+entries are no longer visible, but the console does not expose a retention
+setting or explain their disappearance; the observation is consistent with
+age-based expiry, not proof of its exact policy or cutoff.
 
 `dg audit` is bounded differently: `src/store/audit.rs` keeps `MAX_ENTRIES` =
 2000 entries and rewrites its trail file above `MAX_FILE_BYTES` = 4 MiB,
@@ -267,8 +269,10 @@ dropping the oldest. That is a **count/size** bound, not a time bound, and the
 trail is durable across restarts (`audit.jsonl` in the data directory).
 
 So: on a quiet box `dg` keeps its whole trail indefinitely; on a busy one it
-turns over by count. Either way it does not silently expire entries by age the
-way the console just did. Not a gap to close — a property to know.
+turns over by count. Turso's observed view showed fewer entries five days later,
+but the cause is undisclosed. Disposition: no behavior change in this
+documentation-only comparison; operators should not assume a Turso retention
+period from these two snapshots.
 
 ### Gap 9 — No CSV or SQL-dump import (low)
 
@@ -300,7 +304,7 @@ Read from the live local gateway and the code, not asserted.
 | Advantage | Evidence |
 |---|---|
 | **No quotas, no throttling, no invoice.** | The console shows "Quota Critical 99% used … your account may be throttled soon" and two databases in **Writes Blocked** status on every page. `dg` has no metering path at all. |
-| **The operator owns the audit trail.** | Turso dropped five-day-old audit entries by age (gap 8). `dg audit` is a 2000-entry durable JSONL file on the operator's disk, with action, database and statement shape. |
+| **The operator owns the audit trail.** | Turso's live page showed 6 entries versus 23 in the Oct 26 capture, with 21 Oct 24 entries no longer visible and no disclosed retention rule (gap 8). `dg audit` is a 2000-entry durable JSONL file on the operator's disk, with action, database and statement shape. |
 | **Statement shapes, never literal values.** | Turso's Top Queries prints `LIKE 'aig-session-%'` and `status='settled'`; `dg queries` prints `LIKE ?` and `status = ?`. |
 | **Backups are first-class and verifiable offline.** | `dg backup status/digest/verify` judge each database `fresh`/`behind`/`stale` against an approved cadence, and `dg backup verify` re-checks a published set's manifest and hash chain with the gateway stopped. Turso's console offers download and point-in-time branches, not an offline verifier. |
 | **Restore window is inspectable and planned before it is taken.** | `dg restore list` publishes the window (`oldest` → `newest`) per database from the live replica; `dg restore plan --to <ISO>` says what a restore would reach. |
