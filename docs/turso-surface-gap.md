@@ -29,8 +29,8 @@ Status key: **have** = `dg` answers the same question; **partial** = it answers
 part of it, or answers it only in one surface; **missing** = no `dg`
 counterpart; **not-applicable** = structurally inapplicable to a single-operator,
 single-node box. Each row's evidence column distinguishes the live 2026-10-29
-console read from the installed CLI's 2026-10-29 `--help` read. The October
-captures are historical and appear only in the appendix / evidence list.
+console read from the installed CLI's 2026-10-29 `--help` read. Historical
+October captures are called out by date wherever they support a comparison.
 
 ### 1.1 Database CLI and lifecycle
 
@@ -126,7 +126,7 @@ product capabilities.
 | `turso group create/destroy/list/locations/rename/show/transfer/update/config/tokens/aws-migration/unarchive` | — | not-applicable | CLI `--help` (2026-10-29). | No groups, regions, remote transfers, or archival tier (§4). |
 | `turso org audit-logs/create/db-transfer/destroy/invites/invoice/jwks/list/members/switch` | — | not-applicable | CLI `--help` (2026-10-29). | Single owner, no organisations (§4). |
 | `turso plan show` | — | not-applicable | CLI `--help` (2026-10-29). | No plan or usage billing. |
-| `turso dev` | `dg serve` | have | CLI `--help` (2026-10-29). | Both run the local service; `dg serve` uses the operator's real data directory. |
+| `turso dev` | `dg serve` | not-applicable | CLI `--help` (2026-10-29). | Turso's development emulator and `dg`'s durable local service are different operating modes; no separate throwaway-emulation mode is in scope for this single-node gateway (§4). |
 | `turso quickstart`, `turso update`, `turso relax` | — | not-applicable | CLI `--help` (2026-10-29). | Onboarding, CLI self-update, and a joke command are not gateway features. |
 | `turso help`, `turso --version` | — | not-applicable | CLI `--help` (2026-10-29). | CLI metadata, not database/service capabilities. |
 
