@@ -626,6 +626,23 @@ captures and `dg --help` — including the two flags the matrix leans on most,
 `dg export` refusing an existing output file and `dg key revoke` taking a single
 NAME, both confirmed verbatim.
 
+**Correction to this audit, same day.** The first pass renumbered the gaps but
+left the old numbers behind in prose and in the matrix, so the document
+contradicted itself: §3 still pointed at "gap 8" and "gap 10" for items that had
+moved to §2b, §4 still described the read-only and undelete gaps by their old
+numbers, and the closing line still claimed "Gaps 1–11 are real" after only seven
+survived. Every reference now resolves to one of the seven, or to §2b.
+
+One row was also re-judged rather than just re-pointed. **Block Reads** had been
+folded in with Block Writes as "the same surface", citing the delete-protection
+gap — which was wrong on both counts. Blocking *writes* protects data from
+damage, and that is genuinely gap 3. Blocking *reads* protects no data: a SELECT
+cannot corrupt a file. It exists so a party you distrust cannot *see* rows, which
+is a tenancy question Turso's operator answers about its customers. Here the
+operator holds the only key to the box, and distrust of a reader is resolved by
+revoking it (gap 4), not by masking what it reads. The row is now
+not-applicable with that rationale in §4.
+
 ## Related
 
 - `docs/cli-turso-mapping.md` — the per-verb mapping table (mapping drift is
