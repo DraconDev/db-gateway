@@ -728,7 +728,8 @@ impl App {
     /// leaving the tab on which it was shown.
     fn focus_on(&mut self, focus: Focus) {
         if self.focus != focus {
-            self.focus = focus; // MUTATION: secret not cleared
+            self.clear_secret_outcome();
+            self.focus = focus;
         }
     }
 
@@ -1818,7 +1819,7 @@ impl App {
                         )
                     })
                     .collect::<serde_json::Map<String, Value>>();
-                let _ = databases; // MUTATION: stale counts kept on a failed read
+                self.contents = Some(serde_json::json!({"databases": databases}));
                 Some(error.message.to_string())
             }
         }
@@ -1908,7 +1909,7 @@ impl App {
                 return;
             }
             Invocation::Refresh => {
-                // MUTATION: secret not cleared on refresh
+                self.clear_secret_outcome();
                 // Both the `r` key and the command palette arrive here;
                 // a manual refresh means counts are re-read regardless of
                 // their background polling deadline.
