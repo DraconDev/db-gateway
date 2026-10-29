@@ -628,10 +628,10 @@ NAME, both confirmed verbatim.
 
 **Correction to this audit, same day.** The first pass renumbered the gaps but
 left the old numbers behind in prose and in the matrix, so the document
-contradicted itself: §3 still pointed at "gap 8" and "gap 10" for items that had
+contradicted itself: §3 still pointed at the retired numbers for items that had
 moved to §2b, §4 still described the read-only and undelete gaps by their old
-numbers, and the closing line still claimed "Gaps 1–11 are real" after only seven
-survived. Every reference now resolves to one of the seven, or to §2b.
+positions, and the closing line still said every gap remained real after only
+seven survived. Every reference now resolves to one of the seven, or to §2b.
 
 One row was also re-judged rather than just re-pointed. **Block Reads** had been
 folded in with Block Writes as "the same surface", citing the delete-protection
