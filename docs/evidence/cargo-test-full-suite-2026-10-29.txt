@@ -130,3 +130,38 @@ Recorded so the record is not a claim of perfect determinism. The durable fix
 belongs in a source-changing goal: widen that deadline or run the SIGKILL case
 serially — not in a documentation pass, and not decided mid-run on a host that
 cannot hold stable timing.
+
+===== addendum 2: root cause of the intermittent failures found =====
+
+The intermittency is host contention from a DIFFERENT project, not this repo.
+At the time of the crash_restart failure a concurrent full test suite was
+running from another checkout:
+
+  298097  cargo test --workspace --locked -- --test-threads=1
+          (working dir /home/dracon/Dev/dracon-utilities,
+           log /tmp/gate-workspace-tests-2026-10-29.log)
+
+That suite itself finished with "1523 passed; 1 failed" after 1091.97s. The
+host was simultaneously carrying ~4,500 threads across many pi sessions and
+`free -g` reported 0 GB available of 30 GB, with a load average of 144 at the
+worst point. Under that pressure two different timing-sensitive tests failed on
+two different audit runs — tests/orphan_guard.rs:332 (fixed 10s
+`wait_gone` deadline) and tests/crash_restart.rs:90 (a server connection reset
+mid-handshake) — while never failing when run alone.
+
+Observed full-suite results on this identical tree:
+  4 x exit 0, 91 suites, 664 passed, 0 failed
+  2 x exit 101, one timing test each, both under foreign-suite contention
+
+Each of the two failing tests passes in isolation on demand:
+  cargo test -p dg --test crash_restart          -> 3/3 runs ok (2 passed each)
+  cargo test -p dg --test orphan_guard -- --test-threads=1 -> 3 passed
+
+Neither file was touched by this goal:
+  git log --since='2026-10-29T00:17:36Z' -- tests/crash_restart.rs tests/orphan_guard.rs
+  -> empty
+
+So the honest record is: the suite is green on this tree and green repeatedly,
+but this repo's process-lifecycle tests are not robust to a host running another
+project's full suite at the same time. Making them robust is a source change
+belonging to its own goal, not to a documentation pass.
