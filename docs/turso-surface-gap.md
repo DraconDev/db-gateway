@@ -293,16 +293,23 @@ period from these two snapshots.
 
 ### Gap 9 — Import and create-policy options differ (low)
 
-Turso `db create` accepts CSV, SQL-dump, URL and SQLite sources, plus a
-per-database size limit, schema-only type and experimental extension enablement.
-`dg import --from` accepts a regular SQLite file only (128 MiB ceiling); `dg
-create` makes an ordinary SQLite file, which can be initialized with explicit
-SQL but has no per-database size or extension switch.
+Turso `db create` accepts a local SQLite file, a local SQL dump (`--from-dump`),
+a CSV (`--from-csv`), and a **remote** dump fetched by URL (`--from-dump-url`),
+plus a per-database size limit, schema-only type and experimental extension
+enablement. `dg import --from` accepts a regular SQLite file only (128 MiB
+ceiling); `dg create` makes an ordinary SQLite file, which can be initialized
+with explicit SQL but has no per-database size or extension switch.
 
-Cost: CSV/dump sources need local conversion; schema-only setup needs an explicit
-SQL file; storage limits belong to the host/filesystem and extension loading is
-not exposed. Disposition: low-impact migration and policy differences; no
-behavior change in this docs-only comparison. See `docs/evidence/turso-cli-help-2026-10-29.txt`.
+The `--from-dump-url` variant is the sharpest of these: `dg` has no
+network-fetch path anywhere in its import surface, so a dump hosted elsewhere
+must be downloaded to disk first. That is deliberate — an import source is a
+local file the operator can inspect and hash — but it is a real extra step.
+
+Cost: CSV/dump sources need local conversion; a remote dump needs a manual
+download; schema-only setup needs an explicit SQL file; storage limits belong to
+the host/filesystem and extension loading is not exposed. Disposition: low-impact
+migration and policy differences; no behavior change in this docs-only
+comparison. See `docs/evidence/turso-cli-help-2026-10-29.txt`.
 
 ### Gap 10 — CLI mapping drift (low; corrected during this refresh)
 
