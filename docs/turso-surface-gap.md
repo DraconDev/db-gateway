@@ -39,7 +39,7 @@ single-node box.
 | `turso db inspect <db>` | `dg inspect <db>` | partial | On a terminal it renders database/activity/backup/tables sections; off a terminal it degrades to the plain info document. See gap 1. |
 | `turso db inspect --queries` | `dg queries --database <db>` | have | Per-statement cost. `dg` answers it globally or per database, not as a flag on `inspect`. |
 | `turso db create` | `dg create` | have | |
-| `turso db create --from-file/--from-dump/--from-csv` | `dg import --from <file>` | partial | Only SQLite files. No CSV or SQL-dump import path. |
+| `turso db create --from-file/--from-dump/--from-csv` | `dg import --from <file>` | partial | Only SQLite files. No CSV or SQL-dump import path. See gap 9. |
 | `turso db destroy` | `dg delete --confirm <name>` | have | `dg` tombstones then purges after retention; requires the name typed twice. |
 | `turso db update` | — | n/a | Deploy is a binary swap; `docs/deployment.md`. |
 | `turso db unarchive` / `wakeup` | — | n/a | No archival tier; local files are always present. |
@@ -59,7 +59,7 @@ Console tabs: **Overview**, **Branches**, **Analytics**, **Top Queries**,
 | Turso surface | `dg` equivalent | Status | Note |
 |---|---|---|---|
 | Overview → Activity (rows read/written, storage, syncs) | `dg inspect`, `dg status`, TUI service/databases tabs | have | `dg` adds queue-wait percentiles Turso does not expose. |
-| Overview → Connect → Database URL | `dg status` → `listen`, SSH tunnel | partial | `dg` reports the bound address; it does not mint a public URL because there is none. |
+| Overview → Connect → Database URL | `dg status` → `listen`, SSH tunnel | n/a | `dg` reports the bound loopback address; there is no public URL to mint. Remote access is an SSH tunnel (§4). |
 | Overview → Create Token | `dg key create --role … --database …` | have | |
 | Overview → Export → Download SQLite File | `dg export --out` | have | |
 | Overview → Block Reads / Block Writes | — | missing | No per-database read/write kill switch. See gap 5. |
@@ -79,10 +79,10 @@ Console tabs: **Overview**, **Branches**, **Analytics**, **Top Queries**,
 
 | Turso surface | `dg` equivalent | Status | Note |
 |---|---|---|---|
-| Databases list (rows read/written, bytes synced, storage, group, status) | `dg list`, `dg contents`, TUI databases tab | partial | `dg` has rows read/written, storage, and contents from the files; it has no "bytes synced" (no replication) and no server-imposed per-database status. |
+| Databases list (rows read/written, bytes synced, storage, group, status) | `dg list`, `dg contents`, TUI databases tab | partial | `dg` has rows read/written, storage, and contents from the files. "Bytes synced" is replication accounting (§4) and the per-database status is a provider-imposed write block, both inapplicable; the storage figure and counters are order-of-magnitude differences only, not gaps. See gap 2 for the missing trend. |
 | Analytics (org): quota cards | — | n/a | No quotas to meter against. |
 | Analytics (org): Latency / Rows Read / Rows Written / Inbound / Outbound / Syncs / Storage 30-day charts | — | missing | See gap 2. |
-| Analytics (org): Top Databases ranked by rows read | TUI databases tab, `dg status` | partial | Present-tense ranking only. |
+| Analytics (org): Top Databases ranked by rows read | TUI databases tab, `dg status` | partial | Present-tense ranking only; no trend. See gap 2. |
 | Analytics (org): Top Queries ranked by rows read | `dg queries` | partial | See gap 3. |
 | Audit Logs (Author, Event, Origin, Timestamp) | `dg audit` | have | `dg` adds the action, the database, and the statement shape. Different retention bounds — see gap 8. |
 | Billing / Usage / Upgrade / plan / invoices | — | n/a | No billing. |
