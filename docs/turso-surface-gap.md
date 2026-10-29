@@ -15,6 +15,10 @@ missing?
 - **Evidence**: the captures listed at the end. The October 2026 captures are
   retained unchanged as history and are marked as such wherever they are
   cited.
+- **Tree state**: this refresh changed documentation only. Three TUI tests were
+  already failing on this tree from a commit made an hour before the goal
+  started; see "Known unresolved" near the end, which records the cause and the
+  check that the tests passed before it.
 
 The `turso` CLI is **not authenticated** in this environment (`turso auth
 whoami` answers "You are not logged in"), so Turso behaviour is evidenced from
@@ -390,6 +394,39 @@ Turso CLI surface: `turso` v1.0.15, captured from local `--help` output in
 `docs/evidence/turso-cli-help-2026-10-29.txt` (no account authentication or
 mutation). The CLI is not authenticated here, so no live `show`/`inspect`/`shell`
 ran against Turso and no Turso data was read through it.
+
+## Known unresolved: three pre-existing TUI test failures
+
+This goal is documentation-only and changed no code, so it cannot fix a defect
+that predates it. The full suite does **not** pass on this tree, and the failure
+is not caused by this refresh:
+
+```
+cargo test --workspace --all-targets --no-fail-fast
+  suites=91  passed=661  failed=3
+```
+
+The three failures are:
+
+| Failing test | Suite | Cause in `src/tui/mod.rs` |
+|---|---|---|
+| `leaving_a_tab_clears_a_one_time_credential_outcome` | `tui_page` | line 731 — `focus_on` sets the focus without clearing a one-time key outcome |
+| `manual_refresh_clears_a_one_time_key_result` | `tui_refresh` | line 1911 — a refresh leaves the key outcome in place |
+| `a_failed_contents_read_shows_unknown_counts_and_retries` | `tui_refresh` | line 1821 — a failed contents read keeps stale counts |
+
+Each site carries a `// MUTATION:` marker, and each marker was introduced by a
+commit dated **2026-10-28T23:01–23:02Z** (`95407a8`, `405b82c`) — roughly an
+hour **before** this goal started at 2026-10-29T00:17Z. Verified by checking out
+`563177e` (the commit that added the correct behaviour) in a throwaway worktree
+and running all three tests there: **each passed**. They fail only on the later
+tree. The worktree was removed afterwards.
+
+So the honest statement is: `cargo test` was green when these tests were
+written, the three regressions arrived in the two `MUTATION` commits before this
+goal began, and restoring them is a TUI change that this goal's scope excludes.
+Fixing them means reverting those three `// MUTATION:` lines to the behaviour
+`563177e` introduced; it is a small, separable follow-up rather than an
+uncertainty about the cause.
 
 ## How to re-read this
 
