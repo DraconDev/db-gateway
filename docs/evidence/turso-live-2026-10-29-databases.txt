@@ -1,0 +1,38 @@
+Turso web console — Databases list, dracondev org — read live 2026-10-29 via the
+Chrome bridge (document.body.innerText). Supersedes the 2026-10-26 capture for
+current-surface purposes; the October file is retained as history.
+
+Columns: Name, Type, Rows Read, Rows Written, Bytes Synced, Storage, Group,
+Status, (Edit Data link per row). Page chrome: "Restore deleted databases",
+"Show branches", "Showing 50 databases per page" (50 per page selector, Next).
+
+Name | Type | Rows Read | Rows Written | Bytes Synced | Storage | Group | Status
+ai-books | Database | 37,033,582 | 2 | 0 B | 29.52 MB | default | Active
+ai-model-list | Database | 16 | 0 | 0 B | 4.1 KB | default | Active
+dracon-aihub-dev | Database | 18 | 0 | 0 B | 831.49 KB | default | Active
+dracon-auth | Database | 62,818 | 21,645 | 0 B | 364.54 KB | default | Active
+dracon-auth-dev | Database | 245,483 | 14,946 | 0 B | 12.79 MB | default | Active
+dracon-billing | Database | 52,306 | 157 | 0 B | 245.76 KB | default | Active
+dracon-billing-dev | Database | 260,643 | 1,653 | 1.51 MB | 1.22 MB | default | Active
+dracon-email | Database | 17,032 | 615 | 0 B | 180.22 KB | default | Active
+dracon-email-dev | Database | 36,290 | 2,475 | 0 B | 528.38 KB | default | Active
+dracon-jobs-dev | Database | 4,536,319 | 265,139 | 0 B | 4.08 MB | default | Active
+dracon-music | Database | 368 | 9 | 0 B | 57.34 KB | default | Active
+dracon-music-dev | Database | 1,418 | 0 | 0 B | 802.82 KB | default | Active
+dracon-saves | Database | 12 | 0 | 0 B | 20.48 KB | default | Active
+dracon-saves-dev | Database | 12 | 0 | 0 B | 12.29 KB | default | Active
+dracon-search-dev | Database | 140 | 3 | 0 B | 90.11 KB | default | Active
+dracon-studio | Database | 47,458,503 | 5,437,201 | 0 B | 296.54 MB | default | Writes Blocked
+dracon-studio-dev | Database | 2,165,085,739 | 19,599,101 | 0 B | 805.42 MB | default | Writes Blocked
+dracon-ytcache | Database | 6 | 0 | 0 B | 4.1 KB | default | Active
+dracon-ytcache-dev | Database | 2,375 | 2 | 0 B | 32.77 KB | default | Active
+
+Notes carried from the live page, not from the table body:
+- Quota banner on every page: "Quota Critical 99% used — You're using 99% of your
+  rows written quota. Your account may be throttled soon. See plans".
+- Two databases are in the "Writes Blocked" status, which the `dg` model has no
+  counterpart for: it is a per-database server-side write lock imposed by the
+  provider (quota), not a local state an operator sets.
+- Only 19 databases are listed today; the October capture showed the same 19
+  names, so no database was added or removed in the interval. Figures moved
+  (e.g. dracon-auth-dev rows read 117,989 -> 245,483), which is usage, not shape.

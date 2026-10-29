@@ -1,0 +1,47 @@
+Turso web console — Analytics page, dracondev org — read live 2026-10-29 via the
+Chrome bridge. Supersedes the 2026-10-26 analytics capture for current-surface
+purposes. Quota figures changed; the surface shape did not.
+
+Sidebar (every console page): dracondev / Developer / Create Database / Create
+Group / Turso Cloud / Databases / Analytics / Audit Logs / Billing / Settings /
+Support / Upgrade / Usage / Toggle theme / Toggle Sidebar.
+
+Quota cards (above the fold):
+  Rows Read      2.21B / 2.50B
+  Rows Written   24.72M / 25M
+  Syncs          1.51 MB / 10 GB
+  Storage        1.15 GB / 9 GB
+  Next Invoice   $5.99  [View Invoice]
+  Banners: "Quota Critical 99% used"; "Vegas Blackout: Usage was erased on
+  October 11th — Analytics still shows your usage, but you won't be charged
+  for it."
+
+Charts, each "Last 30 days" with its own y-axis: Latency (with a p50/p75/p90/
+p95/p99/Average series selector), Rows Read, Rows Written, Inbound Traffic,
+Outbound Traffic, Syncs, Storage. These are TIME SERIES — the thing `dg` has no
+counterpart for at all.
+
+Top Databases — "Ranked by rows read · Today (UTC)", with a Rank by selector,
+a Show totals toggle and a Today / This month range. Each row carries: Query
+time (avg), Rows read (avg), Rows written (avg), Queries, Synced, Inbound,
+Outbound, Storage. Live rows include dracon-studio (180 µs avg, 2.33K queries,
+805.42 MB storage), dracon-billing-dev, dracon-billing, dracon-auth-dev,
+dracon-email-dev, dracon-email, dracon-auth, dracon-music, dracon-music-dev,
+dracon-studio-dev.
+
+Top Queries — same ranking controls. Each row: Query time (avg), Rows read
+(avg), Rows written (avg), Queries, then the statement text VERBATIM with its
+literals intact. Examples read live:
+  - a studio_channel_profile SELECT with ~280 literal `?` placeholders
+  - a studio_video_snapshots query with ROW_NUMBER() OVER (...), a LEFT JOIN,
+    and quoted literals 'server-key-home' / 'server-key-detail'
+  - SELECT ... FROM dracon_ai_reservations WHERE status='settled' ORDER BY
+    created_at DESC LIMIT 14
+  - SELECT idempotency_key FROM dracon_ai_reservations WHERE
+    idempotency_key LIKE 'aig-session-%'
+  - SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'dracon_ai%'
+
+The contrast that matters for the comparison: Turso's Top Queries shows the
+operator's LITERAL VALUES in the statement text, because it is the tenant's own
+data inside the provider's multi-tenant fleet. `dg queries` shows the statement
+SHAPE with literals replaced by `?`.
