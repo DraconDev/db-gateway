@@ -568,9 +568,55 @@ The Turso side is a moving target: the Audit Logs view showed 6 entries on
 2026-10-29 versus 23 in the 2026-10-26 capture, but did not disclose why older
 entries disappeared. Re-read the console before relying on a gap being open,
 and re-run the `dg` side against a current build. Gap 1 is carried forward
-from October because it was re-verified today. Gap 10 records mapping errors
-from the earlier audit and the correction made here; neither should be treated
-as current without a fresh check.
+from October because it was re-verified today, and the mapping drift it used to
+sit beside is now recorded in §2b as already corrected. Neither should be
+treated as current without a fresh check.
+
+## Mindset audit, 2026-10-29
+
+This document was re-audited against one question: does every ranked gap name a
+harm that a single operator on their own box could actually suffer, or does it
+only exist because Turso, a provider, offers the same control for reasons of its
+own? The answer changed the structure.
+
+**What was wrong.** The ranked list held eleven entries, and four of them were
+not gaps:
+
+- `dg queries` showing statement shapes instead of literal values was described
+  in its own text as "not a gap to close" — a privacy property the operator
+  gains — yet it was numbered among the defects.
+- Edit Data being read-only was likewise called "a deliberate non-goal, not a
+  missing feature" while sitting in the same list.
+- The difference in audit retention asks nothing of `dg`: Turso's rule is
+  undisclosed, which is an observation about Turso, not a debt here.
+- The CLI mapping drift was already corrected in `docs/cli-turso-mapping.md`
+  before this audit ran, so it recorded a past fix rather than an open gap.
+
+Those four moved to §2b. Listing a considered design choice as a "gap" quietly
+promises a fix that should never come, and it inflates the apparent distance
+between `dg` and Turso.
+
+**What was re-judged.** The remaining seven were re-tested against the
+lone-operator standard, and two were re-graded downward:
+
+- Credential expiry, per-table scopes and group tokens are governance for
+  credentials handed to other people; a key file on the operator's own disk
+  gains little from a calendar. Only bulk revocation survives, because it
+  shortens a real incident.
+- The CIDR/VPC allow-list is a provider firewall. `dg` is loopback-only behind
+  an SSH tunnel, so the network already answers that question; it is now
+  not-applicable in §4 rather than a missing feature.
+
+Two were kept for the opposite reason — they look small next to Turso's console
+but protect the operator from an ordinary mistake: making one database read-only
+mid-incident so a single misbehaving application cannot keep writing, and being
+able to undo a delete.
+
+**What this audit did not do.** It did not re-read the Turso console or change
+how `dg` behaves. Every claim was checked against the committed 2026-10-29
+captures and `dg --help` — including the two flags the matrix leans on most,
+`dg export` refusing an existing output file and `dg key revoke` taking a single
+NAME, both confirmed verbatim.
 
 ## Related
 
