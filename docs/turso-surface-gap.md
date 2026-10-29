@@ -88,7 +88,8 @@ Console tabs: **Overview**, **Branches**, **Analytics**, **Top Queries**,
 
 | Turso surface | `dg` equivalent | Status | Note | Turso evidence |
 |---|---|---|---|---|
-| Databases list (rows read/written, bytes synced, storage, group, status) | `dg list`, `dg contents`, TUI databases tab | partial | `dg` has rows read/written, storage, and contents from the files. "Bytes synced" is replication accounting (§4) and the per-database status is a provider-imposed write block, both inapplicable; the storage figure and counters are order-of-magnitude differences only, not gaps. See gap 2 for the missing trend. | Console (2026-10-29). |
+| Databases list (rows read/written, bytes synced, storage, group, status) | `dg list`, `dg contents`, TUI databases tab | partial | `dg` has rows read/written, storage, and contents from the files. Groups are a cloud construct (§4); "bytes synced" is replication accounting and provider-imposed write-block status is inapplicable. The storage/counter views are present-tense only; see gap 2 for missing trends. | Console (2026-10-29). |
+| Databases list → Restore deleted databases | `dg delete` tombstone retention; no undelete command | missing | A tombstoned `dg` file remains until purge, but the CLI has no action to undelete it; `dg restore list/plan` only describes the off-host backup window. See gap 7. | Console (2026-10-29). |
 | Analytics (org): quota cards | — | not-applicable | No quotas to meter against. | Console (2026-10-29). |
 | Analytics (org): Latency / Rows Read / Rows Written / Inbound / Outbound / Syncs / Storage 30-day charts | — | missing | See gap 2. | Console (2026-10-29). |
 | Analytics (org): Top Databases ranked by rows read | TUI databases tab, `dg status` | partial | Present-tense ranking only; no trend. See gap 2. | Console (2026-10-29). |
@@ -248,15 +249,18 @@ bounded in-architecture improvement; expiry and table/action grants need
 explicit policy and credential schema changes. No behavior change is in this
 documentation-only goal.
 
-### Gap 7 — No delete protection (low–medium)
+### Gap 7 — No delete protection or undelete action (low–medium)
 
-Turso's Delete Protection prevents a database from being deleted at all. `dg`
-has only the typed `--confirm <name>` (and the TUI's typed confirmation), which
-protects against a fat-fingered command but not against a deliberate one.
+Turso offers both Delete Protection and a **Restore deleted databases** control
+in the database list. `dg` requires the typed `--confirm <name>` (and the TUI's
+typed confirmation), then tombstones the file until retention expires; there is
+no command to undelete it. `dg restore list/plan` describes the off-host backup
+window but is not an undelete action.
 
-Cost: low — the confirmation is strong — but a "do not delete this" flag is
-cheap insurance for a database you cannot lose. Fix: a registry flag checked by
-the delete route. In-architecture.
+Cost: confirmation protects against fat-fingers, but after a deliberate delete
+or an incident there is no one-step way to bring the tombstone back. Disposition:
+a registry protection flag and explicit undelete path are in-architecture
+options; recovery otherwise requires the operator's off-host backup workflow.
 
 ### Gap 8 — Turso's visible audit history is shorter, but its retention rule is undisclosed (low)
 
