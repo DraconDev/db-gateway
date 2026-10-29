@@ -78,9 +78,10 @@ Console tabs: **Overview**, **Branches**, **Analytics**, **Top Queries**,
 | Overview → Delete Database | `dg delete --confirm <name>` | have | Typed confirmation and tombstone retention. | Console (2026-10-29). |
 | Overview → Allow ATTACH | — | not-applicable | Cross-database ATTACH is outside `dg`'s isolated-file model (§4). | Console (2026-10-29). |
 | Overview → Delete Protection | — | missing | No persistent guard against deliberate deletion; see gap 7. | Console (2026-10-29). |
-| Overview → Block Reads / Block Writes | — | missing | No per-database read/write kill switch. See gap 5. | Console (2026-10-29). |
-| Overview → Restrict Access (CIDR / VPC allow-list) | — | missing | Loopback-only listener; remote access is an SSH tunnel. See gap 5. | Console (2026-10-29). |
-| Overview → Invalidate All Tokens | `dg key revoke <name>` (one at a time) | partial | See gap 6. | Console (2026-10-29). |
+| Overview → Block Writes | — | missing | No per-database write switch; stopping the service or revoking credentials takes every database down. See gap 5. | Console (2026-10-29). |
+| Overview → Block Reads | — | missing | Same surface as Block Writes; recorded together in gap 5. | Console (2026-10-29). |
+| Overview → Restrict Access (CIDR / VPC allow-list) | — | not-applicable | Provider firewall for shared infrastructure. `dg` is loopback-only with remote access by SSH tunnel, so network admission is answered by the host and the credential; §4. | Console (2026-10-29). |
+| Overview → Invalidate All Tokens | `dg key revoke <name>` (one at a time) | partial | A single leaked key revokes in one command; revoking every key scoped to a database is a manual loop. See gap 6. | Console (2026-10-29). |
 | Branches → Create From Now | `dg branch create <parent> <name>` | have | | Console (2026-10-29). |
 | Branches → Create From Point-in-Time | `dg branch create --from <ISO8601>` | have | Reports the backup window when the moment falls outside it. | Console (2026-10-29). |
 | Branches → list | `dg branch list`, `dg branch show` | have | | Console (2026-10-29). |
@@ -148,6 +149,23 @@ product capabilities.
 
 Ranked by what it would cost an operator in the first week. Each gap names the
 evidence, and whether it is fixable inside the current architecture.
+
+**How the ranking is judged.** This is one operator's own gateway on their own
+machine, not a provider serving tenants. That changes what a missing control is
+worth, and it is the main reason several Turso controls below rank lower here
+than their prominence in the console suggests. Turso has to offer Block Writes,
+CIDR allow-lists and per-table scopes because its operator is not the only party
+with access; `dg`'s operator already owns the machine, the data directory and the
+key file. A control that exists to govern someone else is not the same gap as one
+that protects the operator from their own mistake.
+
+So the ranking asks two things: does this protect the operator from a mistake or
+an incident they could realistically have, and would the missing piece cost them
+real time in the first week? Ceremony that only reproduces a provider's
+multi-tenant machinery ranks low or is recorded as not-applicable (§4). Two
+controls that do protect a lone operator — being able to make one database
+read-only during an incident, and being able to undo a delete — stay on the list
+for that reason, not because Turso has them.
 
 ### Gap 1 — `dg inspect` still degrades off a terminal (high; smallest fix)
 
@@ -225,23 +243,29 @@ Cost: an operator cannot click a cell and fix a typo. That is intentional —
 needs its own statement so it lands in the audit log with its shape. Recorded
 as a deliberate non-goal, not a missing feature.
 
-### Gap 5 — No per-database traffic controls (medium)
+### Gap 5 — No way to make one database read-only during an incident (medium)
 
 Turso's per-database Configuration offers **Block Reads**, **Block Writes**,
-and **Restrict Access** by CIDR block or AWS VPC endpoint. All are live controls,
-read on 2026-10-29. (Allow ATTACH is not applicable to `dg`'s isolated-file
-model; Delete Protection is gap 7.)
+and **Restrict Access** by CIDR block or AWS VPC endpoint. All are live
+controls, read on 2026-10-29. (Allow ATTACH is not applicable to `dg`'s
+isolated-file model; Delete Protection is gap 7.)
 
-`dg` uses one loopback listener, remote access via SSH tunnel, and authorization
-by credential scope and role. There is no per-database switch to refuse writes
-or per-database IP allow-list.
+The CIDR/VPC allow-list is provider machinery, not a personal gap: `dg` listens
+on loopback and reaches remote gateways through an SSH tunnel, so "who may
+connect" is already answered by the network and the credential. Recorded in §4
+rather than counted as a loss.
 
-Cost: during an incident you cannot say "this one database is now read-only";
-you can only revoke credentials or stop the service. Disposition: a
-per-database read-only flag is in-architecture; a CIDR/VPC allow-list would
-require changing or extending the current loopback-only ingress trust model.
+What does matter on a single-operator box is the write switch. If a bug in one
+application starts corrupting its own database — plausible without any adversary
+— `dg` offers no way to say "this database is read-only now" short of stopping
+the whole service or revoking credentials, both of which take every other
+database down with it.
 
-### Gap 6 — Token expiry, fine-grained permissions, and bulk invalidation (medium)
+Cost: a per-database read-only flag is a small, in-architecture addition
+(a registry flag enforced at the route). Disposition: worth doing for that
+self-inflicted-corruption case; not worth doing to imitate a firewall.
+
+### Gap 6 — Credentials do not expire, and revoking several is manual (medium)
 
 Turso can invalidate every database token at once. Its CLI can also create
 tokens that expire, restrict permissions to table/actions, and carry ATTACH or
@@ -250,13 +274,19 @@ read-only or read-write role; `dg key revoke` takes exactly one `<NAME>`
 (verified from `--help` and `src/api.rs::revoke`). `dg key list` shows every key
 and its scope, but the operator must revoke scoped keys one command at a time.
 
-Cost: a leaked credential cannot be made to expire automatically or limited to
-one table/action, and bulk revocation is a manual loop under incident pressure.
-ATTACH and group claims have no `dg` use because cross-database ATTACH and
-groups are outside its isolated-file model (§4). Disposition: bulk revoke is a
-bounded in-architecture improvement; expiry and table/action grants need
-explicit policy and credential schema changes. No behavior change is in this
-documentation-only goal.
+Judged for a personal box: expiry is mostly ceremony here — a key file on your
+own disk does not benefit much from a calendar, and a non-expiring key is one
+fewer thing to rotate. Table/action-level scopes and ATTACH/group claims are
+provider concepts (§4). What survives that filter is the incident path: if a
+single credential leaks, revoking it already works in one command, but if you
+ever need to revoke *everything scoped to one database* you are looping, and the
+whole point of that moment is speed.
+
+Cost: bulk revoke (`dg key revoke --database <name>` with a confirmation) is a
+bounded, in-architecture addition. Expiry and per-table grants would need an
+explicit policy and credential-schema change, and are not recommended for a
+single-operator install. Disposition: do the bulk revoke; treat the rest as
+deliberately out of scope. No behavior change in this documentation-only goal.
 
 ### Gap 7 — No delete protection or undelete action (low–medium)
 
@@ -389,6 +419,22 @@ Stated so a parity table cannot be mistaken for a to-do list.
 - **Archival tiers (`turso db unarchive`).** Files are always present on disk.
 - **Cross-database ATTACH.** Each database is an isolated file behind its own
   route pair; there is no shared connection to attach from.
+- **CIDR / VPC network allow-lists.** These exist so a provider can decide which
+  of its customers' machines reach a shared database. `dg` is a loopback
+  listener, and remote access is an SSH tunnel, so the network already answers
+  this and a per-database allow-list would be a second, weaker copy of the
+  answer.
+- **Token expiry, per-table/action scopes, group tokens.** Governance for
+  credentials issued to other people. A key file owned by the same operator who
+  owns the data directory gains little from a calendar or a per-table grant.
+  Bulk revocation is different and is kept in gap 6, because it shortens an
+  incident.
+
+A note on what this section is *not*: it is not a claim that `dg` is complete.
+Gaps 1–11 are real, and the two that protect a lone operator from ordinary
+mistakes — making one database read-only mid-incident (gap 5) and undoing a
+delete (gap 7) — survive this filter precisely because they are not about
+governing other people.
 
 ---
 
@@ -449,16 +495,25 @@ Each failure pointed at a `// MUTATION:` marker in `src/tui/mod.rs` (lines 731,
 1821, 1911), all introduced by commits dated 2026-10-28T23:01–23:02Z
 (`95407a8`, `405b82c`) — about an hour before this goal started. Checking out
 `563177e`, the commit that first added the correct behaviour, showed all three
-tests passing there, so the markers were leftover sabotage rather than a design
-decision. The decisive evidence: `clear_secret_outcome` had been left **defined
-but never called**, and `src/tui/draw.rs` renders `outcome.facts` verbatim — so
-with the call removed, a raw one-time credential stayed on screen after a tab
-switch or a manual refresh. Two of the three failures were a credential-display
-defect, not a cosmetic test detail.
+tests passing there. The decisive evidence: `clear_secret_outcome` had been left
+**defined but never called**, and `src/tui/draw.rs` renders `outcome.facts`
+verbatim — so with the call removed, a raw one-time credential stayed on screen
+after a tab switch or a manual refresh. Two of the three failures were a
+credential-display defect, not a cosmetic test detail.
 
-Because a leaked credential is a real defect, the three lines were restored to
-their known-good form rather than documented as a known failure. The document is
-unchanged in scope; the code change reverts sabotage and adds nothing new.
+What those commits were for is not knowable from the repository, and this
+document does not claim to know. `MUTATION` is the conventional word for a
+deliberately-injected fault in mutation testing, so a targeted experiment is one
+plausible explanation; an agent misreading "what is this guard for?" as "remove
+this guard" is another. The commits carry only auto-generated messages, so
+neither story can be confirmed. What is checkable is the state they left: a guard
+that nothing called, and three tests asserting the behaviour those calls
+provided.
+
+Because a visible raw credential is a real defect regardless of why the calls
+vanished, the three lines were restored to their known-good form rather than
+documented as a known failure. The document is unchanged in scope; the code
+change restores the calls and adds nothing new.
 
 ```
 cargo test --workspace --all-targets   (after the repair)
