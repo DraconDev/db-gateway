@@ -58,8 +58,8 @@ October captures are called out by date wherever they support a comparison.
 | `turso db replicate` | — | not-applicable | No regions or read replicas. Recovery is `dg restore` + `dg backup verify`. | CLI `--help` (2026-10-29). |
 | `turso db config delete-protection` | — | missing | Nothing prevents `dg delete` beyond the typed confirmation. See gap 7. | CLI `--help` (2026-10-29). |
 | `turso db config attach` | — | not-applicable | No cross-database ATTACH; each database is its own file behind its own route. | CLI `--help` (2026-10-29). |
-| `turso db export` | `dg export --out <file>` | have | Atomically published `.sqlite` snapshot. | CLI `--help` (2026-10-29). |
-| `turso db import` | `dg import --from <file>` | have | 128 MiB ceiling. | CLI `--help` (2026-10-29). |
+| `turso db export` | `dg export --out <file>` | partial | Both write a local SQLite snapshot, but the surfaces differ: Turso also exports the WAL (`<db>.db-wal`), offers `--overwrite` and `--with-metadata`, and defaults the output name. `dg export` refuses an existing file outright — `--out` is required and "an existing file is refused and the download is published atomically" — and has no WAL or metadata option. See gap 11. | CLI `--help` (2026-10-29). |
+| `turso db import` | `dg import --from <file>` | partial | Both take a local SQLite file. `dg import` requires the target name, refuses one that already exists, and enforces a 128 MiB ceiling; Turso takes the filename positionally and offers `--group` placement (not applicable here, §4). See gap 11. | CLI `--help` (2026-10-29). |
 | `turso db tokens create/invalidate <db>` | `dg key create/list/revoke` | partial | Turso creates and bulk-invalidates tokens; `dg` lists keys but revokes one name at a time. See gap 6. | CLI `--help` (2026-10-29). |
 | `turso db tokens create --expiration/--permissions/--attach/--group` | `dg key create --role/--database` | partial | Turso supports expiry, table-action permissions, ATTACH and group claims; `dg` grants only a non-expiring database-wide read/write role. ATTACH/group claims are inapplicable here (§4); see gap 6 for expiry, permissions, and bulk revoke. | CLI `--help` (2026-10-29). |
 | `turso db shell <db>` | `dg shell [db]` | have | Optional preselection and piped SQL; `dg shell` also has operator dot-commands. | CLI `--help` (2026-10-29). |
@@ -324,6 +324,32 @@ single-key revoke. It also records `dg key rotate-owner` exactly as spelled by
 **Disposition: documentation correction made** in `docs/cli-turso-mapping.md`;
 there is no runtime gap implied by the stale command rows. The CLI help capture
 is `docs/evidence/turso-cli-help-2026-10-29.txt`.
+
+### Gap 11 — `dg export`/`import` are narrower than Turso's (low)
+
+Both sides move a database to and from a local SQLite file, which is why the
+matrix once called these plain parity. Read against the captured help, they are
+not the same surface:
+
+- **Export.** Turso also exports the WAL (`<db>.db-wal` alongside the main
+  file), accepts `--overwrite`, offers `--with-metadata`, and defaults the
+  output name. `dg export --out` is required, and an existing file is refused
+  rather than overwritten — the help says so explicitly.
+- **Import.** Turso takes the filename positionally and accepts `--group`
+  placement. `dg import` requires the target name, refuses a name that already
+  exists, and enforces a 128 MiB ceiling.
+
+The refusing-not-overwriting behaviour is deliberate and worth keeping: a
+snapshot that silently replaced a previous export would destroy the very
+artifact an operator keeps for recovery. But it is a real difference in
+workflow — re-exporting to the same path means deleting the old file first.
+
+Cost: low. A WAL-inclusive export and a metadata-bearing one have no `dg`
+equivalent, so a byte-for-byte replica of Turso's export cannot be produced;
+overwrite and group placement are convenience differences. Disposition: no
+behavior change in this documentation-only pass; recorded so the parity claim
+is not overstated. Evidence: `docs/evidence/turso-cli-help-2026-10-29.txt` and
+`dg export --help` / `dg import --help`.
 
 ---
 
