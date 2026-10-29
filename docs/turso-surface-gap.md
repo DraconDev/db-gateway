@@ -79,7 +79,7 @@ Console tabs: **Overview**, **Branches**, **Analytics**, **Top Queries**,
 | Overview → Allow ATTACH | — | not-applicable | Cross-database ATTACH is outside `dg`'s isolated-file model (§4). | Console (2026-10-29). |
 | Overview → Delete Protection | — | missing | No persistent guard against deliberate deletion; See gap 5. | Console (2026-10-29). |
 | Overview → Block Writes | — | missing | No per-database write switch; stopping the service or revoking credentials takes every database down. See gap 3. | Console (2026-10-29). |
-| Overview → Block Reads | — | missing | Same surface as Block Writes; recorded together in gap 5. | Console (2026-10-29). |
+| Overview → Block Reads | — | not-applicable | A read cannot damage a database, so blocking reads addresses a party you do not trust with the data — a tenant, not the operator who owns the file. §4. | Console (2026-10-29). |
 | Overview → Restrict Access (CIDR / VPC allow-list) | — | not-applicable | Provider firewall for shared infrastructure. `dg` is loopback-only with remote access by SSH tunnel, so network admission is answered by the host and the credential; §4. | Console (2026-10-29). |
 | Overview → Invalidate All Tokens | `dg key revoke <name>` (one at a time) | partial | A single leaked key revokes in one command; revoking every key scoped to a database is a manual loop. See gap 4. | Console (2026-10-29). |
 | Branches → Create From Now | `dg branch create <parent> <name>` | have | | Console (2026-10-29). |
@@ -220,7 +220,7 @@ No way to make one database read-only during an incident (medium)
 Turso's per-database Configuration offers **Block Reads**, **Block Writes**,
 and **Restrict Access** by CIDR block or AWS VPC endpoint. All are live
 controls, read on 2026-10-29. (Allow ATTACH is not applicable to `dg`'s
-isolated-file model; Delete Protection is gap 7.)
+isolated-file model; Delete Protection is gap 5.)
 
 The CIDR/VPC allow-list is provider machinery, not a personal gap: `dg` listens
 on loopback and reaches remote gateways through an SSH tunnel, so "who may
@@ -419,7 +419,7 @@ Read from the live local gateway and the code, not asserted.
 | Advantage | Evidence |
 |---|---|
 | **No quotas, no throttling, no invoice.** | The console shows "Quota Critical 99% used … your account may be throttled soon" and two databases in **Writes Blocked** status on every page. `dg` has no metering path at all. |
-| **The operator owns the audit trail.** | Turso's live page showed 6 entries versus 23 in the Oct 26 capture, with 21 Oct 24 entries no longer visible and no disclosed retention rule (gap 8). `dg audit` is a 2000-entry durable JSONL file on the operator's disk, with action, database and statement shape. |
+| **The operator owns the audit trail.** | Turso's live page showed 6 entries versus 23 in the Oct 26 capture, with 21 Oct 24 entries no longer visible and no disclosed retention rule (§2b). `dg audit` is a 2000-entry durable JSONL file on the operator's disk, with action, database and statement shape. |
 | **Statement shapes, never literal values.** | Turso's Top Queries prints `LIKE 'aig-session-%'` and `status='settled'`; `dg queries` prints `LIKE ?` and `status = ?`. |
 | **Backups are first-class and verifiable offline.** | `dg backup status/digest/verify` judge each database `fresh`/`behind`/`stale` against an approved cadence, and `dg backup verify` re-checks a published set's manifest and hash chain with the gateway stopped. Turso's console offers download and point-in-time branches, not an offline verifier. |
 | **Restore window is inspectable and planned before it is taken.** | `dg restore list` publishes the window (`oldest` → `newest`) per database from the live replica; `dg restore plan --to <ISO>` says what a restore would reach. |
@@ -456,13 +456,21 @@ Stated so a parity table cannot be mistaken for a to-do list.
 - **Token expiry, per-table/action scopes, group tokens.** Governance for
   credentials issued to other people. A key file owned by the same operator who
   owns the data directory gains little from a calendar or a per-table grant.
-  Bulk revocation is different and is kept in gap 6, because it shortens an
+  Bulk revocation is different and is kept in gap 4, because it shortens an
   incident.
+- **Block Reads.** Blocking **writes** protects a database from damage, which is
+  why a per-database read-only switch is gap 3. Blocking **reads** protects no
+  data at all — a SELECT cannot corrupt a file. It exists to stop a party you do
+  not trust from *seeing* rows, which is a tenancy question: Turso's operator is
+  answering it about its customers. The operator here is the only party with a
+  key to the box, and if they distrust a reader the answer is `dg key revoke`,
+  not a per-database read lock. Already-covered case: a leaked key is revoked
+  (gap 4), not masked.
 
 A note on what this section is *not*: it is not a claim that `dg` is complete.
-Gaps 1–11 are real, and the two that protect a lone operator from ordinary
-mistakes — making one database read-only mid-incident (gap 5) and undoing a
-delete (gap 7) — survive this filter precisely because they are not about
+Gaps 1–7 are real, and the two that protect a lone operator from ordinary
+mistakes — making one database read-only mid-incident (gap 3) and undoing a
+delete (gap 5) — survive this filter precisely because they are not about
 governing other people.
 
 ---
@@ -620,7 +628,8 @@ NAME, both confirmed verbatim.
 
 ## Related
 
-- `docs/cli-turso-mapping.md` — the per-verb mapping table (see gap 10).
+- `docs/cli-turso-mapping.md` — the per-verb mapping table (mapping drift is
+  recorded in §2b).
 - `docs/tui.md` — the terminal view this comparison's `dg` column describes.
 - `docs/audits/tui-audit.md` — the 2026-10-28 TUI audit.
 - `docs/recovery-contract.md`, `docs/recovery-policy.md` — the backup and
