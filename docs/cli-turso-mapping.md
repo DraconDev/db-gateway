@@ -67,7 +67,7 @@ maps each Turso CLI verb to its `dg` equivalent.
 
 | Turso | dg | Notes |
 |---|---|---|
-| `turso db tokens create <db> ...` | `dg key create <name> --role database_read_only\|database_read_write --database <db>...` | Both print the raw key once. Turso also supports expiry, table-action permissions and ATTACH claims; `dg` grants non-expiring database-wide roles (see gap 6 in `docs/turso-surface-gap.md`). |
+| `turso db tokens create <db> ...` | `dg key create <name> --role database_read_only\|database_read_write --database <db>...` | Both print the raw key once. Turso also supports expiry, table-action permissions, ATTACH and group claims; `dg` grants non-expiring database-wide roles (see gap 6 in `docs/turso-surface-gap.md`). |
 | — (no `turso db tokens list` verb in CLI v1.0.15) | `dg key list` | Lists key names, roles and database scopes; hashes never shown. Turso's CLI help exposes create/invalidate only. |
 | — (no Turso token-list command) | `dg key tokens <db>` | The credentials that can act on ONE database: the owner key reaches everything, an application key reaches the databases it was scoped to. The first question of a leaked-key incident. |
 | `turso db tokens invalidate <db>` | `dg key revoke <name>` | Turso rotates the database-token signing keys and invalidates all existing tokens at once; `dg` revokes one named credential. See gap 6 in `docs/turso-surface-gap.md`. |
