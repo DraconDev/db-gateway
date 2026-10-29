@@ -101,3 +101,32 @@ test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 ===== aggregate =====
 
 suites=91 passed=664 failed=0
+
+===== addendum: one load-induced flake observed, unrelated to this goal =====
+
+The suite above is not perfectly deterministic on a saturated host. During
+re-verification the same tree (commit ca92f96) produced one failure:
+
+  a_server_started_normally_dies_with_a_sigkilled_launcher   (tests/orphan_guard.rs:332)
+  "a normally-started server must die when its parent is SIGKILLed ...
+   this is the whole point of PR_SET_PDEATHSIG"
+
+Context at that moment: /proc/loadavg 144.72 146.29 110.79 on 16 cores, with
+`free -g` reporting 30 GB total and 0 GB available and kswapd0 actively
+swapping. The assertion waits with `wait_gone(server, Duration::from_secs(10))`
+(tests/orphan_guard.rs:331) — a fixed 10-second liveness deadline, which that
+much contention can defeat while the guarded behaviour is intact.
+
+Evidence that it is environmental, not a regression:
+  - the whole suite re-ran immediately on the identical tree at exit 0,
+    91 suites, 664 passed, 0 failed (the run recorded above);
+  - `cargo test -p dg --test orphan_guard -- --test-threads=1` passed all 3
+    tests;
+  - `git log --since='2026-10-29T00:17:36Z' -- tests/orphan_guard.rs` is empty:
+    this documentation goal never touched that file (last changed 1a100d5,
+    b3d3b34).
+
+Recorded so the record is not a claim of perfect determinism. The durable fix
+belongs in a source-changing goal: widen that deadline or run the SIGKILL case
+serially — not in a documentation pass, and not decided mid-run on a host that
+cannot hold stable timing.
