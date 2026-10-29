@@ -46,22 +46,22 @@ October captures are called out by date wherever they support a comparison.
 | `turso db inspect <db>` | `dg inspect <db>` | partial | On a terminal it renders database/activity/backup/tables sections; off a terminal it degrades to the plain info document. See gap 1. | CLI `--help` (2026-10-29). |
 | `turso db inspect --queries` | `dg queries --database <db>` | have | Per-statement cost. `dg` answers it globally or per database, not as a flag on `inspect`. | CLI `--help` (2026-10-29). |
 | `turso db create` | `dg create` | have | Includes single-node database creation; Turso's location/group options do not apply here (§4). | CLI `--help` (2026-10-29). |
-| `turso db create --size-limit/--schema/--type/--enable-extensions` | `dg create` + `dg execute` | partial | Turso can set a per-database size limit, choose schema-only mode, and enable extensions; `dg` creates an ordinary SQLite file and can initialize it with SQL, but has no corresponding per-database size or extension switch. See gap 9. | CLI `--help` (2026-10-29). |
+| `turso db create --size-limit/--schema/--type/--enable-extensions` | `dg create` + `dg execute` | partial | Turso can set a per-database size limit, choose schema-only mode, and enable extensions; `dg` creates an ordinary SQLite file and can initialize it with SQL, but has no corresponding per-database size or extension switch. See gap 6. | CLI `--help` (2026-10-29). |
 | `turso db create --from-db [--timestamp]` | `dg branch create` | have | Copy now or from a point in time. | CLI `--help` (2026-10-29). |
 | `turso db create --from-file` | `dg import --from <file>` | have | A local SQLite3-compatible file, the same source `dg import` takes (128 MiB ceiling). | CLI `--help` (2026-10-29). |
-| `turso db create --from-dump` / `--from-csv` | — | missing | A local SQL dump or a CSV, loaded as a new database. `dg import` accepts a SQLite file only. See gap 9. | CLI `--help` (2026-10-29). |
-| `turso db create --from-dump-url` | — | missing | Fetches a remote SQL dump over the network and creates the database from it. `dg` has no URL fetch path at all — every import source is a local file. See gap 9. | CLI `--help` (2026-10-29). |
+| `turso db create --from-dump` / `--from-csv` | — | missing | A local SQL dump or a CSV, loaded as a new database. `dg import` accepts a SQLite file only. See gap 6. | CLI `--help` (2026-10-29). |
+| `turso db create --from-dump-url` | — | missing | Fetches a remote SQL dump over the network and creates the database from it. `dg` has no URL fetch path at all — every import source is a local file. See gap 6. | CLI `--help` (2026-10-29). |
 | `turso db destroy` | `dg delete --confirm <name>` | have | `dg` tombstones then purges after retention; requires the name typed twice. | CLI `--help` (2026-10-29). |
 | `turso db update` | — | not-applicable | Deploy is a binary swap; `docs/deployment.md`. | CLI `--help` (2026-10-29). |
 | `turso db unarchive` | — | not-applicable | No archival tier; local files are always present. | CLI `--help` (2026-10-29). |
 | `turso db locations` | — | not-applicable | Single node. | CLI `--help` (2026-10-29). |
 | `turso db replicate` | — | not-applicable | No regions or read replicas. Recovery is `dg restore` + `dg backup verify`. | CLI `--help` (2026-10-29). |
-| `turso db config delete-protection` | — | missing | Nothing prevents `dg delete` beyond the typed confirmation. See gap 7. | CLI `--help` (2026-10-29). |
+| `turso db config delete-protection` | — | missing | Nothing prevents `dg delete` beyond the typed confirmation. See gap 5. | CLI `--help` (2026-10-29). |
 | `turso db config attach` | — | not-applicable | No cross-database ATTACH; each database is its own file behind its own route. | CLI `--help` (2026-10-29). |
-| `turso db export` | `dg export --out <file>` | partial | Both write a local SQLite snapshot, but the surfaces differ: Turso also exports the WAL (`<db>.db-wal`), offers `--overwrite` and `--with-metadata`, and defaults the output name. `dg export` refuses an existing file outright — `--out` is required and "an existing file is refused and the download is published atomically" — and has no WAL or metadata option. See gap 11. | CLI `--help` (2026-10-29). |
-| `turso db import` | `dg import --from <file>` | partial | Both take a local SQLite file. `dg import` requires the target name, refuses one that already exists, and enforces a 128 MiB ceiling; Turso takes the filename positionally and offers `--group` placement (not applicable here, §4). See gap 11. | CLI `--help` (2026-10-29). |
-| `turso db tokens create/invalidate <db>` | `dg key create/list/revoke` | partial | Turso creates and bulk-invalidates tokens; `dg` lists keys but revokes one name at a time. See gap 6. | CLI `--help` (2026-10-29). |
-| `turso db tokens create --expiration/--permissions/--attach/--group` | `dg key create --role/--database` | partial | Turso supports expiry, table-action permissions, ATTACH and group claims; `dg` grants only a non-expiring database-wide read/write role. ATTACH/group claims are inapplicable here (§4); see gap 6 for expiry, permissions, and bulk revoke. | CLI `--help` (2026-10-29). |
+| `turso db export` | `dg export --out <file>` | partial | Both write a local SQLite snapshot, but the surfaces differ: Turso also exports the WAL (`<db>.db-wal`), offers `--overwrite` and `--with-metadata`, and defaults the output name. `dg export` refuses an existing file outright — `--out` is required and "an existing file is refused and the download is published atomically" — and has no WAL or metadata option. See gap 7. | CLI `--help` (2026-10-29). |
+| `turso db import` | `dg import --from <file>` | partial | Both take a local SQLite file. `dg import` requires the target name, refuses one that already exists, and enforces a 128 MiB ceiling; Turso takes the filename positionally and offers `--group` placement (not applicable here, §4). See gap 7. | CLI `--help` (2026-10-29). |
+| `turso db tokens create/invalidate <db>` | `dg key create/list/revoke` | partial | Turso creates and bulk-invalidates tokens; `dg` lists keys but revokes one name at a time. See gap 4. | CLI `--help` (2026-10-29). |
+| `turso db tokens create --expiration/--permissions/--attach/--group` | `dg key create --role/--database` | partial | Turso supports expiry, table-action permissions, ATTACH and group claims; `dg` grants only a non-expiring database-wide read/write role. ATTACH/group claims are inapplicable here (§4); See gap 4 for expiry, permissions, and bulk revoke. | CLI `--help` (2026-10-29). |
 | `turso db shell <db>` | `dg shell [db]` | have | Optional preselection and piped SQL; `dg shell` also has operator dot-commands. | CLI `--help` (2026-10-29). |
 
 ### 1.2 Database page (console per-database tabs)
@@ -73,22 +73,22 @@ Console tabs: **Overview**, **Branches**, **Analytics**, **Top Queries**,
 |---|---|---|---|---|
 | Overview → Activity (rows read/written, storage, syncs) | `dg inspect`, `dg status`, TUI service/databases tabs | have | `dg` adds queue-wait percentiles Turso does not expose. | Console (2026-10-29). |
 | Overview → Connect → Database URL | `dg status` → `listen`, SSH tunnel | not-applicable | `dg` reports the bound loopback address; there is no public URL to mint. Remote access is an SSH tunnel (§4). | Console (2026-10-29). |
-| Overview → Create Token | `dg key create --role … --database …` | partial | Database-scoped roles match, but Turso token expiry and table-action controls do not. See gap 6. | Console + CLI `--help` (2026-10-29). |
+| Overview → Create Token | `dg key create --role … --database …` | partial | Database-scoped roles match, but Turso token expiry and table-action controls do not. See gap 4. | Console + CLI `--help` (2026-10-29). |
 | Overview → Export → Download SQLite File | `dg export --out` | have | | Console (2026-10-29). |
 | Overview → Delete Database | `dg delete --confirm <name>` | have | Typed confirmation and tombstone retention. | Console (2026-10-29). |
 | Overview → Allow ATTACH | — | not-applicable | Cross-database ATTACH is outside `dg`'s isolated-file model (§4). | Console (2026-10-29). |
-| Overview → Delete Protection | — | missing | No persistent guard against deliberate deletion; see gap 7. | Console (2026-10-29). |
-| Overview → Block Writes | — | missing | No per-database write switch; stopping the service or revoking credentials takes every database down. See gap 5. | Console (2026-10-29). |
+| Overview → Delete Protection | — | missing | No persistent guard against deliberate deletion; See gap 5. | Console (2026-10-29). |
+| Overview → Block Writes | — | missing | No per-database write switch; stopping the service or revoking credentials takes every database down. See gap 3. | Console (2026-10-29). |
 | Overview → Block Reads | — | missing | Same surface as Block Writes; recorded together in gap 5. | Console (2026-10-29). |
 | Overview → Restrict Access (CIDR / VPC allow-list) | — | not-applicable | Provider firewall for shared infrastructure. `dg` is loopback-only with remote access by SSH tunnel, so network admission is answered by the host and the credential; §4. | Console (2026-10-29). |
-| Overview → Invalidate All Tokens | `dg key revoke <name>` (one at a time) | partial | A single leaked key revokes in one command; revoking every key scoped to a database is a manual loop. See gap 6. | Console (2026-10-29). |
+| Overview → Invalidate All Tokens | `dg key revoke <name>` (one at a time) | partial | A single leaked key revokes in one command; revoking every key scoped to a database is a manual loop. See gap 4. | Console (2026-10-29). |
 | Branches → Create From Now | `dg branch create <parent> <name>` | have | | Console (2026-10-29). |
 | Branches → Create From Point-in-Time | `dg branch create --from <ISO8601>` | have | Reports the backup window when the moment falls outside it. | Console (2026-10-29). |
 | Branches → list | `dg branch list`, `dg branch show` | have | | Console (2026-10-29). |
 | Analytics (per-database, 30-day series) | — | missing | See gap 2. | Console (2026-10-29). |
-| Top Queries (per-database) | `dg queries --database <db>` | partial | Same ranking facts; `dg` shows statement SHAPES, Turso shows literal text. See gap 3. | Console (2026-10-29). |
-| Edit Data → DATA grid | `dg rows`, TUI rows browser | partial | Read-only; no cell editing, no Add record. See gap 4. | Console (2026-10-29). |
-| Edit Data → Filters / Sort / Columns | `dg rows --where/--sort`, TUI `f`/`o`/`c` | partial | Capability parity, ergonomics differ: flags and typed conditions instead of builders. See gap 4. | Console (2026-10-29). |
+| Top Queries (per-database) | `dg queries --database <db>` | partial | Same ranking facts; `dg` shows statement SHAPES, Turso shows literal text. See §2b (deliberate: shapes are shown, not values). | Console (2026-10-29). |
+| Edit Data → DATA grid | `dg rows`, TUI rows browser | partial | Read-only; no cell editing, no Add record. See §2b (deliberate: `dg` reads, never edits). | Console (2026-10-29). |
+| Edit Data → Filters / Sort / Columns | `dg rows --where/--sort`, TUI `f`/`o`/`c` | partial | Capability parity, ergonomics differ: flags and typed conditions instead of builders. See §2b (deliberate: `dg` reads, never edits). | Console (2026-10-29). |
 | Edit Data → STRUCTURE | `dg schema <db> [table]` | have | Columns with declared types and flags, indexes, foreign keys, `CREATE` text. | Console (2026-10-29). |
 | Edit Data → SQL console | `dg shell`, `dg query` | have | Different transport (authenticated HTTP API vs direct console), same capability. | Console (2026-10-29). |
 
@@ -98,13 +98,13 @@ Console tabs: **Overview**, **Branches**, **Analytics**, **Top Queries**,
 |---|---|---|---|---|
 | Sidebar → Create Database | `dg create <name>` | have | Both create an empty database the credential can then reach; `dg` takes the name on the command line rather than opening a dialog, and offers no size/group/location options (§4). | Console (2026-10-29). |
 | Sidebar → Create Group | — | not-applicable | A group is a placement-and-replication container that databases are created into. `dg` has no groups, regions or replicas (§4); every database is one local file, so there is no group to create. | Console (2026-10-29). |
-| Databases list (rows read/written, bytes synced, storage, group, status) | `dg list`, `dg contents`, TUI databases tab | partial | `dg` has rows read/written, storage, and contents from the files. Groups are a cloud construct (§4); "bytes synced" is replication accounting and provider-imposed write-block status is inapplicable. The storage/counter views are present-tense only; see gap 2 for missing trends. | Console (2026-10-29). |
-| Databases list → Restore deleted databases | `dg delete` tombstone retention; no undelete command | missing | A tombstoned `dg` file remains until purge, but the CLI has no action to undelete it; `dg restore list/plan` only describes the off-host backup window. See gap 7. | Console (2026-10-29). |
+| Databases list (rows read/written, bytes synced, storage, group, status) | `dg list`, `dg contents`, TUI databases tab | partial | `dg` has rows read/written, storage, and contents from the files. Groups are a cloud construct (§4); "bytes synced" is replication accounting and provider-imposed write-block status is inapplicable. The storage/counter views are present-tense only; See gap 2 for missing trends. | Console (2026-10-29). |
+| Databases list → Restore deleted databases | `dg delete` tombstone retention; no undelete command | missing | A tombstoned `dg` file remains until purge, but the CLI has no action to undelete it; `dg restore list/plan` only describes the off-host backup window. See gap 5. | Console (2026-10-29). |
 | Analytics (org): quota cards | — | not-applicable | No quotas to meter against. | Console (2026-10-29). |
 | Analytics (org): Latency / Rows Read / Rows Written / Inbound / Outbound / Syncs / Storage 30-day charts | — | missing | See gap 2. | Console (2026-10-29). |
 | Analytics (org): Top Databases ranked by rows read | TUI databases tab, `dg status` | partial | Present-tense ranking only; no trend. See gap 2. | Console (2026-10-29). |
-| Analytics (org): Top Queries ranked by rows read | `dg queries` | partial | See gap 3. | Console (2026-10-29). |
-| Audit Logs (Author, Event, Origin, Timestamp) | `dg audit` | have | `dg` adds the action, the database, and the statement shape. The observed visible history differs; Turso's retention rule is not exposed — see gap 8. | Console (2026-10-29). |
+| Analytics (org): Top Queries ranked by rows read | `dg queries` | partial | See §2b (deliberate: shapes are shown, not values). | Console (2026-10-29). |
+| Audit Logs (Author, Event, Origin, Timestamp) | `dg audit` | have | `dg` adds the action, the database, and the statement shape. The observed visible history differs; Turso's retention rule is not exposed — See §2b (Turso retention undisclosed). | Console (2026-10-29). |
 | Billing / Usage / Upgrade / plan / invoices | — | not-applicable | No billing. | Console (2026-10-29). |
 | Settings, Support | — | not-applicable | No account. | Console (2026-10-29). |
 
