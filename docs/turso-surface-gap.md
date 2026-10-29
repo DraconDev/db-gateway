@@ -147,27 +147,33 @@ product capabilities.
 
 ## 2. Ranked gaps (operator impact first)
 
-Ranked by what it would cost an operator in the first week. Each gap names the
-evidence, and whether it is fixable inside the current architecture.
+Ranked by what it would cost the operator in the first week. Each gap names the
+evidence and whether it is fixable inside the current architecture.
 
-**How the ranking is judged.** This is one operator's own gateway on their own
-machine, not a provider serving tenants. That changes what a missing control is
-worth, and it is the main reason several Turso controls below rank lower here
-than their prominence in the console suggests. Turso has to offer Block Writes,
-CIDR allow-lists and per-table scopes because its operator is not the only party
-with access; `dg`'s operator already owns the machine, the data directory and the
-key file. A control that exists to govern someone else is not the same gap as one
-that protects the operator from their own mistake.
+**The lens this section is judged by.** This is one operator's own gateway on
+their own machine, not a provider serving tenants. That distinction is not
+cosmetic — it is what decides whether a missing control belongs here at all.
+Turso offers Block Writes, CIDR allow-lists, per-table token scopes and group
+placement because its operator is not the only party with access to the
+database. `dg`'s operator already owns the machine, the data directory and the
+key file. A control that exists to govern someone else is therefore not a gap
+here, however prominent it looks in Turso's console.
 
-So the ranking asks two things: does this protect the operator from a mistake or
-an incident they could realistically have, and would the missing piece cost them
-real time in the first week? Ceremony that only reproduces a provider's
-multi-tenant machinery ranks low or is recorded as not-applicable (§4). Two
-controls that do protect a lone operator — being able to make one database
-read-only during an incident, and being able to undo a delete — stay on the list
-for that reason, not because Turso has them.
+A missing piece qualifies as a gap only if it does one of two things:
+
+1. it protects the operator from a mistake or incident they could realistically
+   have on their own box — self-inflicted corruption, a leaked credential, a
+   fat-fingered delete, a script that cannot read what a human can; or
+2. it would cost them real time in their first week.
+
+Everything else is either provider ceremony (recorded as not-applicable in §4)
+or a **deliberate difference** — a place where `dg` behaves unlike Turso on
+purpose, which belongs in §2b rather than being counted as a defect. The
+distinction matters: a difference that is a considered design choice is not a
+debt, and listing it as a "gap" quietly promises a fix that should never come.
 
 ### Gap 1 — `dg inspect` still degrades off a terminal (high; smallest fix)
+`dg inspect` still degrades off a terminal (high; smallest fix)
 
 `dg inspect` renders a rich database/activity/backup/tables view **only when
 stdout is a terminal**. Piped or `--json`, it returns the plain info document
@@ -191,6 +197,7 @@ automation cannot read the operator's own view. Fix: compose the three reads the
 TTY path already makes into the non-TTY answer. No API change needed.
 
 ### Gap 2 — No usage history, only present-tense counters (high)
+No usage history, only present-tense counters (high)
 
 Turso's Analytics is 30-day time series for latency (with p50–p99 selectors),
 rows read, rows written, inbound and outbound traffic, syncs and storage —
@@ -207,43 +214,8 @@ doing now and which statements were expensive, but not that writes tripled on
 Tuesday. Fix: a rolled-up per-hour counter series on disk. That is a storage
 and retention decision, not a view change — the largest architectural gap here.
 
-### Gap 3 — Top Queries shows literal values in Turso and shapes in `dg` (medium; `dg` is better, not worse)
-
-Read live: Turso's Top Queries for `dracon-music-dev` shows statements with
-literals intact, e.g. `WHERE status='settled'` and
-`WHERE idempotency_key LIKE 'aig-session-%'`.
-
-`dg queries` deliberately replaces every literal with `?`, showing the SHAPE:
-`SELECT * FROM "products" ORDER BY rowid LIMIT ? OFFSET ?`.
-
-This is **not a gap to close** — it is a privacy property the operator gains by
-owning the box (`docs/tui.md`, "Which query is heavy"). Recorded here because a
-comparison that lists only Turso's wins would be dishonest in the other
-direction.
-
-One real caveat found live: Turso's list includes the **console's own
-introspection queries** (the first entry on `dracon-music-dev` was Drizzle
-Studio's `sqlite_master`/`pragma_index_list` scan), so its "top query" is
-measured over a different population than `dg`'s API traffic.
-
-### Gap 4 — Edit Data is read-write; `dg` is read-only by design (medium; deliberate)
-
-The Edit Data grid is a full editor: `+ Add record`, editable cells, a Columns
-visibility chooser, a Sort builder, a Filters builder, and an attached SQL
-console. Read live through its shadow DOM (the page is a Drizzle Studio app
-inside `<drizzle-studio>`, so it is invisible to `document.body.innerText`).
-
-`dg rows` and the TUI rows browser give the same three reading capabilities —
-sort, filter, column data — as `--sort`/`--where` flags and `o`/`f`/`c` prompts.
-They never write. Every mutation in `dg` is an explicit statement (`dg query`,
-`dg execute`) or a confirmed lifecycle action.
-
-Cost: an operator cannot click a cell and fix a typo. That is intentional —
-`docs/tui.md` states the mouse "deliberately stops at reading", and every write
-needs its own statement so it lands in the audit log with its shape. Recorded
-as a deliberate non-goal, not a missing feature.
-
-### Gap 5 — No way to make one database read-only during an incident (medium)
+### Gap 3 — No way to make one database read-only during an incident (medium)
+No way to make one database read-only during an incident (medium)
 
 Turso's per-database Configuration offers **Block Reads**, **Block Writes**,
 and **Restrict Access** by CIDR block or AWS VPC endpoint. All are live
@@ -265,7 +237,8 @@ Cost: a per-database read-only flag is a small, in-architecture addition
 (a registry flag enforced at the route). Disposition: worth doing for that
 self-inflicted-corruption case; not worth doing to imitate a firewall.
 
-### Gap 6 — Credentials do not expire, and revoking several is manual (medium)
+### Gap 4 — Credentials do not expire, and revoking several is manual (medium)
+Credentials do not expire, and revoking several is manual (medium)
 
 Turso can invalidate every database token at once. Its CLI can also create
 tokens that expire, restrict permissions to table/actions, and carry ATTACH or
@@ -288,7 +261,8 @@ explicit policy and credential-schema change, and are not recommended for a
 single-operator install. Disposition: do the bulk revoke; treat the rest as
 deliberately out of scope. No behavior change in this documentation-only goal.
 
-### Gap 7 — No delete protection or undelete action (low–medium)
+### Gap 5 — No delete protection or undelete action (low–medium)
+No delete protection or undelete action (low–medium)
 
 Turso offers both Delete Protection and a **Restore deleted databases** control
 in the database list. `dg` requires the typed `--confirm <name>` (and the TUI's
@@ -301,7 +275,108 @@ or an incident there is no one-step way to bring the tombstone back. Disposition
 a registry protection flag and explicit undelete path are in-architecture
 options; recovery otherwise requires the operator's off-host backup workflow.
 
-### Gap 8 — Turso's visible audit history is shorter, but its retention rule is undisclosed (low)
+### Gap 6 — Import sources are narrower than Turso's (low)
+
+Turso `db create` accepts a local SQLite file, a local SQL dump (`--from-dump`),
+a CSV (`--from-csv`), and a **remote** dump fetched by URL (`--from-dump-url`),
+plus a per-database size limit, schema-only type and experimental extension
+enablement. `dg import --from` accepts a regular SQLite file only (128 MiB
+ceiling); `dg create` makes an ordinary SQLite file, initialisable with explicit
+SQL, with no per-database size or extension switch.
+
+Judged for a lone operator, most of this is convenience rather than harm: a
+one-off migration means converting a CSV or downloading a dump to disk first,
+which is a few minutes once, not a recurring cost. The size limit and extension
+enablement are host/filesystem concerns and deliberately not exposed.
+
+The one part worth weighing is `--from-dump-url`: `dg` has no network-fetch path
+anywhere in its import surface, so importing a remote dump is a two-step
+download-then-import. That is deliberate — an import source is a local file the
+operator can inspect and hash before it enters the store — and it costs one extra
+step in exchange for not asking the gateway to fetch arbitrary URLs.
+
+Cost: low, one-off. Disposition: no change recommended; recorded so the parity
+claim is not overstated. Evidence:
+`docs/evidence/turso-cli-help-2026-10-29.txt`.
+
+### Gap 7 — `dg export`/`import` are narrower than Turso's (low)
+
+Both sides move a database to and from a local SQLite file, which is why the
+matrix once called these plain parity. Read against the captured help, they are
+not the same surface:
+
+- **Export.** Turso also exports the WAL (`<db>.db-wal` alongside the main
+  file), accepts `--overwrite`, offers `--with-metadata`, and defaults the
+  output name. `dg export --out` is required, and an existing file is refused
+  rather than overwritten — the help says so verbatim.
+- **Import.** Turso takes the filename positionally and accepts `--group`
+  placement. `dg import` requires the target name, refuses a name that already
+  exists, and enforces a 128 MiB ceiling.
+
+For a lone operator the difference that matters is the export shape: a
+WAL-inclusive or metadata-bearing export has no `dg` equivalent, so a
+byte-for-byte replica of Turso's export cannot be produced. If a recovery plan
+ever depended on restoring from a Turso-shaped export, that plan would need
+adjusting.
+
+Refusing to overwrite is deliberate and worth keeping: a snapshot that silently
+replaced a previous export would destroy the very artifact an operator keeps for
+recovery. But it is a real workflow difference — re-exporting to the same path
+means deleting the old file first.
+
+Cost: low. Disposition: no behavior change in this documentation-only pass;
+recorded so parity is not overstated. Evidence:
+`docs/evidence/turso-cli-help-2026-10-29.txt`, `dg export --help`,
+`dg import --help`.
+
+---
+
+---
+
+## 2b. Deliberate differences, and things that are not gaps
+
+These were previously numbered among the ranked gaps. They are not gaps: each is
+either a considered design choice or an observation about Turso that asks nothing
+of `dg`. Keeping them in the ranked list would have implied a debt that should
+never be paid.
+
+### `dg queries` shows statement shapes where Turso shows literal values
+
+Read live: Turso's Top Queries for `dracon-music-dev` shows statements with
+literals intact, e.g. `WHERE status='settled'` and
+`WHERE idempotency_key LIKE 'aig-session-%'`.
+
+`dg queries` deliberately replaces every literal with `?`, showing the SHAPE:
+`SELECT * FROM "products" ORDER BY rowid LIMIT ? OFFSET ?`.
+
+This is **not a gap to close** — it is a privacy property the operator gains by
+owning the box (`docs/tui.md`, "Which query is heavy"). Recorded here because a
+comparison that lists only Turso's wins would be dishonest in the other
+direction.
+
+One real caveat found live: Turso's list includes the **console's own
+introspection queries** (the first entry on `dracon-music-dev` was Drizzle
+Studio's `sqlite_master`/`pragma_index_list` scan), so its "top query" is
+measured over a different population than `dg`'s API traffic.
+
+### Edit Data is read-write; `dg` is read-only by design
+
+The Edit Data grid is a full editor: `+ Add record`, editable cells, a Columns
+visibility chooser, a Sort builder, a Filters builder, and an attached SQL
+console. Read live through its shadow DOM (the page is a Drizzle Studio app
+inside `<drizzle-studio>`, so it is invisible to `document.body.innerText`).
+
+`dg rows` and the TUI rows browser give the same three reading capabilities —
+sort, filter, column data — as `--sort`/`--where` flags and `o`/`f`/`c` prompts.
+They never write. Every mutation in `dg` is an explicit statement (`dg query`,
+`dg execute`) or a confirmed lifecycle action.
+
+Cost: an operator cannot click a cell and fix a typo. That is intentional —
+`docs/tui.md` states the mouse "deliberately stops at reading", and every write
+needs its own statement so it lands in the audit log with its shape. Recorded
+as a deliberate non-goal, not a missing feature.
+
+### Turso's audit retention is undisclosed
 
 Read live on 2026-10-29: Turso's Audit Logs page reports **"Showing 1-6 of 6
 items"** with all paging buttons disabled. The 2026-10-26 capture of the same
@@ -321,27 +396,7 @@ but the cause is undisclosed. Disposition: no behavior change in this
 documentation-only comparison; operators should not assume a Turso retention
 period from these two snapshots.
 
-### Gap 9 — Import and create-policy options differ (low)
-
-Turso `db create` accepts a local SQLite file, a local SQL dump (`--from-dump`),
-a CSV (`--from-csv`), and a **remote** dump fetched by URL (`--from-dump-url`),
-plus a per-database size limit, schema-only type and experimental extension
-enablement. `dg import --from` accepts a regular SQLite file only (128 MiB
-ceiling); `dg create` makes an ordinary SQLite file, which can be initialized
-with explicit SQL but has no per-database size or extension switch.
-
-The `--from-dump-url` variant is the sharpest of these: `dg` has no
-network-fetch path anywhere in its import surface, so a dump hosted elsewhere
-must be downloaded to disk first. That is deliberate — an import source is a
-local file the operator can inspect and hash — but it is a real extra step.
-
-Cost: CSV/dump sources need local conversion; a remote dump needs a manual
-download; schema-only setup needs an explicit SQL file; storage limits belong to
-the host/filesystem and extension loading is not exposed. Disposition: low-impact
-migration and policy differences; no behavior change in this docs-only
-comparison. See `docs/evidence/turso-cli-help-2026-10-29.txt`.
-
-### Gap 10 — CLI mapping drift (low; corrected during this refresh)
+### CLI mapping drift (already corrected)
 
 The October mapping had stale or invented CLI spellings. The installed v1.0.15
 help tree confirms there is no `turso db execute`, `turso db tokens list`, or
@@ -354,32 +409,6 @@ single-key revoke. It also records `dg key rotate-owner` exactly as spelled by
 **Disposition: documentation correction made** in `docs/cli-turso-mapping.md`;
 there is no runtime gap implied by the stale command rows. The CLI help capture
 is `docs/evidence/turso-cli-help-2026-10-29.txt`.
-
-### Gap 11 — `dg export`/`import` are narrower than Turso's (low)
-
-Both sides move a database to and from a local SQLite file, which is why the
-matrix once called these plain parity. Read against the captured help, they are
-not the same surface:
-
-- **Export.** Turso also exports the WAL (`<db>.db-wal` alongside the main
-  file), accepts `--overwrite`, offers `--with-metadata`, and defaults the
-  output name. `dg export --out` is required, and an existing file is refused
-  rather than overwritten — the help says so explicitly.
-- **Import.** Turso takes the filename positionally and accepts `--group`
-  placement. `dg import` requires the target name, refuses a name that already
-  exists, and enforces a 128 MiB ceiling.
-
-The refusing-not-overwriting behaviour is deliberate and worth keeping: a
-snapshot that silently replaced a previous export would destroy the very
-artifact an operator keeps for recovery. But it is a real difference in
-workflow — re-exporting to the same path means deleting the old file first.
-
-Cost: low. A WAL-inclusive export and a metadata-bearing one have no `dg`
-equivalent, so a byte-for-byte replica of Turso's export cannot be produced;
-overwrite and group placement are convenience differences. Disposition: no
-behavior change in this documentation-only pass; recorded so the parity claim
-is not overstated. Evidence: `docs/evidence/turso-cli-help-2026-10-29.txt` and
-`dg export --help` / `dg import --help`.
 
 ---
 
