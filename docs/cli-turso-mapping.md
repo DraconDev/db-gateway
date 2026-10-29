@@ -90,6 +90,9 @@ No Turso equivalent; kept as the single-node operational surface:
 - `dg backup status` — versioned sets + per-db fresh/stale/unknown.
 - `dg backup verify --backup-root <dir> [set]` — offline re-verification, JSON report.
 - `dg clone/export/import` — SQLite backup-API clone, `.sqlite` snapshot export/import.
+  `dg export --out` refuses an existing file and has no WAL or metadata option,
+  where Turso's export also writes `<db>.db-wal`, accepts `--overwrite` and
+  `--with-metadata`; see gap 11 in `docs/turso-surface-gap.md`.
 - `dg tui` — the terminal operator view: the service, its databases,
   their backup freshness and its credentials on one live screen, with
   the lifecycle, credential and SQL actions a keystroke away.
