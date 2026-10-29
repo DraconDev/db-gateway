@@ -67,10 +67,10 @@ maps each Turso CLI verb to its `dg` equivalent.
 
 | Turso | dg | Notes |
 |---|---|---|
-| `turso db tokens create <db> ...` | `dg key create <name> --role database_read_only\|database_read_write --database <db>...` | Both print the raw key once. Turso also supports expiry, table-action permissions, ATTACH and group claims; `dg` grants non-expiring database-wide roles (see gap 6 in `docs/turso-surface-gap.md`). |
+| `turso db tokens create <db> ...` | `dg key create <name> --role database_read_only\|database_read_write --database <db>...` | Both print the raw key once. Turso also supports expiry, table-action permissions, ATTACH and group claims; `dg` grants non-expiring database-wide roles (see gap 4 in `docs/turso-surface-gap.md`). |
 | — (no `turso db tokens list` verb in CLI v1.0.15) | `dg key list` | Lists key names, roles and database scopes; hashes never shown. Turso's CLI help exposes create/invalidate only. |
 | — (no Turso token-list command) | `dg key tokens <db>` | The credentials that can act on ONE database: the owner key reaches everything, an application key reaches the databases it was scoped to. The first question of a leaked-key incident. |
-| `turso db tokens invalidate <db>` | `dg key revoke <name>` | Turso rotates the database-token signing keys and invalidates all existing tokens at once; `dg` revokes one named credential. See gap 6 in `docs/turso-surface-gap.md`. |
+| `turso db tokens invalidate <db>` | `dg key revoke <name>` | Turso rotates the database-token signing keys and invalidates all existing tokens at once; `dg` revokes one named credential. See gap 4 in `docs/turso-surface-gap.md`. |
 | `turso auth login/logout/token` | `dg init --data-dir ...` | Local-first: no cloud account. Owner credential lives in a 0600 key file (`--key-file`, `DG_KEY_FILE`, or `~/.config/dg/key`). |
 | — | `dg key rotate-owner` | Prints the new owner key once; old dies immediately. Turso's `db tokens invalidate` rotates database-token signing keys, not the local owner credential. |
 
@@ -92,7 +92,7 @@ No Turso equivalent; kept as the single-node operational surface:
 - `dg clone/export/import` — SQLite backup-API clone, `.sqlite` snapshot export/import.
   `dg export --out` refuses an existing file and has no WAL or metadata option,
   where Turso's export also writes `<db>.db-wal`, accepts `--overwrite` and
-  `--with-metadata`; see gap 11 in `docs/turso-surface-gap.md`.
+  `--with-metadata`; see gap 7 in `docs/turso-surface-gap.md`.
 - `dg tui` — the terminal operator view: the service, its databases,
   their backup freshness and its credentials on one live screen, with
   the lifecycle, credential and SQL actions a keystroke away.
