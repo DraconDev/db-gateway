@@ -443,6 +443,15 @@ The raw per-suite output is committed as
 `docs/evidence/cargo-test-full-suite-2026-10-29.txt`, so the full-suite claim
 can be checked without re-running it.
 
+One caveat is recorded in that file rather than smoothed over: this repo's two
+process-lifecycle tests (`orphan_guard`, `crash_restart`) are not robust to a
+host that is simultaneously running another project's full test suite. On this
+tree the suite went green four times and failed twice, once in each of those two
+files, both times while a concurrent `cargo test --workspace` from a different
+checkout was saturating the machine (load above 140, zero memory available).
+Each failing test passes in isolation, and this refresh never touched either
+file. Making them load-tolerant is a source change belonging to its own goal.
+
 ## How to re-read this
 
 The Turso side is a moving target: the Audit Logs view showed 6 entries on
