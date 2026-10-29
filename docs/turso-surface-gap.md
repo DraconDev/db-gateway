@@ -41,6 +41,7 @@ October captures are called out by date wherever they support a comparison.
 | `turso db inspect <db>` | `dg inspect <db>` | partial | On a terminal it renders database/activity/backup/tables sections; off a terminal it degrades to the plain info document. See gap 1. | CLI `--help` (2026-10-29). |
 | `turso db inspect --queries` | `dg queries --database <db>` | have | Per-statement cost. `dg` answers it globally or per database, not as a flag on `inspect`. | CLI `--help` (2026-10-29). |
 | `turso db create` | `dg create` | have | Includes single-node database creation; Turso's location/group options do not apply here (§4). | CLI `--help` (2026-10-29). |
+| `turso db create --size-limit/--schema/--type/--enable-extensions` | `dg create` + `dg execute` | partial | Turso can set a per-database size limit, choose schema-only mode, and enable extensions; `dg` creates an ordinary SQLite file and can initialize it with SQL, but has no corresponding per-database size or extension switch. See gap 9. | CLI `--help` (2026-10-29). |
 | `turso db create --from-db [--timestamp]` | `dg branch create` | have | Copy now or from a point in time. | CLI `--help` (2026-10-29). |
 | `turso db create --from-file/--from-dump/--from-csv` | `dg import --from <file>` | partial | Only SQLite files. No CSV or SQL-dump import path. See gap 9. | CLI `--help` (2026-10-29). |
 | `turso db destroy` | `dg delete --confirm <name>` | have | `dg` tombstones then purges after retention; requires the name typed twice. | CLI `--help` (2026-10-29). |
@@ -92,7 +93,7 @@ Console tabs: **Overview**, **Branches**, **Analytics**, **Top Queries**,
 | Analytics (org): Latency / Rows Read / Rows Written / Inbound / Outbound / Syncs / Storage 30-day charts | — | missing | See gap 2. | Console (2026-10-29). |
 | Analytics (org): Top Databases ranked by rows read | TUI databases tab, `dg status` | partial | Present-tense ranking only; no trend. See gap 2. | Console (2026-10-29). |
 | Analytics (org): Top Queries ranked by rows read | `dg queries` | partial | See gap 3. | Console (2026-10-29). |
-| Audit Logs (Author, Event, Origin, Timestamp) | `dg audit` | have | `dg` adds the action, the database, and the statement shape. Different retention bounds — see gap 8. | Console (2026-10-29). |
+| Audit Logs (Author, Event, Origin, Timestamp) | `dg audit` | have | `dg` adds the action, the database, and the statement shape. The observed visible history differs; Turso's retention rule is not exposed — see gap 8. | Console (2026-10-29). |
 | Billing / Usage / Upgrade / plan / invoices | — | not-applicable | No billing. | Console (2026-10-29). |
 | Settings, Support | — | not-applicable | No account. | Console (2026-10-29). |
 
@@ -214,19 +215,21 @@ Cost: an operator cannot click a cell and fix a typo. That is intentional —
 needs its own statement so it lands in the audit log with its shape. Recorded
 as a deliberate non-goal, not a missing feature.
 
-### Gap 5 — No per-database network access control (medium)
+### Gap 5 — No per-database traffic controls (medium)
 
 Turso's per-database Configuration offers **Block Reads**, **Block Writes**,
-**Allow ATTACH**, **Delete Protection**, and **Restrict Access** by CIDR block
-or AWS VPC endpoint. All are live controls, read on 2026-10-29.
+and **Restrict Access** by CIDR block or AWS VPC endpoint. All are live controls,
+read on 2026-10-29. (Allow ATTACH is not applicable to `dg`'s isolated-file
+model; Delete Protection is gap 7.)
 
-`dg` has none of these. Its model is: one loopback listener, remote access via
-SSH tunnel, and authorization by credential scope and role. There is no
-per-database switch to refuse writes, and no per-database IP allow-list.
+`dg` uses one loopback listener, remote access via SSH tunnel, and authorization
+by credential scope and role. There is no per-database switch to refuse writes
+or per-database IP allow-list.
 
-Cost: during an incident you cannot say "this one database is now read-only" —
-you can only revoke credentials or stop the service. Fix: a per-database
-read-only flag in the registry, enforced at the route. In-architecture.
+Cost: during an incident you cannot say "this one database is now read-only";
+you can only revoke credentials or stop the service. Disposition: a
+per-database read-only flag is in-architecture; a CIDR/VPC allow-list would
+require changing or extending the current loopback-only ingress trust model.
 
 ### Gap 6 — Token expiry, fine-grained permissions, and bulk invalidation (medium)
 
@@ -240,9 +243,10 @@ and its scope, but the operator must revoke scoped keys one command at a time.
 Cost: a leaked credential cannot be made to expire automatically or limited to
 one table/action, and bulk revocation is a manual loop under incident pressure.
 ATTACH and group claims have no `dg` use because cross-database ATTACH and
-groups are outside its isolated-file model (§4). Disposition: bulk revoke is a bounded in-architecture
-improvement; expiry and table/action grants need explicit policy and credential
-schema changes. No behavior change is in this documentation-only goal.
+groups are outside its isolated-file model (§4). Disposition: bulk revoke is a
+bounded in-architecture improvement; expiry and table/action grants need
+explicit policy and credential schema changes. No behavior change is in this
+documentation-only goal.
 
 ### Gap 7 — No delete protection (low–medium)
 
@@ -274,12 +278,18 @@ but the cause is undisclosed. Disposition: no behavior change in this
 documentation-only comparison; operators should not assume a Turso retention
 period from these two snapshots.
 
-### Gap 9 — No CSV or SQL-dump import (low)
+### Gap 9 — Import and create-policy options differ (low)
 
-`turso db create` accepts `--from-csv`, `--from-dump`, `--from-dump-url` and
-`--from-file`. `dg import --from` accepts a regular SQLite file only, with a
-128 MiB ceiling. Cost: a CSV or dump has to be converted locally first. Fix:
-small, but outside the "database file" model `dg` has chosen.
+Turso `db create` accepts CSV, SQL-dump, URL and SQLite sources, plus a
+per-database size limit, schema-only type and experimental extension enablement.
+`dg import --from` accepts a regular SQLite file only (128 MiB ceiling); `dg
+create` makes an ordinary SQLite file, which can be initialized with explicit
+SQL but has no per-database size or extension switch.
+
+Cost: CSV/dump sources need local conversion; schema-only setup needs an explicit
+SQL file; storage limits belong to the host/filesystem and extension loading is
+not exposed. Disposition: low-impact migration and policy differences; no
+behavior change in this docs-only comparison. See `docs/evidence/turso-cli-help-2026-10-29.txt`.
 
 ### Gap 10 — CLI mapping drift (low; corrected during this refresh)
 
@@ -353,8 +363,8 @@ Live captures made 2026-10-29 (this revision):
   read through its shadow DOM: toolbar, type-annotated headers, sampled rows.
 - `docs/evidence/turso-edit-data-live-2026-10-29.png` — the Edit Data grid as
   rendered (screenshot of the same view the text record describes).
-- `docs/evidence/turso-live-2026-10-29-audit-logs.txt` — the Audit Logs page and
-  the retention finding (6 items today vs 23 on 2026-10-26).
+- `docs/evidence/turso-live-2026-10-29-audit-logs.txt` — the Audit Logs page:
+  6 entries today versus 23 in the Oct 26 capture; retention policy undisclosed.
 
 Historical captures, retained unchanged and **not** re-read this revision:
 
@@ -379,11 +389,13 @@ ran against Turso and no Turso data was read through it.
 
 ## How to re-read this
 
-The Turso side is a moving target: the console changed its audit retention
-between 2026-10-26 and 2026-10-29. Re-read the console before relying on a gap
-being open, and re-run the `dg` side against a current build. Two of the ten
-gaps (1 and 10) are carried forward from October *because they were re-verified
-today* — do not carry a gap forward again without re-checking it.
+The Turso side is a moving target: the Audit Logs view showed 6 entries on
+2026-10-29 versus 23 in the 2026-10-26 capture, but did not disclose why older
+entries disappeared. Re-read the console before relying on a gap being open,
+and re-run the `dg` side against a current build. Gap 1 is carried forward
+from October because it was re-verified today. Gap 10 records mapping errors
+from the earlier audit and the correction made here; neither should be treated
+as current without a fresh check.
 
 ## Related
 
@@ -400,9 +412,9 @@ today* — do not carry a gap forward again without re-checking it.
 The body below is the previous revision of this document, kept verbatim so the
 earlier inspection work is not lost. It is **historical**: its ranked gaps have
 been superseded by §2 above, its October figures are superseded by the live
-2026-10-29 captures, and its claim that the console listed 23 audit entries is
-now known to have been a snapshot before time-based expiry. Read §1–§4 for
-anything current.
+2026-10-29 captures. Its claim that the 23-to-6 audit-log difference proves
+time-based expiry is an inference not supported by the captures; the current
+report preserves that uncertainty. Read §1–§4 for anything current.
 
 ## Headline answer
 
