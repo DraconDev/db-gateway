@@ -326,8 +326,8 @@ Live captures made 2026-10-29 (this revision):
   Top Queries.
 - `docs/evidence/turso-live-2026-10-29-edit-data.txt` — the Edit Data browser
   read through its shadow DOM: toolbar, type-annotated headers, sampled rows.
-- `.pi/chrome-screenshots/turso-edit-data-live-2026-10-29.png` — the Edit Data
-  grid as rendered.
+- `docs/evidence/turso-edit-data-live-2026-10-29.png` — the Edit Data grid as
+  rendered (screenshot of the same view the text record describes).
 - `docs/evidence/turso-live-2026-10-29-audit-logs.txt` — the Audit Logs page and
   the retention finding (6 items today vs 23 on 2026-10-26).
 
