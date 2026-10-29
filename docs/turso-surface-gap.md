@@ -385,6 +385,10 @@ Live captures made 2026-10-29 (this revision):
   rendered (screenshot of the same view the text record describes).
 - `docs/evidence/turso-live-2026-10-29-audit-logs.txt` — the Audit Logs page:
   6 entries today versus 23 in the Oct 26 capture; retention policy undisclosed.
+- `docs/evidence/cargo-test-full-suite-2026-10-29.txt` — the verbatim per-suite
+  output of `cargo test --workspace --all-targets` on this tree (91 suites, 664
+  passed, 0 failed), so the green-suite claim is inspectable rather than
+  asserted.
 
 Historical captures, retained unchanged and **not** re-read this revision:
 
@@ -431,9 +435,13 @@ their known-good form rather than documented as a known failure. The document is
 unchanged in scope; the code change reverts sabotage and adds nothing new.
 
 ```
-cargo test --workspace --all-targets --no-fail-fast   (after the repair)
-  suites=91  passed=664  failed=0
+cargo test --workspace --all-targets   (after the repair)
+  exit 0 — 91 suites, 664 passed, 0 failed
 ```
+
+The raw per-suite output is committed as
+`docs/evidence/cargo-test-full-suite-2026-10-29.txt`, so the full-suite claim
+can be checked without re-running it.
 
 ## How to re-read this
 
