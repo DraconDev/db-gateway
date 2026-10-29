@@ -149,6 +149,63 @@ Flags:
 Global Flags:
   -c, --config-path string   Path to the directory with config file
 
+$ turso db shell --help
+Start a SQL shell.
+When database-name is provided, the shell will connect the closest replica of the specified database.
+When the --instance flag is provided with a specific instance name, the shell will connect to that instance directly.
+
+Usage:
+  turso db shell <database-name | replica-url> [sql] [flags]
+
+Examples:
+  turso db shell http://127.0.0.1:8080
+  turso db shell name-of-my-amazing-db
+  turso db shell name-of-my-amazing-db --location yyz
+  turso db shell name-of-my-amazing-db --instance a-specific-instance
+  turso db shell name-of-my-amazing-db "select * from users;"
+
+Flags:
+      --attach strings    list of database names with attach claim to be added to the token
+  -h, --help              help for shell
+      --instance string   Connect to the database at the specified instance.
+      --location string   Connect to the database at the specified location.
+      --proxy string      Proxy to use for the connection.
+
+Global Flags:
+  -c, --config-path string   Path to the directory with config file
+
+$ turso db export --help
+Export a database snapshot and WAL from Turso to SQLite files.
+
+This command exports a snapshot of the current generation of a Turso database
+to a local SQLite file, along with any WAL (Write-Ahead Log) frames. The WAL
+file will be saved as <database>.db-wal alongside the main database file.
+
+Usage:
+  turso db export <database> [flags]
+
+Flags:
+  -h, --help                 help for export
+      --output-file string   Specify the output file name (default: <database>.db)
+      --overwrite            Overwrite output file if it exists.
+      --with-metadata        Include metadata in the export.
+
+Global Flags:
+  -c, --config-path string   Path to the directory with config file
+
+$ turso db import --help
+Import a SQLite database file to Turso.
+
+Usage:
+  turso db import [filename] [flags]
+
+Flags:
+      --group string   create the database in the specified group
+  -h, --help           help for import
+
+Global Flags:
+  -c, --config-path string   Path to the directory with config file
+
 $ turso db config --help
 Manage db config
 
@@ -167,6 +224,44 @@ Global Flags:
 
 Use "turso db config [command] --help" for more information about a command.
 
+$ turso db config attach --help
+Manage attach config of a database
+
+Usage:
+  turso db config attach [command]
+
+Available Commands:
+  allow       Allows this database to be attached by other databases
+  disallow    Disallows this database to be attached by other databases
+  show        Shows the attach status of a database
+
+Flags:
+  -h, --help   help for attach
+
+Global Flags:
+  -c, --config-path string   Path to the directory with config file
+
+Use "turso db config attach [command] --help" for more information about a command.
+
+$ turso db config delete-protection --help
+Manage delete-protection config of a database
+
+Usage:
+  turso db config delete-protection [command]
+
+Available Commands:
+  disable     Disables delete protection for this database
+  enable      Disables delete protection for this database
+  show        Shows the delete protection status of a database
+
+Flags:
+  -h, --help   help for delete-protection
+
+Global Flags:
+  -c, --config-path string   Path to the directory with config file
+
+Use "turso db config delete-protection [command] --help" for more information about a command.
+
 $ turso db tokens --help
 Manage db tokens
 
@@ -184,6 +279,24 @@ Global Flags:
   -c, --config-path string   Path to the directory with config file
 
 Use "turso db tokens [command] --help" for more information about a command.
+
+$ turso db tokens create --help
+Creates a bearer token to authenticate requests to the database
+
+Usage:
+  turso db tokens create <database-name> [flags]
+
+Flags:
+      --attach strings            list of database names with attach claim to be added to the token
+  -e, --expiration string         Token expiration. Possible values are never (default) or expiration time in days (e.g. 7d). (default "never")
+      --group                     create a token that is valid for all databases in the group
+  -h, --help                      help for create
+  -p, --permissions stringArray   fine-grained permissions in format <table-name|all>:<action1>,...
+                                  (e.g: -p all:data_read -p comments:data_insert)
+  -r, --read-only                 Token with read-only access
+
+Global Flags:
+  -c, --config-path string   Path to the directory with config file
 
 $ turso db tokens invalidate --help
 Rotates the keys used to create and verify database tokens making existing tokens invalid

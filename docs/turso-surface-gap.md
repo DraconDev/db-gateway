@@ -53,6 +53,7 @@ October captures are called out by date wherever they support a comparison.
 | `turso db export` | `dg export --out <file>` | have | Atomically published `.sqlite` snapshot. | CLI `--help` (2026-10-29). |
 | `turso db import` | `dg import --from <file>` | have | 128 MiB ceiling. | CLI `--help` (2026-10-29). |
 | `turso db tokens create/invalidate <db>` | `dg key create/list/revoke` | partial | Turso creates and bulk-invalidates tokens; `dg` lists keys but revokes one name at a time. See gap 6. | CLI `--help` (2026-10-29). |
+| `turso db tokens create --expiration/--permissions/--attach/--group` | `dg key create --role/--database` | partial | Turso supports expiry, table-action permissions, ATTACH and group claims; `dg` grants only a non-expiring database-wide read/write role. ATTACH/group claims are inapplicable here (§4); see gap 6 for expiry, permissions, and bulk revoke. | CLI `--help` (2026-10-29). |
 | `turso db shell <db>` | `dg shell [db]` | have | Optional preselection and piped SQL; `dg shell` also has operator dot-commands. | CLI `--help` (2026-10-29). |
 
 ### 1.2 Database page (console per-database tabs)
@@ -64,7 +65,7 @@ Console tabs: **Overview**, **Branches**, **Analytics**, **Top Queries**,
 |---|---|---|---|---|
 | Overview → Activity (rows read/written, storage, syncs) | `dg inspect`, `dg status`, TUI service/databases tabs | have | `dg` adds queue-wait percentiles Turso does not expose. | Console (2026-10-29). |
 | Overview → Connect → Database URL | `dg status` → `listen`, SSH tunnel | not-applicable | `dg` reports the bound loopback address; there is no public URL to mint. Remote access is an SSH tunnel (§4). | Console (2026-10-29). |
-| Overview → Create Token | `dg key create --role … --database …` | have | | Console (2026-10-29). |
+| Overview → Create Token | `dg key create --role … --database …` | partial | Database-scoped roles match, but Turso token expiry and table-action controls do not. See gap 6. | Console + CLI `--help` (2026-10-29). |
 | Overview → Export → Download SQLite File | `dg export --out` | have | | Console (2026-10-29). |
 | Overview → Delete Database | `dg delete --confirm <name>` | have | Typed confirmation and tombstone retention. | Console (2026-10-29). |
 | Overview → Allow ATTACH | — | not-applicable | Cross-database ATTACH is outside `dg`'s isolated-file model (§4). | Console (2026-10-29). |
@@ -227,18 +228,21 @@ Cost: during an incident you cannot say "this one database is now read-only" —
 you can only revoke credentials or stop the service. Fix: a per-database
 read-only flag in the registry, enforced at the route. In-architecture.
 
-### Gap 6 — No bulk credential invalidation per database (medium)
+### Gap 6 — Token expiry, fine-grained permissions, and bulk invalidation (medium)
 
-Turso offers "Invalidate All Tokens" for one database — the first move in a
-leaked-key incident.
+Turso can invalidate every database token at once. Its CLI can also create
+tokens that expire, restrict permissions to table/actions, and carry ATTACH or
+group claims. `dg` credentials are non-expiring and grant one database-wide
+read-only or read-write role; `dg key revoke` takes exactly one `<NAME>`
+(verified from `--help` and `src/api.rs::revoke`). `dg key list` shows every key
+and its scope, but the operator must revoke scoped keys one command at a time.
 
-`dg key revoke` takes exactly one `<NAME>` (verified from `--help` and
-`src/api.rs::revoke`). `dg key list` shows every key and its scope, so an
-operator can find the affected keys, but must revoke them one command at a time.
-
-Cost: a leaked database token on a database with many scoped keys is a manual
-loop under time pressure. Fix: `dg key revoke --database <name>` with a
-confirmation matching the existing destructive-action rule. In-architecture.
+Cost: a leaked credential cannot be made to expire automatically or limited to
+one table/action, and bulk revocation is a manual loop under incident pressure.
+ATTACH and group claims have no `dg` use because cross-database ATTACH and
+groups are outside its isolated-file model (§4). Disposition: bulk revoke is a bounded in-architecture
+improvement; expiry and table/action grants need explicit policy and credential
+schema changes. No behavior change is in this documentation-only goal.
 
 ### Gap 7 — No delete protection (low–medium)
 
