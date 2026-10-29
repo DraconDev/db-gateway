@@ -457,7 +457,7 @@ been superseded by §2 above, its October figures are superseded by the live
 time-based expiry is an inference not supported by the captures; the current
 report preserves that uncertainty. Read §1–§4 for anything current.
 
-## Headline answer
+### Headline answer
 
 `dg` **can** check the tables. The gap the seed feared does not exist as
 a missing capability:
@@ -476,7 +476,7 @@ a missing capability:
 What is real is narrower: partials ranked by operator impact in §8, plus
 the places where single-host architecture answers "not applicable".
 
-## 1. Analytics usage cards
+### 1. Analytics usage cards
 
 Turso shows, per organisation, rows read/written against quota, sync
 bytes, storage, a latency chart (p50–p99 + average), and 30-day charts
@@ -519,7 +519,7 @@ Verdict: PARTIAL. `dg` has the counters but no history: no time-series
 charts, no per-database over-time view, no latency percentiles over time.
 Quota cards are out of scope (single owner, no metering).
 
-## 2. Top databases
+### 2. Top databases
 
 Turso ranks databases by rows read and, per database, shows average
 query time, average rows read/written, query count, synced bytes,
@@ -544,7 +544,7 @@ inbound/outbound bytes, and synced bytes (no replicas to sync).
 Region/location is not applicable: single host by architecture
 (`docs/architecture.md`).
 
-## 3. Top queries
+### 3. Top queries
 
 Turso ranks statement shapes by rows read with average query time,
 average rows read/written, execution count, and the full SQL text.
@@ -573,7 +573,7 @@ Verdict: COVERED. Count, totals, maxima, rows read/written, first/last
 seen, and principals are all present; averages are `total/count`; the
 `?` shape redaction matches Turso's literal-free display.
 
-## 4. Databases list
+### 4. Databases list
 
 Turso lists every database with rows read, rows written, bytes synced,
 storage, group, and status, plus a per-row "Edit Data" link. Full text
@@ -600,7 +600,7 @@ equivalent for `Writes Blocked`-style status (single host has no
 throttle state), deleted-database restore (tombstones purge after
 retention instead), or branches.
 
-## 5. Per-database Edit Data browser
+### 5. Per-database Edit Data browser
 
 The browser (Drizzle Studio) has three panes, observed in
 `docs/evidence/turso-edit-data-2026-10-26.png` (`dracon-music-dev`,
@@ -649,7 +649,7 @@ with the exact commands and outputs quoted.
 The per-database Analytics/Top Queries scoping has no one-shot `dg`
 equivalent beyond `dg queries --database <name>` and `dg status`.
 
-### 5.1 The STRUCTURE tab, and what dg now answers of it
+#### 5.1 The STRUCTURE tab, and what dg now answers of it
 
 Turso side, captured 2026-10-27 in the browser, read-only:
 
@@ -726,7 +726,7 @@ this work:
   history, per-database network bytes, and everything about billing,
   plans, organisations and invoices stays out of scope.
 
-## 6. Turso CLI verbs
+### 6. Turso CLI verbs
 
 Turso side: `turso db --help`, captured 2026-10-26 (the CLI is not
 logged in, so this is verb inventory, not live output):
@@ -782,7 +782,7 @@ page, not the CLI verb.) `group` manages
 | Account-management verbs | None | OUT OF SCOPE — named in the final section |
 | Turso web Audit Logs page (CLI equivalent lives under the excluded `turso org` namespace) | `dg audit` → `{"entries":[{"action":"create","at":1793019443,"database":"shop","principal":"owner","role":"owner"},{"action":"query","database":"shop","detail":"CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT)","principal":"owner"},{"action":"query","database":"shop","detail":"INSERT INTO products VALUES (?, ?)","principal":"owner"},{"action":"query","database":"shop","detail":"SELECT * FROM products","principal":"owner"}]}` (trimmed; observed 2026-10-26) | PARTIAL: who ran what and when, with statement shapes and no values — covers Author/Event/Timestamp, but `dg audit` entries carry no Origin: Turso distinguishes `dashboard` from `cli` (evidence file: 2 dashboard + 21 cli entries) while every `dg` entry differs only by principal/role |
 
-## 7. `dg inspect`: the terminal-only rich view
+### 7. `dg inspect`: the terminal-only rich view
 
 `dg inspect shop` on a terminal (ANSI stripped), observed 2026-10-26:
 
@@ -823,7 +823,7 @@ read the activity/backup/tables view an operator sees; automation must
 rejoin `/v1/databases/{name}`, `/v1/status`, and `/v1/backups` by hand.
 Sharpest scriptability gap found.
 
-## 8. Ranked gaps (operator impact first)
+### 8. Ranked gaps (operator impact first)
 
 1. `dg inspect` degrades off-terminal (§7). Smallest fix with the
    largest automation payoff; no API change needed (compose the three
@@ -838,7 +838,7 @@ Sharpest scriptability gap found.
    subcommand is `rotate-owner`, not bare `rotate`. Cosmetic, but the
    doc is the CLI contract's map.
 
-## Out of scope, untouched
+### Out of scope, untouched
 
 Billing, plans, organisations, invoices, subscriptions, and auth tokens
 for third parties. Excluded CLI verbs: `turso auth`, `turso org` (including
