@@ -6,6 +6,12 @@ billing.
 `dg` keeps its flat command layout (no `dg db ...` regroup); this doc
 maps each Turso CLI verb to its `dg` equivalent.
 
+> **Current comparison:** this table is the per-verb map. The full surface
+> comparison — every Turso CLI verb, console page and feature, with each gap
+> ranked by operator impact — is `docs/turso-surface-gap.md`, last read live
+> against the Turso console on 2026-10-29. Read that for what is missing; read
+> this for which `dg` command answers which Turso verb.
+
 ## Database lifecycle
 
 | Turso | dg | Notes |
@@ -22,7 +28,7 @@ maps each Turso CLI verb to its `dg` equivalent.
 | Turso | dg | Notes |
 |---|---|---|
 | `turso db shell <name>` | `dg shell [name]` | Optional preselect; `use <db>` switches inside. Piped stdin works. The operator's dot-commands (`.status`, `.keys`, `.backups`, `.tables`, `.schema`) draw the same views as the one-shot commands. |
-| `turso db execute <name> "<sql>"` | `dg query <name> "<sql>"` | Interactive terminals get a table (numbers right-aligned, `NULL` distinct, wide characters measured), else JSON. `--args`, `--idempotency-key`. |
+| `dg query <name> "<sql>"` | Interactive terminals get a table (numbers right-aligned, `NULL` distinct, wide characters measured), else JSON. `--args`, `--idempotency-key`. |
 | — | `dg rows <name> <table> [page]` | A table's ROWS, a page of ten at a time, with `--sort <column>[:asc\|:desc]` and `--where <condition>`. The sorting and filtering are applied by the gateway, so the footer's `rows 11-20 of N` counts the filtered set. Both controls are validated against the schema before they reach a statement. |
 | — | `dg contents` | How much each database HOLDS: its tables and total rows, read from the files. `dg list` says which databases exist and the counters say what they have been doing since boot; neither says how much data is in them. |
 | — | `dg execute <name> <file.sql>` | Runs a SQL FILE, reporting each statement. The file is split by SQLite's own `sqlite3_complete`, so a semicolon inside a string, a comment, or a trigger body is not a statement boundary. The statements run as one atomic batch. A file of more than 32 statements is refused before it is sent, with the count, the cap and the fact that nothing was sent — a longer file is not split, because that would give up the atomicity. |
@@ -66,7 +72,7 @@ maps each Turso CLI verb to its `dg` equivalent.
 | `turso db tokens list <db>` | `dg key tokens <db>` | The credentials that can act on ONE database: the owner key reaches everything, an application key reaches the databases it was scoped to. The first question of a leaked-key incident. |
 | `turso db tokens revoke ...` | `dg key revoke <name>` | Immediate. |
 | `turso auth login/logout/token` | `dg init --data-dir ...` | Local-first: no cloud account. Owner credential lives in a 0600 key file (`--key-file`, `DG_KEY_FILE`, or `~/.config/dg/key`). |
-| — | `dg key rotate-owner` | Prints the new owner key once; old dies immediately. |
+| — | `dg key rotate-owner` | Prints the new owner key once; old dies immediately. (Turso has no owner-rotation verb; `turso db tokens invalidate` rotates the signing keys instead.) |
 
 ## Service, backup, terminal view (dg extras)
 
