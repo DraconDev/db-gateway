@@ -1,0 +1,289 @@
+Turso CLI v1.0.15 — local help inventory; read 2026-10-29.
+No command in this capture authenticates to Turso or mutates an account.
+
+
+$ turso --version
+turso version v1.0.15
+
+$ turso --help
+Turso CLI
+
+Usage:
+  turso [command]
+
+Available Commands:
+  auth         Authenticate with Turso
+  config       Manage your CLI configuration
+  db           Manage databases
+  dev          starts a local development server for Turso
+  group        Manage your database groups
+  help         Help about any command
+  org          Manage your organizations
+  plan         Manage your organization plan
+  quickstart   New to Turso? Start here!
+  relax        Sometimes you feel like you're working too hard... relax!
+  update       Update the CLI to the latest version
+
+Flags:
+  -c, --config-path string   Path to the directory with config file
+  -h, --help                 help for turso
+  -v, --version              version for turso
+
+Use "turso [command] --help" for more information about a command.
+
+$ turso config --help
+Manage your CLI configuration
+
+Usage:
+  turso config [command]
+
+Available Commands:
+  cache       Manage your CLI cache
+  path        Get the path to the CLI configuration file
+  set         Set a configuration value
+
+Flags:
+  -h, --help   help for config
+
+Global Flags:
+  -c, --config-path string   Path to the directory with config file
+
+Use "turso config [command] --help" for more information about a command.
+
+$ turso auth --help
+Authenticate with Turso
+
+Usage:
+  turso auth [command]
+
+Available Commands:
+  api-tokens  Manage your API tokens
+  login       Login to the platform.
+  logout      Log out currently logged in user.
+  signup      Create a new Turso account.
+  token       Shows the token used to authenticate you to Turso platform API.
+  whoami      Show the currently logged in user.
+
+Flags:
+  -h, --help   help for auth
+
+Global Flags:
+  -c, --config-path string   Path to the directory with config file
+
+Use "turso auth [command] --help" for more information about a command.
+
+$ turso db --help
+Manage databases
+
+Usage:
+  turso db [command]
+
+Available Commands:
+  config      Manage db config
+  create      Create a database.
+  destroy     Destroy a database.
+  export      Export a database snapshot and WAL from Turso to SQLite files.
+  import      Import a SQLite database file to Turso.
+  inspect     Inspect database.
+  list        List databases.
+  locations   List available database locations.
+  replicate   Replicate a database.
+  shell       Start a SQL shell.
+  show        Show information from a database.
+  tokens      Manage db tokens
+  unarchive   Unarchive a database
+  update      Updates the database to the latest turso version
+
+Flags:
+  -h, --help   help for db
+
+Global Flags:
+  -c, --config-path string   Path to the directory with config file
+
+Use "turso db [command] --help" for more information about a command.
+
+$ turso db create --help
+Create a database.
+
+Usage:
+  turso db create [flags] [database-name]
+
+Flags:
+      --csv-separator string    CSV separator character. Must be a single character. (default ",")
+      --csv-table-name string   name of the table in the csv file
+      --enable-extensions       Enables experimental support for SQLite extensions.
+      --from-csv string         create the database from a csv file
+      --from-db string          Select another database to copy data from. To use data from a past version of the selected database, see the 'timestamp' flag.
+      --from-dump string        create the database from a local SQLite dump
+      --from-dump-url string    create the database from a remote SQLite dump
+      --from-file string        create the database from a local SQLite3-compatible file
+      --group string            create the database in the specified group
+  -h, --help                    help for create
+      --location string         Location ID. If no ID is specified, closest location to you is used by default.
+      --schema string           Schema to use for the database
+      --size-limit string       The maximum size of the database in bytes. Values with units are accepted, e.g. 1mb, 256mb, 1gb
+      --timestamp string        Set a point in time in the past to copy data from the selected database. Must be used with the 'from-db' flag. Must be in RFC3339 format like '2023-09-29T10:16:13-03:00'
+      --type string             Type of the database to create. Possible values: regular, schema. (default "regular")
+  -w, --wait                    Wait for the database to be ready to receive requests.
+
+Global Flags:
+  -c, --config-path string   Path to the directory with config file
+
+$ turso db inspect --help
+Inspect database.
+
+Usage:
+  turso db inspect <database-name> [flags]
+
+Aliases:
+  inspect, usage {database_name}
+
+Examples:
+turso db inspect name-of-my-amazing-db
+
+Flags:
+  -h, --help      help for inspect
+      --queries   Display database queries statistics
+      --verbose   Show detailed information
+
+Global Flags:
+  -c, --config-path string   Path to the directory with config file
+
+$ turso db config --help
+Manage db config
+
+Usage:
+  turso db config [command]
+
+Available Commands:
+  attach            Manage attach config of a database
+  delete-protection Manage delete-protection config of a database
+
+Flags:
+  -h, --help   help for config
+
+Global Flags:
+  -c, --config-path string   Path to the directory with config file
+
+Use "turso db config [command] --help" for more information about a command.
+
+$ turso db tokens --help
+Manage db tokens
+
+Usage:
+  turso db tokens [command]
+
+Available Commands:
+  create      Creates a bearer token to authenticate requests to the database
+  invalidate  Rotates the keys used to create and verify database tokens making existing tokens invalid
+
+Flags:
+  -h, --help   help for tokens
+
+Global Flags:
+  -c, --config-path string   Path to the directory with config file
+
+Use "turso db tokens [command] --help" for more information about a command.
+
+$ turso db tokens invalidate --help
+Rotates the keys used to create and verify database tokens making existing tokens invalid
+
+Usage:
+  turso db tokens invalidate <database-name> [flags]
+
+Flags:
+  -h, --help   help for invalidate
+  -y, --yes    Confirms the invalidation of all existing db tokens.
+
+Global Flags:
+  -c, --config-path string   Path to the directory with config file
+
+$ turso group --help
+Manage your database groups
+
+Usage:
+  turso group [command]
+
+Available Commands:
+  aws-migration Manage AWS migration of the group
+  config        Manage group config
+  create        Create a database group
+  destroy       Destroy a database group
+  list          List databases groups
+  locations     Manage your database group locations
+  rename        Renames the group
+  show          Show information about a group.
+  tokens        Manage group tokens
+  transfer      Transfers the group to the specified organization
+  unarchive     Unarchive a database group
+  update        Updates the group
+
+Flags:
+  -h, --help   help for group
+
+Global Flags:
+  -c, --config-path string   Path to the directory with config file
+
+Use "turso group [command] --help" for more information about a command.
+
+$ turso org --help
+Manage your organizations
+
+Usage:
+  turso org [command]
+
+Available Commands:
+  audit-logs  Manage organization audit logs
+  create      Create a new organization
+  db-transfer Transfers a database to another organization
+  destroy     Destroy an organization
+  invites     Manage your organization invites
+  invoice     Manage Invoices
+  jwks        [BETA] Manage your organization external JWKS sources
+  list        List your organizations
+  members     Manage your organization members
+  switch      Switch to an organization as the context for your commands.
+
+Flags:
+  -h, --help   help for org
+
+Global Flags:
+  -c, --config-path string   Path to the directory with config file
+
+Use "turso org [command] --help" for more information about a command.
+
+$ turso plan --help
+Manage your organization plan
+
+Usage:
+  turso plan [command]
+
+Available Commands:
+  show        Show your current organization plan
+
+Flags:
+  -h, --help   help for plan
+
+Global Flags:
+  -c, --config-path string   Path to the directory with config file
+
+Use "turso plan [command] --help" for more information about a command.
+
+$ turso dev --help
+starts a local development server for Turso.
+
+If you're using a libSQL client SDK that supports SQLite database files on the local filesystem, then you might not need this server at all.
+Instead, you can use a file: URL with the path to the file you want the SDK to read and write.
+
+Usage:
+  turso dev [flags]
+
+Flags:
+  -a, --auth-jwt-key-file string   Path to a file with a JWT decoding key used to authenticate clients in the Hrana and HTTP APIs. The key is either a PKCS#8-encoded Ed25519 public key in PEM, or just plain bytes of the Ed25519 public key in URL-safe base64.
+  -f, --db-file string             A file name to persist the data of this dev session
+  -h, --help                       help for dev
+  -p, --port int                   the port to which bind the server (default 8080)
+  -v, --version                    sqld version
+
+Global Flags:
+  -c, --config-path string   Path to the directory with config file

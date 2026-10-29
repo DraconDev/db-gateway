@@ -2,8 +2,8 @@ Turso web console — per-database Edit Data browser, dracondev org — read liv
 2026-10-29 via the Chrome bridge. The page is a Drizzle Studio app mounted in a
 shadow DOM (<drizzle-studio>), so document.body.innerText does NOT contain it;
 the readings below come from the shadow root's ARIA grid. Screenshot alongside:
-.pi/chrome-screenshots/turso-edit-data-live-2026-10-29.png (this file is the
-text record of the same view).
+docs/evidence/turso-edit-data-live-2026-10-29.png (this file is the text record
+of the same view).
 
 Database: dracon-music-dev. Tab: Edit Data (URL .../databases/<name>/data).
 

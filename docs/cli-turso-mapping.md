@@ -60,7 +60,7 @@ maps each Turso CLI verb to its `dg` equivalent.
 
 | Turso | dg | Notes |
 |---|---|---|
-| `turso auth login/logout/token` | `dg config set <name> --server <url> --key-file <path>` | Named contexts: a name for a server and a credential FILE, kept in `$HOME/.config/dg/config.toml` (0600). The file holds paths, never a key. `dg --context <name> list` talks to that one now. |
+| `turso auth login/logout/token/whoami` | — | No direct equivalent: `dg init` creates a local owner key and `dg config set` stores named server/key-file contexts; `dg` has no cloud-account login. |
 | — | `dg mcp` | The gateway's read views to an MCP client over stdio: the same facts an agent would otherwise have to scrape, and only the read ones. |
 
 ## Tokens / credentials
@@ -68,11 +68,11 @@ maps each Turso CLI verb to its `dg` equivalent.
 | Turso | dg | Notes |
 |---|---|---|
 | `turso db tokens create <db> ...` | `dg key create <name> --role database_read_only\|database_read_write --database <db>...` | Prints raw key once. |
-| `turso db tokens list <db>` | `dg key list` | Name, role, databases. Hashes never shown. |
-| `turso db tokens list <db>` | `dg key tokens <db>` | The credentials that can act on ONE database: the owner key reaches everything, an application key reaches the databases it was scoped to. The first question of a leaked-key incident. |
-| `turso db tokens revoke ...` | `dg key revoke <name>` | Immediate. |
+| — (no `turso db tokens list` verb in CLI v1.0.15) | `dg key list` | Lists key names, roles and database scopes; hashes never shown. Turso's CLI help exposes create/invalidate only. |
+| — (no Turso token-list command) | `dg key tokens <db>` | The credentials that can act on ONE database: the owner key reaches everything, an application key reaches the databases it was scoped to. The first question of a leaked-key incident. |
+| `turso db tokens invalidate <db>` | `dg key revoke <name>` | Turso rotates the database-token signing keys and invalidates all existing tokens at once; `dg` revokes one named credential. See gap 6 in `docs/turso-surface-gap.md`. |
 | `turso auth login/logout/token` | `dg init --data-dir ...` | Local-first: no cloud account. Owner credential lives in a 0600 key file (`--key-file`, `DG_KEY_FILE`, or `~/.config/dg/key`). |
-| — | `dg key rotate-owner` | Prints the new owner key once; old dies immediately. (Turso has no owner-rotation verb; `turso db tokens invalidate` rotates the signing keys instead.) |
+| — | `dg key rotate-owner` | Prints the new owner key once; old dies immediately. Turso's `db tokens invalidate` rotates database-token signing keys, not the local owner credential. |
 
 ## Service, backup, terminal view (dg extras)
 

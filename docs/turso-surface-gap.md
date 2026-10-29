@@ -273,18 +273,19 @@ way the console just did. Not a gap to close — a property to know.
 128 MiB ceiling. Cost: a CSV or dump has to be converted locally first. Fix:
 small, but outside the "database file" model `dg` has chosen.
 
-### Gap 10 — Documentation drift in the mapping doc (low, but it is the contract's map)
+### Gap 10 — CLI mapping drift (low; corrected during this refresh)
 
-Two errors the October audit found are **still present**:
+The October mapping had stale or invented CLI spellings. The installed v1.0.15
+help tree confirms there is no `turso db execute`, `turso db tokens list`, or
+`turso db tokens revoke`; the SQL command is `turso db shell <db> <sql>`, and
+tokens have `create` and `invalidate` (bulk invalidation) only. The mapping doc
+now says so and distinguishes Turso's bulk token invalidation from `dg`'s
+single-key revoke. It also records `dg key rotate-owner` exactly as spelled by
+`dg key --help`.
 
-- `docs/cli-turso-mapping.md:25` maps `turso db execute <name> "<sql>"`, but the
-  installed `turso` v1.0.15 has no `db execute` verb — the command falls
-  through to `turso db --help`. Verified 2026-10-29.
-- The same doc's credential table describes the owner-rotation verb without
-  noting that `dg key --help` spells it `rotate-owner`.
-
-Not fixed here: this goal is a comparison, not a docs-edit pass on a different
-document. Recorded so the next mapping-doc revision picks them up.
+**Disposition: documentation correction made** in `docs/cli-turso-mapping.md`;
+there is no runtime gap implied by the stale command rows. The CLI help capture
+is `docs/evidence/turso-cli-help-2026-10-29.txt`.
 
 ---
 
@@ -331,6 +332,8 @@ Stated so a parity table cannot be mistaken for a to-do list.
 
 Live captures made 2026-10-29 (this revision):
 
+- `docs/evidence/turso-cli-help-2026-10-29.txt` — the installed Turso CLI v1.0.15
+  version and top-level / command-family help inventory, captured locally.
 - `docs/evidence/turso-live-2026-10-29-databases.txt` — the Databases list,
   all 19 rows with rows read/written, bytes synced, storage, group, status.
 - `docs/evidence/turso-live-2026-10-29-analytics.txt` — the org Analytics page:
@@ -361,10 +364,10 @@ Historical captures, retained unchanged and **not** re-read this revision:
 live local gateway (`GET /v1/status`, `/v1/databases`, `/v1/backups`, `/v1/audit`,
 `/v1/queries`) read on 2026-10-29.
 
-Turso CLI surface: `turso` v1.0.15, its `--help` output for every verb family
-inventoried in §1.5. The CLI is not authenticated here, so no live
-`show`/`inspect`/`shell` ran against Turso and no Turso data was read through
-it.
+Turso CLI surface: `turso` v1.0.15, captured from local `--help` output in
+`docs/evidence/turso-cli-help-2026-10-29.txt` (no account authentication or
+mutation). The CLI is not authenticated here, so no live `show`/`inspect`/`shell`
+ran against Turso and no Turso data was read through it.
 
 ## How to re-read this
 
