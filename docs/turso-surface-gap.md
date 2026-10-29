@@ -48,7 +48,9 @@ October captures are called out by date wherever they support a comparison.
 | `turso db create` | `dg create` | have | Includes single-node database creation; Turso's location/group options do not apply here (§4). | CLI `--help` (2026-10-29). |
 | `turso db create --size-limit/--schema/--type/--enable-extensions` | `dg create` + `dg execute` | partial | Turso can set a per-database size limit, choose schema-only mode, and enable extensions; `dg` creates an ordinary SQLite file and can initialize it with SQL, but has no corresponding per-database size or extension switch. See gap 9. | CLI `--help` (2026-10-29). |
 | `turso db create --from-db [--timestamp]` | `dg branch create` | have | Copy now or from a point in time. | CLI `--help` (2026-10-29). |
-| `turso db create --from-file/--from-dump/--from-csv` | `dg import --from <file>` | partial | Only SQLite files. No CSV or SQL-dump import path. See gap 9. | CLI `--help` (2026-10-29). |
+| `turso db create --from-file` | `dg import --from <file>` | have | A local SQLite3-compatible file, the same source `dg import` takes (128 MiB ceiling). | CLI `--help` (2026-10-29). |
+| `turso db create --from-dump` / `--from-csv` | — | missing | A local SQL dump or a CSV, loaded as a new database. `dg import` accepts a SQLite file only. See gap 9. | CLI `--help` (2026-10-29). |
+| `turso db create --from-dump-url` | — | missing | Fetches a remote SQL dump over the network and creates the database from it. `dg` has no URL fetch path at all — every import source is a local file. See gap 9. | CLI `--help` (2026-10-29). |
 | `turso db destroy` | `dg delete --confirm <name>` | have | `dg` tombstones then purges after retention; requires the name typed twice. | CLI `--help` (2026-10-29). |
 | `turso db update` | — | not-applicable | Deploy is a binary swap; `docs/deployment.md`. | CLI `--help` (2026-10-29). |
 | `turso db unarchive` | — | not-applicable | No archival tier; local files are always present. | CLI `--help` (2026-10-29). |
@@ -93,6 +95,8 @@ Console tabs: **Overview**, **Branches**, **Analytics**, **Top Queries**,
 
 | Turso surface | `dg` equivalent | Status | Note | Turso evidence |
 |---|---|---|---|---|
+| Sidebar → Create Database | `dg create <name>` | have | Both create an empty database the credential can then reach; `dg` takes the name on the command line rather than opening a dialog, and offers no size/group/location options (§4). | Console (2026-10-29). |
+| Sidebar → Create Group | — | not-applicable | A group is a placement-and-replication container that databases are created into. `dg` has no groups, regions or replicas (§4); every database is one local file, so there is no group to create. | Console (2026-10-29). |
 | Databases list (rows read/written, bytes synced, storage, group, status) | `dg list`, `dg contents`, TUI databases tab | partial | `dg` has rows read/written, storage, and contents from the files. Groups are a cloud construct (§4); "bytes synced" is replication accounting and provider-imposed write-block status is inapplicable. The storage/counter views are present-tense only; see gap 2 for missing trends. | Console (2026-10-29). |
 | Databases list → Restore deleted databases | `dg delete` tombstone retention; no undelete command | missing | A tombstoned `dg` file remains until purge, but the CLI has no action to undelete it; `dg restore list/plan` only describes the off-host backup window. See gap 7. | Console (2026-10-29). |
 | Analytics (org): quota cards | — | not-applicable | No quotas to meter against. | Console (2026-10-29). |
