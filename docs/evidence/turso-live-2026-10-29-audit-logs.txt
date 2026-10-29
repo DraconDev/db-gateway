@@ -30,5 +30,11 @@ mechanism and cutoff cannot be asserted from these snapshots alone.
 2000 entries and rewrites its trail file above `MAX_FILE_BYTES` = 4 MiB,
 dropping the OLDEST. That is a COUNT/SIZE bound, not a time bound, so a quiet
 box keeps its trail indefinitely and a busy one turns over. The honest statement
-is "Turso's log dropped five-day-old entries by age; dg's drops by count and
-size" — not "dg keeps everything".
+is narrower than "Turso expires by age": Turso's visible log showed 6 entries
+where this capture's own predecessor showed 23, the 21 missing ones were all
+from a single day five days earlier, and the console disclosed no retention
+setting or explanation. Age-based expiry fits that observation, but these two
+snapshots cannot establish the mechanism or its cutoff — something else (a
+re-issued UI, a changed query) could produce the same visible result. `dg`'s
+bound, by contrast, is documented in its own source and is count/size rather
+than time.
