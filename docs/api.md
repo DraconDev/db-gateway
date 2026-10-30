@@ -572,12 +572,14 @@ dg --key-file owner.key restore plan --to 2026-10-16T00:00:00Z
 dg --key-file owner.key watch
 dg --key-file owner.key key tokens game_a   # the credentials that can act on one database
 dg --key-file owner.key key revoke bot_a                     # revoke exactly one key
-dg --key-file owner.key key revoke --database game_a --confirm game_a # revoke scoped app keys; owner key excluded
-dg --key-file owner.key protect game_a                       # guard against a mistaken delete
-dg --key-file owner.key protect game_a --off                 # clear the guard explicitly
-dg --key-file owner.key delete game_a --confirm game_a       # protected databases refuse
-dg --key-file owner.key undelete game_a                      # undo inside the retention window
 ```
+
+For a database-wide incident, the confirmed form is
+`dg --key-file owner.key key revoke --database game_a --confirm game_a`;
+it reports the application keys removed and states that the owner key was
+not revoked. The lifecycle examples are `dg protect game_a`,
+`dg protect game_a --off`, `dg delete game_a --confirm game_a`, and
+`dg undelete game_a` (only inside its retention window).
 
 ```sh
 dg config list                       # the contexts, and whether their key file is there
