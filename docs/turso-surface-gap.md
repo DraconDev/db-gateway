@@ -43,7 +43,7 @@ October captures are called out by date wherever they support a comparison.
 |---|---|---|---|---|
 | `turso db list` | `dg list` | have | Names visible to the credential. | CLI `--help` (2026-10-29). |
 | `turso db show <db>` | `dg info <db>` | have | Size, tables + row counts, created_at, tombstone state. | CLI `--help` (2026-10-29). |
-| `turso db inspect <db>` | `dg inspect <db>` | partial | On a terminal it renders database/activity/backup/tables sections; off a terminal it degrades to the plain info document. See gap 1. | CLI `--help` (2026-10-29). |
+| `turso db inspect <db>` | `dg inspect <db>` | have | `dg inspect` composes database, activity, backup and tables in both the terminal and JSON forms; failed auxiliary reads are explicit. Gap 1 CLOSED in 0.10.0. | CLI `--help` (2026-10-29); `dg` 0.10.0. |
 | `turso db inspect --queries` | `dg queries --database <db>` | have | Per-statement cost. `dg` answers it globally or per database, not as a flag on `inspect`. | CLI `--help` (2026-10-29). |
 | `turso db create` | `dg create` | have | Includes single-node database creation; Turso's location/group options do not apply here (§4). | CLI `--help` (2026-10-29). |
 | `turso db create --size-limit/--schema/--type/--enable-extensions` | `dg create` + `dg execute` | partial | Turso can set a per-database size limit, choose schema-only mode, and enable extensions; `dg` creates an ordinary SQLite file and can initialize it with SQL, but has no corresponding per-database size or extension switch. See gap 6. | CLI `--help` (2026-10-29). |
@@ -56,11 +56,11 @@ October captures are called out by date wherever they support a comparison.
 | `turso db unarchive` | — | not-applicable | No archival tier; local files are always present. | CLI `--help` (2026-10-29). |
 | `turso db locations` | — | not-applicable | Single node. | CLI `--help` (2026-10-29). |
 | `turso db replicate` | — | not-applicable | No regions or read replicas. Recovery is `dg restore` + `dg backup verify`. | CLI `--help` (2026-10-29). |
-| `turso db config delete-protection` | — | missing | Nothing prevents `dg delete` beyond the typed confirmation. See gap 5. | CLI `--help` (2026-10-29). |
+| `turso db config delete-protection` | `dg protect <name>` | have | Persistent registry guard; `dg delete` refuses until `dg protect <name> --off`. Gap 5 CLOSED in 0.10.0. | CLI `--help` (2026-10-29); `dg` 0.10.0. |
 | `turso db config attach` | — | not-applicable | No cross-database ATTACH; each database is its own file behind its own route. | CLI `--help` (2026-10-29). |
 | `turso db export` | `dg export --out <file>` | partial | Both write a local SQLite snapshot, but the surfaces differ: Turso also exports the WAL (`<db>.db-wal`), offers `--overwrite` and `--with-metadata`, and defaults the output name. `dg export` refuses an existing file outright — `--out` is required and "an existing file is refused and the download is published atomically" — and has no WAL or metadata option. See gap 7. | CLI `--help` (2026-10-29). |
 | `turso db import` | `dg import --from <file>` | partial | Both take a local SQLite file. `dg import` requires the target name, refuses one that already exists, and enforces a 128 MiB ceiling; Turso takes the filename positionally and offers `--group` placement (not applicable here, §4). See gap 7. | CLI `--help` (2026-10-29). |
-| `turso db tokens create/invalidate <db>` | `dg key create/list/revoke` | partial | Turso creates and bulk-invalidates tokens; `dg` lists keys but revokes one name at a time. See gap 4. | CLI `--help` (2026-10-29). |
+| `turso db tokens create/invalidate <db>` | `dg key create`, `dg key revoke --database <db>` | have | The operator can issue database-scoped keys and cut all scoped application keys in one confirmed command; the owner key is explicitly excluded. Gap 4 CLOSED in 0.10.0. | CLI `--help` (2026-10-29); `dg` 0.10.0. |
 | `turso db tokens create --expiration/--permissions/--attach/--group` | `dg key create --role/--database` | partial | Turso supports expiry, table-action permissions, ATTACH and group claims; `dg` grants only a non-expiring database-wide read/write role. ATTACH/group claims are inapplicable here (§4); See gap 4 for expiry, permissions, and bulk revoke. | CLI `--help` (2026-10-29). |
 | `turso db shell <db>` | `dg shell [db]` | have | Optional preselection and piped SQL; `dg shell` also has operator dot-commands. | CLI `--help` (2026-10-29). |
 
@@ -77,11 +77,11 @@ Console tabs: **Overview**, **Branches**, **Analytics**, **Top Queries**,
 | Overview → Export → Download SQLite File | `dg export --out` | have | | Console (2026-10-29). |
 | Overview → Delete Database | `dg delete --confirm <name>` | have | Typed confirmation and tombstone retention. | Console (2026-10-29). |
 | Overview → Allow ATTACH | — | not-applicable | Cross-database ATTACH is outside `dg`'s isolated-file model (§4). | Console (2026-10-29). |
-| Overview → Delete Protection | — | missing | No persistent guard against deliberate deletion; See gap 5. | Console (2026-10-29). |
+| Overview → Delete Protection | `dg protect <name>` | have | A persistent guard blocks `dg delete`; `dg inspect` reports whether it is on. Gap 5 CLOSED in 0.10.0. | Console (2026-10-29); `dg` 0.10.0. |
 | Overview → Block Writes | — | missing | No per-database write switch; stopping the service or revoking credentials takes every database down. See gap 3. | Console (2026-10-29). |
 | Overview → Block Reads | — | not-applicable | A read cannot damage a database, so blocking reads addresses a party you do not trust with the data — a tenant, not the operator who owns the file. §4. | Console (2026-10-29). |
 | Overview → Restrict Access (CIDR / VPC allow-list) | — | not-applicable | Provider firewall for shared infrastructure. `dg` is loopback-only with remote access by SSH tunnel, so network admission is answered by the host and the credential; §4. | Console (2026-10-29). |
-| Overview → Invalidate All Tokens | `dg key revoke <name>` (one at a time) | partial | A single leaked key revokes in one command; revoking every key scoped to a database is a manual loop. See gap 4. | Console (2026-10-29). |
+| Overview → Invalidate All Tokens | `dg key revoke --database <db>` | have | Revokes every application credential scoped to the database in one confirmed command; the owner key is never revoked. Gap 4 CLOSED in 0.10.0. | Console (2026-10-29); `dg` 0.10.0. |
 | Branches → Create From Now | `dg branch create <parent> <name>` | have | | Console (2026-10-29). |
 | Branches → Create From Point-in-Time | `dg branch create --from <ISO8601>` | have | Reports the backup window when the moment falls outside it. | Console (2026-10-29). |
 | Branches → list | `dg branch list`, `dg branch show` | have | | Console (2026-10-29). |
@@ -99,7 +99,7 @@ Console tabs: **Overview**, **Branches**, **Analytics**, **Top Queries**,
 | Sidebar → Create Database | `dg create <name>` | have | Both create an empty database the credential can then reach; `dg` takes the name on the command line rather than opening a dialog, and offers no size/group/location options (§4). | Console (2026-10-29). |
 | Sidebar → Create Group | — | not-applicable | A group is a placement-and-replication container that databases are created into. `dg` has no groups, regions or replicas (§4); every database is one local file, so there is no group to create. | Console (2026-10-29). |
 | Databases list (rows read/written, bytes synced, storage, group, status) | `dg list`, `dg contents`, TUI databases tab | partial | `dg` has rows read/written, storage, and contents from the files. Groups are a cloud construct (§4); "bytes synced" is replication accounting and provider-imposed write-block status is inapplicable. The storage/counter views are present-tense only; See gap 2 for missing trends. | Console (2026-10-29). |
-| Databases list → Restore deleted databases | `dg delete` tombstone retention; no undelete command | missing | A tombstoned `dg` file remains until purge, but the CLI has no action to undelete it; `dg restore list/plan` only describes the off-host backup window. See gap 5. | Console (2026-10-29). |
+| Databases list → Restore deleted databases | `dg locations`, `dg undelete <name>` | partial | A tombstone can be restored by name inside the retention window; `dg locations` lists tombstones, but this is a CLI lookup plus explicit command rather than a console restore button. Gap 5 CLOSED for protection and undo. | Console (2026-10-29); `dg` 0.10.0. |
 | Analytics (org): quota cards | — | not-applicable | No quotas to meter against. | Console (2026-10-29). |
 | Analytics (org): Latency / Rows Read / Rows Written / Inbound / Outbound / Syncs / Storage 30-day charts | — | missing | See gap 2. | Console (2026-10-29). |
 | Analytics (org): Top Databases ranked by rows read | TUI databases tab, `dg status` | partial | Present-tense ranking only; no trend. See gap 2. | Console (2026-10-29). |
@@ -598,11 +598,12 @@ Read those five controls as follows:
 | Block Reads | not applicable (§4) — a read cannot damage a database |
 | Block Writes | **gap 3** — a genuine operator harm, self-inflicted corruption |
 | Allow ATTACH | not applicable (§4) — each database is an isolated file |
-| Delete Protection | **gap 5** — a genuine operator harm, fat-fingered delete |
+| Delete Protection | **gap 5 CLOSED in 0.10.0** — now guarded by `dg protect` |
 | CIDR / VPC allow-list | not applicable (§4) — loopback plus SSH tunnel |
 
-The other two entries in that list survive: the time-series gap is **gap 2**, and
-bulk token invalidation is **gap 4**. The capture's remaining descriptive content
+The other two entries in that list survived the mindset audit: the time-series
+gap is **gap 2**, and bulk token invalidation was **gap 4**, now **CLOSED in
+0.10.0**. The capture's remaining descriptive content
 — the tab inventory, the configuration controls, Branches, Analytics and Top
 Queries — is unaffected and is cited above as read.
 
@@ -661,10 +662,10 @@ file. Making them load-tolerant is a source change belonging to its own goal.
 The Turso side is a moving target: the Audit Logs view showed 6 entries on
 2026-10-29 versus 23 in the 2026-10-26 capture, but did not disclose why older
 entries disappeared. Re-read the console before relying on a gap being open,
-and re-run the `dg` side against a current build. Gap 1 is carried forward
-from October because it was re-verified today, and the mapping drift it used to
-sit beside is now recorded in §4.1 as already corrected. Neither should be
-treated as current without a fresh check.
+and re-run the `dg` side against a current build. Gap 1 was carried forward
+from October, then closed in 0.10.0; the mapping drift it used to sit beside is
+recorded in §4.1 as already corrected. The Turso side remains a 2026-10-29
+capture, not a live assertion.
 
 ## Mindset audit, 2026-10-29
 
