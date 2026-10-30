@@ -524,6 +524,61 @@ fn revoke_and_delete_report_unknown_and_repeated_names() {
     );
 }
 
+/// The bulk revoke must never take the owner credential, and it must hold
+/// even if an owner row somehow carries database scopes.
+///
+/// This is the failure mode worth pinning hardest: the owner key reaches
+/// every database by definition, so it is always IN SCOPE for the question
+/// "who can reach this database". If the sweep answered that question
+/// literally it would revoke the credential the operator is holding and
+/// lock them out of the gateway they were trying to protect. The row is
+/// written directly here — bypassing `issue`, which refuses the name — so
+/// the protection is tested against the shape it has to survive, not only
+/// against the shape the normal path happens to produce.
+#[test]
+fn bulk_revoke_never_takes_the_owner_key_even_when_it_is_scoped() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path()).unwrap();
+    store.create("shop").unwrap();
+    // An application key scoped to shop, which SHOULD be revoked.
+    store
+        .issue(KeyRequest {
+            name: "app".into(),
+            role: "database_read_write".into(),
+            databases: vec!["shop".into()],
+        })
+        .unwrap();
+    // An owner row carrying the same scope, which must NOT be revoked.
+    {
+        let conn = store.meta().unwrap();
+        conn.execute(
+            "INSERT INTO credentials(name, hash, role, databases) VALUES ('owner2','h2','owner',?1)",
+            [serde_json::json!([{"name":"shop","generation":"g"}]).to_string()],
+        )
+        .unwrap();
+    }
+
+    let revoked = store.revoke_scoped_to("shop").unwrap();
+
+    assert!(
+        revoked.contains(&"app".to_string()),
+        "the scoped application key was not revoked: {revoked:?}"
+    );
+    assert!(
+        !revoked.contains(&"owner2".to_string()),
+        "the bulk sweep took an owner credential: {revoked:?}"
+    );
+    let listed = store.list_keys().unwrap();
+    let names: Vec<&str> = listed["keys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|k| k["name"].as_str())
+        .collect();
+    assert!(names.contains(&"owner2"), "owner2 was deleted: {names:?}");
+    assert!(!names.contains(&"app"), "app survived: {names:?}");
+}
+
 #[test]
 fn issue_error_mapping_distinguishes_duplicates_from_failures() {
     let dir = tempfile::tempdir().unwrap();
