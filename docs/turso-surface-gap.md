@@ -252,8 +252,7 @@ Cost: a per-database read-only flag is a small, in-architecture addition
 (a registry flag enforced at the route). Disposition: worth doing for that
 self-inflicted-corruption case; not worth doing to imitate a firewall.
 
-### Gap 4 — Credentials do not expire, and revoking several is manual (medium)
-Credentials do not expire, and revoking several is manual (medium)
+### Gap 4 — Bulk credential revocation (CLOSED in 0.10.0)
 
 Turso can invalidate every database token at once. Its CLI can also create
 tokens that expire, restrict permissions to table/actions, and carry ATTACH or
@@ -274,7 +273,28 @@ Cost: bulk revoke (`dg key revoke --database <name>` with a confirmation) is a
 bounded, in-architecture addition. Expiry and per-table grants would need an
 explicit policy and credential-schema change, and are not recommended for a
 single-operator install. Disposition: do the bulk revoke; treat the rest as
-deliberately out of scope. No behavior change in this documentation-only goal.
+deliberately out of scope.
+
+**Closed in 0.10.0 — the bulk revoke only.** `dg key revoke --database <name>`
+resolves the scope server-side in one transaction (`revoke_scoped_to` in
+`src/store/auth.rs`, `DELETE /v1/database-keys/{name}`) and reports the names it
+cut, not just a count. It is the write-side counterpart of `dg key tokens
+--database`, which already answered "who can reach this database".
+
+The one thing it must get right is the thing that would have made it dangerous:
+**the owner key is never revoked by the bulk form.** An owner credential reaches
+every database by construction, so it is always *in scope* for "who can reach
+this database" — a literal sweep would revoke the credential the operator is
+holding and lock them out of the gateway they were protecting. Both the SELECT
+and the DELETE filter on `role != 'owner'`, and a store-level test
+(`bulk_revoke_never_takes_the_owner_key_even_when_it_is_scoped`) writes an owner
+row that *does* carry the scope, to prove the protection holds against the shape
+it has to survive rather than only the shape `issue` happens to produce.
+Removing either filter makes that test fail with `the bulk sweep took an owner
+credential: ["app", "owner2"]`.
+
+Credential expiry, per-table/action scopes and ATTACH/group claims remain
+deliberately out of scope (§4) — that part of the original gap is unchanged.
 
 ### Gap 5 — No delete protection or undelete action (low–medium)
 No delete protection or undelete action (low–medium)

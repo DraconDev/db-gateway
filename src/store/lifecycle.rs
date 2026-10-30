@@ -24,6 +24,10 @@ pub(super) fn migrate_metadata(conn: &mut Connection, root: &Path) -> Result<()>
         ("deleted_at", "INTEGER"),
         ("purge_after", "INTEGER"),
         ("created_at", "INTEGER"),
+        // A protection guard is per-database operator intent, and it has
+        // to survive restarts: a guard that reset on reboot would guard
+        // nothing. Nullable addition, so an existing registry migrates.
+        ("protected", "INTEGER"),
         // Existing registries need a nullable migration step because SQLite
         // cannot add a NOT NULL column to a table that already has rows.
         ("generation", "TEXT"),
@@ -426,11 +430,32 @@ impl Store {
     /// Tombstone `name`: registry row keeps the file under lock so the
     /// name can neither be queried nor recreated. Physical purge is delayed
     /// `retention_secs` and recorded via `purge_after`.
+    ///
+    /// A protected database refuses. Protection exists for the mistake it
+    /// can actually prevent here: a stray `dg delete` on the wrong name.
+    /// It is a guard the operator set deliberately, so it is checked
+    /// before anything is written and cleared only by an explicit
+    /// `unprotect`.
     pub fn delete(&self, name: &str, retention_secs: i64) -> Result<()> {
         validate_name(name)?;
         let now = now_secs()?;
         let mut conn = self.meta()?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let protected: Option<i64> = tx
+            .query_row(
+                "SELECT protected FROM databases WHERE name=?",
+                [name],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten();
+        if protected == Some(1) {
+            return Err(Error::new(
+                409,
+                "database_protected",
+                "database is protected; clear protection before deleting",
+            ));
+        }
         let changed = tx.execute(
             "UPDATE databases SET deleted_at=?2, purge_after=?3
              WHERE name=?1 AND deleted_at IS NULL",
