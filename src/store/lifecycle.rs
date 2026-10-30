@@ -481,7 +481,104 @@ impl Store {
         Ok(())
     }
 
-    /// Physically remove files for tombstones whose retention elapsed.
+    /// Set or clear a database's delete protection.
+    ///
+    /// Protection is deliberately a registry flag and not a file
+    /// permission: it has to survive restarts, apply to `dg delete` from
+    /// any surface, and be visible to `dg list` before someone tries the
+    /// deletion that would be refused. Setting it on a tombstoned
+    /// database is allowed (an operator may protect one they are about
+    /// to restore); an unknown name is a 404.
+    pub fn set_protected(&self, name: &str, protected: bool) -> Result<()> {
+        validate_name(name)?;
+        let conn = self.meta()?;
+        let changed = conn.execute(
+            "UPDATE databases SET protected=?2 WHERE name=?1",
+            params![name, i64::from(protected)],
+        )?;
+        if changed == 0 {
+            return Err(Error::new(
+                404,
+                "database_not_found",
+                "database not found",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Whether a database is protected. `None` when it is not registered.
+    pub fn is_protected(&self, name: &str) -> Result<Option<bool>> {
+        validate_name(name)?;
+        let conn = self.meta()?;
+        let value: Option<Option<i64>> = conn
+            .query_row(
+                "SELECT protected FROM databases WHERE name=?",
+                [name],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(value.map(|v| v == Some(1)))
+    }
+
+    /// Bring a tombstoned database back, within its retention window.
+    ///
+    /// This is the undo half of `delete`. It is safe because `delete`
+    /// never removed the file: it only set `deleted_at`/`purge_after`, and
+    /// `purge_expired` is what finally unlinks it. Undelete therefore
+    /// clears the tombstone and the file the operator was looking for is
+    /// still exactly where it was.
+    ///
+    /// Three refusals, each telling the operator something different:
+    ///
+    /// - the name is unknown → 404 `database_not_found`;
+    /// - the database is live → 409 `not_deleted`, since there is nothing
+    ///   to undo and silently succeeding would hide a mistaken command;
+    /// - the retention window already passed → 409 `retention_expired`.
+    ///   This is checked against the clock rather than trusted to the
+    ///   absence of a purge: the maintenance loop skips a contended tick,
+    ///   so a tombstone can sit past its deadline with the file still on
+    ///   disk. Whether the bytes happen to remain is not the contract; the
+    ///   published window is.
+    pub fn undelete(&self, name: &str) -> Result<()> {
+        validate_name(name)?;
+        let now = now_secs()?;
+        let mut conn = self.meta()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let entry: Option<(Option<i64>, Option<i64>)> = tx
+            .query_row(
+                "SELECT deleted_at, purge_after FROM databases WHERE name=?",
+                [name],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        let Some((deleted_at, purge_after)) = entry else {
+            return Err(Error::new(
+                404,
+                "database_not_found",
+                "database not found",
+            ));
+        };
+        if deleted_at.is_none() {
+            return Err(Error::new(
+                409,
+                "not_deleted",
+                "database is not deleted; nothing to restore",
+            ));
+        }
+        if purge_after.is_some_and(|deadline| deadline <= now) {
+            return Err(Error::new(
+                409,
+                "retention_expired",
+                "the retention window for this database has passed; restore it from a backup instead",
+            ));
+        }
+        tx.execute(
+            "UPDATE databases SET deleted_at=NULL, purge_after=NULL WHERE name=?",
+            [name],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
     /// Idempotent, driven by the server maintenance loop even when idle.
     /// Skip a busy tick; never unlink while any request owns a connection.
     pub fn purge_expired(&self) -> Result<Vec<String>> {
