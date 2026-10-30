@@ -271,7 +271,7 @@ pub async fn revoke_database(
                     names.len(),
                     if names.len() == 1 { "" } else { "s" }
                 ),
-                vec![("revoked", Cell::text(names.join(", ")))],
+                vec![("revoked".to_string(), names.join(", "))],
             )
         }),
     )
