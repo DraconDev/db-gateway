@@ -23,23 +23,22 @@ use serde_json::Value;
 /// Create `shop` with a couple of tables so `tables` has something to
 /// report, and write a row so activity has a fact to carry.
 fn seed(fleet: &Fleet) {
-    fleet.ok("create", &["create", "shop"]);
-    fleet.ok(
-        "ddl",
-        &[
-            "execute",
-            "shop",
-            "-",
-            "--sql",
-            "CREATE TABLE products (id INTEGER PRIMARY KEY, sku TEXT);\n\
-             INSERT INTO products (id, sku) VALUES (1, 'A'), (2, 'B');",
-        ],
+    fleet.cli.ok("create", &["create", "shop"]);
+    fleet.cli.q(
+        "create products",
+        "shop",
+        "CREATE TABLE products (id INTEGER PRIMARY KEY, sku TEXT)",
+    );
+    fleet.cli.q(
+        "insert",
+        "shop",
+        "INSERT INTO products (id, sku) VALUES (1, 'A'), (2, 'B')",
     );
 }
 
 /// `dg inspect --json` for one database.
 fn inspect(fleet: &Fleet, label: &str, db: &str) -> Value {
-    fleet.ok(label, &["inspect", "--json", db])
+    fleet.cli.ok(label, &["inspect", "--json", db])
 }
 
 #[test]
@@ -126,10 +125,9 @@ fn the_info_the_database_always_had_is_still_there() {
 fn a_tombstoned_database_still_answers() {
     let fleet = Fleet::boot();
     seed(&fleet);
-    fleet.ok(
-        "delete",
-        &["delete", "shop", "--confirm", "shop"],
-    );
+    fleet
+        .cli
+        .ok("delete", &["delete", "shop", "--confirm", "shop"]);
     // A deleted database is exactly when an operator most wants to ask
     // what it was doing, so the command must not refuse.
     let document = inspect(&fleet, "inspect", "shop");
