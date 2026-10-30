@@ -372,7 +372,7 @@ Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1
 | `forbidden` | 403 | App key on a management route |
 | `database_forbidden` | 403 | Key not scoped to this database |
 | `sql_forbidden` | 403 | Read-only write attempt, or SQL touching protected `_dg_*` tables / disallowed features (attach, pragmas, `ALTER`, triggers/views, temp objects, virtual tables, load_extension, user transactions) |
-| `database_not_found` | 404 | No such database (never silently created) |
+| `database_not_found` | 404 | No such database (never silently created); `dg undelete` uses it for a name never registered, while a purged name returns `database_purged` |
 | `key_not_found` | 404 | Revoking a credential name that does not exist; nothing was revoked |
 | `metadata_corrupt` | 500 | Startup migration found an unreadable credential row; the server log names it |
 | `internal_error` | 500 | The server could not complete the request for an internal reason (an unreadable snapshot file, a failed write); the server log names it |
@@ -390,7 +390,6 @@ Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1
 | `retention_expired` | 409 | The tombstone deadline passed; restore from an off-host backup |
 | `database_file_missing` | 409 | The retained file is absent, so undelete cannot safely activate the database |
 | `database_purged` | 410 | The database was physically purged after retention; restore from an off-host backup |
-| `database_not_found` | 404 | Also used for an undelete name that was never registered; purged names instead return `database_purged` |
 | `database_exists` | 409 | Name already registered/file exists, or tombstoned (delete not yet purged) |
 | `already_bootstrapped` | 409 | Second `dg init` attempt |
 | `key_exists` | 409 | Credential name reused |
