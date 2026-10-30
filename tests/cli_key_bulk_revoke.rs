@@ -60,9 +60,10 @@ fn a_database_sweep_revokes_every_key_scoped_to_it() {
     seed(&fleet);
     assert!(key_names(&fleet).contains(&"shop_app".to_string()));
 
-    let revoked = fleet
-        .cli
-        .ok("bulk", &["key", "revoke", "--database", "shop"]);
+    let revoked = fleet.cli.ok(
+        "bulk",
+        &["key", "revoke", "--database", "shop", "--confirm", "shop"],
+    );
 
     // The names are reported, not just a count: after a leak the
     // operator needs to know WHICH credentials went.
@@ -88,9 +89,10 @@ fn a_database_sweep_never_revokes_the_owner_key() {
     // question "who can reach shop". It must not be in scope for the
     // answer "revoke them": taking it away would lock the operator out
     // of the gateway they were trying to protect.
-    let revoked = fleet
-        .cli
-        .ok("bulk", &["key", "revoke", "--database", "shop"]);
+    let revoked = fleet.cli.ok(
+        "bulk",
+        &["key", "revoke", "--database", "shop", "--confirm", "shop"],
+    );
     let names: Vec<&str> = revoked["revoked"]
         .as_array()
         .expect("revoked list")
@@ -100,6 +102,11 @@ fn a_database_sweep_never_revokes_the_owner_key() {
     assert!(
         !names.contains(&"owner"),
         "the owner key was swept up: {names:?}"
+    );
+    assert_eq!(
+        revoked["owner_key_excluded"].as_bool(),
+        Some(true),
+        "JSON must make the owner-key safety property explicit: {revoked}"
     );
 
     // And the owner key still works: a command that needs it succeeds.
@@ -111,9 +118,10 @@ fn a_database_sweep_never_revokes_the_owner_key() {
 fn a_database_sweep_leaves_other_databases_alone() {
     let fleet = Fleet::boot();
     seed(&fleet);
-    fleet
-        .cli
-        .ok("bulk", &["key", "revoke", "--database", "shop"]);
+    fleet.cli.ok(
+        "bulk",
+        &["key", "revoke", "--database", "shop", "--confirm", "shop"],
+    );
     let after = key_names(&fleet);
     // `lab_app` reaches a different database and had nothing to do with
     // the leak: revoking it would be collateral damage.
@@ -129,12 +137,39 @@ fn a_database_with_no_scoped_keys_revokes_nothing_and_says_so() {
     fleet.cli.ok("create quiet", &["create", "quiet"]);
     let revoked = fleet
         .cli
-        .ok("bulk", &["key", "revoke", "--database", "quiet"]);
+        .ok(
+            "bulk",
+            &["key", "revoke", "--database", "quiet", "--confirm", "quiet"],
+        );
     let names = revoked["revoked"].as_array().expect("revoked list");
     assert!(
         names.is_empty(),
         "a database with no application keys revoked something: {names:?}"
     );
+}
+
+#[test]
+fn bulk_revoke_requires_exact_confirmation_and_explains_owner_exclusion() {
+    let fleet = Fleet::boot();
+    seed(&fleet);
+
+    let (ok, stdout, stderr) = fleet.cli.run(&["key", "revoke", "--database", "shop"]);
+    assert!(!ok, "bulk revoke ran without confirmation: {stdout}{stderr}");
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        combined.contains("confirmation_required"),
+        "missing confirmation reason: {combined}"
+    );
+    assert!(
+        combined.contains("owner key is never revoked"),
+        "confirmation text must state the owner-key exclusion: {combined}"
+    );
+
+    // A wrong confirmation is not consent to revoke a scope.
+    let (ok, stdout, stderr) = fleet
+        .cli
+        .run(&["key", "revoke", "--database", "shop", "--confirm", "lab"]);
+    assert!(!ok, "wrong confirmation accepted: {stdout}{stderr}");
 }
 
 #[test]
