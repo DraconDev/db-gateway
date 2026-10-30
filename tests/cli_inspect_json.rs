@@ -19,6 +19,14 @@ mod common;
 
 use common::Fleet;
 use serde_json::Value;
+use std::{
+    io::{BufRead, BufReader, Write},
+    net::{TcpListener, TcpStream},
+    os::unix::fs::PermissionsExt,
+    process::Command,
+    thread,
+    time::{Duration, Instant},
+};
 
 /// Create `shop` with a couple of tables so `tables` has something to
 /// report, and write a row so activity has a fact to carry.
@@ -144,20 +152,127 @@ fn a_tombstoned_database_still_answers() {
 
 #[test]
 fn the_auxiliary_sections_degrade_instead_of_failing() {
-    let fleet = Fleet::boot();
-    seed(&fleet);
-    // The rich view is composed from three reads. The database read is
-    // required; the other two are auxiliary, and a failure there must
-    // degrade that section rather than fail the whole command —
-    // otherwise a backup subsystem hiccup would make it impossible to
-    // ask what a database is doing.
-    let document = inspect(&fleet, "inspect", "shop");
-    // On a healthy gateway both are present. The structural guarantee
-    // this test pins is that both keys ALWAYS exist, so a script reads
-    // `activity` and `backup` without checking, and consults the
-    // `*_available` flags to know whether the numbers mean anything.
-    assert!(document.get("activity").is_some(), "{document}");
-    assert!(document.get("backup").is_some(), "{document}");
-    assert!(document.get("activity_available").is_some(), "{document}");
-    assert!(document.get("backup_available").is_some(), "{document}");
+    for failed_path in ["/v1/status", "/v1/backups"] {
+        let document = inspect_with_auxiliary_failure(failed_path);
+        // The required database fact still succeeds, and both auxiliary
+        // keys retain their schema; only the failing section says it was
+        // unavailable. This is the TTY path's degradation behavior carried
+        // into the machine-readable answer.
+        assert_eq!(document["name"].as_str(), Some("shop"), "{document}");
+        assert!(document["activity"].is_object(), "{document}");
+        assert!(document["backup"].is_object(), "{document}");
+        match failed_path {
+            "/v1/status" => {
+                assert_eq!(document["activity_available"].as_bool(), Some(false));
+                assert_eq!(document["backup_available"].as_bool(), Some(true));
+                assert_eq!(document["backup"]["state"].as_str(), Some("fresh"));
+            }
+            "/v1/backups" => {
+                assert_eq!(document["activity_available"].as_bool(), Some(true));
+                assert_eq!(document["backup_available"].as_bool(), Some(false));
+                assert_eq!(document["activity"]["rows_read"].as_u64(), Some(9));
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+/// Run `dg inspect --json` against a tiny HTTP fixture that fails exactly
+/// one auxiliary endpoint. The database read remains healthy, so the
+/// command's ability to degrade rather than fail is directly exercised.
+fn inspect_with_auxiliary_failure(failed_path: &str) -> Value {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let address = listener.local_addr().unwrap();
+    let failed_path = failed_path.to_string();
+    let server = thread::spawn(move || {
+        let mut observed = Vec::new();
+        for _ in 0..3 {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let (mut stream, _) = loop {
+                match listener.accept() {
+                    Ok(pair) => break pair,
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                            && Instant::now() < deadline =>
+                    {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("stub did not receive three reads: {error}"),
+                }
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut request_line = String::new();
+            reader.read_line(&mut request_line).unwrap();
+            let path = request_line.split_whitespace().nth(1).unwrap().to_string();
+            loop {
+                let mut header = String::new();
+                if reader.read_line(&mut header).unwrap() == 0 || header == "\r\n" {
+                    break;
+                }
+            }
+            observed.push(path.clone());
+            let (status, body) = if path == failed_path {
+                (
+                    "503 Service Unavailable",
+                    r#"{"error":{"code":"unavailable","message":"test fixture"}}"#,
+                )
+            } else if path == "/v1/databases/shop" {
+                (
+                    "200 OK",
+                    r#"{"name":"shop","created_at":1,"size_bytes":10,"tombstoned":false,"purge_after":null,"tables":[]}"#,
+                )
+            } else if path == "/v1/status" {
+                (
+                    "200 OK",
+                    r#"{"databases":{"shop":{"rows_read":9,"rows_written":2,"queue_waits":0}}}"#,
+                )
+            } else {
+                (
+                    "200 OK",
+                    r#"{"per_database":{"shop":{"state":"fresh","newest_set":"20261030T000000Z","age_secs":1}}}"#,
+                )
+            };
+            write!(
+                stream,
+                "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+            stream.flush().unwrap();
+        }
+        observed
+    });
+
+    let dir = tempfile::tempdir().unwrap();
+    let key_path = dir.path().join("owner.key");
+    std::fs::write(&key_path, "a".repeat(64)).unwrap();
+    std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_dg"))
+        .args([
+            "--json",
+            "--server",
+            &format!("http://{address}"),
+            "--key-file",
+            key_path.to_str().unwrap(),
+            "inspect",
+            "shop",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "inspect failed on an auxiliary error: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let observed = server.join().unwrap();
+    assert_eq!(
+        observed,
+        ["/v1/databases/shop", "/v1/status", "/v1/backups"]
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
 }
