@@ -37,12 +37,30 @@ from a logged-in CLI call, this document says so rather than guessing.
 
 ## 1. Surface matrix
 
-Status key: **have** = `dg` answers the same question; **partial** = it answers
-part of it, or answers it only in one surface; **missing** = no `dg`
-counterpart; **not-applicable** = structurally inapplicable to a single-operator,
-single-node box. Each row's evidence column distinguishes the live 2026-10-29
-console read from the installed CLI's 2026-10-29 `--help` read. Historical
-October captures are called out by date wherever they support a comparison.
+Two different verdicts, on purpose:
+
+**Status** — the parity verdict. **have** = `dg` answers the same question;
+**partial** = it answers part of it, or answers it only in one surface;
+**missing** = no `dg` counterpart; **not-applicable** = structurally
+inapplicable to a single-operator, single-node box; **unverified** = the
+committed captures do not show this Turso surface, so no parity claim is made.
+
+**Disposition** — the decision verdict, and the one this document is really
+for. **already-gap** = a numbered gap already carries this, so the row defers
+to it and adds no new work; **worth doing** = it clears the bar; **not worth
+doing** = it does not, and the note says why.
+
+The bar is deliberately not provider parity. A row is **worth doing** only if
+it does one of two things for a lone operator: protects them from a realistic
+mistake, or saves real time in their first week. Parity with a
+multi-tenant cloud console is not a reason on its own — half this matrix is
+`not-applicable` precisely because Turso is solving problems `dg` does not
+have. Every `worth doing` and `not worth doing` names which side of the bar it
+landed on.
+
+Each row's evidence column distinguishes the live 2026-10-29 console read from
+the installed CLI's 2026-10-29 `--help` read. Historical October captures are
+called out by date wherever they support a comparison.
 
 ### 1.1 Database CLI and lifecycle
 
@@ -149,6 +167,54 @@ product capabilities.
 | `turso dev` | `dg serve` | not-applicable | CLI `--help` (2026-10-29). | Turso's development emulator and `dg`'s durable local service are different operating modes; no separate throwaway-emulation mode is in scope for this single-node gateway (§4). |
 | `turso quickstart`, `turso update`, `turso relax` | — | not-applicable | CLI `--help` (2026-10-29). | Onboarding, CLI self-update, and a joke command are not gateway features. |
 | `turso help`, `turso --version` | — | not-applicable | CLI `--help` (2026-10-29). | CLI metadata, not database/service capabilities. |
+
+### 1.6 HTTP API surface (Turso platform / Hrana vs `dg` `/v1`)
+
+Objective item 1 asks for the HTTP API each side exposes. This is the one
+section where almost every Turso cell is **unverified**, and it is worth
+being blunt about why: the committed 2026-10-29 baseline is a CLI `--help`
+read plus a console screenshot/transcript read. Neither exercises an HTTP
+request. The captures *name* the surface — `turso auth token` is described as
+"the token used to authenticate you to Turso platform API", `turso dev`'s
+`--auth-jwt-key-file` flag says the key "authenticate[s] clients in the Hrana
+and HTTP APIs", and the console's Connect card shows a "Database URL" — but
+naming a surface is not observing its routes, verbs, payloads or error
+shapes. Those cells are marked unverified rather than guessed, and no `turso`
+command was run and no credential used to fill them in.
+
+The `dg` side is read from this repository's router, so every route below is
+checkable against `src/api.rs` and the routers it merges.
+
+| Turso HTTP surface | `dg` HTTP equivalent | Status | Turso evidence | Note |
+|---|---|---|---|---|
+| Platform API token (`turso auth token`, `turso auth api-tokens`) | `GET /v1/keys`, `POST /v1/keys`, `DELETE /v1/keys/{name}`, `POST /v1/keys/owner/rotate` | partial | CLI `--help` (2026-10-29): "the token used to authenticate you to Turso platform API" | Both issue and revoke bearer credentials. Turso's platform tokens carry org/account scope and an expiry surface; `dg` keys are owner-or-app, database-scoped, non-expiring (§1.1). Route shapes on the Turso side are **unverified** — the capture names the token, not its management API. |
+| Platform API: create/list/delete database | `GET /v1/databases`, `POST /v1/databases`, `GET /v1/databases/{name}`, `DELETE /v1/databases/{name}` | unverified | None — no capture shows a platform API route | The `dg` verbs mirror `dg list`/`create`/`info`/`delete` over HTTP. Turso's platform API certainly exists behind the CLI and console, but the committed baseline does not show it, so the mapping is inferred, not observed. |
+| Platform API: delete protection | `POST /v1/databases/{name}/protection` | unverified | None | `dg protect` is reachable over HTTP; Turso's equivalent is a console toggle in the capture (§1.2) with no API route shown. |
+| Platform API: undelete / restore deleted | `POST /v1/databases/{name}/undelete` | unverified | Console only: "Restore deleted databases" sidebar entry (`turso-live-2026-10-29-databases.txt`) | The console affordance is captured; the API behind it is not. |
+| Hrana over HTTP (`/v2/pipeline`, `/v3/pipeline`) | `POST /v1/databases/{name}/batch` | unverified | CLI `--help` (2026-10-29): `--auth-jwt-key-file` "authenticate[s] clients in the Hrana and HTTP APIs" | The pre-0.10 gateway in this repo had an Hrana-shaped `pipeline` route; 0.10 serves one JSON batch shape instead. Whether today's Turso Hrana versions differ is **unverified** — the capture names Hrana without describing it. Do not read this row as protocol parity. |
+| Hrana over WebSocket | — | unverified | None | `dg` has no WebSocket surface at all. Whether Turso still exposes one is not shown by the baseline, so the difference is stated as unverified rather than as a `dg` gap. |
+| SQL execution (`/v2/pipeline` statement) | `POST /v1/databases/{name}/query` | unverified | None | `dg query` and `dg shell` use this route. Turso's request/response envelope is not captured. |
+| Schema read | `GET /v1/databases/{name}/schema` | unverified | None | Backs `dg schema` and the TUI STRUCTURE page (console STRUCTURE *is* captured, §1.2). |
+| Inline/batched statements | `POST /v1/databases/{name}/query` (batch), `POST /v1/databases/{name}/batch` | unverified | None | `dg batch` takes an atomic JSON batch file (32-statement cap). Turso's batch envelope is not captured. |
+| File export/download | `POST /v1/databases/{name}/export`, `POST /v1/databases/{name}/export/begin`, `GET /v1/uploads/{id}`, `POST /v1/uploads/{id}/chunk`, `POST /v1/uploads/{id}/commit`, `GET /v1/snapshots/{id}` | unverified | Console only: "Export Database — Download SQLite File" (`turso-live-2026-10-29-per-database.txt`) | The console download is captured; the HTTP transfer it performs is not. `dg`'s flow is begin/chunk/commit plus a snapshot handle. |
+| File import/upload | `POST /v1/databases/{name}/import`, `POST /v1/databases/{name}/import/begin`, `POST /v1/uploads/{id}/commit` | unverified | CLI `--help` (2026-10-29): `turso db create --from-file` exists | `dg import` is a local-file path with a 128 MiB ceiling (§1.1). Turso's upload API is not captured. |
+| Clone / branch from a database | `POST /v1/databases/{name}/clone`, `GET /v1/branches`, `GET /v1/branches/{name}`, `POST /v1/branch` | unverified | Console only: Branches → Create From Now / From Point-in-Time (`turso-live-2026-10-29-per-database.txt`) | The console buttons are captured; their API is not. |
+| Service status / health | `GET /v1/status` | unverified | None | `dg status` reads it: version, uptime, admission config, traffic, wait percentiles, per-database counters, disk. No Turso health route is captured. |
+| Backup / point-in-time state | `GET /v1/backups`, `POST /v1/backups/run` | unverified | None | `dg backup status` reads `/v1/backups` (replica, drill, restore_points). Turso's backup API is not captured at all — the console capture shows branches-from-a-moment, not a backup route. |
+| Query statistics | `GET /v1/queries` | unverified | Console only: per-database Analytics and Top Queries (`turso-live-2026-10-29-per-database.txt`) | The console analytics pages are captured; any API behind them is not. |
+| Audit log | `GET /v1/audit` | unverified | Console only: Audit Logs page (`turso-live-2026-10-29-audit-logs.txt`) | The console page is captured with its four columns; an org audit-log API is named only as `turso org audit-logs` in CLI help. Route and payload **unverified**. |
+| Database maintenance (integrity/vacuum/explain) | `POST /v1/databases/{name}/integrity`, `POST /v1/databases/{name}/vacuum`, `POST /v1/databases/{name}/explain` | unverified | None | These are `dg`-only operator surfaces (§1.4); no Turso counterpart is captured, so this row records absence of evidence rather than a missing product feature. |
+| Cross-database diff | `GET /v1/diff` | unverified | None | `dg`-only (§1.4). |
+| Database file placement / disk | `GET /v1/status` → `disk`, `databases` | unverified | None | Placement is a `dg`-only concept on a single node (§4); the Turso analogue is region/group, which is structurally inapplicable. |
+| API authentication model | Bearer credential in a header; owner vs database-scoped app key | unverified | CLI `--help` (2026-10-29): JWT key flag for Hrana/HTTP; `turso auth whoami` | `dg` uses one opaque bearer credential with an owner/app distinction and generation binding. Turso uses platform tokens for management and JWTs for data-plane Hrana. The two models are **not** equivalent, but the Turso side is unverified beyond the flag text. |
+| Error envelope | `{"error":{"code":…,"message":…}}` with a stable `code` (`invalid_argument`, `database_protected`, `retention_expired`, …) | unverified | None | `dg` error codes are a documented contract (`docs/api.md`). Turso's error shape is not captured. |
+| Transport / exposure | Loopback only; remote access via SSH tunnel | unverified | Console only: "Connect → Database URL" (`turso-live-2026-10-29-per-database.txt`) | `dg` binds loopback and has no public URL to mint; Turso hands out a `libsql://`-style URL and is reachable over the internet. This is the sharpest structural difference in this section, and the Turso URL *shape* is the one thing the capture shows. |
+
+**What this section is not.** It is not evidence that Turso's API is absent or
+weak — the captures simply do not cover it. A future pass that is allowed to
+call Turso could replace every `unverified` above with a real observation; until
+then, claiming agreement or a gap in either direction would be inventing
+evidence, which is exactly what the objective's bound forbids.
 
 ---
 
