@@ -332,8 +332,12 @@ the whole service or revoking credentials, both of which take every other
 database down with it.
 
 Cost: a per-database read-only flag is a small, in-architecture addition
-(a registry flag enforced at the route). Disposition: worth doing for that
-self-inflicted-corruption case; not worth doing to imitate a firewall.
+(a registry flag enforced at the route).
+
+**Disposition: worth doing** for the self-inflicted-corruption case, because it
+protects a lone operator from a realistic mistake — holding a database still
+during an incident without taking the whole service down. **Not worth doing**
+to imitate a firewall, which is a tenant boundary this box does not have.
 
 ### Gap 4 — Bulk credential revocation (CLOSED in 0.10.0)
 
@@ -355,8 +359,13 @@ whole point of that moment is speed.
 
 Cost: before 0.10.0, bulk revocation was a bounded, in-architecture addition;
 expiry and per-table grants would need an explicit policy and credential-schema
-change, and are not recommended for a single-operator install. Disposition:
-bulk revoke was selected; the rest remains deliberately out of scope.
+change, and are not recommended for a single-operator install.
+
+**Disposition: worth doing, and done** (the bulk revoke only); *not worth
+doing* for expiry and per-table grants. It cleared the bar as mistake
+protection: an operator revoking a leaked database's credentials needed one
+confirmed command, not a loop over key names. Expiry and per-table scopes are
+provider credential governance, and the owner already holds the file.
 
 **Closed in 0.10.0 — the bulk revoke only.** `dg key revoke --database <name>`
 resolves the scope server-side in one transaction (`revoke_scoped_to` in
@@ -392,9 +401,10 @@ the off-host backup window but was not an undelete action.
 
 Cost: confirmation protects against fat-fingers, but after a deliberate delete
 or an incident there was no one-step way to bring the tombstone back.
-Disposition: a registry protection flag and explicit undelete path are
-in-architecture options; recovery otherwise requires the operator's off-host
-backup workflow.
+
+**Disposition: worth doing, and done.** Both halves clear the mistake-protection
+bar: the guard stops a stray delete, and the undo brings a name back without
+reaching for the off-host backup workflow a tombstone does not need.
 
 **Closed in 0.10.0.** `dg protect <name>` sets a durable registry guard;
 `dg protect <name> --off` clears it. `dg delete` checks the guard inside its
@@ -440,8 +450,13 @@ download-then-import. That is deliberate — an import source is a local file th
 operator can inspect and hash before it enters the store — and it costs one extra
 step in exchange for not asking the gateway to fetch arbitrary URLs.
 
-Cost: low, one-off. Disposition: no change recommended; recorded so the parity
-claim is not overstated. Evidence:
+Cost: low, one-off.
+
+**Disposition: not worth doing.** It fails the bar: dump/CSV import is a source
+format the operator can produce locally and import in one extra step, so the
+time saved in the first week is minutes; and the URL-fetch path is deliberately
+absent because asking the gateway to fetch arbitrary URLs trades a real safety
+property for that step. Recorded so the parity claim is not overstated. Evidence:
 `docs/evidence/turso-cli-help-2026-10-29.txt`.
 
 ### Gap 7 — `dg export`/`import` are narrower than Turso's (low)
@@ -469,10 +484,44 @@ replaced a previous export would destroy the very artifact an operator keeps for
 recovery. But it is a real workflow difference — re-exporting to the same path
 means deleting the old file first.
 
-Cost: low. Disposition: no behavior change in this documentation-only pass;
-recorded so parity is not overstated. Evidence:
+Cost: low.
+
+**Disposition: not worth doing.** It fails the bar: a WAL-inclusive or
+metadata-bearing export is not a task a lone operator performs, and refusing to
+overwrite an existing export protects the artifact they keep for recovery.
+Recorded so parity is not overstated. Evidence:
 `docs/evidence/turso-cli-help-2026-10-29.txt`, `dg export --help`,
 `dg import --help`.
+
+### Gap 8 — Nothing lists which databases are tombstoned (low, newly noticed)
+
+The 2026-10-29 console capture shows a **"Restore deleted databases"** entry in
+the sidebar: a list of deleted databases you pick from to bring one back.
+
+`dg undelete <name>` can bring a tombstone back, and `dg inspect <name>` reports
+whether that specific name is tombstoned — but only for a name you already
+hold. Nothing answers "what did I delete?". `dg status` publishes
+`database_counts.tombstoned`, which is a **number**, not the names; `dg list`
+returns live names only (`store::list` filters `deleted_at IS NULL`). So an
+operator who knows something is missing, but not what it was called, cannot
+enumerate the tombstones to find it.
+
+This is deliberately **not** folded into gap 5: gap 5 closed the *protection*
+and *undo* halves, and both remain closed. What is missing is the index between
+them, which is why it gets its own number rather than reopening a closed one.
+
+**Disposition: worth doing.** It clears the mistake-protection bar: the whole
+point of tombstone retention is that a mistaken delete is recoverable, and the
+recovery is only reachable if the operator can name the database they deleted.
+It is also bounded — the registry already stores the tombstone rows, so this is
+a read (`deleted_at IS NOT NULL`) rather than new state. Since this pass is
+documentation-only, it is recorded here and no feature was added.
+
+**Correction made in this pass:** the matrix previously credited
+`dg locations` with listing tombstones. It does not — `dg locations` is not a
+subcommand at all (the CLI has no `locations` verb; `Locations` is a *TUI tab*,
+and that tab reports **file placement**, not deletion state). The row now says
+what is actually true.
 
 ---
 
@@ -592,8 +641,12 @@ trail is durable across restarts (`audit.jsonl` in the data directory).
 
 So: on a quiet box `dg` keeps its whole trail indefinitely; on a busy one it
 turns over by count. Turso's observed view showed fewer entries five days later,
-but the cause is undisclosed. Disposition: no behavior change in this
-documentation-only comparison; operators should not assume a Turso retention
+but the cause is undisclosed.
+
+**Disposition: not worth doing.** It fails the bar: `dg`'s own trail is durable
+and bounded by count, and nothing an operator does in their first week depends
+on matching a retention rule even Turso does not disclose. Recorded so the
+retention claim is not overstated; operators should not assume a Turso retention
 period from these two snapshots.
 
 #### CLI mapping drift (already corrected)
@@ -606,8 +659,9 @@ now says so and distinguishes Turso's bulk token invalidation from `dg`'s
 single-key revoke. It also records `dg key rotate-owner` exactly as spelled by
 `dg key --help`.
 
-**Disposition: documentation correction made** in `docs/cli-turso-mapping.md`;
-there is no runtime gap implied by the stale command rows. The CLI help capture
+**Disposition: not worth doing** as runtime work — corrected as documentation
+instead. The stale rows implied no behavior difference, so the only defect was
+the text; the correction lives in `docs/cli-turso-mapping.md`. The CLI help capture
 is `docs/evidence/turso-cli-help-2026-10-29.txt`.
 
 A note on what this section is *not*: it is not a claim that `dg` is complete.
