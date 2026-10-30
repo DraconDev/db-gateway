@@ -695,7 +695,22 @@ enum KeyCommand {
         database: Vec<String>,
     },
     /// Revoke a credential immediately.
-    Revoke { name: String },
+    ///
+    /// With a NAME, revokes that one credential. With `--database DB`,
+    /// revokes every credential scoped to that database in one command —
+    /// the form to reach for when a key has leaked and what you know is
+    /// which database is exposed, not which credential names exist. The
+    /// owner key is never revoked by the bulk form: it reaches every
+    /// database by construction, so sweeping it up would take away the
+    /// credential you are holding.
+    Revoke {
+        /// The credential to revoke.
+        #[arg(required_unless_present = "database", conflicts_with = "database")]
+        name: Option<String>,
+        /// Revoke every credential scoped to this database.
+        #[arg(long, value_name = "DB")]
+        database: Option<String>,
+    },
     /// Replace the owner credential; prints the new key once (old key dies
     /// immediately). Redirect to a 0600 file and verify before discarding the old.
     RotateOwner,
@@ -1150,8 +1165,19 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             command: KeyCommand::Tokens { database },
         } => cmd_keys::tokens(&server, json, &key_path, database).await?,
         Command::Key {
-            command: KeyCommand::Revoke { name },
-        } => cmd_keys::revoke(&server, json, &key_path, name).await?,
+            command:
+                KeyCommand::Revoke {
+                    name,
+                    database,
+                },
+        } => match (name, database) {
+            (Some(name), None) => cmd_keys::revoke(&server, json, &key_path, name).await?,
+            (None, Some(database)) => {
+                cmd_keys::revoke_database(&server, json, &key_path, database).await?
+            }
+            // clap requires exactly one of the two.
+            _ => unreachable!("clap enforces one of NAME or --database"),
+        },
         Command::Key {
             command: KeyCommand::RotateOwner,
         } => cmd_keys::rotate_owner(&server, json, &key_path).await?,

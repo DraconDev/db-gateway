@@ -223,6 +223,72 @@ pub async fn revoke(
     )))
 }
 
+/// Revoke every credential scoped to one database.
+///
+/// The bulk form of `revoke`, for a leaked key: the operator knows which
+/// database is exposed, not which credential names exist. One request,
+/// revoked server-side in one transaction, so a half-finished sweep
+/// cannot leave some of the leaked keys alive.
+pub async fn revoke_database(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
+    database: String,
+) -> Result<Option<Request>, dg::ServerError> {
+    dg::store::validate_name(&database).map_err(Application)?;
+    let view_database = database.clone();
+    if human_result(
+        super::Call {
+            server,
+            json,
+            key_path,
+            method: Method::DELETE,
+            path: format!("/v1/database-keys/{database}"),
+            body: None,
+            idempotency: None,
+            semantics: dg::client::Semantics::Write,
+        },
+        Box::new(move |result| {
+            // The names are reported, not counted: after a leaked key is
+            // cut, the operator wants to know WHICH credentials went, so
+            // they can check nothing else depended on them.
+            let names: Vec<String> = result["revoked"]
+                .as_array()
+                .map(|keys| {
+                    keys.iter()
+                        .filter_map(|key| key.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            if names.is_empty() {
+                return dg::render::Outcome::done(format!(
+                    "no credentials scoped to {view_database}; nothing revoked"
+                ));
+            }
+            dg::render::Outcome::with_facts(
+                format!(
+                    "revoked {} credential{} scoped to {view_database}",
+                    names.len(),
+                    if names.len() == 1 { "" } else { "s" }
+                ),
+                vec![("revoked", Cell::text(names.join(", ")))],
+            )
+        }),
+    )
+    .await?
+    .is_some()
+    {
+        return Ok(None);
+    }
+    Ok(Some((
+        Method::DELETE,
+        format!("/v1/database-keys/{database}"),
+        None,
+        None,
+        dg::client::Semantics::Write,
+    )))
+}
+
 pub async fn rotate_owner(
     server: &str,
     json: bool,
