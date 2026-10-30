@@ -506,7 +506,13 @@ CLI looks the same everywhere. The rules it follows:
   diffable.
 - **`dg inspect <db>` is one database**: what it holds AND what it has
   been doing. `dg info` is what a database IS; `dg inspect` is what it
-  has been DOING.
+  has been DOING. The same facts are answered on a pipe as on a
+  terminal: `activity` always carries `rows_read`, `rows_written`,
+  `queue_waits`, `queue_wait_p95_us`, `queue_wait_max_us` and
+  `last_write`, with `null` (not `0`) for a wait percentile or a last
+  write that never happened. A database the gateway has never touched
+  reports those zeroes and nulls with `activity_available: true`; only a
+  FAILED `/v1/status` read reports `false`.
 - **`dg contents` is how much each database HOLDS**: its tables and its
   total rows, read from the files. It exists because the traffic
   counters are in memory and a restart zeroes them, so `dg list` beside
