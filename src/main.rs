@@ -473,6 +473,26 @@ enum Command {
         #[arg(long, value_name = "NAME")]
         confirm: Option<String>,
     },
+    /// Bring a deleted database back, inside its retention window.
+    ///
+    /// The undo half of `dg delete`. The file is never removed until the
+    /// retention window passes, so this is a registry change and nothing
+    /// is copied back.
+    Undelete {
+        /// Database to restore.
+        name: String,
+    },
+    /// Guard a database against deletion, or clear that guard.
+    ///
+    /// A protected database refuses `dg delete` until it is unprotected,
+    /// which is the guard against deleting the wrong name by hand.
+    Protect {
+        /// Database to protect.
+        name: String,
+        /// Clear protection instead of setting it.
+        #[arg(long)]
+        off: bool,
+    },
     /// Interactive SQL session over the HTTP API (piped stdin works too).
     /// An optional database name preselects it, like `turso db shell <name>`;
     /// `use <db>` inside still switches.
@@ -1133,6 +1153,12 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         } => cmd_lifecycle::clone_db(&server, json, &key_path, source, destination).await?,
         Command::Delete { name, confirm } => {
             cmd_lifecycle::delete(&server, json, &key_path, name, confirm).await?
+        }
+        Command::Undelete { name } => {
+            cmd_lifecycle::undelete(&server, json, &key_path, name).await?
+        }
+        Command::Protect { name, off } => {
+            cmd_lifecycle::protect(&server, json, &key_path, name, off).await?
         }
         Command::Query {
             name,
