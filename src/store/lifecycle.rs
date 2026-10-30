@@ -448,7 +448,8 @@ impl Store {
                 |r| r.get(0),
             )
             .optional()?
-            .flatten();        if protected == Some(1) {
+            .flatten();
+        if protected == Some(1) {
             return Err(Error::new(
                 409,
                 "database_protected",

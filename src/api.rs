@@ -10,7 +10,7 @@ use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, Extension, Path, Query, State, rejection::JsonRejection},
     http::HeaderMap,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -50,6 +50,15 @@ pub fn router(store: Arc<Store>, deployment: Deployment) -> Router {
         .route("/v1/databases", get(list).post(create))
         .route("/v1/contents", get(contents))
         .route("/v1/databases/{name}", get(info).delete(remove))
+        // Undo half of delete: clears a tombstone inside its retention
+        // window. The file was never unlinked, so this is a registry
+        // change and nothing is copied or restored.
+        .route("/v1/databases/{name}/undelete", post(undelete_route))
+        // The delete-protection guard, set and cleared by the operator.
+        .route(
+            "/v1/databases/{name}/protection",
+            put(set_protection).delete(clear_protection),
+        )
         .route("/v1/databases/{name}/schema", get(table_schema))
         .route("/v1/databases/{name}/clone", post(clone_route))
         .route("/v1/databases/{name}/export", post(export))
@@ -670,6 +679,52 @@ async fn remove(
         Ok(Json(
             json!({"deleted":true,"purge_after_seconds":RETENTION_SECS}),
         ))
+    })
+    .await
+}
+
+/// Bring a tombstoned database back inside its retention window.
+async fn undelete_route(
+    State(store): State<Arc<Store>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    work(store, headers, move |s, p| {
+        p.owner()?;
+        let _guard = s.acquire_queue(&name, true)?;
+        s.fenced_write(&name, |s| s.undelete(&name))?;
+        crate::audit::record(s, &p, "undelete", Some(&name), None);
+        Ok(Json(json!({"undeleted":true})))
+    })
+    .await
+}
+
+/// Turn delete protection on for one database.
+async fn set_protection(
+    State(store): State<Arc<Store>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    work(store, headers, move |s, p| {
+        p.owner()?;
+        s.set_protected(&name, true)?;
+        crate::audit::record(s, &p, "protect", Some(&name), None);
+        Ok(Json(json!({"protected":true})))
+    })
+    .await
+}
+
+/// Turn delete protection off for one database.
+async fn clear_protection(
+    State(store): State<Arc<Store>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    work(store, headers, move |s, p| {
+        p.owner()?;
+        s.set_protected(&name, false)?;
+        crate::audit::record(s, &p, "unprotect", Some(&name), None);
+        Ok(Json(json!({"protected":false})))
     })
     .await
 }
