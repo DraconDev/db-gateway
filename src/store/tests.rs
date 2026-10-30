@@ -482,14 +482,6 @@ fn legacy_scopes_are_migrated_to_current_database_generations() {
     assert_eq!(generation, principal.scopes[0].generation);
 }
 
-/// An existing registry from before delete protection gains the column
-/// and reads it as "not protected".
-///
-/// This is the actual upgrade path for a live host: its registry predates
-/// the `protected` column, and the migration has to add it without losing
-/// rows. The default matters as much as the add — a pre-existing database
-/// must come up UNPROTECTED, because a migration that silently protected
-/// every database would block deletions the operator never guarded.
 #[test]
 fn delete_protection_survives_a_store_restart() {
     let dir = tempfile::tempdir().unwrap();
@@ -507,6 +499,14 @@ fn delete_protection_survives_a_store_restart() {
     );
 }
 
+/// An existing registry from before delete protection gains the column
+/// and reads it as "not protected".
+///
+/// This is the actual upgrade path for a live host: its registry predates
+/// the `protected` column, and the migration has to add it without losing
+/// rows. The default matters as much as the add — a pre-existing database
+/// must come up UNPROTECTED, because a migration that silently protected
+/// every database would block deletions the operator never guarded.
 #[test]
 fn an_existing_registry_gains_protection_as_not_protected() {
     let dir = tempfile::tempdir().unwrap();

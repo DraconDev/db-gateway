@@ -490,8 +490,8 @@ impl Store {
     ///
     /// Protection is deliberately a registry flag and not a file
     /// permission: it has to survive restarts, apply to `dg delete` from
-    /// any surface, and be visible to `dg list` before someone tries the
-    /// deletion that would be refused. Setting it on a tombstoned
+    /// any surface, and be visible to `dg inspect` before someone tries
+    /// the deletion that would be refused. Setting it on a tombstoned
     /// database is allowed (an operator may protect one they are about
     /// to restore); an unknown name is a 404.
     pub fn set_protected(&self, name: &str, protected: bool) -> Result<()> {
@@ -529,17 +529,19 @@ impl Store {
     /// clears the tombstone and the file the operator was looking for is
     /// still exactly where it was.
     ///
-    /// Three refusals, each telling the operator something different:
+    /// Each refusal tells the operator something different:
     ///
     /// - the name is unknown → 404 `database_not_found`;
+    /// - the name was physically purged → 410 `database_purged`;
     /// - the database is live → 409 `not_deleted`, since there is nothing
     ///   to undo and silently succeeding would hide a mistaken command;
-    /// - the retention window already passed → 409 `retention_expired`.
-    ///   This is checked against the clock rather than trusted to the
-    ///   absence of a purge: the maintenance loop skips a contended tick,
-    ///   so a tombstone can sit past its deadline with the file still on
-    ///   disk. Whether the bytes happen to remain is not the contract; the
-    ///   published window is.
+    /// - the retention deadline is missing or has passed → 409
+    ///   `retention_expired`. This is checked against the clock rather than
+    ///   trusted to the absence of a purge: the maintenance loop skips a
+    ///   contended tick, so a tombstone can sit past its deadline with the
+    ///   file still on disk. Whether the bytes happen to remain is not the
+    ///   contract; the published window is;
+    /// - the original file is absent → 409 `database_file_missing`.
     pub fn undelete(&self, name: &str) -> Result<()> {
         validate_name(name)?;
         let now = now_secs()?;
@@ -578,7 +580,7 @@ impl Store {
                 "database is not deleted; nothing to restore",
             ));
         }
-        if purge_after.is_some_and(|deadline| deadline <= now) {
+        if purge_after.is_none_or(|deadline| deadline <= now) {
             return Err(Error::new(
                 409,
                 "retention_expired",
