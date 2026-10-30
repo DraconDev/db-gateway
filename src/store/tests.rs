@@ -598,7 +598,10 @@ fn undelete_refuses_a_tombstone_without_a_retention_deadline() {
     store
         .meta()
         .unwrap()
-        .execute("UPDATE databases SET purge_after=NULL WHERE name='doomed'", [])
+        .execute(
+            "UPDATE databases SET purge_after=NULL WHERE name='doomed'",
+            [],
+        )
         .unwrap();
 
     assert_eq!(
