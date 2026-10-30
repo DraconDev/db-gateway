@@ -1516,3 +1516,66 @@ fn locations_place_every_database_and_say_whether_it_is_there() {
         "a tombstone is not reported as one: {live:?}"
     );
 }
+
+/// A clock a test controls, so a lifecycle rule can be judged at the
+/// moment it reaches the registry row instead of the moment the call
+/// began. `open` installs the system clock; this seam is test-only.
+fn controlled_clock(start: i64) -> (Clock, std::sync::Arc<std::sync::atomic::AtomicI64>) {
+    let instant = std::sync::Arc::new(std::sync::atomic::AtomicI64::new(start));
+    let reader = std::sync::Arc::clone(&instant);
+    let clock: Clock = std::sync::Arc::new(move || Ok(reader.load(Ordering::SeqCst)));
+    (clock, instant)
+}
+
+#[test]
+fn an_undelete_that_waits_out_a_writer_past_the_deadline_is_refused() {
+    // The defect this protects against: `undelete` used to read the clock
+    // BEFORE it took the registry transaction, so the deadline was
+    // compared against the instant the call arrived rather than the
+    // instant it reached the row. A request that arrived a moment inside
+    // the window, waited out another writer, and reached the row after
+    // the window closed still cleared the tombstone -- it resurrected a
+    // database whose published recovery window was over.
+    //
+    // The wait is not a race here: the other writer holds the registry
+    // lock, so the clock necessarily moves before this call can acquire
+    // it. That makes the ordering the property under test, not timing.
+    let dir = tempfile::tempdir().unwrap();
+    let (clock, instant) = controlled_clock(1_000);
+    let store = Store::open(dir.path()).unwrap().with_clock(clock);
+    store.create("shop").unwrap();
+    // purge_after = 1_005: the window closes five seconds after the delete.
+    store.delete("shop", 5).unwrap();
+
+    let other = Connection::open(dir.path().join("metadata.sqlite")).unwrap();
+    other.busy_timeout(Duration::from_millis(250)).unwrap();
+    other.execute_batch("BEGIN IMMEDIATE").unwrap();
+
+    let refused = std::thread::scope(|scope| {
+        let call = scope.spawn(|| store.undelete("shop"));
+        // Inside the window when it arrives, past it when it gets the row.
+        std::thread::sleep(Duration::from_millis(50));
+        instant.store(1_006, Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(10));
+        other.execute_batch("ROLLBACK").unwrap();
+        call.join().unwrap()
+    });
+
+    let error = refused.expect_err(
+        "undelete cleared a tombstone whose retention window closed while it waited for the registry",
+    );
+    assert_eq!(
+        error.code, "retention_expired",
+        "the wait produced the wrong refusal: {error:?}"
+    );
+    // The refusal has to be real: the name is still held and the data is
+    // still on disk for a restore, exactly as before the attempt.
+    let shop = store
+        .locations()
+        .unwrap()
+        .into_iter()
+        .find(|location| location.name == "shop")
+        .expect("the tombstoned database left the registry");
+    assert!(shop.tombstoned, "the refused undelete resurrected it: {shop:?}");
+    assert!(shop.exists, "the refused undelete removed the file: {shop:?}");
+}
