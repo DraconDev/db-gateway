@@ -215,7 +215,6 @@ Tuesday. Fix: a rolled-up per-hour counter series on disk. That is a storage
 and retention decision, not a view change — the largest architectural gap here.
 
 ### Gap 3 — No way to make one database read-only during an incident (medium)
-No way to make one database read-only during an incident (medium)
 
 Turso's per-database Configuration offers **Block Reads**, **Block Writes**,
 and **Restrict Access** by CIDR block or AWS VPC endpoint. All are live
@@ -485,7 +484,8 @@ Live captures made 2026-10-29 (this revision):
   quota cards, the seven 30-day chart families, Top Databases, Top Queries.
 - `docs/evidence/turso-live-2026-10-29-per-database.txt` — the per-database tab
   set, Overview/Configuration controls, Branches, per-database Analytics and
-  Top Queries.
+  Top Queries. **Its closing "GENUINE GAPS" list is superseded** by §2 and §4
+  of this document; see the note below.
 - `docs/evidence/turso-live-2026-10-29-edit-data.txt` — the Edit Data browser
   read through its shadow DOM: toolbar, type-annotated headers, sampled rows.
 - `docs/evidence/turso-edit-data-live-2026-10-29.png` — the Edit Data grid as
@@ -517,6 +517,38 @@ Turso CLI surface: `turso` v1.0.15, captured from local `--help` output in
 `docs/evidence/turso-cli-help-2026-10-29.txt` (no account authentication or
 mutation). The CLI is not authenticated here, so no live `show`/`inspect`/`shell`
 ran against Turso and no Turso data was read through it.
+
+## Superseded assessment in the per-database capture
+
+`docs/evidence/turso-live-2026-10-29-per-database.txt` ends with a section
+headed **"GENUINE GAPS, in operator terms"** that lists remote access control
+(Block Reads, Block Writes, Allow ATTACH, Delete Protection, CIDR/VPC
+allow-list) as gap number one. **That assessment is superseded and should not be
+used.** The capture is retained unmodified as the record of what the console
+showed on 2026-10-29; it is evidence of Turso's surface, not a judgment about
+`dg`.
+
+The capture's own text already undercuts its heading: it observes that `dg`
+"listens on loopback only and reaches remote gateways through an SSH tunnel, so
+per-database network admission is not part of its model." That is the right
+observation with the wrong label. A control that answers a question `dg`'s
+architecture has already answered is not a gap, which is exactly the
+provider-shaped reasoning this document was re-audited to remove.
+
+Read those five controls as follows:
+
+| Capture's claim | Current classification |
+|---|---|
+| Block Reads | not applicable (§4) — a read cannot damage a database |
+| Block Writes | **gap 3** — a genuine operator harm, self-inflicted corruption |
+| Allow ATTACH | not applicable (§4) — each database is an isolated file |
+| Delete Protection | **gap 5** — a genuine operator harm, fat-fingered delete |
+| CIDR / VPC allow-list | not applicable (§4) — loopback plus SSH tunnel |
+
+The other two entries in that list survive: the time-series gap is **gap 2**, and
+bulk token invalidation is **gap 4**. The capture's remaining descriptive content
+— the tab inventory, the configuration controls, Branches, Analytics and Top
+Queries — is unaffected and is cited above as read.
 
 ## A regression found and repaired during this pass
 
