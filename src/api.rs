@@ -563,8 +563,8 @@ async fn revoke_database(
             s,
             &p,
             "revoke_database_keys",
-            Some(name.clone()),
-            None,
+            Some(&name),
+            Some(json!({"revoked": revoked}).to_string()),
         );
         Ok(Json(json!({"database":name,"revoked":revoked})))
     })
