@@ -554,6 +554,34 @@ fn revoke_and_delete_report_unknown_and_repeated_names() {
     );
 }
 
+#[test]
+fn undelete_distinguishes_purged_from_never_registered() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path()).unwrap();
+    store.create("doomed").unwrap();
+    store.delete("doomed", 0).unwrap();
+    assert_eq!(store.purge_expired().unwrap(), vec!["doomed"]);
+
+    assert_eq!(store.undelete("doomed").unwrap_err().code, "database_purged");
+    assert_eq!(store.undelete("ghost").unwrap_err().code, "database_not_found");
+}
+
+#[test]
+fn an_old_purge_receipt_never_resurrects_a_reused_live_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path()).unwrap();
+    store.create("shop").unwrap();
+    store.delete("shop", 0).unwrap();
+    assert_eq!(store.purge_expired().unwrap(), vec!["shop"]);
+
+    // The name is legitimately reused after the old bytes and registry row
+    // are gone. The historical receipt must not make undelete reach through
+    // the live row and resurrect an older database.
+    store.create("shop").unwrap();
+    assert_eq!(store.undelete("shop").unwrap_err().code, "not_deleted");
+    assert_eq!(store.info("shop").unwrap()["tombstoned"], false);
+}
+
 /// The bulk revoke must never take the owner credential, and it must hold
 /// even if an owner row somehow carries database scopes.
 ///
