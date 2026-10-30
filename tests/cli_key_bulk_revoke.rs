@@ -31,7 +31,13 @@ fn seed(fleet: &Fleet) {
         fleet.cli.ok(
             name,
             &[
-                "key", "create", name, "--role", "database_read_write", "--database", db,
+                "key",
+                "create",
+                name,
+                "--role",
+                "database_read_write",
+                "--database",
+                db,
             ],
         );
     }

@@ -216,9 +216,7 @@ pub async fn undelete(
             idempotency: None,
             semantics: dg::client::Semantics::Write,
         },
-        Box::new(move |_result| {
-            dg::render::Outcome::done(format!("restored {view_name}"))
-        }),
+        Box::new(move |_result| dg::render::Outcome::done(format!("restored {view_name}"))),
     )
     .await?
     .is_some()

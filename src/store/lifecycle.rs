@@ -498,11 +498,7 @@ impl Store {
             params![name, i64::from(protected)],
         )?;
         if changed == 0 {
-            return Err(Error::new(
-                404,
-                "database_not_found",
-                "database not found",
-            ));
+            return Err(Error::new(404, "database_not_found", "database not found"));
         }
         Ok(())
     }
@@ -553,11 +549,7 @@ impl Store {
             )
             .optional()?;
         let Some((deleted_at, purge_after)) = entry else {
-            return Err(Error::new(
-                404,
-                "database_not_found",
-                "database not found",
-            ));
+            return Err(Error::new(404, "database_not_found", "database not found"));
         };
         if deleted_at.is_none() {
             return Err(Error::new(

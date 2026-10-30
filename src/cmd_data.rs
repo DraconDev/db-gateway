@@ -155,7 +155,13 @@ async fn inspected(
     key_path: &Option<PathBuf>,
     name: &str,
 ) -> Result<Inspected, dg::ServerError> {
-    let info = super::fetch(server, key_path, Method::GET, &format!("/v1/databases/{name}")).await?;
+    let info = super::fetch(
+        server,
+        key_path,
+        Method::GET,
+        &format!("/v1/databases/{name}"),
+    )
+    .await?;
     if api_failed(&info) {
         super::show_error(&info, false);
         return Err(Application(api_error()));

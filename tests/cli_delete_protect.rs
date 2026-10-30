@@ -22,9 +22,11 @@ use serde_json::Value;
 
 fn seed(fleet: &Fleet) {
     fleet.cli.ok("create shop", &["create", "shop"]);
-    fleet
-        .cli
-        .q("table", "shop", "CREATE TABLE products (id INTEGER PRIMARY KEY)");
+    fleet.cli.q(
+        "table",
+        "shop",
+        "CREATE TABLE products (id INTEGER PRIMARY KEY)",
+    );
 }
 
 #[test]
@@ -33,9 +35,7 @@ fn a_protected_database_refuses_deletion_and_keeps_its_file() {
     seed(&fleet);
     fleet.cli.ok("protect", &["protect", "shop"]);
 
-    let (ok, stdout, stderr) = fleet
-        .cli
-        .run(&["delete", "shop", "--confirm", "shop"]);
+    let (ok, stdout, stderr) = fleet.cli.run(&["delete", "shop", "--confirm", "shop"]);
     assert!(
         !ok,
         "a protected database was deleted anyway: stdout={stdout} stderr={stderr}"
@@ -55,7 +55,9 @@ fn a_protected_database_refuses_deletion_and_keeps_its_file() {
         Some(false),
         "{inspected}"
     );
-    let rows = fleet.cli.ok("query", &["query", "shop", "SELECT count(*) FROM products"]);
+    let rows = fleet
+        .cli
+        .ok("query", &["query", "shop", "SELECT count(*) FROM products"]);
     assert!(rows["rows"].is_array(), "the database is unusable: {rows}");
 }
 
@@ -64,9 +66,7 @@ fn clearing_protection_lets_the_deletion_through() {
     let fleet = Fleet::boot();
     seed(&fleet);
     fleet.cli.ok("protect", &["protect", "shop"]);
-    fleet
-        .cli
-        .ok("unprotect", &["protect", "shop", "--off"]);
+    fleet.cli.ok("unprotect", &["protect", "shop", "--off"]);
     // The guard is a gate, not a permanent lock.
     let deleted = fleet
         .cli
