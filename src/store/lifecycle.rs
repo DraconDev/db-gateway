@@ -449,13 +449,6 @@ impl Store {
             )
             .optional()?
             .flatten();
-        if protected == Some(1) {
-            return Err(Error::new(
-                409,
-                "database_protected",
-                "database is protected; clear protection before deleting",
-            ));
-        }
         let changed = tx.execute(
             "UPDATE databases SET deleted_at=?2, purge_after=?3
              WHERE name=?1 AND deleted_at IS NULL",
