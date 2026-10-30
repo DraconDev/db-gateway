@@ -34,6 +34,8 @@ fn a_protected_database_refuses_deletion_and_keeps_its_file() {
     let fleet = Fleet::boot();
     seed(&fleet);
     fleet.cli.ok("protect", &["protect", "shop"]);
+    let protected = fleet.cli.ok("inspect", &["inspect", "--json", "shop"]);
+    assert_eq!(protected["protected"].as_bool(), Some(true), "{protected}");
 
     let (ok, stdout, stderr) = fleet.cli.run(&["delete", "shop", "--confirm", "shop"]);
     assert!(
@@ -67,6 +69,12 @@ fn clearing_protection_lets_the_deletion_through() {
     seed(&fleet);
     fleet.cli.ok("protect", &["protect", "shop"]);
     fleet.cli.ok("unprotect", &["protect", "shop", "--off"]);
+    let unprotected = fleet.cli.ok("inspect", &["inspect", "--json", "shop"]);
+    assert_eq!(
+        unprotected["protected"].as_bool(),
+        Some(false),
+        "{unprotected}"
+    );
     // The guard is a gate, not a permanent lock.
     let deleted = fleet
         .cli
@@ -137,6 +145,24 @@ fn undelete_refuses_a_live_database() {
     assert!(
         combined.contains("not_deleted"),
         "the refusal did not distinguish 'never deleted': {combined}"
+    );
+}
+
+#[test]
+fn undelete_refuses_when_the_original_file_is_missing() {
+    let fleet = Fleet::boot();
+    seed(&fleet);
+    fleet
+        .cli
+        .ok("delete", &["delete", "shop", "--confirm", "shop"]);
+    std::fs::remove_file(fleet.data_dir.join("shop.sqlite")).unwrap();
+
+    let (ok, stdout, stderr) = fleet.cli.run(&["undelete", "shop"]);
+    assert!(!ok, "undelete activated a missing file: {stdout}{stderr}");
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        combined.contains("database_file_missing"),
+        "the failure should say that no file can be restored: {combined}"
     );
 }
 
