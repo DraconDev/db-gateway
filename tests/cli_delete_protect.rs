@@ -189,9 +189,36 @@ fn undelete_refuses_past_the_retention_window() {
     let (ok, stdout, stderr) = fleet.cli.run(&["undelete", "shop"]);
     assert!(!ok, "undelete ran past its window: {stdout}{stderr}");
     let combined = format!("{stdout}{stderr}");
+    // Two outcomes are equally correct once the deadline has passed, and
+    // which one the operator sees depends on whether the server's 1s
+    // maintenance tick got there first:
+    //   - `retention_expired`: the tombstone is still on disk, but the
+    //     published window is closed;
+    //   - `database_purged`: the purger already unlinked it and left its
+    //     receipt.
+    // Both say "too late, restore from a backup"; neither may be confused
+    // with "no such database". Pinning only one of them made this test
+    // fail whenever the tick won the race, which is a property of the
+    // scheduler, not of the refusal.
+    let too_late = combined.contains("retention_expired")
+        || combined.contains("database_purged");
     assert!(
-        combined.contains("retention_expired"),
+        too_late,
         "the refusal did not distinguish 'too late' from 'not found': {combined}"
+    );
+    assert!(
+        !combined.contains("database_not_found"),
+        "a passed deadline must not read as a name that never existed: {combined}"
+    );
+
+    // The distinction the operator actually relies on still holds on the
+    // same gateway: a name that never existed is a different answer.
+    let (ok, stdout, stderr) = fleet.cli.run(&["undelete", "never_existed"]);
+    assert!(!ok, "undelete accepted an unknown name: {stdout}{stderr}");
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        combined.contains("database_not_found"),
+        "an unknown name must still be reported as not found: {combined}"
     );
 }
 
