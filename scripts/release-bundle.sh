@@ -226,6 +226,11 @@ else
     ABI_NOTE="explicit host build; micro2 ABI is not verified."
 fi
 
+# Record source identity rather than wall-clock build time: a rebuild of the
+# same release commit must produce the same bundle bytes. Deployment time is
+# measured on the target by host-audit, not inferred from bundle metadata.
+SOURCE_REVISION="$(git -C "$ROOT" rev-parse HEAD)"
+SOURCE_COMMIT_TIME="$(git -C "$ROOT" show -s --format=%cI HEAD)"
 cat >"$OUT/BUILD-INFO.txt" <<EOF
 name: dg
 version: $VERSION
@@ -233,7 +238,8 @@ arch: x86_64
 profile: release
 locked: true
 built_on: $BUILDER_HOST_RECORDED
-built_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+source_revision: $SOURCE_REVISION
+source_commit_time: $SOURCE_COMMIT_TIME
 target: $RELEASE_TARGET
 interpreter: $([ "$RELEASE_TARGET" = "micro2" ] && printf '%s' "$EXPECTED_INTERPRETER" || printf '%s' host-default)
 builder_image: $BUILDER_IMAGE_RECORDED
