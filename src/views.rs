@@ -1730,39 +1730,98 @@ pub fn structure_facts(table: &TableStructure) -> Vec<(String, String)> {
     facts
 }
 
+/// One database's activity facts, read once for every surface.
+///
+/// A database the gateway has not touched yet has no entry in
+/// `/v1/status` at all: its counters are genuinely zero and it has
+/// never been written. That is a FACT about the database, not a
+/// missing answer, so it is stated explicitly rather than left as an
+/// empty object — a script must not have to guess whether `{}` means
+/// "no activity" or "the gateway did not say". The distinction that
+/// has to stay visible is the other one: a FAILED status read, which
+/// is reported as unavailable by the caller and never as zeros.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ActivityFacts {
+    pub rows_read: u64,
+    pub rows_written: u64,
+    pub queue_waits: u64,
+    /// `None` when this database has never waited: a percentile of
+    /// nothing is nothing, and a zero would claim a measurement that
+    /// was never made.
+    pub wait_p95_us: Option<u64>,
+    pub wait_max_us: Option<u64>,
+    /// `None` when it has never been written.
+    pub last_write: Option<u64>,
+}
+
+impl ActivityFacts {
+    /// Read one database's activity entry. An absent entry reads as the
+    /// zeros it is, because the gateway omits a database it has never
+    /// touched rather than reporting it empty.
+    pub fn read(entry: &Value) -> Self {
+        let count = |key: &str| entry.get(key).and_then(Value::as_u64).unwrap_or(0);
+        Self {
+            rows_read: count("rows_read"),
+            rows_written: count("rows_written"),
+            queue_waits: count("queue_waits"),
+            wait_p95_us: entry.get("queue_wait_p95_us").and_then(Value::as_u64),
+            wait_max_us: entry.get("queue_wait_max_us").and_then(Value::as_u64),
+            last_write: entry.get("last_write").and_then(Value::as_u64),
+        }
+    }
+
+    /// The same facts as a JSON object, so the machine answer carries the
+    /// values a person is shown instead of an empty object.
+    pub fn document(&self) -> Value {
+        serde_json::json!({
+            "rows_read": self.rows_read,
+            "rows_written": self.rows_written,
+            "queue_waits": self.queue_waits,
+            "queue_wait_p95_us": self.wait_p95_us,
+            "queue_wait_max_us": self.wait_max_us,
+            "last_write": self.last_write,
+        })
+    }
+}
+
+/// The activity facts of one database, as a JSON document.
+pub fn activity_document(entry: &Value) -> Value {
+    ActivityFacts::read(entry).document()
+}
+
 /// What one database has been doing, as the `activity` section.
 ///
 /// The p95 and the max are different facts and are labelled as such:
 /// the p95 says how bad this database's queue usually is, the max says
 /// how bad it ever got. The label and the value travel together from
 /// the shared helper, so this view and the dashboard cannot disagree
-/// about which is which.
+/// about which is which. The figures themselves come from
+/// [`ActivityFacts`], the same reading the JSON document is built from,
+/// so the two surfaces cannot show different numbers for the same
+/// database either.
 pub fn activity_section(entry: &Value) -> Section {
+    let facts = ActivityFacts::read(entry);
     let mut activity = Section::new("activity");
+    activity.field("rows read", Cell::number(facts.rows_read));
+    activity.field("rows written", Cell::number(facts.rows_written));
+    activity.field("queue waits", Cell::number(facts.queue_waits));
     activity.field(
-        "rows read",
-        Cell::number(entry.get("rows_read").and_then(Value::as_u64).unwrap_or(0)),
+        "wait p95",
+        match facts.wait_p95_us {
+            Some(micros) => Cell::text(human_micros(micros)),
+            None => Cell::text("no waits recorded"),
+        },
     );
     activity.field(
-        "rows written",
-        Cell::number(
-            entry
-                .get("rows_written")
-                .and_then(Value::as_u64)
-                .unwrap_or(0),
-        ),
+        "wait max",
+        match facts.wait_max_us {
+            Some(micros) => Cell::text(human_micros(micros)),
+            None => Cell::text("no waits recorded"),
+        },
     );
-    let waits = entry
-        .get("queue_waits")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    activity.field("queue waits", Cell::number(waits));
-    for (label, cell) in render::wait_figure_fields(entry, "no waits recorded") {
-        activity.field(label, cell);
-    }
     activity.field(
         "last write",
-        match entry.get("last_write").and_then(Value::as_u64) {
+        match facts.last_write {
             Some(epoch) => Cell::text(last_write_ago(epoch)),
             None => Cell::text("never"),
         },
