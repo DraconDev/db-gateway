@@ -566,7 +566,7 @@ impl Store {
                 "database is not deleted; nothing to restore",
             ));
         }
-        if false && purge_after.is_some_and(|deadline| deadline <= now) {
+        if purge_after.is_some_and(|deadline| deadline <= now) {
             return Err(Error::new(
                 409,
                 "retention_expired",
