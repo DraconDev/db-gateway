@@ -590,6 +590,24 @@ fn undelete_distinguishes_purged_from_never_registered() {
 }
 
 #[test]
+fn undelete_refuses_a_tombstone_without_a_retention_deadline() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path()).unwrap();
+    store.create("doomed").unwrap();
+    store.delete("doomed", 3600).unwrap();
+    store
+        .meta()
+        .unwrap()
+        .execute("UPDATE databases SET purge_after=NULL WHERE name='doomed'", [])
+        .unwrap();
+
+    assert_eq!(
+        store.undelete("doomed").unwrap_err().code,
+        "retention_expired"
+    );
+}
+
+#[test]
 fn an_old_purge_receipt_never_resurrects_a_reused_live_name() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path()).unwrap();
