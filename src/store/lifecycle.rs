@@ -442,9 +442,14 @@ impl Store {
     /// `unprotect`.
     pub fn delete(&self, name: &str, retention_secs: i64) -> Result<()> {
         validate_name(name)?;
-        let now = now_secs()?;
         let mut conn = self.meta()?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        // Read the clock under the registry lock, exactly as `undelete`
+        // does. A timestamp taken before a contended transaction would
+        // publish a `purge_after` earlier than the retention window the
+        // operator asked for: the deadline, not the deletion, would be
+        // what a busy moment shortened.
+        let now = now_secs()?;
         let protected: Option<i64> = tx
             .query_row(
                 "SELECT protected FROM databases WHERE name=?",
@@ -544,9 +549,18 @@ impl Store {
     /// - the original file is absent → 409 `database_file_missing`.
     pub fn undelete(&self, name: &str) -> Result<()> {
         validate_name(name)?;
-        let now = now_secs()?;
         let mut conn = self.meta()?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        // The clock is read HERE, not before the transaction, because the
+        // registry write lock is what serializes this decision against
+        // `purge_expired`. Reading it earlier made the check answer a
+        // question about the past: a call that arrived one millisecond
+        // before the deadline, waited out a writer, and reached the row
+        // afterwards would still compare the deadline against the old
+        // time and clear the tombstone -- resurrecting a database whose
+        // published window had already closed. The measured instant and
+        // the observed row must belong to the same critical section.
+        let now = now_secs()?;
         let entry: Option<(Option<i64>, Option<i64>)> = tx
             .query_row(
                 "SELECT deleted_at, purge_after FROM databases WHERE name=?",
@@ -616,9 +630,13 @@ impl Store {
             }
             Err(_) => return Err(Error::internal()),
         };
-        let now = now_secs()?;
         let mut conn = self.meta()?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        // Whichever instants the window closed at, the set of due names is
+        // selected by the clock read inside this transaction, so every
+        // tombstone it unlinks had genuinely passed its deadline by the
+        // time the registry lock was held.
+        let now = now_secs()?;
         let due: Vec<String> = tx
             .prepare("SELECT name FROM databases WHERE deleted_at IS NOT NULL AND purge_after<=?")?
             .query_map([now], |r| r.get::<_, String>(0))?
