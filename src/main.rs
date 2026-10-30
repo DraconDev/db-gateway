@@ -728,7 +728,7 @@ enum KeyCommand {
         #[arg(required_unless_present = "database", conflicts_with = "database")]
         name: Option<String>,
         /// Revoke every credential scoped to this database.
-        #[arg(long, value_name = "DB", requires = "confirm")]
+        #[arg(long, value_name = "DB")]
         database: Option<String>,
         /// Type the exact database name again to confirm bulk revocation.
         /// Required with --database. The owner key is never revoked.
