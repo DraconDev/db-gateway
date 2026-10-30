@@ -1195,11 +1195,12 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             command: KeyCommand::Tokens { database },
         } => cmd_keys::tokens(&server, json, &key_path, database).await?,
         Command::Key {
-            command: KeyCommand::Revoke {
-                name,
-                database,
-                confirm,
-            },
+            command:
+                KeyCommand::Revoke {
+                    name,
+                    database,
+                    confirm,
+                },
         } => match (name, database) {
             (Some(name), None) => cmd_keys::revoke(&server, json, &key_path, name).await?,
             (None, Some(database)) => {

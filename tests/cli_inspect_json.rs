@@ -21,7 +21,7 @@ use common::Fleet;
 use serde_json::Value;
 use std::{
     io::{BufRead, BufReader, Write},
-    net::{TcpListener, TcpStream},
+    net::TcpListener,
     os::unix::fs::PermissionsExt,
     process::Command,
     thread,

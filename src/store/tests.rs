@@ -562,8 +562,14 @@ fn undelete_distinguishes_purged_from_never_registered() {
     store.delete("doomed", 0).unwrap();
     assert_eq!(store.purge_expired().unwrap(), vec!["doomed"]);
 
-    assert_eq!(store.undelete("doomed").unwrap_err().code, "database_purged");
-    assert_eq!(store.undelete("ghost").unwrap_err().code, "database_not_found");
+    assert_eq!(
+        store.undelete("doomed").unwrap_err().code,
+        "database_purged"
+    );
+    assert_eq!(
+        store.undelete("ghost").unwrap_err().code,
+        "database_not_found"
+    );
 }
 
 #[test]

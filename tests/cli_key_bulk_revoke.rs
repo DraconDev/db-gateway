@@ -135,12 +135,10 @@ fn a_database_sweep_leaves_other_databases_alone() {
 fn a_database_with_no_scoped_keys_revokes_nothing_and_says_so() {
     let fleet = Fleet::boot();
     fleet.cli.ok("create quiet", &["create", "quiet"]);
-    let revoked = fleet
-        .cli
-        .ok(
-            "bulk",
-            &["key", "revoke", "--database", "quiet", "--confirm", "quiet"],
-        );
+    let revoked = fleet.cli.ok(
+        "bulk",
+        &["key", "revoke", "--database", "quiet", "--confirm", "quiet"],
+    );
     let names = revoked["revoked"].as_array().expect("revoked list");
     assert!(
         names.is_empty(),
@@ -154,7 +152,10 @@ fn bulk_revoke_requires_exact_confirmation_and_explains_owner_exclusion() {
     seed(&fleet);
 
     let (ok, stdout, stderr) = fleet.cli.run(&["key", "revoke", "--database", "shop"]);
-    assert!(!ok, "bulk revoke ran without confirmation: {stdout}{stderr}");
+    assert!(
+        !ok,
+        "bulk revoke ran without confirmation: {stdout}{stderr}"
+    );
     let combined = format!("{stdout}{stderr}");
     assert!(
         combined.contains("confirmation_required"),
@@ -166,9 +167,10 @@ fn bulk_revoke_requires_exact_confirmation_and_explains_owner_exclusion() {
     );
 
     // A wrong confirmation is not consent to revoke a scope.
-    let (ok, stdout, stderr) = fleet
-        .cli
-        .run(&["key", "revoke", "--database", "shop", "--confirm", "lab"]);
+    let (ok, stdout, stderr) =
+        fleet
+            .cli
+            .run(&["key", "revoke", "--database", "shop", "--confirm", "lab"]);
     assert!(!ok, "wrong confirmation accepted: {stdout}{stderr}");
 }
 
