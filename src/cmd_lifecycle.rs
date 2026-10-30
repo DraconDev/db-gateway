@@ -195,3 +195,97 @@ pub async fn delete(
         dg::client::Semantics::Write,
     )))
 }
+
+/// Bring a deleted database back inside its retention window.
+pub async fn undelete(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
+    name: String,
+) -> Result<Option<Request>, dg::ServerError> {
+    dg::store::validate_name(&name).map_err(Application)?;
+    let view_name = name.clone();
+    if human_result(
+        super::Call {
+            server,
+            json,
+            key_path,
+            method: Method::POST,
+            path: format!("/v1/databases/{name}/undelete"),
+            body: None,
+            idempotency: None,
+            semantics: dg::client::Semantics::Write,
+        },
+        Box::new(move |_result| {
+            dg::render::Outcome::done(format!("restored {view_name}"))
+        }),
+    )
+    .await?
+    .is_some()
+    {
+        return Ok(None);
+    }
+    Ok(Some((
+        Method::POST,
+        format!("/v1/databases/{name}/undelete"),
+        None,
+        None,
+        dg::client::Semantics::Write,
+    )))
+}
+
+/// Set or clear a database's delete protection.
+pub async fn protect(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
+    name: String,
+    off: bool,
+) -> Result<Option<Request>, dg::ServerError> {
+    dg::store::validate_name(&name).map_err(Application)?;
+    let view_name = name.clone();
+    let method = if off { Method::DELETE } else { Method::PUT };
+    let path = format!("/v1/databases/{name}/protection");
+    if human_result(
+        super::Call {
+            server,
+            json,
+            key_path,
+            method,
+            path: path.clone(),
+            body: None,
+            idempotency: None,
+            semantics: dg::client::Semantics::Write,
+        },
+        Box::new(move |_result| {
+            let headline = if off {
+                format!("{view_name} is no longer protected")
+            } else {
+                format!("{view_name} is protected")
+            };
+            let mut outcome = dg::render::Outcome::done(headline);
+            if !off {
+                outcome = dg::render::Outcome::with_facts(
+                    format!("{view_name} is protected"),
+                    vec![(
+                        "effect".to_string(),
+                        "dg delete will refuse until protection is cleared".to_string(),
+                    )],
+                );
+            }
+            outcome
+        }),
+    )
+    .await?
+    .is_some()
+    {
+        return Ok(None);
+    }
+    Ok(Some((
+        method,
+        path,
+        None,
+        None,
+        dg::client::Semantics::Write,
+    )))
+}
