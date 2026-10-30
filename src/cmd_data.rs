@@ -212,9 +212,13 @@ impl Inspected {
     /// The same facts as a JSON document.
     ///
     /// `backup` and `activity` are always present so a script can read
-    /// a path without checking first; when the auxiliary fetch failed
-    /// the section is present and empty, which is distinguishable from
-    /// a populated one.
+    /// a path without checking first. Their `*_available` flags carry
+    /// the one distinction that matters: a section whose auxiliary
+    /// fetch FAILED says unavailable, while a database the gateway has
+    /// simply never touched reports the zeros and `null`s that are
+    /// true of it. Building the activity object here from the same
+    /// reading the terminal section uses is what keeps the two from
+    /// telling different stories about one database.
     fn document(&self, name: &str) -> Value {
         let health = self.backup_health(name);
         let mut tables = Vec::new();
@@ -232,7 +236,7 @@ impl Inspected {
             "protected": self.info["protected"].as_bool().unwrap_or(false),
             "purge_after": self.info["purge_after"],
             "tables": tables,
-            "activity": self.activity_entry(name),
+            "activity": dg::views::activity_document(&self.activity_entry(name)),
             "activity_available": self.status.is_some(),
             "backup": json!({
                 "state": health.get("state").and_then(Value::as_str).unwrap_or("unknown"),
