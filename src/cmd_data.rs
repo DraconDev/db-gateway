@@ -111,6 +111,13 @@ pub async fn contents(
 /// DOING. It reads the same facts the service dashboard shows, but for
 /// one database, so an operator can look at the one that is busy
 /// without reading the whole list.
+///
+/// The rich view is not terminal-only. A script that asks what a
+/// database has been doing gets the same facts a person sees, in JSON:
+/// read-only, so there is nothing to confirm, and expensive enough to
+/// reason about that a silent downgrade to the bare info document
+/// would be a trap. Both forms are built from one `inspected` value so
+/// the two answers cannot drift apart.
 pub async fn inspect(
     server: &str,
     json: bool,
@@ -118,45 +125,125 @@ pub async fn inspect(
     name: String,
 ) -> Result<Option<Request>, dg::ServerError> {
     dg::store::validate_name(&name).map_err(Application)?;
-    if !json && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
-        let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
-            400,
-            "missing_credential",
-            "--key-file required",
-        )))?)
-        .map_err(Application)?;
-        let info = dg::client::request(
-            server,
-            &key,
-            Method::GET,
-            &format!("/v1/databases/{name}"),
-            None,
-            None,
-        )
-        .await
-        .map_err(Application)?;
-        if api_failed(&info) {
-            dg::shell::render_with(&info, false, &terminal_theme(), &mut std::io::stdout())
-                .map_err(Application)?;
-            return Err(Application(api_error()));
-        }
-        // The usage and backup facts are auxiliary: a failed fetch
-        // degrades those sections instead of failing the command.
-        let status = dg::client::request(server, &key, Method::GET, "/v1/status", None, None)
-            .await
-            .ok()
-            .filter(|status| !api_failed(status));
-        let backups = dg::client::request(server, &key, Method::GET, "/v1/backups", None, None)
-            .await
-            .ok()
-            .filter(|backups| !api_failed(backups));
+    let facts = inspected(server, key_path, &name).await?;
 
+    if !json && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+        let mut out = std::io::stdout();
+        dg::render::write_sections(&mut out, &terminal_theme(), &facts.sections())
+            .map_err(Application)?;
+        return Ok(None);
+    }
+    println!("{}", facts.document(&name));
+    Ok(None)
+}
+
+/// Everything `dg inspect` knows about one database, fetched once.
+///
+/// The usage and backup facts are auxiliary: a failed fetch degrades
+/// those sections instead of failing the command, in both the terminal
+/// and the JSON form. `None` means the fetch failed or was refused, and
+/// is reported as absent rather than as a zero.
+struct Inspected {
+    info: Value,
+    status: Option<Value>,
+    backups: Option<Value>,
+}
+
+/// Fetch the three reads `dg inspect` composes.
+async fn inspected(
+    server: &str,
+    key_path: &Option<PathBuf>,
+    name: &str,
+) -> Result<Inspected, dg::ServerError> {
+    let info = super::fetch(server, key_path, Method::GET, &format!("/v1/databases/{name}")).await?;
+    if api_failed(&info) {
+        super::show_error(&info, false);
+        return Err(Application(api_error()));
+    }
+    let status = super::fetch(server, key_path, Method::GET, "/v1/status")
+        .await
+        .ok()
+        .filter(|status| !api_failed(status));
+    let backups = super::fetch(server, key_path, Method::GET, "/v1/backups")
+        .await
+        .ok()
+        .filter(|backups| !api_failed(backups));
+    Ok(Inspected {
+        info,
+        status,
+        backups,
+    })
+}
+
+impl Inspected {
+    /// The one database's usage entry, or an empty object when the
+    /// status fetch failed: absent activity reads as zero, which is
+    /// true for a database nothing has touched.
+    fn activity_entry(&self, name: &str) -> Value {
+        Value::Object(
+            self.status
+                .as_ref()
+                .and_then(|status| status["databases"][name].as_object().cloned())
+                .unwrap_or_default(),
+        )
+    }
+
+    /// The one database's backup health, or an empty object.
+    fn backup_health(&self, name: &str) -> Value {
+        Value::Object(
+            self.backups
+                .as_ref()
+                .and_then(|backups| backups["per_database"][name].as_object().cloned())
+                .unwrap_or_default(),
+        )
+    }
+
+    fn tombstoned(&self) -> bool {
+        self.info["tombstoned"].as_bool() == Some(true)
+    }
+
+    /// The same facts as a JSON document.
+    ///
+    /// `backup` and `activity` are always present so a script can read
+    /// a path without checking first; when the auxiliary fetch failed
+    /// the section is present and empty, which is distinguishable from
+    /// a populated one.
+    fn document(&self, name: &str) -> Value {
+        let health = self.backup_health(name);
+        let mut tables = Vec::new();
+        for entry in self.info["tables"].as_array().into_iter().flatten() {
+            tables.push(json!({
+                "name": entry["name"],
+                "rows": entry["rows"],
+            }));
+        }
+        json!({
+            "name": name,
+            "created_at": self.info["created_at"],
+            "size_bytes": self.info["size_bytes"],
+            "tombstoned": self.tombstoned(),
+            "purge_after": self.info["purge_after"],
+            "tables": tables,
+            "activity": self.activity_entry(name),
+            "activity_available": self.status.is_some(),
+            "backup": json!({
+                "state": health.get("state").and_then(Value::as_str).unwrap_or("unknown"),
+                "newest_set": health.get("newest_set"),
+                "age_secs": health.get("age_secs"),
+            }),
+            "backup_available": self.backups.is_some(),
+        })
+    }
+
+    /// The same facts as terminal sections.
+    fn sections(&self) -> Vec<Section> {
+        let name = self.info["name"].as_str().unwrap_or("");
         let mut facts = Section::new("database");
-        facts.field("name", Cell::styled(&name, Style::Cyan));
+        facts.field("name", Cell::styled(name, Style::Cyan));
         facts.field(
             "size",
             Cell::text(
-                info["size_bytes"]
+                self.info["size_bytes"]
                     .as_u64()
                     .map(dg::render::human_bytes)
                     .unwrap_or_else(|| "unknown".to_string()),
@@ -164,33 +251,25 @@ pub async fn inspect(
         );
         facts.field(
             "state",
-            if info["tombstoned"].as_bool() == Some(true) {
+            if self.tombstoned() {
                 Cell::styled("tombstoned", Style::Yellow)
             } else {
                 Cell::styled("live", Style::Green)
             },
         );
-        if info["tombstoned"].as_bool() == Some(true) {
-            facts.field("purge after", Cell::text(purge_after_text(&info)));
+        if self.tombstoned() {
+            facts.field("purge after", Cell::text(purge_after_text(&self.info)));
         } else {
-            facts.field("created", Cell::text(created_text(&info)));
+            facts.field("created", Cell::text(created_text(&self.info)));
         }
         let mut sections = vec![facts];
 
         // What this database has been doing.
-        let entry = status
-            .as_ref()
-            .and_then(|status| status["databases"][&name].as_object().cloned())
-            .unwrap_or_default();
-        let activity = dg::views::activity_section(&Value::Object(entry));
-        sections.push(activity);
+        sections.push(dg::views::activity_section(&self.activity_entry(name)));
 
         // How its backup is doing.
+        let health = self.backup_health(name);
         let mut backup = Section::new("backup");
-        let health = backups
-            .as_ref()
-            .and_then(|backups| backups["per_database"][&name].as_object().cloned())
-            .unwrap_or_default();
         let state = health
             .get("state")
             .and_then(Value::as_str)
@@ -221,10 +300,11 @@ pub async fn inspect(
         );
         sections.push(backup);
 
-        // What it holds.
-        if info["tombstoned"].as_bool() != Some(true) {
+        // What it holds. A tombstone reports no tables: its file is
+        // still on disk but the name is not queryable.
+        if !self.tombstoned() {
             let mut tables_section = Section::new("tables");
-            match info["tables"].as_array() {
+            match self.info["tables"].as_array() {
                 Some(entries) if !entries.is_empty() => {
                     let mut table = Table::new();
                     table.column("table", Align::Left);
@@ -243,17 +323,8 @@ pub async fn inspect(
             }
             sections.push(tables_section);
         }
-        let mut out = std::io::stdout();
-        dg::render::write_sections(&mut out, &terminal_theme(), &sections).map_err(Application)?;
-        return Ok(None);
+        sections
     }
-    Ok(Some((
-        Method::GET,
-        format!("/v1/databases/{name}"),
-        None,
-        None,
-        dg::client::Semantics::Read,
-    )))
 }
 
 pub async fn info(
