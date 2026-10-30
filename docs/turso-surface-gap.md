@@ -323,7 +323,13 @@ published retention window is open and the original SQLite file still exists.
 It refuses a live name (`not_deleted`), an expired tombstone
 (`retention_expired`), a file that has already disappeared
 (`database_file_missing`), and a name whose tombstone was physically purged
-(`database_purged`) with distinct errors. Purge receipts retain only the
+(`database_purged`) with distinct errors. The deadline is judged against the
+clock read *inside* the registry transaction it writes under: a request that
+arrives inside the window but waits out another writer is measured by the
+instant it reached the row, so a lock cannot carry an undo past its own
+deadline. `delete` and `purge_expired` read their clocks in the same place,
+so the published window is neither shortened by a busy moment nor purged
+early. Purge receipts retain only the
 historical name and purge time, not database contents; if a name is later
 reused, its live row wins and the old receipt cannot resurrect the old file.
 The protection column migrates existing registries as unprotected, so an

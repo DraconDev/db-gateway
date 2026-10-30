@@ -94,6 +94,8 @@ fixes; 1.0.0 waits for production acceptance.
 
 ### Fixed
 
+- **A busy registry can no longer carry an undo past its deadline.** `dg undelete` compared the retention deadline against a clock read *before* it acquired the registry transaction, so a request that arrived inside the window, waited out another writer, and reached the row afterwards still cleared the tombstone. The clock is now read inside the same immediate transaction that observes and writes the row; `delete` and `purge_expired` read theirs in the same place so the published window is neither shortened by contention nor purged early. Covered by a deterministic test that holds the registry lock across the deadline.
+
 - **The action list no longer panics on a terminal with no room.** The
   popup's size was clamped into the room the terminal has, and the
   clamp's bounds were not ordered before it was used: a pty with no
