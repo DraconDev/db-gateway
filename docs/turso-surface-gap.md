@@ -86,9 +86,9 @@ Console tabs: **Overview**, **Branches**, **Analytics**, **Top Queries**,
 | Branches → Create From Point-in-Time | `dg branch create --from <ISO8601>` | have | Reports the backup window when the moment falls outside it. | Console (2026-10-29). |
 | Branches → list | `dg branch list`, `dg branch show` | have | | Console (2026-10-29). |
 | Analytics (per-database, 30-day series) | — | missing | See gap 2. | Console (2026-10-29). |
-| Top Queries (per-database) | `dg queries --database <db>` | partial | Same ranking facts; `dg` shows statement SHAPES, Turso shows literal text. See §2b (deliberate: shapes are shown, not values). | Console (2026-10-29). |
-| Edit Data → DATA grid | `dg rows`, TUI rows browser | partial | Read-only; no cell editing, no Add record. See §2b (deliberate: `dg` reads, never edits). | Console (2026-10-29). |
-| Edit Data → Filters / Sort / Columns | `dg rows --where/--sort`, TUI `f`/`o`/`c` | partial | Capability parity, ergonomics differ: flags and typed conditions instead of builders. See §2b (deliberate: `dg` reads, never edits). | Console (2026-10-29). |
+| Top Queries (per-database) | `dg queries --database <db>` | partial | Same ranking facts; `dg` shows statement SHAPES, Turso shows literal text. See §4.1 (deliberate: shapes are shown, not values). | Console (2026-10-29). |
+| Edit Data → DATA grid | `dg rows`, TUI rows browser | partial | Read-only; no cell editing, no Add record. See §4.1 (deliberate: `dg` reads, never edits). | Console (2026-10-29). |
+| Edit Data → Filters / Sort / Columns | `dg rows --where/--sort`, TUI `f`/`o`/`c` | partial | Capability parity, ergonomics differ: flags and typed conditions instead of builders. See §4.1 (deliberate: `dg` reads, never edits). | Console (2026-10-29). |
 | Edit Data → STRUCTURE | `dg schema <db> [table]` | have | Columns with declared types and flags, indexes, foreign keys, `CREATE` text. | Console (2026-10-29). |
 | Edit Data → SQL console | `dg shell`, `dg query` | have | Different transport (authenticated HTTP API vs direct console), same capability. | Console (2026-10-29). |
 
@@ -103,8 +103,8 @@ Console tabs: **Overview**, **Branches**, **Analytics**, **Top Queries**,
 | Analytics (org): quota cards | — | not-applicable | No quotas to meter against. | Console (2026-10-29). |
 | Analytics (org): Latency / Rows Read / Rows Written / Inbound / Outbound / Syncs / Storage 30-day charts | — | missing | See gap 2. | Console (2026-10-29). |
 | Analytics (org): Top Databases ranked by rows read | TUI databases tab, `dg status` | partial | Present-tense ranking only; no trend. See gap 2. | Console (2026-10-29). |
-| Analytics (org): Top Queries ranked by rows read | `dg queries` | partial | See §2b (deliberate: shapes are shown, not values). | Console (2026-10-29). |
-| Audit Logs (Author, Event, Origin, Timestamp) | `dg audit` | have | `dg` adds the action, the database, and the statement shape. The observed visible history differs; Turso's retention rule is not exposed — See §2b (Turso retention undisclosed). | Console (2026-10-29). |
+| Analytics (org): Top Queries ranked by rows read | `dg queries` | partial | See §4.1 (deliberate: shapes are shown, not values). | Console (2026-10-29). |
+| Audit Logs (Author, Event, Origin, Timestamp) | `dg audit` | have | `dg` adds the action, the database, and the statement shape. The observed visible history differs; Turso's retention rule is not exposed — See §4.1 (Turso retention undisclosed). | Console (2026-10-29). |
 | Billing / Usage / Upgrade / plan / invoices | — | not-applicable | No billing. | Console (2026-10-29). |
 | Settings, Support | — | not-applicable | No account. | Console (2026-10-29). |
 
@@ -168,7 +168,7 @@ A missing piece qualifies as a gap only if it does one of two things:
 
 Everything else is either provider ceremony (recorded as not-applicable in §4)
 or a **deliberate difference** — a place where `dg` behaves unlike Turso on
-purpose, which belongs in §2b rather than being counted as a defect. The
+purpose, which belongs in §4.1 rather than being counted as a defect. The
 distinction matters: a difference that is a considered design choice is not a
 debt, and listing it as a "gap" quietly promises a fix that should never come.
 
@@ -340,7 +340,7 @@ Read from the live local gateway and the code, not asserted.
 | Advantage | Evidence |
 |---|---|
 | **No quotas, no throttling, no invoice.** | The console shows "Quota Critical 99% used … your account may be throttled soon" and two databases in **Writes Blocked** status on every page. `dg` has no metering path at all. |
-| **The operator owns the audit trail.** | Turso's live page showed 6 entries versus 23 in the Oct 26 capture, with 21 Oct 24 entries no longer visible and no disclosed retention rule (§2b). `dg audit` is a 2000-entry durable JSONL file on the operator's disk, with action, database and statement shape. |
+| **The operator owns the audit trail.** | Turso's live page showed 6 entries versus 23 in the Oct 26 capture, with 21 Oct 24 entries no longer visible and no disclosed retention rule (§4.1). `dg audit` is a 2000-entry durable JSONL file on the operator's disk, with action, database and statement shape. |
 | **Statement shapes, never literal values.** | Turso's Top Queries prints `LIKE 'aig-session-%'` and `status='settled'`; `dg queries` prints `LIKE ?` and `status = ?`. |
 | **Backups are first-class and verifiable offline.** | `dg backup status/digest/verify` judge each database `fresh`/`behind`/`stale` against an approved cadence, and `dg backup verify` re-checks a published set's manifest and hash chain with the gateway stopped. Turso's console offers download and point-in-time branches, not an offline verifier. |
 | **Restore window is inspectable and planned before it is taken.** | `dg restore list` publishes the window (`oldest` → `newest`) per database from the live replica; `dg restore plan --to <ISO>` says what a restore would reach. |
@@ -575,7 +575,7 @@ The Turso side is a moving target: the Audit Logs view showed 6 entries on
 entries disappeared. Re-read the console before relying on a gap being open,
 and re-run the `dg` side against a current build. Gap 1 is carried forward
 from October because it was re-verified today, and the mapping drift it used to
-sit beside is now recorded in §2b as already corrected. Neither should be
+sit beside is now recorded in §4.1 as already corrected. Neither should be
 treated as current without a fresh check.
 
 ## Mindset audit, 2026-10-29
@@ -598,7 +598,7 @@ not gaps:
 - The CLI mapping drift was already corrected in `docs/cli-turso-mapping.md`
   before this audit ran, so it recorded a past fix rather than an open gap.
 
-Those four moved to §2b. Listing a considered design choice as a "gap" quietly
+Those four moved to §4.1. Listing a considered design choice as a "gap" quietly
 promises a fix that should never come, and it inflates the apparent distance
 between `dg` and Turso.
 
@@ -627,9 +627,9 @@ NAME, both confirmed verbatim.
 **Correction to this audit, same day.** The first pass renumbered the gaps but
 left the old numbers behind in prose and in the matrix, so the document
 contradicted itself: §3 still pointed at the retired numbers for items that had
-moved to §2b, §4 still described the read-only and undelete gaps by their old
+moved to §4.1, §4 still described the read-only and undelete gaps by their old
 positions, and the closing line still said every gap remained real after only
-seven survived. Every reference now resolves to one of the seven, or to §2b.
+seven survived. Every reference now resolves to one of the seven, or to §4.1.
 
 One row was also re-judged rather than just re-pointed. **Block Reads** had been
 folded in with Block Writes as "the same surface", citing the delete-protection
@@ -644,7 +644,7 @@ not-applicable with that rationale in §4.
 ## Related
 
 - `docs/cli-turso-mapping.md` — the per-verb mapping table (mapping drift is
-  recorded in §2b).
+  recorded in §4.1).
 - `docs/tui.md` — the terminal view this comparison's `dg` column describes.
 - `docs/audits/tui-audit.md` — the 2026-10-28 TUI audit.
 - `docs/recovery-contract.md`, `docs/recovery-policy.md` — the backup and
