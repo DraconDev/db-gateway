@@ -333,85 +333,6 @@ recorded so parity is not overstated. Evidence:
 
 ---
 
-## 2b. Deliberate differences, and things that are not gaps
-
-These were previously numbered among the ranked gaps. They are not gaps: each is
-either a considered design choice or an observation about Turso that asks nothing
-of `dg`. Keeping them in the ranked list would have implied a debt that should
-never be paid.
-
-### `dg queries` shows statement shapes where Turso shows literal values
-
-Read live: Turso's Top Queries for `dracon-music-dev` shows statements with
-literals intact, e.g. `WHERE status='settled'` and
-`WHERE idempotency_key LIKE 'aig-session-%'`.
-
-`dg queries` deliberately replaces every literal with `?`, showing the SHAPE:
-`SELECT * FROM "products" ORDER BY rowid LIMIT ? OFFSET ?`.
-
-This is **not a gap to close** — it is a privacy property the operator gains by
-owning the box (`docs/tui.md`, "Which query is heavy"). Recorded here because a
-comparison that lists only Turso's wins would be dishonest in the other
-direction.
-
-One real caveat found live: Turso's list includes the **console's own
-introspection queries** (the first entry on `dracon-music-dev` was Drizzle
-Studio's `sqlite_master`/`pragma_index_list` scan), so its "top query" is
-measured over a different population than `dg`'s API traffic.
-
-### Edit Data is read-write; `dg` is read-only by design
-
-The Edit Data grid is a full editor: `+ Add record`, editable cells, a Columns
-visibility chooser, a Sort builder, a Filters builder, and an attached SQL
-console. Read live through its shadow DOM (the page is a Drizzle Studio app
-inside `<drizzle-studio>`, so it is invisible to `document.body.innerText`).
-
-`dg rows` and the TUI rows browser give the same three reading capabilities —
-sort, filter, column data — as `--sort`/`--where` flags and `o`/`f`/`c` prompts.
-They never write. Every mutation in `dg` is an explicit statement (`dg query`,
-`dg execute`) or a confirmed lifecycle action.
-
-Cost: an operator cannot click a cell and fix a typo. That is intentional —
-`docs/tui.md` states the mouse "deliberately stops at reading", and every write
-needs its own statement so it lands in the audit log with its shape. Recorded
-as a deliberate non-goal, not a missing feature.
-
-### Turso's audit retention is undisclosed
-
-Read live on 2026-10-29: Turso's Audit Logs page reports **"Showing 1-6 of 6
-items"** with all paging buttons disabled. The 2026-10-26 capture of the same
-page listed **23 entries**, including 21 CLI-created tokens from Oct 24. Those
-entries are no longer visible, but the console does not expose a retention
-setting or explain their disappearance; the observation is consistent with
-age-based expiry, not proof of its exact policy or cutoff.
-
-`dg audit` is bounded differently: `src/store/audit.rs` keeps `MAX_ENTRIES` =
-2000 entries and rewrites its trail file above `MAX_FILE_BYTES` = 4 MiB,
-dropping the oldest. That is a **count/size** bound, not a time bound, and the
-trail is durable across restarts (`audit.jsonl` in the data directory).
-
-So: on a quiet box `dg` keeps its whole trail indefinitely; on a busy one it
-turns over by count. Turso's observed view showed fewer entries five days later,
-but the cause is undisclosed. Disposition: no behavior change in this
-documentation-only comparison; operators should not assume a Turso retention
-period from these two snapshots.
-
-### CLI mapping drift (already corrected)
-
-The October mapping had stale or invented CLI spellings. The installed v1.0.15
-help tree confirms there is no `turso db execute`, `turso db tokens list`, or
-`turso db tokens revoke`; the SQL command is `turso db shell <db> <sql>`, and
-tokens have `create` and `invalidate` (bulk invalidation) only. The mapping doc
-now says so and distinguishes Turso's bulk token invalidation from `dg`'s
-single-key revoke. It also records `dg key rotate-owner` exactly as spelled by
-`dg key --help`.
-
-**Disposition: documentation correction made** in `docs/cli-turso-mapping.md`;
-there is no runtime gap implied by the stale command rows. The CLI help capture
-is `docs/evidence/turso-cli-help-2026-10-29.txt`.
-
----
-
 ## 3. Where `dg` is ahead
 
 Read from the live local gateway and the code, not asserted.
@@ -466,6 +387,83 @@ Stated so a parity table cannot be mistaken for a to-do list.
   key to the box, and if they distrust a reader the answer is `dg key revoke`,
   not a per-database read lock. Already-covered case: a leaked key is revoked
   (gap 4), not masked.
+
+### 4.1 Deliberate differences
+
+These are recorded here rather than in §2 because they are **not gaps**: each is
+a considered design choice or an observation about Turso that asks nothing of
+`dg`. Keeping them in the ranked list would have implied a debt that should
+never be paid.
+
+#### `dg queries` shows statement shapes where Turso shows literal values
+
+Read live: Turso's Top Queries for `dracon-music-dev` shows statements with
+literals intact, e.g. `WHERE status='settled'` and
+`WHERE idempotency_key LIKE 'aig-session-%'`.
+
+`dg queries` deliberately replaces every literal with `?`, showing the SHAPE:
+`SELECT * FROM "products" ORDER BY rowid LIMIT ? OFFSET ?`.
+
+This is **not a gap to close** — it is a privacy property the operator gains by
+owning the box (`docs/tui.md`, "Which query is heavy"). Recorded here because a
+comparison that lists only Turso's wins would be dishonest in the other
+direction.
+
+One real caveat found live: Turso's list includes the **console's own
+introspection queries** (the first entry on `dracon-music-dev` was Drizzle
+Studio's `sqlite_master`/`pragma_index_list` scan), so its "top query" is
+measured over a different population than `dg`'s API traffic.
+
+#### Edit Data is read-write; `dg` is read-only by design
+
+The Edit Data grid is a full editor: `+ Add record`, editable cells, a Columns
+visibility chooser, a Sort builder, a Filters builder, and an attached SQL
+console. Read live through its shadow DOM (the page is a Drizzle Studio app
+inside `<drizzle-studio>`, so it is invisible to `document.body.innerText`).
+
+`dg rows` and the TUI rows browser give the same three reading capabilities —
+sort, filter, column data — as `--sort`/`--where` flags and `o`/`f`/`c` prompts.
+They never write. Every mutation in `dg` is an explicit statement (`dg query`,
+`dg execute`) or a confirmed lifecycle action.
+
+Cost: an operator cannot click a cell and fix a typo. That is intentional —
+`docs/tui.md` states the mouse "deliberately stops at reading", and every write
+needs its own statement so it lands in the audit log with its shape. Recorded
+as a deliberate non-goal, not a missing feature.
+
+#### Turso's audit retention is undisclosed
+
+Read live on 2026-10-29: Turso's Audit Logs page reports **"Showing 1-6 of 6
+items"** with all paging buttons disabled. The 2026-10-26 capture of the same
+page listed **23 entries**, including 21 CLI-created tokens from Oct 24. Those
+entries are no longer visible, but the console does not expose a retention
+setting or explain their disappearance; the observation is consistent with
+age-based expiry, not proof of its exact policy or cutoff.
+
+`dg audit` is bounded differently: `src/store/audit.rs` keeps `MAX_ENTRIES` =
+2000 entries and rewrites its trail file above `MAX_FILE_BYTES` = 4 MiB,
+dropping the oldest. That is a **count/size** bound, not a time bound, and the
+trail is durable across restarts (`audit.jsonl` in the data directory).
+
+So: on a quiet box `dg` keeps its whole trail indefinitely; on a busy one it
+turns over by count. Turso's observed view showed fewer entries five days later,
+but the cause is undisclosed. Disposition: no behavior change in this
+documentation-only comparison; operators should not assume a Turso retention
+period from these two snapshots.
+
+#### CLI mapping drift (already corrected)
+
+The October mapping had stale or invented CLI spellings. The installed v1.0.15
+help tree confirms there is no `turso db execute`, `turso db tokens list`, or
+`turso db tokens revoke`; the SQL command is `turso db shell <db> <sql>`, and
+tokens have `create` and `invalidate` (bulk invalidation) only. The mapping doc
+now says so and distinguishes Turso's bulk token invalidation from `dg`'s
+single-key revoke. It also records `dg key rotate-owner` exactly as spelled by
+`dg key --help`.
+
+**Disposition: documentation correction made** in `docs/cli-turso-mapping.md`;
+there is no runtime gap implied by the stale command rows. The CLI help capture
+is `docs/evidence/turso-cli-help-2026-10-29.txt`.
 
 A note on what this section is *not*: it is not a claim that `dg` is complete.
 Gaps 1–7 are real, and the two that protect a lone operator from ordinary
