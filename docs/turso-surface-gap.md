@@ -673,6 +673,23 @@ operator holds the only key to the box, and distrust of a reader is resolved by
 revoking it (gap 4), not by masking what it reads. The row is now
 not-applicable with that rationale in §4.
 
+**Placement correction, same day.** The four deliberate differences were first
+parked in a separate §2b. That satisfied the reasoning but not the structure: the
+matrix has to be able to point every partial row at a ranked gap or a §4
+rationale, and §2b was neither. They are now §4.1 inside "Not applicable by
+architecture", which is what they actually are — dispositions of
+not-applicable, distinguished from the architectural entries above them only by
+the reason. The four rows that cite them now read `§4.1`, and the matrix check
+passes under the strict rule with no change to the rule itself.
+
+**Superseded in the evidence.** The per-database capture closes with a list
+headed "GENUINE GAPS" that ranks remote access control first. That heading is
+the provider-shaped thinking this audit exists to remove, and the capture's own
+text contradicts it by noting that network admission "is not part of its model".
+The evidence file is preserved byte-for-byte as the record of what the console
+showed; the comparison now carries an explicit supersession table mapping each
+of its five entries to its current classification, three of them not-applicable.
+
 ## Related
 
 - `docs/cli-turso-mapping.md` — the per-verb mapping table (mapping drift is
