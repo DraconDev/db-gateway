@@ -269,12 +269,14 @@ impl Store {
         let Some((deleted_at, purge_after, created_at)) = self.registry_entry(name)? else {
             return Err(Error::new(404, "database_not_found", "database not found"));
         };
+        let protected = self.is_protected(name)?.unwrap_or(false);
         let path = self.root.join(format!("{name}.sqlite"));
         let size_bytes = database_size_bytes(&path);
         if deleted_at.is_some() {
             return Ok(serde_json::json!({
                 "name": name,
                 "tombstoned": true,
+                "protected": protected,
                 "purge_after": purge_after,
                 "size_bytes": size_bytes,
             }));
@@ -299,6 +301,7 @@ impl Store {
         Ok(serde_json::json!({
             "name": name,
             "tombstoned": false,
+            "protected": protected,
             "size_bytes": size_bytes,
             "created_at": created_at,
             "tables": detail,
