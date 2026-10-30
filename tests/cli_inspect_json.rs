@@ -227,7 +227,10 @@ fn a_database_the_gateway_has_never_touched_reports_its_zeroes() {
 /// rather than fail is directly exercised, and `status_body` is what the
 /// fixture answers for `/v1/status`.
 fn inspect_with_auxiliary_failure(failed_path: &str) -> Value {
-    inspect_against_stub(Some(failed_path), r#"{"databases":{"shop":{"rows_read":9,"rows_written":2,"queue_waits":0}}}"#)
+    inspect_against_stub(
+        Some(failed_path),
+        r#"{"databases":{"shop":{"rows_read":9,"rows_written":2,"queue_waits":0}}}"#,
+    )
 }
 
 fn inspect_against_stub(failed_path: Option<&str>, status_body: &str) -> Value {

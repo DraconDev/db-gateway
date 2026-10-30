@@ -200,8 +200,7 @@ fn undelete_refuses_past_the_retention_window() {
     // with "no such database". Pinning only one of them made this test
     // fail whenever the tick won the race, which is a property of the
     // scheduler, not of the refusal.
-    let too_late = combined.contains("retention_expired")
-        || combined.contains("database_purged");
+    let too_late = combined.contains("retention_expired") || combined.contains("database_purged");
     assert!(
         too_late,
         "the refusal did not distinguish 'too late' from 'not found': {combined}"

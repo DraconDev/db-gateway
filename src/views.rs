@@ -2141,6 +2141,37 @@ mod tests {
         );
     }
 
+    /// A database the gateway has never touched has no `/v1/status`
+    /// entry at all. Both surfaces must say the same thing about it:
+    /// zero counters, and an absent wait figure / last write rather
+    /// than a measurement nobody made.
+    ///
+    /// The JSON document is the one a script reads, so it is the one
+    /// that has to carry the values instead of an empty object; the
+    /// terminal section is asserted here beside it so the two cannot
+    /// drift apart. This is the audit finding that `"activity": {}`
+    /// with `activity_available: true` told a script nothing while the
+    /// terminal showed zeros and "never".
+    #[test]
+    fn an_untouched_database_states_its_zeroes_on_both_surfaces() {
+        let entry = serde_json::json!({});
+        let document = activity_document(&entry);
+        assert_eq!(document["rows_read"].as_u64(), Some(0));
+        assert_eq!(document["rows_written"].as_u64(), Some(0));
+        assert_eq!(document["queue_waits"].as_u64(), Some(0));
+        assert_eq!(document["queue_wait_p95_us"], serde_json::Value::Null);
+        assert_eq!(document["queue_wait_max_us"], serde_json::Value::Null);
+        assert_eq!(document["last_write"], serde_json::Value::Null);
+
+        let mut out = Vec::new();
+        activity_section(&entry)
+            .write(&mut out, &render::Theme::fixed(false, true))
+            .unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("no waits recorded"), "{text}");
+        assert!(text.contains("never"), "{text}");
+    }
+
     /// The cells of a rendered table row, split on the box drawing.
     fn row_cells(text: &str, row_needle: &str) -> Vec<String> {
         text.lines()
