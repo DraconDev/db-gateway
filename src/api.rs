@@ -72,6 +72,10 @@ pub fn router(store: Arc<Store>, deployment: Deployment) -> Router {
         .route("/v1/keys", get(list_keys).post(issue))
         .route("/v1/keys/owner/rotate", post(rotate_owner))
         .route("/v1/keys/{name}", delete(revoke))
+        // Bulk revoke by database scope. Registered under a distinct
+        // path from /v1/keys/{name} so a database named "owner" can
+        // never be mistaken for the owner key's revoke route.
+        .route("/v1/database-keys/{name}", delete(revoke_database))
         .route("/v1/status", get(status))
         .route("/v1/backups", get(backups))
         .route("/v1/queries", get(queries))
@@ -536,6 +540,33 @@ async fn revoke(
         s.revoke(&name)?;
         crate::audit::record(s, &p, "revoke_key", None, Some(name.clone()));
         Ok(Json(json!({"revoked":true})))
+    })
+    .await
+}
+
+/// Revoke every credential scoped to one database.
+///
+/// The bulk form of the credential revoke, for a leaked key: the operator
+/// knows which database is exposed, not which credential names exist. It
+/// never touches the owner key — that key reaches every database by
+/// construction, so including it would revoke the credential the operator
+/// is holding.
+async fn revoke_database(
+    State(store): State<Arc<Store>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    work(store, headers, move |s, p| {
+        p.owner()?;
+        let revoked = s.revoke_scoped_to(&name)?;
+        crate::audit::record(
+            s,
+            &p,
+            "revoke_database_keys",
+            Some(name.clone()),
+            None,
+        );
+        Ok(Json(json!({"database":name,"revoked":revoked})))
     })
     .await
 }
