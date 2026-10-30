@@ -1,25 +1,32 @@
 # Turso vs `dg`: what we would be missing
 
-**Read live 2026-10-29.** This revision replaces the 2026-10-26 inspection
-audit with a complete surface comparison. It answers one question: if the
-operator moved a workload from Turso to `dg` today, what would actually be
-missing?
+**Turso surface read live 2026-10-29; `dg` side re-checked against 0.10.0 on
+2026-10-30.** This revision replaces the 2026-10-26 inspection audit with a
+complete surface comparison. It answers one question: if the operator moved a
+workload from Turso to `dg` today, what would actually be missing?
 
-- **`dg` side**: 0.9.x working tree, including the 2026-10-28 TUI audit
-  (`docs/audits/tui-audit.md`). Checked against the live local gateway on
-  `127.0.0.1:7432` — 7 databases — and against `dg --help` for every verb.
+- **`dg` side**: the 0.10.0 release (`v0.10.0`), which closed gaps 1, 4 and 5.
+  Checked against `dg --help` for every verb and against the released binary's
+  own help text; the live local gateway on `127.0.0.1:7432` is used for the
+  operational rows. The TUI side rests on the 2026-10-28 TUI audit
+  (`docs/audits/tui-audit.md`) plus its six tabs.
 - **Turso side**: the `dracondev` console read live through the Chrome bridge
   on 2026-10-29, plus the installed `turso` CLI v1.0.15 inventory from
   `--help`. Turso was read only: no database was created, destroyed, imported,
   replicated or re-tokened, and no token was issued or invalidated.
+- **What this revision did not re-read**: the Turso side. The 0.10.0 pass that
+  produced this revision was bound to the committed 2026-10-29 captures — no
+  `turso` command ran and no console page was opened — so every Turso fact
+  below is as of 2026-10-29. A Turso capability shipped after that date is
+  invisible here; where a row could have changed since, it says so.
 - **Evidence**: the captures listed at the end. The October 2026 captures are
   retained unchanged as history and are marked as such wherever they are
   cited.
-- **Tree state**: the comparison itself changed documentation only. While
-  checking the tree, three leftover `// MUTATION:` edits from the day before
-  this goal were found to have disabled a credential-clearing guard; they are
-  reverted, and the full suite is green. See "A regression found and repaired
-  during this pass" near the end.
+- **Tree state**: this revision changed documentation only — no source, API,
+  storage-layout or TUI change, and no new `dg` feature. The `// MUTATION:`
+  regression recorded under "A regression found and repaired during this pass"
+  belongs to the 2026-10-29 edition, not to this one; that section is kept as
+  history and no longer describes the tree.
 
 The `turso` CLI is **not authenticated** in this environment (`turso auth
 whoami` answers "You are not logged in"), so Turso behaviour is evidenced from
