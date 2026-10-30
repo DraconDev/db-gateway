@@ -172,12 +172,11 @@ purpose, which belongs in §4.1 rather than being counted as a defect. The
 distinction matters: a difference that is a considered design choice is not a
 debt, and listing it as a "gap" quietly promises a fix that should never come.
 
-### Gap 1 — `dg inspect` still degrades off a terminal (high; smallest fix)
-`dg inspect` still degrades off a terminal (high; smallest fix)
+### Gap 1 — `dg inspect` degraded off a terminal (CLOSED in 0.10.0)
 
-`dg inspect` renders a rich database/activity/backup/tables view **only when
-stdout is a terminal**. Piped or `--json`, it returns the plain info document
-and drops the activity and backup sections entirely.
+`dg inspect` rendered a rich database/activity/backup/tables view **only when
+stdout was a terminal**. Piped or `--json`, it returned the plain info document
+and dropped the activity and backup sections entirely.
 
 Reproduced live on 2026-10-29 against the local gateway:
 
@@ -188,13 +187,30 @@ $ dg inspect --json inventory
  "tombstoned":false}
 ```
 
-That is the `GET /v1/databases/{name}` document — no backup state, no traffic.
-A script that wants what the operator sees must rejoin `/v1/databases/{name}`,
-`/v1/status` and `/v1/backups` by hand.
+That was the `GET /v1/databases/{name}` document — no backup state, no traffic.
+A script that wanted what the operator saw had to rejoin
+`/v1/databases/{name}`, `/v1/status` and `/v1/backups` by hand.
 
-**Carried forward unchanged from the 2026-10-26 audit, and still true.** Cost:
-automation cannot read the operator's own view. Fix: compose the three reads the
-TTY path already makes into the non-TTY answer. No API change needed.
+**Closed in 0.10.0.** The same live read now returns one composed document:
+
+```
+$ dg inspect --json inventory
+{"activity":{"rows_read":1765,"rows_written":4,"queue_waits":341,…},
+ "activity_available":true,
+ "backup":{"age_secs":2703,"newest_set":"20261030T081702Z","state":"fresh"},
+ "backup_available":true,
+ "created_at":1792931768,"name":"inventory","purge_after":null,
+ "size_bytes":90240,"tables":[…],"tombstoned":false}
+```
+
+One struct (`Inspected` in `src/cmd_data.rs`) fetches the three reads once and
+renders both forms from it, so the terminal view and the JSON view cannot drift
+apart. The auxiliary-fetch rule is unchanged and now applies to both: a failed
+`/v1/status` or `/v1/backups` degrades that section instead of failing the
+command, and `activity_available` / `backup_available` let a script tell "nothing
+happened" from "we could not ask" — a distinction the old degradation could not
+express. Regression: `tests/cli_inspect_json.rs` (3 of its 5 tests fail against
+the pre-0.10.0 function).
 
 ### Gap 2 — No usage history, only present-tense counters (high)
 No usage history, only present-tense counters (high)
