@@ -449,7 +449,7 @@ impl Store {
         // publish a `purge_after` earlier than the retention window the
         // operator asked for: the deadline, not the deletion, would be
         // what a busy moment shortened.
-        let now = now_secs()?;
+        let now = self.now()?;
         let protected: Option<i64> = tx
             .query_row(
                 "SELECT protected FROM databases WHERE name=?",
@@ -636,7 +636,7 @@ impl Store {
         // selected by the clock read inside this transaction, so every
         // tombstone it unlinks had genuinely passed its deadline by the
         // time the registry lock was held.
-        let now = now_secs()?;
+        let now = self.now()?;
         let due: Vec<String> = tx
             .prepare("SELECT name FROM databases WHERE deleted_at IS NOT NULL AND purge_after<=?")?
             .query_map([now], |r| r.get::<_, String>(0))?

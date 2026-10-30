@@ -68,6 +68,15 @@ use self::transfers::{TransferKind, UploadState};
 /// files, not because the registry strains near it.
 pub const MAX_DATABASES: i64 = 1024;
 
+/// The clock the lifecycle rules measure against.
+///
+/// It is a field rather than a bare call to `SystemTime::now` because the
+/// deadline rules are decided inside the registry transaction: what has to
+/// be reproducible is a request that arrives inside its retention window,
+/// waits out another writer, and is judged by the time it actually reached
+/// the row. Tests install an accelerated source to stand in for that wait.
+pub(crate) type Clock = Arc<dyn Fn() -> Result<i64> + Send + Sync>;
+
 pub struct Store {
     root: PathBuf,
     pub read_lane: Arc<Semaphore>,
@@ -110,6 +119,8 @@ pub struct Store {
     pub branches: BranchRegistry,
     /// Which credential ran what, and when.
     pub audit: AuditLog,
+    /// The instant the retention rules read; see [`Store::now`].
+    clock: Clock,
 }
 
 impl Store {
@@ -215,6 +226,7 @@ impl Store {
             } else {
                 AuditLog::default()
             },
+            clock: Arc::new(now_secs),
         };
         Ok(store)
     }
@@ -226,6 +238,24 @@ impl Store {
     /// path they can paste into another tool.
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// The instant the retention rules are measured against.
+    ///
+    /// Lifecycle decisions read it only after they hold the immediate
+    /// registry transaction, so the instant and the row it judges come
+    /// from one critical section: a caller that waited out another writer
+    /// is judged by the time it reached the row, not the time it arrived.
+    pub(crate) fn now(&self) -> Result<i64> {
+        (self.clock)()
+    }
+
+    /// Replace the clock. A test seam only: `open` always installs the
+    /// system clock, and no runtime path can substitute another.
+    #[cfg(test)]
+    pub(crate) fn with_clock(mut self, clock: Clock) -> Self {
+        self.clock = clock;
+        self
     }
 
     fn meta(&self) -> Result<Connection> {
