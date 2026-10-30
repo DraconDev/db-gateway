@@ -67,7 +67,7 @@ maps each Turso CLI verb to its `dg` equivalent.
 
 | Turso | dg | Notes |
 |---|---|---|
-| `turso db tokens create <db> ...` | `dg key create <name> --role database_read_only\|database_read_write --database <db>...` | Both print the raw key once. Turso also supports expiry, table-action permissions, ATTACH and group claims; `dg` grants non-expiring database-wide roles (see gap 4 in `docs/turso-surface-gap.md`). |
+| `turso db tokens create <db> ...` | `dg key create <name> --role database_read_only\|database_read_write --database <db>...` | Both print the raw key once. Turso also supports expiry, table-action permissions, ATTACH and group claims; `dg` grants non-expiring database-wide roles. These provider-governance controls are not-applicable for the single operator (§4.1 in `docs/turso-surface-gap.md`). |
 | — (no `turso db tokens list` verb in CLI v1.0.15) | `dg key list` | Lists key names, roles and database scopes; hashes never shown. Turso's CLI help exposes create/invalidate only. |
 | — (no Turso token-list command) | `dg key tokens <db>` | The credentials that can act on ONE database: the owner key reaches everything, an application key reaches the databases it was scoped to. The first question of a leaked-key incident. |
 | `turso db tokens invalidate <db>` | `dg key revoke --database <db> --confirm <db>` | Cuts all application credentials scoped to one database in a single transaction; the owner key is explicitly excluded and the JSON response says `owner_key_excluded: true`. Gap 4 CLOSED in 0.10.0. `dg key revoke <name>` remains the one-credential form. |
