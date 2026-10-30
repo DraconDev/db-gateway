@@ -549,7 +549,7 @@ impl Store {
     /// - the original file is absent → 409 `database_file_missing`.
     pub fn undelete(&self, name: &str) -> Result<()> {
         validate_name(name)?;
-        let early = now_secs()?;
+        let early = self.now()?;
         let mut conn = self.meta()?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         // The clock is read HERE, not before the transaction, because the
