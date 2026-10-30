@@ -728,8 +728,12 @@ enum KeyCommand {
         #[arg(required_unless_present = "database", conflicts_with = "database")]
         name: Option<String>,
         /// Revoke every credential scoped to this database.
-        #[arg(long, value_name = "DB")]
+        #[arg(long, value_name = "DB", requires = "confirm")]
         database: Option<String>,
+        /// Type the exact database name again to confirm bulk revocation.
+        /// Required with --database. The owner key is never revoked.
+        #[arg(long, requires = "database", value_name = "NAME")]
+        confirm: Option<String>,
     },
     /// Replace the owner credential; prints the new key once (old key dies
     /// immediately). Redirect to a 0600 file and verify before discarding the old.
@@ -1191,11 +1195,15 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
             command: KeyCommand::Tokens { database },
         } => cmd_keys::tokens(&server, json, &key_path, database).await?,
         Command::Key {
-            command: KeyCommand::Revoke { name, database },
+            command: KeyCommand::Revoke {
+                name,
+                database,
+                confirm,
+            },
         } => match (name, database) {
             (Some(name), None) => cmd_keys::revoke(&server, json, &key_path, name).await?,
             (None, Some(database)) => {
-                cmd_keys::revoke_database(&server, json, &key_path, database).await?
+                cmd_keys::revoke_database(&server, json, &key_path, database, confirm).await?
             }
             // clap requires exactly one of the two.
             _ => unreachable!("clap enforces one of NAME or --database"),

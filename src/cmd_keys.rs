@@ -234,8 +234,11 @@ pub async fn revoke_database(
     json: bool,
     key_path: &Option<PathBuf>,
     database: String,
+    confirm: Option<String>,
 ) -> Result<Option<Request>, dg::ServerError> {
     dg::store::validate_name(&database).map_err(Application)?;
+    dg::confirmation::confirm_database_revoke(confirm.as_deref(), &database)
+        .map_err(Application)?;
     let view_database = database.clone();
     if human_result(
         super::Call {

@@ -575,7 +575,11 @@ async fn revoke_database(
             Some(&name),
             Some(json!({"revoked": revoked}).to_string()),
         );
-        Ok(Json(json!({"database":name,"revoked":revoked})))
+        Ok(Json(json!({
+            "database":name,
+            "revoked":revoked,
+            "owner_key_excluded":true,
+        })))
     })
     .await
 }

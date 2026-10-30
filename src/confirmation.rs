@@ -29,3 +29,17 @@ pub fn confirm_matches(confirm: Option<&str>, name: &str) -> Result<()> {
         "destructive operation: repeat the exact database name with --confirm NAME",
     ))
 }
+
+/// The irreversible-scope warning for a database-wide key revoke.
+///
+/// The confirmation carries the most important safety fact: this cuts
+/// application credentials scoped to this database, and does NOT revoke
+/// the owner key that the operator is using to issue the command.
+pub fn confirm_database_revoke(confirm: Option<&str>, database: &str) -> Result<()> {
+    if confirm == Some(database) {
+        return Ok(());
+    }
+    Err(required(
+        "bulk revoke removes application credentials scoped to this database; the owner key is never revoked; repeat the exact database name with --confirm NAME",
+    ))
+}
