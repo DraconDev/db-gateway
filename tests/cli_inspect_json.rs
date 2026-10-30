@@ -177,14 +177,65 @@ fn the_auxiliary_sections_degrade_instead_of_failing() {
     }
 }
 
+#[test]
+fn a_database_the_gateway_has_never_touched_reports_its_zeroes() {
+    // `/v1/status` answers, and simply has no entry for this database:
+    // the gateway omits a database it has never touched rather than
+    // reporting it empty. That is a fact about the database (nothing has
+    // happened yet), not a missing answer, so the machine form must carry
+    // the same figures the terminal draws — zero counters and a last
+    // write of "never" — instead of an empty object a script has to
+    // interpret. The distinction that must survive is the OTHER one: a
+    // failed status read still reports `activity_available: false`.
+    let document = inspect_against_stub(None, r#"{"databases":{"other":{"rows_read":4}}}"#);
+
+    assert_eq!(
+        document["activity_available"].as_bool(),
+        Some(true),
+        "a database with no activity is still an answered read: {document}"
+    );
+    let activity = &document["activity"];
+    assert_eq!(activity["rows_read"].as_u64(), Some(0), "{document}");
+    assert_eq!(activity["rows_written"].as_u64(), Some(0), "{document}");
+    assert_eq!(activity["queue_waits"].as_u64(), Some(0), "{document}");
+    // A percentile of nothing is nothing: null, not a zero that would
+    // claim a measurement nobody made. The terminal draws the same
+    // absence as "no waits recorded" / "never".
+    assert_eq!(activity["queue_wait_p95_us"], Value::Null, "{document}");
+    assert_eq!(activity["queue_wait_max_us"], Value::Null, "{document}");
+    assert_eq!(activity["last_write"], Value::Null, "{document}");
+    // The fields exist, so a script reads a path and gets an answer
+    // rather than a key error.
+    for key in [
+        "rows_read",
+        "rows_written",
+        "queue_waits",
+        "queue_wait_p95_us",
+        "queue_wait_max_us",
+        "last_write",
+    ] {
+        assert!(
+            activity.get(key).is_some(),
+            "activity is missing {key}: {document}"
+        );
+    }
+}
+
 /// Run `dg inspect --json` against a tiny HTTP fixture that fails exactly
-/// one auxiliary endpoint. The database read remains healthy, so the
-/// command's ability to degrade rather than fail is directly exercised.
+/// one auxiliary endpoint, or none when `failed_path` is `None`. The
+/// database read remains healthy, so the command's ability to degrade
+/// rather than fail is directly exercised, and `status_body` is what the
+/// fixture answers for `/v1/status`.
 fn inspect_with_auxiliary_failure(failed_path: &str) -> Value {
+    inspect_against_stub(Some(failed_path), r#"{"databases":{"shop":{"rows_read":9,"rows_written":2,"queue_waits":0}}}"#)
+}
+
+fn inspect_against_stub(failed_path: Option<&str>, status_body: &str) -> Value {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let address = listener.local_addr().unwrap();
-    let failed_path = failed_path.to_string();
+    let failed_path = failed_path.map(str::to_string);
+    let status_body = status_body.to_string();
     let server = thread::spawn(move || {
         let mut observed = Vec::new();
         for _ in 0..3 {
@@ -215,25 +266,23 @@ fn inspect_with_auxiliary_failure(failed_path: &str) -> Value {
                 }
             }
             observed.push(path.clone());
-            let (status, body) = if path == failed_path {
+            let failing = failed_path.as_deref() == Some(path.as_str());
+            let (status, body) = if failing {
                 (
                     "503 Service Unavailable",
-                    r#"{"error":{"code":"unavailable","message":"test fixture"}}"#,
+                    r#"{"error":{"code":"unavailable","message":"test fixture"}}"#.to_string(),
                 )
             } else if path == "/v1/databases/shop" {
                 (
                     "200 OK",
-                    r#"{"name":"shop","created_at":1,"size_bytes":10,"tombstoned":false,"purge_after":null,"tables":[]}"#,
+                    r#"{"name":"shop","created_at":1,"size_bytes":10,"tombstoned":false,"purge_after":null,"tables":[]}"#.to_string(),
                 )
             } else if path == "/v1/status" {
-                (
-                    "200 OK",
-                    r#"{"databases":{"shop":{"rows_read":9,"rows_written":2,"queue_waits":0}}}"#,
-                )
+                ("200 OK", status_body.clone())
             } else {
                 (
                     "200 OK",
-                    r#"{"per_database":{"shop":{"state":"fresh","newest_set":"20261030T000000Z","age_secs":1}}}"#,
+                    r#"{"per_database":{"shop":{"state":"fresh","newest_set":"20261030T000000Z","age_secs":1}}}"#.to_string(),
                 )
             };
             write!(
