@@ -1,16 +1,20 @@
-# Full workspace test suite — raw, unedited output at the release commit
+# Full workspace test suite — raw, unedited output
 #
-# Tested revision: c13bf7f9089ad7d1758a2ae1e23a0ae30df50035, the commit tagged
-# v0.10.0, worktree clean before and after (recorded below).
+# Tested revision: c13bf7f9089ad7d1758a2ae1e23a0ae30df50035, worktree clean
+# before and after (recorded below).
 #
 # This receipt is added by a docs-only commit, exactly as README.md describes:
-# a log cannot describe the commit that contains it. Confirm the tested tree is
-# the release tree with:
+# a log cannot describe the commit that contains it. Confirm the tested tree
+# differs from any later tree only in this directory:
 #     git diff --stat c13bf7f9089ad7d1758a2ae1e23a0ae30df50035..HEAD
-# The only expected difference is this directory.
+#
+# Which commit is the release? Ask git, not this header. Each receipt commit
+# moves the tag again, so a literal commit id here would be stale on arrival:
+#     git rev-parse v0.10.0^{}
 #
 # The release binary is unchanged across these commits: the bundle built from
-# c13bf7f and its successor both hash the `dg` artifact as
+# c13bf7f and every commit since (the binary is unaffected by documentation)
+# all hash the `dg` artifact as
 # 798d3c5f6bd8d8b38b0ca1d8ea97e4dd852cf642ba626963ea2682b0f2dafd7a, so the
 # receipt covers the shipped artifact, not merely similar source.
 #

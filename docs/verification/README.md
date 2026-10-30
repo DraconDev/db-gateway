@@ -12,11 +12,35 @@ be inspected later, so each release that has one records the actual output.
 | `full-suite-<rev>.log` | The complete, unedited stdout of `cargo test --workspace --all-targets`, with the revision, branch, toolchain, host, clean-worktree check and exit code in the header and footer |
 | `full-suite-<rev>-summary.txt` | One line per suite taken from that log, plus the log's SHA-256, so a reader can check the totals without scrolling |
 
-The v0.10.0 receipts are `full-suite-eeed1a4.*` (the code commit the auditor
-asked about) and `full-suite-c13bf7f.*` (the commit the release tag points at).
-Both record 694 passed, 0 failed across 94 suites, and the release binary hashes
-to `798d3c5f…` from either tree, so neither receipt is describing a different
-artifact from the one that shipped.
+### v0.10.0
+
+| Receipt | Revision it tested | Added by |
+| --- | --- | --- |
+| `full-suite-eeed1a4.*` | `eeed1a4` — the tree that shipped, after the last code change | `6ca6021` |
+| `full-suite-c13bf7f.*` | `c13bf7f` — the same tree plus this README | `e63e2f8` |
+
+"Same tree" is meant literally for everything that can break: the last commit
+that touched `src/` is `34beb29`, an ancestor of both tested revisions, and no
+`src/` change follows it.
+
+Both receipts record an identical `dg` artifact (`798d3c5f…`), so neither
+describes a different binary from the one that shipped.
+
+**No sentence here says which commit the tag currently points at, on purpose.**
+Every receipt is added by a docs-only commit on top of what it tested, so each
+one moves the tag again; a literal "the tag is X" would be stale the moment it
+was written. (Commit ids do appear above, as the immutable "added by" facts.)
+Ask git instead:
+
+```sh
+git rev-parse v0.10.0^{}                      # the release commit right now
+git log -1 --format='%h %s' v0.10.0^{}        # and what it changed
+git merge-base --is-ancestor eeed1a4 v0.10.0^{} && echo "tested tree is in the release"
+```
+
+Every claim above is checkable with `git log --stat` on the commit that added
+the receipt:
+`git log --format='%h %s' --diff-filter=A -- docs/verification/full-suite-eeed1a4.log`.
 
 ## Why the receipt is a separate, docs-only commit
 
