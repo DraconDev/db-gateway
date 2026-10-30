@@ -258,22 +258,17 @@ pub async fn protect(
             semantics: dg::client::Semantics::Write,
         },
         Box::new(move |_result| {
-            let headline = if off {
-                format!("{view_name} is no longer protected")
+            if off {
+                dg::render::Outcome::done(format!("{view_name} is no longer protected"))
             } else {
-                format!("{view_name} is protected")
-            };
-            let mut outcome = dg::render::Outcome::done(headline);
-            if !off {
-                outcome = dg::render::Outcome::with_facts(
+                dg::render::Outcome::with_facts(
                     format!("{view_name} is protected"),
                     vec![(
                         "effect".to_string(),
                         "dg delete will refuse until protection is cleared".to_string(),
                     )],
-                );
+                )
             }
-            outcome
         }),
     )
     .await?
