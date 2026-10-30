@@ -560,7 +560,7 @@ impl Store {
         // time and clear the tombstone -- resurrecting a database whose
         // published window had already closed. The measured instant and
         // the observed row must belong to the same critical section.
-        let now = now_secs()?;
+        let now = self.now()?;
         let entry: Option<(Option<i64>, Option<i64>)> = tx
             .query_row(
                 "SELECT deleted_at, purge_after FROM databases WHERE name=?",
