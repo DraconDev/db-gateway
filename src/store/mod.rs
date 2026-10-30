@@ -226,7 +226,7 @@ impl Store {
             } else {
                 AuditLog::default()
             },
-            clock: Arc::new(now_secs),
+            clock: Arc::new(lifecycle::now_secs),
         };
         Ok(store)
     }

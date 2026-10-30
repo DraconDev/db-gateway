@@ -85,7 +85,7 @@ fn table_exists(conn: &Connection, name: &str) -> Result<bool> {
     Ok(stmt.exists([name])?)
 }
 
-fn now_secs() -> Result<i64> {
+pub(super) fn now_secs() -> Result<i64> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
