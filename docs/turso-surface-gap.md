@@ -22,6 +22,12 @@ workload from Turso to `dg` today, what would actually be missing?
 - **Evidence**: the captures listed at the end. The October 2026 captures are
   retained unchanged as history and are marked as such wherever they are
   cited.
+- **Which `dg` binary the comparisons were checked against**: the 0.10.0 build
+  in this repository (`.cargo/target/release/dg`). The `dg` on `PATH` in this
+  environment is still **0.9.0**, which predates `protect`, `undelete` and the
+  composed `inspect` document — so a reader re-running a `dg --help` check
+  against `PATH` will see those verbs missing and conclude, wrongly, that a row
+  is overstated. Build or use the 0.10.0 binary to reproduce the CLI rows.
 - **Tree state**: this revision changed documentation only — no source, API,
   storage-layout or TUI change, and no new `dg` feature. The `// MUTATION:`
   regression recorded under "A regression found and repaired during this pass"
@@ -140,15 +146,15 @@ lags; see §3.
 
 | `dg` surface | What it answers | Disposition |
 |---|---| Disposition |
-| `dg serve` | Loopback-only authenticated server; remote via SSH tunnel. | not worth doing — `dg`-only surface with no Turso counterpart; nothing to close. |
-| `dg status`, `dg watch` | Version, uptime, admission config, request totals/rate, error counts, wait percentiles, per-database traffic. | not worth doing — `dg`-only surface with no Turso counterpart; nothing to close. |
-| `dg tui` | The six-tab operator view (databases, service, backups, keys, queries, locations) plus the database page and rows browser. | not worth doing — `dg`-only surface with no Turso counterpart; nothing to close. |
-| `dg backup run/status/digest/verify` | Backup freshness, the three-state `fresh`/`behind`/`stale` judgement against an approved cadence, offline manifest/hash-chain verification. | worth doing — at parity for the bucket half, but the per-set verification report is `dg`-only and already shipped; no Turso work to close. |
-| `dg restore list`, `dg restore plan` | The point-in-time window the off-host replica covers, and what a restore to a moment would reach. | not worth doing — `dg`-only surface with no Turso counterpart; nothing to close. |
-| `dg vacuum`, `dg integrity`, `dg explain`, `dg diff` | Space reclamation, file soundness, query plan, and cross-database comparison. | not worth doing — `dg`-only surface with no Turso counterpart; nothing to close. |
-| `dg config list/show/set/remove/path` | Named contexts (server + key file paths). | not worth doing — `dg`-only surface with no Turso counterpart; nothing to close. |
-| `dg mcp` | The gateway served to an MCP client over stdio. | not worth doing — `dg`-only surface with no Turso counterpart; nothing to close. |
-| `dg execute`, `dg batch` | A SQL file as one atomic batch (32-statement cap); an atomic JSON batch file. | not worth doing — `dg`-only surface with no Turso counterpart; nothing to close. |
+| `dg serve` | Loopback-only authenticated server; remote via SSH tunnel. | not worth doing — the bar cannot weigh it: there is no comparable Turso surface, and this is a `dg` lead (§3), not a gap to close. |
+| `dg status`, `dg watch` | Version, uptime, admission config, request totals/rate, error counts, wait percentiles, per-database traffic. | not worth doing — the bar cannot weigh it: Turso's nearest page is captured (§1.3) but this dashboard is a `dg` lead (§3), not a gap. |
+| `dg tui` | The six-tab operator view (databases, service, backups, keys, queries, locations) plus the database page and rows browser. | not worth doing — the bar cannot weigh a whole interface against nothing; the per-tab mapping is §1.7, and the asymmetries there are already carried by gaps 2 and 4. |
+| `dg backup run/status/digest/verify` | Backup freshness, the three-state `fresh`/`behind`/`stale` judgement against an approved cadence, offline manifest/hash-chain verification. | not worth doing — already shipped, and the bar is already satisfied: `fresh`/`behind`/`stale` against a cadence protects the operator from believing a stale copy is good. No Turso counterpart exists, so nothing is outstanding. |
+| `dg restore list`, `dg restore plan` | The point-in-time window the off-host replica covers, and what a restore to a moment would reach. | not worth doing — the bar cannot weigh it: publishing the restorable window before a restore is attempted is a `dg` lead (§3), and no Turso equivalent is captured. |
+| `dg vacuum`, `dg integrity`, `dg explain`, `dg diff` | Space reclamation, file soundness, query plan, and cross-database comparison. | not worth doing — the bar cannot weigh it: these answer questions only a file-owning operator can ask, and none has a captured Turso counterpart. |
+| `dg config list/show/set/remove/path` | Named contexts (server + key file paths). | not worth doing — already at parity in substance (`turso config path/set`, §1.5); the extra verbs are `dg` lead, not a gap. |
+| `dg mcp` | The gateway served to an MCP client over stdio. | not worth doing — the bar cannot weigh it: no Turso surface is captured, and exposing the gateway to an MCP client is a `dg` lead (§3), not a gap. |
+| `dg execute`, `dg batch` | A SQL file as one atomic batch (32-statement cap); an atomic JSON batch file. | not worth doing — already at parity for the capability (§1.1 SQL access rows); atomicity is `dg` lead rather than a missing Turso feature. |
 
 ### 1.5 Remaining CLI command families
 
@@ -215,6 +221,34 @@ weak — the captures simply do not cover it. A future pass that is allowed to
 call Turso could replace every `unverified` above with a real observation; until
 then, claiming agreement or a gap in either direction would be inventing
 evidence, which is exactly what the objective's bound forbids.
+### 1.7 TUI tabs vs console pages (per-tab)
+
+Objective item 1 names the tabs specifically — databases / tables / rows / keys
+/ queries / backups / analytics — so this section maps them one for one instead
+of leaving them as incidental mentions in §1.2–§1.3. The `dg` side is the real
+six-tab `Focus` enum plus the database page and rows browser; the Turso side is
+what the committed 2026-10-29 console captures actually show.
+
+| `dg` tab | What it answers | Turso console counterpart | Status | Turso evidence | Note | Disposition |
+|---|---|---|---|---|---|---|
+| Databases | Which databases exist, what they hold and how big | Databases list | have | `turso-live-2026-10-29-databases.txt` | Both give names, storage and per-row counters. The console adds group and sync columns, which are cloud constructs (§4). | not worth doing — already at parity; groups and sync accounting do not exist here. |
+| Database page → tables/ROWS | What one table holds, row by row | Edit Data → DATA grid | partial | `turso-live-2026-10-29-edit-data.txt`, `turso-edit-data-live-2026-10-29.png` | `dg` reads; the console reads *and writes*. Read-only is deliberate (§4.1), so the missing half is the half that can damage data. | not worth doing — fails the bar: cell editing on a live operator database creates the mistake this gateway prevents. |
+| Database page → STRUCTURE | Columns, types, indexes, foreign keys, `CREATE` | Edit Data → STRUCTURE | have | `turso-structure-2026-10-27.txt` (+ `-view`, `-indexes` PNGs) | Captured STRUCTURE read shows the same facts: declared types, PK/NOT NULL flags, indexes, foreign keys. | not worth doing — already at parity. |
+| Rows browser (filters/sort/columns) | Which rows match, in what order, which columns | Edit Data → Filters / Sort / Columns | partial | `turso-live-2026-10-29-edit-data.txt` ("Filters; Sort; Columns") | Same three questions; `dg` answers with `--where`/`--sort` and the `f`/`o`/`c` keys instead of builders. | not worth doing — fails the bar: flags already cover it, and the remaining difference is ergonomics, not time saved. |
+| Keys | Which credentials exist, what they may reach, revocation | Create Token / Invalidate All Tokens | have | `turso-live-2026-10-29-per-database.txt` | `dg` shows scope and lets a whole database's app keys be revoked in one confirmed action; the owner key is excluded by design. Gap 4 CLOSED. | not worth doing — closed by gap 4; at parity. |
+| Queries | Which statement shapes the service has run and what they cost | Top Queries / per-database Analytics | partial | `turso-live-2026-10-29-per-database.txt` | Both rank by cost. `dg` shows statement SHAPES; Turso shows literal text. Deliberate privacy choice (§4.1). | already-gap (2) for trends; otherwise not worth doing — ranking is at parity and shapes-not-values is intentional. |
+| Backups | Are the copies any good — per-database fresh/behind/stale against an approved cadence, plus the off-host replica and last restore drill | — (no console backups page in the captures) | have | None — no Turso backups page captured | This is a `dg` lead, not a gap (§3). The tab reads `replica`, `drill` and `restore_points`; see `docs/recovery-policy.md`. | not worth doing — `dg`-only surface; nothing to close. |
+| Locations | Where each database file lives and whether it is there | — (regions/locations are a cloud placement concept) | have | None | Reports file placement and missing/tombstoned state. It is **not** a tombstone list despite the name resemblance — see gap 8. | not worth doing — `dg`-only surface; nothing to close. |
+| Service | Version, uptime, admission, traffic, queue waits | Overview → Activity / org Analytics | partial | `turso-live-2026-10-29-analytics.txt` | Present-tense in both; `dg` adds queue-wait percentiles. Trends are the missing half. | already-gap (2). |
+| — (no tab) | Trend over time: latency, rows read/written, traffic, syncs, storage | Analytics (org + per-database, 30-day series) | missing | `turso-live-2026-10-29-analytics.txt` | The measured gap, carried by gap 2 rather than duplicated here. | already-gap (2). |
+
+**What this adds over §1.2/§1.3.** Those sections answer "does `dg` have this
+surface?" row by row across the whole product. This one answers "if I am looking
+at tab N, what am I looking at in the console?" — the question an operator
+actually asks when moving between them. Two tabs (Backups, Locations) have no
+console counterpart at all, and one console page (Analytics trends) has no tab;
+those asymmetries are the real content of the comparison.
+
 
 ---
 ## 2. Ranked gaps (operator impact first)
