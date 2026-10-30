@@ -245,6 +245,7 @@ pub async fn protect(
     dg::store::validate_name(&name).map_err(Application)?;
     let view_name = name.clone();
     let method = if off { Method::DELETE } else { Method::PUT };
+    let send_method = method.clone();
     let path = format!("/v1/databases/{name}/protection");
     if human_result(
         super::Call {
@@ -277,7 +278,7 @@ pub async fn protect(
         return Ok(None);
     }
     Ok(Some((
-        method,
+        send_method,
         path,
         None,
         None,
