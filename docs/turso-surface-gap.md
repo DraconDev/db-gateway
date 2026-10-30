@@ -256,10 +256,11 @@ self-inflicted-corruption case; not worth doing to imitate a firewall.
 
 Turso can invalidate every database token at once. Its CLI can also create
 tokens that expire, restrict permissions to table/actions, and carry ATTACH or
-group claims. `dg` credentials are non-expiring and grant one database-wide
-read-only or read-write role; `dg key revoke` takes exactly one `<NAME>`
-(verified from `--help` and `src/api.rs::revoke`). `dg key list` shows every key
-and its scope, but the operator must revoke scoped keys one command at a time.
+group claims. `dg` credentials remain non-expiring and grant one database-wide
+read-only or read-write role. The single-name `dg key revoke <NAME>` still
+revokes exactly one key; the closed bulk form below cuts all application
+credentials for one database in one confirmed command. `dg key list` shows every
+key and its scope.
 
 Judged for a personal box: expiry is mostly ceremony here — a key file on your
 own disk does not benefit much from a calendar, and a non-expiring key is one
@@ -296,19 +297,37 @@ credential: ["app", "owner2"]`.
 Credential expiry, per-table/action scopes and ATTACH/group claims remain
 deliberately out of scope (§4) — that part of the original gap is unchanged.
 
-### Gap 5 — No delete protection or undelete action (low–medium)
-No delete protection or undelete action (low–medium)
+### Gap 5 — Delete protection and undelete (CLOSED in 0.10.0)
 
 Turso offers both Delete Protection and a **Restore deleted databases** control
-in the database list. `dg` requires the typed `--confirm <name>` (and the TUI's
-typed confirmation), then tombstones the file until retention expires; there is
-no command to undelete it. `dg restore list/plan` describes the off-host backup
-window but is not an undelete action.
+in the database list. Before 0.10.0, `dg` required the typed `--confirm <name>`
+(and the TUI's typed confirmation), then tombstoned the file until retention
+expired; there was no command to undelete it. `dg restore list/plan` described
+the off-host backup window but was not an undelete action.
 
 Cost: confirmation protects against fat-fingers, but after a deliberate delete
-or an incident there is no one-step way to bring the tombstone back. Disposition:
-a registry protection flag and explicit undelete path are in-architecture
-options; recovery otherwise requires the operator's off-host backup workflow.
+or an incident there was no one-step way to bring the tombstone back.
+Disposition: a registry protection flag and explicit undelete path are
+in-architecture options; recovery otherwise requires the operator's off-host
+backup workflow.
+
+**Closed in 0.10.0.** `dg protect <name>` sets a durable registry guard;
+`dg protect <name> --off` clears it. `dg delete` checks the guard inside its
+registry transaction and refuses with `database_protected` before tombstoning.
+`dg inspect` reports `protected` in JSON and the terminal view so the operator
+can see the guard before acting.
+
+`dg undelete <name>` clears `deleted_at` and `purge_after` only while the
+published retention window is open and the original SQLite file still exists.
+It refuses a live name (`not_deleted`), an expired tombstone
+(`retention_expired`), a file that has already disappeared
+(`database_file_missing`), and a name whose tombstone was physically purged
+(`database_purged`) with distinct errors. Purge receipts retain only the
+historical name and purge time, not database contents; if a name is later
+reused, its live row wins and the old receipt cannot resurrect the old file.
+The protection column migrates existing registries as unprotected, so an
+upgrade never silently blocks a delete the operator did not guard. Regression
+coverage is in `tests/cli_delete_protect.rs` and `src/store/tests.rs`.
 
 ### Gap 6 — Import sources are narrower than Turso's (low)
 

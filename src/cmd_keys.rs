@@ -264,9 +264,10 @@ pub async fn revoke_database(
                 })
                 .unwrap_or_default();
             if names.is_empty() {
-                return dg::render::Outcome::done(format!(
-                    "no credentials scoped to {view_database}; nothing revoked"
-                ));
+                return dg::render::Outcome::with_facts(
+                    format!("no credentials scoped to {view_database}; nothing revoked"),
+                    vec![("owner key".to_string(), "not revoked".to_string())],
+                );
             }
             dg::render::Outcome::with_facts(
                 format!(
@@ -274,7 +275,10 @@ pub async fn revoke_database(
                     names.len(),
                     if names.len() == 1 { "" } else { "s" }
                 ),
-                vec![("revoked".to_string(), names.join(", "))],
+                vec![
+                    ("revoked".to_string(), names.join(", ")),
+                    ("owner key".to_string(), "not revoked".to_string()),
+                ],
             )
         }),
     )
