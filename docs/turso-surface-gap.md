@@ -213,7 +213,6 @@ express. Regression: `tests/cli_inspect_json.rs` (3 of its 5 tests fail against
 the pre-0.10.0 function).
 
 ### Gap 2 — No usage history, only present-tense counters (high)
-No usage history, only present-tense counters (high)
 
 Turso's Analytics is 30-day time series for latency (with p50–p99 selectors),
 rows read, rows written, inbound and outbound traffic, syncs and storage —
@@ -270,11 +269,10 @@ single credential leaks, revoking it already works in one command, but if you
 ever need to revoke *everything scoped to one database* you are looping, and the
 whole point of that moment is speed.
 
-Cost: bulk revoke (`dg key revoke --database <name>` with a confirmation) is a
-bounded, in-architecture addition. Expiry and per-table grants would need an
-explicit policy and credential-schema change, and are not recommended for a
-single-operator install. Disposition: do the bulk revoke; treat the rest as
-deliberately out of scope.
+Cost: before 0.10.0, bulk revocation was a bounded, in-architecture addition;
+expiry and per-table grants would need an explicit policy and credential-schema
+change, and are not recommended for a single-operator install. Disposition:
+bulk revoke was selected; the rest remains deliberately out of scope.
 
 **Closed in 0.10.0 — the bulk revoke only.** `dg key revoke --database <name>`
 resolves the scope server-side in one transaction (`revoke_scoped_to` in
@@ -292,7 +290,10 @@ and the DELETE filter on `role != 'owner'`, and a store-level test
 row that *does* carry the scope, to prove the protection holds against the shape
 it has to survive rather than only the shape `issue` happens to produce.
 Removing either filter makes that test fail with `the bulk sweep took an owner
-credential: ["app", "owner2"]`.
+credential: ["app", "owner2"]`. Bulk revocation requires repeating the exact
+database name with `--confirm`; the refusal text spells out that the owner key
+is never revoked, the TTY success report repeats "owner key: not revoked", and
+the JSON response includes `"owner_key_excluded": true`.
 
 Credential expiry, per-table/action scopes and ATTACH/group claims remain
 deliberately out of scope (§4) — that part of the original gap is unchanged.
