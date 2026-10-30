@@ -71,7 +71,7 @@ called out by date wherever they support a comparison.
 ### 1.1 Database CLI and lifecycle
 
 | Turso surface | `dg` equivalent | Status | Note | Turso evidence | Disposition |
-|---|---|---|---|---| Disposition |
+|---|---|---|---|---|---|
 | `turso db list` | `dg list` | have | Names visible to the credential. | CLI `--help` (2026-10-29). | not worth doing — already at parity; no work outstanding. |
 | `turso db show <db>` | `dg info <db>` | have | Size, tables + row counts, created_at, tombstone state. | CLI `--help` (2026-10-29). | not worth doing — already at parity; no work outstanding. |
 | `turso db inspect <db>` | `dg inspect <db>` | have | `dg inspect` composes database, activity, backup and tables in both the terminal and JSON forms; failed auxiliary reads are explicit. Gap 1 CLOSED in 0.10.0. | CLI `--help` (2026-10-29); `dg` 0.10.0. | not worth doing — closed by gap 1; at parity in 0.10.0. |
@@ -101,7 +101,7 @@ Console tabs: **Overview**, **Branches**, **Analytics**, **Top Queries**,
 **Edit Data**.
 
 | Turso surface | `dg` equivalent | Status | Note | Turso evidence | Disposition |
-|---|---|---|---|---| Disposition |
+|---|---|---|---|---|---|
 | Overview → Activity (rows read/written, storage, syncs) | `dg inspect`, `dg status`, TUI service/databases tabs | have | `dg` adds queue-wait percentiles Turso does not expose. | Console (2026-10-29). | not worth doing — already at parity, and `dg` reports wait percentiles Turso does not. |
 | Overview → Connect → Database URL | `dg status` → `listen`, SSH tunnel | not-applicable | `dg` reports the bound loopback address; there is no public URL to mint. Remote access is an SSH tunnel (§4). | Console (2026-10-29). | not worth doing — structurally inapplicable; there is no public URL to mint. |
 | Overview → Create Token | `dg key create --role … --database …` | partial | Database-scoped roles match; Turso token expiry and table-action controls are provider governance, not a single-operator gap (§4). | Console + CLI `--help` (2026-10-29). | not worth doing — fails the bar: the owner already mints database-scoped keys directly, so console token UI is convenience, not protection. |
@@ -126,7 +126,7 @@ Console tabs: **Overview**, **Branches**, **Analytics**, **Top Queries**,
 ### 1.3 Organisation-level console pages
 
 | Turso surface | `dg` equivalent | Status | Note | Turso evidence | Disposition |
-|---|---|---|---|---| Disposition |
+|---|---|---|---|---|---|
  Sidebar → Create Database | `dg create <name>` | have | Both create an empty database the credential can then reach; `dg` takes the name on the command line rather than opening a dialog, and offers no size/group/location options (§4). | Console (2026-10-29). not worth doing — already at parity; the dialog-vs-flag difference saves no time. |
 | Sidebar → Create Group | — | not-applicable | A group is a placement-and-replication container that databases are created into. `dg` has no groups, regions or replicas (§4); every database is one local file, so there is no group to create. | Console (2026-10-29). | not worth doing — structurally inapplicable; a group is a placement-and-replication container and `dg` has neither. |
  Databases list (rows read/written, bytes synced, storage, group, status) | `dg list`, `dg contents`, TUI databases tab | partial | `dg` has rows read/written, storage, and contents from the files. Groups are a cloud construct (§4); "bytes synced" is replication accounting and provider-imposed write-block status is inapplicable. The storage/counter views are present-tense only; See gap 2 for missing trends. | Console (2026-10-29). not worth doing — already at parity for the operator's columns; groups and sync accounting are cloud constructs (§4), and trends are carried by gap 2. |
@@ -145,7 +145,7 @@ No Turso equivalent. This is the largest area where `dg` leads rather than
 lags; see §3.
 
 | `dg` surface | What it answers | Disposition |
-|---|---| Disposition |
+|---|---|---|
 | `dg serve` | Loopback-only authenticated server; remote via SSH tunnel. | not worth doing — the bar cannot weigh it: there is no comparable Turso surface, and this is a `dg` lead (§3), not a gap to close. |
 | `dg status`, `dg watch` | Version, uptime, admission config, request totals/rate, error counts, wait percentiles, per-database traffic. | not worth doing — the bar cannot weigh it: Turso's nearest page is captured (§1.3) but this dashboard is a `dg` lead (§3), not a gap. |
 | `dg tui` | The six-tab operator view (databases, service, backups, keys, queries, locations) plus the database page and rows browser. | not worth doing — the bar cannot weigh a whole interface against nothing; the per-tab mapping is §1.7, and the asymmetries there are already carried by gaps 2 and 4. |
@@ -163,7 +163,7 @@ command tree is below; the `help` and `--version` entries are CLI metadata, not
 product capabilities.
 
 | Turso CLI verb(s) | `dg` counterpart | Status | Turso evidence | Note | Disposition |
-|---|---|---|---|---| Disposition |
+|---|---|---|---|---|---|
 | `turso config path/set` | `dg config path/set` | have | CLI `--help` (2026-10-29). | Both configure local CLI contexts. `dg` additionally supports list/show/remove. | not worth doing — already at parity, and `dg` adds list/show/remove. |
 | `turso config cache` | — | not-applicable | CLI `--help` (2026-10-29). | Turso CLI's own cache management; not a gateway feature. | not worth doing — structurally inapplicable; CLI-internal cache, not a gateway feature. |
 | `turso auth login/logout/signup/token/whoami/api-tokens` | `dg init`, `dg key`, `dg config` | not-applicable | CLI `--help` (2026-10-29). | Cloud account identity differs structurally from local owner keys and named contexts (§4). | not worth doing — structurally inapplicable; cloud account identity vs local owner keys and contexts (§4). |
@@ -192,7 +192,7 @@ The `dg` side is read from this repository's router, so every route below is
 checkable against `src/api.rs` and the routers it merges.
 
 | Turso HTTP surface | `dg` HTTP equivalent | Status | Turso evidence | Note | Disposition |
-|---|---|---|---|---| Disposition |
+|---|---|---|---|---|---|
 | Platform API token (`turso auth token`, `turso auth api-tokens`) | `GET /v1/keys`, `POST /v1/keys`, `DELETE /v1/keys/{name}`, `POST /v1/keys/owner/rotate` | partial | CLI `--help` (2026-10-29): "the token used to authenticate you to Turso platform API" | Both issue and revoke bearer credentials. Turso's platform tokens carry org/account scope and an expiry surface; `dg` keys are owner-or-app, database-scoped, non-expiring (§1.1). Route shapes on the Turso side are **unverified** — the capture names the token, not its management API. | not worth doing — unverified: the captures name this surface but show no route, verb or payload, so there is nothing to act on. Revisit only with a capture that exercises it. |
 | Platform API: create/list/delete database | `GET /v1/databases`, `POST /v1/databases`, `GET /v1/databases/{name}`, `DELETE /v1/databases/{name}` | unverified | None — no capture shows a platform API route | The `dg` verbs mirror `dg list`/`create`/`info`/`delete` over HTTP. Turso's platform API certainly exists behind the CLI and console, but the committed baseline does not show it, so the mapping is inferred, not observed. | not worth doing — unverified: the captures name this surface but show no route, verb or payload, so there is nothing to act on. Revisit only with a capture that exercises it. |
 | Platform API: delete protection | `POST /v1/databases/{name}/protection` | unverified | None | `dg protect` is reachable over HTTP; Turso's equivalent is a console toggle in the capture (§1.2) with no API route shown. | not worth doing — unverified: the captures name this surface but show no route, verb or payload, so there is nothing to act on. Revisit only with a capture that exercises it. |
