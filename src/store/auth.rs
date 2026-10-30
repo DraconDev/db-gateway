@@ -342,6 +342,56 @@ impl Store {
         Ok(())
     }
 
+    /// Revoke every credential scoped to one database, atomically.
+    ///
+    /// This is the bulk form of `revoke`, for the case it exists for:
+    /// a key scoped to one database has leaked, and cutting it must not
+    /// depend on first remembering its name. It answers the same
+    /// question `tokens` (the read side) asks — who can reach this
+    /// database — and revokes exactly that set.
+    ///
+    /// The owner key is never in that set. It reaches every database by
+    /// construction, so sweeping it up would revoke the credential the
+    /// operator is holding — locking them out of the gateway they were
+    /// trying to protect. `revoke` refuses the owner by name; this
+    /// refuses it by role, which is the property that actually matters
+    /// here.
+    ///
+    /// Scopes are compared by database name, not by generation: the
+    /// question is "which credentials can reach this database", and a
+    /// stale generation on a leaked key is still a leaked key. Returns
+    /// the revoked names, so the caller can report what it cut rather
+    /// than how many.
+    pub fn revoke_scoped_to(&self, database: &str) -> Result<Vec<String>> {
+        validate_name(database)?;
+        let mut conn = self.meta()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let rows: Vec<(String, String)> = {
+            let mut stmt = tx.prepare("SELECT name, databases FROM credentials WHERE role != 'owner'")?;
+            let collected = stmt
+                .query_map([], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })?
+                .collect::<std::result::Result<_, _>>()?;
+            collected
+        };
+        let mut revoked = Vec::new();
+        for (name, scopes) in rows {
+            let scopes = parse_scopes(&scopes)?;
+            if scopes.iter().any(|scope| scope.name == database) {
+                revoked.push(name);
+            }
+        }
+        for name in &revoked {
+            tx.execute(
+                "DELETE FROM credentials WHERE name=? AND role != 'owner'",
+                [name],
+            )?;
+        }
+        tx.commit()?;
+        Ok(revoked)
+    }
+
     /// Replace the owner credential atomically and return the new raw key
     /// (shown once). The old key stops authenticating immediately; database
     /// rows, generations, and app-key scopes are untouched. Only reachable
