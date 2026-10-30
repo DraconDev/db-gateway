@@ -18,7 +18,8 @@ pub(super) fn migrate_metadata(conn: &mut Connection, root: &Path) -> Result<()>
     tx.execute_batch(
         "CREATE TABLE IF NOT EXISTS credentials(name TEXT PRIMARY KEY, hash TEXT UNIQUE NOT NULL, role TEXT NOT NULL, databases TEXT NOT NULL);
          CREATE TABLE IF NOT EXISTS databases(name TEXT PRIMARY KEY, generation TEXT NOT NULL);
-         CREATE TABLE IF NOT EXISTS write_markers(name TEXT PRIMARY KEY, written_at INTEGER NOT NULL);",
+         CREATE TABLE IF NOT EXISTS write_markers(name TEXT PRIMARY KEY, written_at INTEGER NOT NULL);
+         CREATE TABLE IF NOT EXISTS purged_databases(name TEXT PRIMARY KEY, purged_at INTEGER NOT NULL);",
     )?;
     for (column, declaration) in [
         ("deleted_at", "INTEGER"),
@@ -549,7 +550,23 @@ impl Store {
             )
             .optional()?;
         let Some((deleted_at, purge_after)) = entry else {
-            return Err(Error::new(404, "database_not_found", "database not found"));
+            // Purge removes the live registry row and the file. Keep a tiny
+            // durable receipt so an explicit undo can distinguish a name
+            // that used to exist but aged out from one that never existed.
+            let was_purged: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM purged_databases WHERE name=?)",
+                [name],
+                |r| r.get(0),
+            )?;
+            return Err(if was_purged {
+                Error::new(
+                    410,
+                    "database_purged",
+                    "database has already been purged; restore it from a backup instead",
+                )
+            } else {
+                Error::new(404, "database_not_found", "database not found")
+            });
         };
         if deleted_at.is_none() {
             return Err(Error::new(
@@ -603,6 +620,16 @@ impl Store {
                     std::fs::remove_file(&path).map_err(|_| Error::internal())?;
                 }
             }
+            // Keep the durable identity of the purged name so `undelete`
+            // can distinguish "already purged" from "never existed".
+            // This stores no database data, only the name and when its
+            // recovery window closed. If the name is later reused, the
+            // live registry row wins; the receipt can never resurrect it.
+            tx.execute(
+                "INSERT INTO purged_databases(name,purged_at) VALUES (?1,?2)
+                 ON CONFLICT(name) DO UPDATE SET purged_at=excluded.purged_at",
+                rusqlite::params![name, now],
+            )?;
             tx.execute(
                 "DELETE FROM databases WHERE name=? AND deleted_at IS NOT NULL",
                 [&name],
