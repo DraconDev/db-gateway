@@ -491,6 +491,23 @@ fn legacy_scopes_are_migrated_to_current_database_generations() {
 /// must come up UNPROTECTED, because a migration that silently protected
 /// every database would block deletions the operator never guarded.
 #[test]
+fn delete_protection_survives_a_store_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    {
+        let store = Store::open(dir.path()).unwrap();
+        store.create("shop").unwrap();
+        store.set_protected("shop", true).unwrap();
+    }
+
+    let reopened = Store::open(dir.path()).unwrap();
+    assert_eq!(reopened.is_protected("shop").unwrap(), Some(true));
+    assert_eq!(
+        reopened.delete("shop", 3600).unwrap_err().code,
+        "database_protected"
+    );
+}
+
+#[test]
 fn an_existing_registry_gains_protection_as_not_protected() {
     let dir = tempfile::tempdir().unwrap();
     let metadata = Connection::open(dir.path().join("metadata.sqlite")).unwrap();
