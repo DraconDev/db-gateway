@@ -549,7 +549,6 @@ impl Store {
     /// - the original file is absent → 409 `database_file_missing`.
     pub fn undelete(&self, name: &str) -> Result<()> {
         validate_name(name)?;
-        let early = self.now()?;
         let mut conn = self.meta()?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         // The clock is read HERE, not before the transaction, because the
@@ -561,7 +560,7 @@ impl Store {
         // time and clear the tombstone -- resurrecting a database whose
         // published window had already closed. The measured instant and
         // the observed row must belong to the same critical section.
-        let now = early;
+        let now = self.now()?;
         let entry: Option<(Option<i64>, Option<i64>)> = tx
             .query_row(
                 "SELECT deleted_at, purge_after FROM databases WHERE name=?",

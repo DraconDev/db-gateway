@@ -1576,6 +1576,12 @@ fn an_undelete_that_waits_out_a_writer_past_the_deadline_is_refused() {
         .into_iter()
         .find(|location| location.name == "shop")
         .expect("the tombstoned database left the registry");
-    assert!(shop.tombstoned, "the refused undelete resurrected it: {shop:?}");
-    assert!(shop.exists, "the refused undelete removed the file: {shop:?}");
+    assert!(
+        shop.tombstoned,
+        "the refused undelete resurrected it: {shop:?}"
+    );
+    assert!(
+        shop.exists,
+        "the refused undelete removed the file: {shop:?}"
+    );
 }
