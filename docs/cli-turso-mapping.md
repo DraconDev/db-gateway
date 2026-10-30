@@ -20,6 +20,8 @@ maps each Turso CLI verb to its `dg` equivalent.
 | `turso db create <name>` | `dg create <name>` | Owner key only. |
 | `turso db show <name>` | `dg info <name>` | Size, tables + row counts, created_at, tombstone state. Owner only. |
 | `turso db destroy <name>` | `dg delete <name> --confirm <name>` | Tombstones; file purged after retention. Double-type confirm. |
+| `turso db config delete-protection [--off]` | `dg protect <name> [--off]` | A durable registry guard. `dg delete` refuses a protected database with `database_protected` before anything is written, so the guard stops the mistake it exists for: a stray delete on the wrong name. `dg inspect` reports `protected`, so the guard is visible before someone tries the delete it would refuse. Gap 5 CLOSED in 0.10.0. |
+| — (console: "Restore deleted databases") | `dg undelete <name>` | The undo half of `delete`. Clears the tombstone while the published retention window is open and the original file still exists. Refusals are distinct: `not_deleted` (nothing to undo), `retention_expired` (window closed), `database_file_missing`, `database_purged` (already unlinked), `database_not_found` (never existed). It cannot resurrect a name a live database has since taken. Gap 5 CLOSED in 0.10.0. |
 | `turso db inspect <name>` | `dg inspect <name>` | What one database holds AND what it has been doing: size, tables, rows, traffic, queue waits, last write, and the freshness of its backup. `dg info` is what it IS; `dg inspect` is what it has been DOING. |
 | Edit Data → STRUCTURE | `dg schema <name> [table]` | What a table is MADE OF: each column's declared type, its not-null and primary-key flags, the table's indexes and foreign keys, and its `CREATE` statement. Read from the gateway's own SQLite file with SQLite's own PRAGMAs, so the answer is the schema's own words, not a parsed guess. Read-only, and the gateway's JSON document is what a pipe reads. |
 
@@ -87,7 +89,18 @@ No Turso equivalent; kept as the single-node operational surface:
   different facts and are labelled as such.
 - `dg watch` — the same dashboard, read once. It exits rather than
   refreshing in place, so it stays pipeable and diffable.
-- `dg backup status` — versioned sets + per-db fresh/stale/unknown.
+- `dg backup status` — versioned sets + per-db fresh/stale/unknown, and the
+  three fields that answer "are we doing the bucket backup?": `replica` (the
+  off-host target, endpoint, retention, snapshot interval and whether the
+  copying sidecar is actually running), `drill` (the last bucket restore,
+  restored and compared against the live gateway) and `restore_points` (the
+  moments the replica can be taken back to). The committed 2026-10-29 console
+  capture shows Turso's per-database *branch from a point in time* and its
+  **Export Database → Download SQLite File**, but it does not show a console
+  page reporting replica health or a restore window; whether Turso exposes one
+  is unverified here, so this row claims no comparison for it. What `dg` does
+  have is one command answering all three for the whole host. See
+  `docs/recovery-policy.md` for the observed state.
 - `dg backup verify --backup-root <dir> [set]` — offline re-verification, JSON report.
 - `dg clone/export/import` — SQLite backup-API clone, `.sqlite` snapshot export/import.
   `dg export --out` refuses an existing file and has no WAL or metadata option,

@@ -157,3 +157,60 @@ stopped (`docs/evidence/sandbox-packet-2026-10-14-ovh.log`).
 
 The production-bucket lifecycle residual above is unaffected by this
 record and still awaits the owner's console read-back.
+
+## Are we doing the bucket backup? Yes — observed state (2026-10-30)
+
+The question "are we doing the bucket backup?" gets asked because the pieces
+are documented in different places: this policy states the tiers, the deploy
+units enable them, and the gateway reads three JSON sidecars the host
+publishes. Nothing before this section answered it in one breath. The answer
+is **yes**, and here is the state as observed on the live host, read through
+`dg backup status` (which surfaces the same sidecars the TUI's Backups tab
+draws):
+
+| Fact | Observed value |
+|---|---|
+| Target | `s3://dg-sandbox` |
+| Endpoint / region | `s3.uk.io.cloud.ovh.net` / `uk` |
+| Copying sidecar (`replica.sidecar`) | `active` |
+| Retention / snapshot interval | `168h` / `24h` |
+| Covered | every live database, plus the registry (`registry: true`) |
+
+The replication service behind that is `dg-litestream.service`, and it reports
+`active` on the host. The `replica.json` dataset list names the live databases
+(seven at this reading) while the drill and the point-in-time window count the
+registry as an eighth database — `metadata.sqlite` is replicated, so both
+numbers are right and neither is a discrepancy.
+
+Two more sidecars answer "and is the copy any good?":
+
+- **`drill`** — the last bucket restore drill: `outcome: ok`, eight databases,
+  reported as *"restored from the replicas and verified against the live
+  gateway"*. A configured bucket proves nothing; a restore that was compared
+  against the live gateway does.
+- **`restore_points`** — the moments inside the retained WAL window that can be
+  restored to, per database, with the oldest and newest file each replica
+  holds. At this reading the window opened 2026-10-16T07:30:30Z and the newest
+  point was the most recent sync.
+
+### How to check it in one command
+
+Do not go looking for the sidecars by hand. `dg backup status` reads them and
+prints the three facts above:
+
+```sh
+dg backup status | jq '.replica, .drill, .restore_points'
+```
+
+`replica.sidecar` is the field that matters most: a configured replica whose
+sidecar is not running is the failure that looks most like success from a
+distance. `dg status` does not carry these fields — the backup judgement lives
+on `dg backup status` and in the TUI's Backups tab, which is where an operator
+should look.
+
+### What this section is not
+
+It is not a new promise. The RPO/RTO objectives above remain the owner's
+working target, not a signed production SLA, and the production-bucket
+lifecycle residual (the daily-version classes) still awaits the owner's console
+read-back. This section records what is running, not what is guaranteed.

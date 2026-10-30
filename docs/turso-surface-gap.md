@@ -198,6 +198,10 @@ That was the `GET /v1/databases/{name}` document — no backup state, no traffic
 A script that wanted what the operator saw had to rejoin
 `/v1/databases/{name}`, `/v1/status` and `/v1/backups` by hand.
 
+**Disposition: worth doing, and done.** It passed the bar on the first test —
+a script that cannot read what a human can is a mistake the operator makes
+every time they try to automate the gateway — and it needed no API change.
+
 **Closed in 0.10.0.** The same live read now returns one composed document:
 
 ```
@@ -233,8 +237,16 @@ individual events, not aggregates over time.
 
 Cost: "what changed last week" is unanswerable. You can say what the box is
 doing now and which statements were expensive, but not that writes tripled on
-Tuesday. Fix: a rolled-up per-hour counter series on disk. That is a storage
-and retention decision, not a view change — the largest architectural gap here.
+Tuesday.
+
+**Disposition (2026-10-30): not worth doing yet.** It is the largest gap here
+and it fails the bar for the opposite reason to the closed ones: the cost of a
+rolled-up per-hour counter series on disk is a storage and retention decision,
+while the benefit — answering "what changed last week" — arrives only once an
+operator has a reason to ask it. Nothing in the first week forces the question,
+and the present-tense counters plus `dg queries` answer "what is expensive right
+now", which is the question an incident actually asks. Revisit if a regression
+ever has to be reconstructed after the fact; that is the trigger, not a date.
 
 ### Gap 3 — No way to make one database read-only during an incident (medium)
 
