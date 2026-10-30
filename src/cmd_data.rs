@@ -228,6 +228,7 @@ impl Inspected {
             "created_at": self.info["created_at"],
             "size_bytes": self.info["size_bytes"],
             "tombstoned": self.tombstoned(),
+            "protected": self.info["protected"].as_bool().unwrap_or(false),
             "purge_after": self.info["purge_after"],
             "tables": tables,
             "activity": self.activity_entry(name),
@@ -262,6 +263,14 @@ impl Inspected {
             } else {
                 Cell::styled("live", Style::Green)
             },
+        );
+        facts.field(
+            "delete protection",
+            Cell::text(if self.info["protected"].as_bool() == Some(true) {
+                "protected"
+            } else {
+                "off"
+            }),
         );
         if self.tombstoned() {
             facts.field("purge after", Cell::text(purge_after_text(&self.info)));

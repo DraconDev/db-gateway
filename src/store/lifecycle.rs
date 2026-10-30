@@ -585,6 +585,13 @@ impl Store {
                 "the retention window for this database has passed; restore it from a backup instead",
             ));
         }
+        if !self.root.join(format!("{name}.sqlite")).is_file() {
+            return Err(Error::new(
+                409,
+                "database_file_missing",
+                "the database file is no longer present; restore it from a backup instead",
+            ));
+        }
         tx.execute(
             "UPDATE databases SET deleted_at=NULL, purge_after=NULL WHERE name=?",
             [name],
