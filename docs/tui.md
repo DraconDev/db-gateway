@@ -25,6 +25,10 @@ credential as every other command — `--server` and `--key-file` mean
 what they mean everywhere else. A remote gateway is reached the same
 way it always is: through an SSH tunnel.
 
+The v0.10.0 owner-only lifecycle safeguards (`dg protect` and
+`dg undelete`) are CLI/API actions, not new TUI actions. The full-screen
+controls described below are unchanged by this release.
+
 ## What is on the screen
 
 A tab strip, and the body of the tab that is showing.

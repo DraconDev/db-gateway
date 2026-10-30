@@ -19,8 +19,13 @@ fixes; 1.0.0 waits for production acceptance.
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-10-30
+
 ### Added
 
+- **Protection and undo for an ordinary delete mistake.** `dg protect <db>` sets a persistent per-database deletion guard, and `dg protect <db> --off` clears it explicitly. `dg delete` refuses a protected database. `dg undelete <db>` clears a tombstone only while its retention window is open and the original file remains; a purged database is reported distinctly from a name that never existed.
+- **One-command revocation for a leaked database scope.** `dg key revoke --database <db> --confirm <db>` removes every application key scoped to that database in one server-side transaction, names the keys it removed, and explicitly leaves the owner key untouched. The single-key `dg key revoke <name>` form is unchanged.
+- **Machine-readable `dg inspect` matches the terminal.** Piped and `--json` output now includes database details, activity, backup state and tables; unavailable status or backup reads are marked unavailable rather than failing the whole read.
 - **A database's contents, and a table's rows.** Two questions were
   missing from the terminal, and their absence made seven full databases
   look like seven empty ones:
