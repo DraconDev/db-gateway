@@ -367,13 +367,12 @@ impl Store {
         let mut conn = self.meta()?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let rows: Vec<(String, String)> = {
-            let mut stmt = tx.prepare("SELECT name, databases FROM credentials WHERE role != 'owner'")?;
-            let collected = stmt
-                .query_map([], |r| {
-                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-                })?
-                .collect::<std::result::Result<_, _>>()?;
-            collected
+            let mut stmt =
+                tx.prepare("SELECT name, databases FROM credentials WHERE role != 'owner'")?;
+            stmt.query_map([], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })?
+            .collect::<std::result::Result<_, _>>()?
         };
         let mut revoked = Vec::new();
         for (name, scopes) in rows {
