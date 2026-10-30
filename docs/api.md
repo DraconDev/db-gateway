@@ -107,13 +107,17 @@ dg mcp                 # speaks JSON-RPC on stdin/stdout
 | --- | --- | --- | --- |
 | `GET /health/live` | none | — | `{"status":"ok"}` |
 | `POST /v1/databases` | owner | `{"name":"game_a"}` | `{"name":"game_a"}` |
-| `GET /v1/databases/{name}` | owner | — | `{"name":"…","tombstoned":false,"size_bytes":n,"created_at":epoch,"tables":[{"name":"…","rows":n},…]}` (tombstoned names report `{"name":"…","tombstoned":true,"purge_after":epoch,"size_bytes":n}` instead; unknown names are `404 database_not_found`) |
+| `GET /v1/databases/{name}` | owner | — | `{"name":"…","tombstoned":false,"protected":bool,"size_bytes":n,"created_at":epoch,"tables":[{"name":"…","rows":n},…]}` (tombstoned names report `{"name":"…","tombstoned":true,"protected":bool,"purge_after":epoch,"size_bytes":n}` instead; unknown names are `404 database_not_found`) |
 | `GET /v1/contents` | owner | — | `{"databases":{"db":{"tables":n,"rows":n}}} ` — how many tables each live database holds and how many rows, read from each file; `null` counts when a file could not be read (the path is `/v1/contents`, not `/v1/databases/contents`, because `contents` is a legal database name and a route under that prefix would shadow it) |
 | `GET /v1/databases/{name}/schema` | owner | — | `{"database":"…","tombstoned":false,"created_at":epoch,"tables":[{"name":"…","rows":n,"columns":[{"name":"…","type":"INTEGER","not_null":bool,"primary_key":bool,"default":null|"…"}],"indexes":[{"name":"…","unique":bool,"columns":["…"]}],"foreign_keys":[{"table":"…","from":"…","to":"…","on_update":"…","on_delete":"…"}],"sql":"CREATE TABLE …"}]}` (`?table=<name>` narrows the answer to one table; the same document is returned either way) |
 | `GET /v1/databases` | any key | — | `{"databases":["game_a", …]}` (owner: all live databases; app key: only its authorized live databases) |
 | `POST /v1/keys` | owner | `{"name":"bot_a","role":"database_read_write","databases":["game_a"]}` (or role `database_read_only`) | `{"key":"<64 hex>"}` |
 | `GET /v1/keys` | owner | — | `{"keys":[{"name":"…","role":"…","databases":[…]}]}` (hashes never shown; the owner row is listed) |
 | `DELETE /v1/keys/{name}` | owner | — | `{"revoked":true}` |
+| `DELETE /v1/database-keys/{name}` | owner | — | `{"database":"…","revoked":["key_a",…],"owner_key_excluded":true}` (removes every application credential scoped to this database in one transaction; owner key is never revoked) |
+| `PUT /v1/databases/{name}/protection` | owner | — | `{"protected":true}` |
+| `DELETE /v1/databases/{name}/protection` | owner | — | `{"protected":false}` |
+| `POST /v1/databases/{name}/undelete` | owner | — | `{"undeleted":true}` (only while the tombstone's retention deadline is open and the database file is present) |
 | `POST /v1/keys/owner/rotate` | owner | — | `{"key":"<64 hex>"}` |
 | `POST /v1/databases/{name}/query` | scoped key | `{"sql":"INSERT … VALUES (?)","args":[…]}` | `{"columns":[…],"rows":[[…]],"rows_affected":n}` |
 | `POST /v1/databases/{name}/batch` | scoped key | `{"atomic":true,"statements":[{"sql":…,"args":[…]},…]}` | `{"results":[ …query results… ]}` |
@@ -128,7 +132,7 @@ dg mcp                 # speaks JSON-RPC on stdin/stdout
 | `POST /v1/uploads/{id}/chunk` | owner | `{"offset":n,"data_base64":"…"}` | `{"upload":"…","received":n}` |
 | `POST /v1/uploads/{id}/commit` | owner | `{"name":"…"}` | `{"imported":"…"}` |
 | `DELETE /v1/uploads/{id}` | owner | — | `{"aborted":true}` |
-| `DELETE /v1/databases/{name}` | owner | — | `{"deleted":true,"purge_after_seconds":86400}` |
+| `DELETE /v1/databases/{name}` | owner | — | `{"deleted":true,"purge_after_seconds":86400}` (refuses with `409 database_protected` when the operator has enabled protection) |
 | `GET /v1/status` | owner | — | `{"version":"…","uptime_secs":n,"admission":{"acquire_timeout_ms":500,"read_permits":8,"write_permits":4},"requests":{"total":n,"capacity_exceeded":n,"query_deadline_exceeded":n,"internal_error":n},"databases":{"db":{"rows_read":n,"rows_written":n,"queue_waits":n,"queue_wait_ms":n,"queue_timeouts":n}},"deployment":{"host":"…"/null,"listen":"…","data_dir":"…","backup_root":"…"/null,"databases":{"db":{"file":"…","exists":bool,"size_bytes":n,"tombstoned":bool}}}}` |
 | `GET /v1/backups` | owner | — | `{"backup_root":"…"/null,"stale_after_secs":300,"cadence_secs":n/null,"sets":[{"timestamp":"…","databases":[…],"has_registry":bool,"coverage_start":n/null,"coverage_end":n/null}],"per_database":{"game_a":{"state":"fresh"/"behind"/"stale"/"unknown","newest_set":"…"/null,"age_secs":n/null,"lag_secs":n/null}},"deleted":n,"last_attempt":{…}/null,"last_failure":{…}/null,"coverage":{…}/null,"replica":{…}/null,"drill":{…}/null,"restore_points":{…}/null,"last_restore":{…}/null}` |
 | `GET /v1/queries` | owner | — | `{"databases":[{"database":"…","shapes":[{"shape":"SELECT … WHERE id = ?","count":n,"rows_read":n,"rows_written":n,"total_micros":n,"max_micros":n,"first_seen":epoch,"last_seen":epoch,"principals":{"name":n}}]}],"deleted":n}` (`?database=<name>` narrows it to one database; `deleted` counts the databases whose shapes the in-memory log still holds after they were deleted) |
@@ -381,11 +385,17 @@ Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1
 | `idempotency_key_conflict` | 409 | Same key, different request body |
 | `idempotency_key_not_supported` | 400 | Idempotency key sent on a read-only request; keys only apply to writes |
 | `already_deleted` | 409 | Deleting a database that is already tombstoned |
+| `database_protected` | 409 | The database has delete protection; clear it explicitly before deleting |
+| `not_deleted` | 409 | Undelete was requested for a live database |
+| `retention_expired` | 409 | The tombstone deadline passed; restore from an off-host backup |
+| `database_file_missing` | 409 | The retained file is absent, so undelete cannot safely activate the database |
+| `database_purged` | 410 | The database was physically purged after retention; restore from an off-host backup |
+| `database_not_found` | 404 | Also used for an undelete name that was never registered; purged names instead return `database_purged` |
 | `database_exists` | 409 | Name already registered/file exists, or tombstoned (delete not yet purged) |
 | `already_bootstrapped` | 409 | Second `dg init` attempt |
 | `key_exists` | 409 | Credential name reused |
 | `file_exists` | 409 | Export destination or clone target already exists on disk |
-| `confirmation_required` | 400 | `dg delete` invoked without a matching `--confirm NAME` |
+| `confirmation_required` | 400 | `dg delete` or `dg key revoke --database` invoked without an exact matching `--confirm NAME` |
 | `capacity_exceeded` | 429 | Global task, per-database queue, credential, or replay capacity full — after a bounded wait, not instantly (see below) |
 | `query_deadline_exceeded` | 408 | Execution passed the 2s deadline; transaction rolled back |
 
@@ -415,9 +425,11 @@ Interruption boundary: publication links the file first and commits the registry
 
 **Delete is owner-only and tombstoned:** the registry row keeps `deleted_at` and a separate `purge_after` deadline. The name immediately disappears from listing and subsequent owner/scoped-key queries return `404 database_not_found`; create/import are refused (`409`) while the tombstone holds. Tombstoned rows also keep counting toward the database cap until purge, so heavy delete/create churn can report `429 capacity_exceeded` until retention expires — this is intentional disk protection, not a leak. Credentials remain valid for their other databases. Already-started requests may finish against the retained file.
 
-The server retains the SQLite file for **24 hours** and checks expired tombstones at startup and every second, even without incoming traffic. Purge waits for request connections to close; failures are logged and retried on later ticks. File removal and registry removal are serialized with publication. The name can be created again after successful purge. Export before deleting anything important: no automated restore is provided until M3.
+The server retains the SQLite file for **24 hours** and checks expired tombstones at startup and every second, even without incoming traffic. Purge waits for request connections to close; failures are logged and retried on later ticks. File removal and registry removal are serialized with publication. The name can be created again after successful purge. A small `purged_databases` receipt stores only the purged name and timestamp, so `dg undelete` can distinguish an already-purged database from a name that never existed; it never stores or restores database contents. A reused live name always wins over its old purge receipt.
 
-`dg delete NAME --confirm NAME` requires the exact name to be typed twice. Missing or mismatched confirmation fails locally with `confirmation_required` and sends no DELETE request; `--yes` is not supported. At the HTTP level, sending owner-authenticated `DELETE /v1/databases/{name}` is the explicit destructive request (no body). Lifecycle staging is private per request and automatically cleaned up on both success and error.
+`dg delete NAME --confirm NAME` requires the exact name to be typed twice. A protected database refuses with `database_protected`; clear the guard with `dg protect NAME --off` before deleting. `dg protect NAME` sets the persistent registry guard and `dg inspect` reports it. `dg undelete NAME` restores a tombstoned database only before the deadline and only while its original file is present; after purge, restore from backup. Missing or mismatched destructive confirmation fails locally with `confirmation_required` and sends no DELETE request; `--yes` is not supported. At the HTTP level, sending owner-authenticated `DELETE /v1/databases/{name}` is the explicit destructive request (no body). Lifecycle staging is private per request and automatically cleaned up on both success and error.
+
+`dg key revoke NAME` remains the exact one-key form. The scope form `dg key revoke --database DB --confirm DB` removes all application credentials scoped to `DB` in one server-side transaction, reports the names it removed, and states `owner_key_excluded: true`; the owner credential is never in the deletion set. Missing or wrong confirmation fails before the request.
 
 Single-shot export/import carries the whole file in one JSON body and is capped at 8 MiB of decoded SQLite data. Larger databases use the **chunked path** (which the CLI uses transparently for all sizes): `export/begin` freezes a consistent snapshot, `GET /v1/snapshots/{id}` fetches it in pieces (default 1 MiB, `offset`/`length` query params), and `DELETE` releases it early. Uploads mirror this: `import/begin`, append-only `chunk` posts at the exact received offset (`GET` status shows it for resume), then `commit` under a target name or `DELETE` to abort. Chunked bounds: 1 MiB per chunk, 128 MiB total per transfer, 8 concurrent transfers, 15-minute retention swept every second. Snapshot ids are creator-bound (the creating principal or the owner); uploads are owner-only. Snapshots and uploads do not survive a server restart — begin again and resume. Commit reuses the validated atomic import above, so the same interruption boundary applies. `dg export --out PATH` verifies the whole-file SHA-256 before its same-directory no-clobber publication: an existing destination is preserved and returns `file_exists`; a successful export is never exposed as a partial file. `dg import` rejects non-regular files and files over the 128 MiB ceiling locally before sending anything.
 
@@ -435,7 +447,7 @@ idempotency key — so a write waits a minute, and a transfer phase (which
 commits nothing, but means beginning the whole transfer again) waits the
 same. The answer is what removes the doubt, so the CLI waits for it.
 
-The human views are: `dg list`, `dg contents`, `dg info`, `dg inspect`, `dg schema`, `dg rows`, `dg query`, `dg execute`, `dg status`, `dg watch`, `dg backup status`, `dg backup run`, `dg queries`, `dg audit`, `dg branch list`, `dg config list`, `dg key list` and `dg key tokens` (tables and dashboards), and `dg create`, `dg delete`, `dg export`, `dg import`, `dg clone`, `dg diff`, `dg branch create`, `dg branch delete`, `dg vacuum`, `dg integrity`, `dg explain`, `dg restore plan`, `dg key create`, `dg key revoke`, `dg key rotate-owner`, `dg backup verify`, `dg batch`, `dg config set`, `dg config remove` and `dg init` (a headline and the facts behind it). Piped output always stays JSON, so
+The human views are: `dg list`, `dg contents`, `dg info`, `dg inspect`, `dg schema`, `dg rows`, `dg query`, `dg execute`, `dg status`, `dg watch`, `dg backup status`, `dg backup run`, `dg queries`, `dg audit`, `dg branch list`, `dg config list`, `dg key list` and `dg key tokens` (tables and dashboards), and `dg create`, `dg delete`, `dg undelete`, `dg protect`, `dg export`, `dg import`, `dg clone`, `dg diff`, `dg branch create`, `dg branch delete`, `dg vacuum`, `dg integrity`, `dg explain`, `dg restore plan`, `dg key create`, `dg key revoke`, `dg key rotate-owner`, `dg backup verify`, `dg batch`, `dg config set`, `dg config remove` and `dg init` (a headline and the facts behind it). Piped output always stays JSON, so
 scripts are unaffected.
 
 The one exception is `dg backup digest`, which is a REPORT rather than
