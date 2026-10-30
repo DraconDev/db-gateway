@@ -572,7 +572,12 @@ dg --key-file owner.key explain game_a "SELECT * FROM players"
 dg --key-file owner.key restore plan --to 2026-10-16T00:00:00Z
 dg --key-file owner.key watch
 dg --key-file owner.key key tokens game_a   # the credentials that can act on one database
-dg --key-file owner.key key revoke bot_a
+dg --key-file owner.key key revoke bot_a                     # revoke exactly one key
+dg --key-file owner.key key revoke --database game_a --confirm game_a # revoke scoped app keys; owner key excluded
+dg --key-file owner.key protect game_a                       # guard against a mistaken delete
+dg --key-file owner.key protect game_a --off                 # clear the guard explicitly
+dg --key-file owner.key delete game_a --confirm game_a       # protected databases refuse
+dg --key-file owner.key undelete game_a                      # undo inside the retention window
 ```
 
 ```sh
