@@ -125,7 +125,7 @@ pub async fn inspect(
     name: String,
 ) -> Result<Option<Request>, dg::ServerError> {
     dg::store::validate_name(&name).map_err(Application)?;
-    let facts = inspected(server, key_path, &name).await?;
+    let facts = inspected(server, json, key_path, &name).await?;
 
     if !json && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
         let mut out = std::io::stdout();
@@ -152,6 +152,7 @@ struct Inspected {
 /// Fetch the three reads `dg inspect` composes.
 async fn inspected(
     server: &str,
+    json: bool,
     key_path: &Option<PathBuf>,
     name: &str,
 ) -> Result<Inspected, dg::ServerError> {
@@ -163,7 +164,7 @@ async fn inspected(
     )
     .await?;
     if api_failed(&info) {
-        super::show_error(&info, false);
+        super::show_error(&info, json);
         return Err(Application(api_error()));
     }
     let status = super::fetch(server, key_path, Method::GET, "/v1/status")
