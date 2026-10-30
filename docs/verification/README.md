@@ -12,6 +12,12 @@ be inspected later, so each release that has one records the actual output.
 | `full-suite-<rev>.log` | The complete, unedited stdout of `cargo test --workspace --all-targets`, with the revision, branch, toolchain, host, clean-worktree check and exit code in the header and footer |
 | `full-suite-<rev>-summary.txt` | One line per suite taken from that log, plus the log's SHA-256, so a reader can check the totals without scrolling |
 
+The v0.10.0 receipts are `full-suite-eeed1a4.*` (the code commit the auditor
+asked about) and `full-suite-c13bf7f.*` (the commit the release tag points at).
+Both record 694 passed, 0 failed across 94 suites, and the release binary hashes
+to `798d3c5f…` from either tree, so neither receipt is describing a different
+artifact from the one that shipped.
+
 ## Why the receipt is a separate, docs-only commit
 
 A log cannot describe the commit that contains it: the run happens first, then

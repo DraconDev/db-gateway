@@ -1,0 +1,1313 @@
+# Full workspace test suite — raw, unedited output at the release commit
+#
+# Tested revision: c13bf7f9089ad7d1758a2ae1e23a0ae30df50035, the commit tagged
+# v0.10.0, worktree clean before and after (recorded below).
+#
+# This receipt is added by a docs-only commit, exactly as README.md describes:
+# a log cannot describe the commit that contains it. Confirm the tested tree is
+# the release tree with:
+#     git diff --stat c13bf7f9089ad7d1758a2ae1e23a0ae30df50035..HEAD
+# The only expected difference is this directory.
+#
+# The release binary is unchanged across these commits: the bundle built from
+# c13bf7f and its successor both hash the `dg` artifact as
+# 798d3c5f6bd8d8b38b0ca1d8ea97e4dd852cf642ba626963ea2682b0f2dafd7a, so the
+# receipt covers the shipped artifact, not merely similar source.
+#
+# Reproduce it yourself with:
+#     cargo test --workspace --all-targets
+#
+command: cargo test --workspace --all-targets
+git_revision: c13bf7f9089ad7d1758a2ae1e23a0ae30df50035
+git_branch: main
+git_tag_at_head: v0.10.0
+git_status_before: 0 modified path(s)
+delta_vs_code_commit: docs/verification/README.md docs/verification/full-suite-eeed1a4-summary.txt docs/verification/full-suite-eeed1a4.log 
+binary_sha256_of_this_revision_build: 798d3c5f6bd8d8b38b0ca1d8ea97e4dd852cf642ba626963ea2682b0f2dafd7a
+rustc: rustc 1.97.1 (8bab26f4f 2026-07-14)
+cargo: cargo 1.97.1 (c980f4866 2026-06-30)
+host: Linux 7.1.2 x86_64
+started_at: 2026-10-30T17:37:54Z
+---
+    Finished `test` profile [unoptimized] target(s) in 1.40s
+     Running unittests src/lib.rs (.cargo/target/debug/deps/dg-62f038eb7c59a05d)
+
+running 196 tests
+test backup_health::tests::a_missing_attempt_log_is_an_empty_log ... ok
+test backup_health::tests::a_torn_final_attempt_line_does_not_hide_the_last_good_one ... ok
+test backup_health::tests::a_log_longer_than_the_tail_window_still_reports_the_newest_records ... ok
+test backup_health::tests::snapshot_reports_the_last_attempt_and_the_last_failure ... ok
+test branch::tests::a_moment_is_read_in_the_forms_an_operator_has ... ok
+test branch::tests::a_moment_that_is_not_one_is_refused ... ok
+test branch::tests::a_set_stamp_is_the_moment_it_names ... ok
+test backup::tests::oversized_manifests_fail_closed ... ok
+test client::tests::a_write_waits_longer_than_a_read ... ok
+test client::tests::semantics_separate_the_transfer_phase_from_writes ... ok
+test client::tests::the_statements_decide_whether_a_request_is_a_read ... ok
+test error::tests::sqlite_full_maps_to_stable_internal_error ... ok
+test backup::tests::verify_accepts_real_registry_at_full_depth ... ok
+test backup::tests::verify_rejects_registry_with_protected_tables ... ok
+test backup_health::tests::fresh_when_the_write_predates_the_coverage_boundary ... ok
+test backup_health::tests::a_set_with_no_coverage_boundary_is_unknown_never_fresh ... ok
+test backup_health::tests::unknown_when_no_root_and_unknown_when_no_set ... ok
+test backup_health::tests::a_cadence_never_turns_an_unknown_into_a_fresh_database ... ok
+test backup_health::tests::a_newer_unbounded_set_does_not_replace_a_proven_boundary ... ok
+test execution::tests::lane_classifier_marks_only_reads ... ok
+test backup_health::tests::stale_when_a_write_lands_after_the_coverage_boundary ... ok
+test execution::import_schema_tests::foreign_key_violations_reject_import ... ok
+test backup_health::tests::without_a_cadence_every_unrepresented_change_is_reported ... ok
+test backup_health::tests::within_the_cadence_a_change_is_behind_and_asks_for_nothing ... ok
+test mcp::tests::a_credential_shaped_value_is_not_passed_on ... ok
+test mcp::tests::a_long_string_is_shortened_and_says_so ... ok
+test backup_health::tests::past_the_cadence_the_same_change_is_stale_again ... ok
+test mcp::tests::the_catalogue_offers_reads_and_nothing_else ... ok
+test notify::tests::a_behind_database_is_named_and_is_not_an_alert ... ok
+test notify::tests::a_failure_is_reported_once_and_a_later_distinct_one_again ... ok
+test notify::tests::a_failure_note_names_the_attempt_the_step_and_the_action ... ok
+test notify::tests::a_note_has_no_field_that_could_claim_an_rpo ... ok
+test notify::tests::a_note_names_the_reference_it_is_judged_against ... ok
+test notify::tests::a_notice_that_could_not_be_delivered_is_retried ... ok
+test notify::tests::a_success_never_reports_and_never_silences_the_next_failure ... ok
+test execution::import_schema_tests::imported_replay_table_must_match_canonical_schema ... ok
+test notify::tests::an_all_fresh_digest_is_still_a_digest_and_still_has_an_action ... ok
+test notify::tests::an_attempt_without_a_timestamp_still_deduplicates ... ok
+test notify::tests::digest_carries_every_database_its_state_and_its_age ... ok
+test execution::import_schema_tests::protected_import_tables_are_rejected_case_insensitively ... ok
+test notify::tests::one_sink_failing_never_starves_the_others ... ok
+test notify::tests::the_log_sink_always_accepts ... ok
+test render::tests::a_json_column_with_one_text_value_stays_left_aligned ... ok
+test render::tests::a_malformed_stamp_is_never_interpreted ... ok
+test render::tests::a_non_utf8_locale_selects_the_ascii_grid ... ok
+test render::tests::a_cell_never_carries_a_raw_control_character ... ok
+test render::tests::a_short_row_renders_empty_and_a_long_row_is_truncated ... ok
+test render::tests::a_section_never_carries_a_raw_control_character ... ok
+test render::tests::a_short_wait_is_still_a_wait ... ok
+test render::tests::a_sparkline_draws_the_shape_of_its_values ... ok
+test render::tests::a_sparkline_is_a_cell_and_keeps_the_grid_square ... ok
+test render::tests::a_value_adds_no_escape_bytes_to_the_ones_the_renderer_uses ... ok
+test render::tests::an_instant_is_read_as_the_moment_it_names ... ok
+test render::tests::ascii_theme_draws_a_plain_grid ... ok
+test render::tests::backup_set_stamps_are_human_readable ... ok
+test render::tests::bytes_are_human_readable ... ok
+test render::tests::a_table_has_borders_headers_and_rows ... ok
+test render::tests::colour_is_off_without_colour_support ... ok
+test render::tests::counts_are_grouped_for_reading ... ok
+test render::tests::durations_are_human_readable ... ok
+test render::tests::epochs_are_human_readable ... ok
+test render::tests::iso_instants_are_human_readable ... ok
+test render::tests::json_tables_infer_alignment_from_the_values ... ok
+test render::tests::no_color_disables_colour_and_a_dumb_terminal_disables_it_too ... ok
+test render::tests::null_is_distinct_from_the_text_null ... ok
+test render::tests::numbers_are_right_aligned_under_their_header ... ok
+test render::tests::colour_wraps_the_value_only ... ok
+test render::tests::percentages_keep_the_precision_the_ratio_needs ... ok
+test render::tests::rates_are_scaled_to_the_window_that_was_observed ... ok
+test render::tests::the_wait_figures_pair_the_p95_with_the_p95 ... ok
+test render::tests::wide_characters_are_measured_by_display_width ... ok
+test shell::tests::a_wire_value_in_a_plain_line_is_escaped ... ok
+test shell::tests::batch_over_the_input_ceiling_keeps_what_was_typed ... ok
+test shell::tests::control_characters_in_a_cell_are_escaped ... ok
+test shell::tests::broken_output_is_fatal_and_control_characters_are_escaped ... ok
+test shell::tests::initial_database_preselects_and_use_overrides ... ok
+test shell::tests::oversized_input_is_drained_and_session_recovers ... ok
+test shell::tests::short_and_long_rows_render_without_panicking ... ok
+test shell::tests::invalid_initial_database_is_rejected ... ok
+test shell::tests::terminal_prompts_and_quit_during_batch ... ok
+test sqlsplit::tests::a_script_splits_at_its_semicolons ... ok
+test sqlsplit::tests::a_semicolon_inside_a_string_does_not_end_a_statement ... ok
+test sqlsplit::tests::a_statement_after_a_comment_is_found ... ok
+test sqlsplit::tests::a_comment_is_not_a_statement ... ok
+test sqlsplit::tests::a_trailing_statement_without_a_semicolon_still_counts ... ok
+test sqlsplit::tests::a_statement_keeps_its_internal_structure ... ok
+test sqlsplit::tests::an_empty_script_has_no_statements ... ok
+test store::metrics_tests::a_database_with_no_waits_has_no_percentile ... ok
+test store::metrics_tests::a_purged_database_forgets_its_counters ... ok
+test store::metrics_tests::per_database_waits_and_waits_are_counted_separately ... ok
+test store::metrics_tests::each_database_gets_its_own_percentile ... ok
+test store::metrics_tests::the_error_counters_separate_the_three_signals ... ok
+test store::metrics_tests::the_per_database_percentile_is_a_percentile_and_not_the_max ... ok
+test store::metrics_tests::the_request_window_counts_requests_and_stays_bounded ... ok
+test store::metrics_tests::the_window_span_is_honest_about_a_fresh_service ... ok
+test store::metrics_tests::the_wait_sample_ring_is_bounded ... ok
+test store::metrics_tests::wait_percentiles_are_exact_and_absent_when_nothing_waited ... ok
+test execution::tests::invalid_sql_and_arguments_are_rejected ... ok
+test execution::tests::statement_count_sql_length_and_argument_count_boundaries ... ok
+test execution::tests::read_only_credentials_reject_idempotency_keys ... ok
+test backup_health::tests::a_set_without_a_containing_database_is_unknown_for_it ... ok
+test store::queries::tests::a_quote_inside_a_literal_does_not_end_it ... ok
+test notify::tests::a_webhook_sink_refuses_a_cleartext_non_loopback_url ... ok
+test store::queries::tests::comments_and_spacing_do_not_make_a_new_shape ... ok
+test store::queries::tests::identifiers_and_schema_survive ... ok
+test store::queries::tests::literals_never_survive_into_the_shape ... ok
+test store::queries::tests::the_log_aggregates_by_shape_and_keeps_the_heaviest_first ... ok
+test execution::tests::sqlite_parameterized_round_trip_survives_reopen ... ok
+test store::queries::tests::the_log_keeps_the_most_useful_shapes_and_drops_the_rest ... ok
+test backup_health::tests::a_deleted_database_is_not_reported_as_stale ... ok
+test api::tests::a_request_is_shed_when_the_lane_is_full ... ok
+test execution::tests::stacked_statements_are_rejected_without_side_effects ... ok
+test store::purge_tests::unremovable_staging_dir_still_completes_the_abort ... ok
+test store::tests::a_shared_open_leaves_the_owners_in_flight_directories_alone ... ok
+test execution::tests::execute_detailed_reports_replayed_on_idempotency_hit ... ok
+test store::tests::an_existing_registry_gains_protection_as_not_protected ... ok
+test store::tests::a_reader_waits_for_a_writer_that_releases_inside_the_bound ... ok
+test store::purge_tests::tombstone_purges_after_retention_window ... ok
+test store::tests::bulk_revoke_never_takes_the_owner_key_even_when_it_is_scoped ... ok
+test store::purge_tests::purge_defers_until_inflight_request_closes_connection ... ok
+test store::tests::an_undelete_that_waits_out_a_writer_past_the_deadline_is_refused ... ok
+test store::tests::an_old_purge_receipt_never_resurrects_a_reused_live_name ... ok
+test store::purge_tests::request_owned_staging_survives_same_name_operations ... ok
+test store::tests::admission_follows_queue_order_not_a_race ... ok
+test store::tests::corrupt_credential_row_refuses_startup_with_named_code ... ok
+test store::tests::a_waiter_is_shed_only_after_waiting ... ok
+test store::tests::acquire_queue_records_waits_and_timeouts ... ok
+test store::tests::failed_commit_restores_open_only_while_the_ttl_is_live ... ok
+test store::tests::delete_protection_survives_a_store_restart ... ok
+test store::tests::concurrent_export_same_destination_has_one_winner ... ok
+test store::purge_tests::purge_prunes_per_name_state_and_write_markers ... ok
+test store::tests::export_claims_destination_atomically ... ok
+test store::tests::failed_create_removes_unregistered_file ... ok
+test store::tests::concurrent_writes_do_not_turn_a_valid_export_into_a_false_busy_error ... ok
+test store::tests::clone_import_delete_roundtrip_at_store_level ... ok
+test store::tests::info_counts_are_exact ... ok
+test store::tests::export_limit_stops_before_full_snapshot_materialization ... ok
+test store::tests::issue_error_mapping_distinguishes_duplicates_from_failures ... ok
+test store::tests::continuous_writers_do_not_starve_a_waiting_reader ... ok
+test store::tests::metadata_migration_propagates_backfill_failures ... ok
+test store::tests::legacy_scopes_are_migrated_to_current_database_generations ... ok
+test store::tests::readers_still_share_the_guard_when_no_writer_waits ... ok
+test store::tests::revoke_and_delete_report_unknown_and_repeated_names ... ok
+test store::tests::live_wal_import_preserves_committed_sidecar_rows ... ok
+test store::tests::locations_place_every_database_and_say_whether_it_is_there ... ok
+test execution::tests::deadline_interrupts_expensive_query_and_database_recovers ... ok
+test store::tests::undelete_distinguishes_purged_from_never_registered ... ok
+test store::tests::failed_publication_leaves_no_partial_database_and_recovers ... ok
+test store::tests::snapshot_chunk_after_release_is_not_found ... ok
+test store::tests::snapshot_chunk_rejects_zero_length ... ok
+test tests::only_loopback_addresses_are_allowed ... ok
+test tests::liveness_is_json ... ok
+test tui::actions::tests::a_destructive_action_asks_for_the_exact_name ... ok
+test tests::database_api_is_not_exposed ... ok
+test store::tests::undelete_refuses_a_tombstone_without_a_retention_deadline ... ok
+test tui::actions::tests::a_query_keeps_the_whole_statement ... ok
+test tui::actions::tests::a_key_takes_a_role_and_at_least_one_database ... ok
+test tui::actions::tests::every_action_maps_to_the_documented_request ... ok
+test tui::screen::tests::a_panic_still_gives_the_terminal_back ... ok
+test tui::screen::tests::a_partial_entry_failure_still_gives_the_terminal_back ... ok
+test tui::screen::tests::the_screen_is_given_back_exactly_once ... ok
+test tui::theme::tests::a_failure_and_a_success_do_not_look_alike ... ok
+test tui::theme::tests::every_text_colour_is_readable_on_the_dark_background ... ok
+test tui::theme::tests::text_on_the_accent_stays_readable ... ok
+test tui::theme::tests::the_emphasised_colours_clear_the_higher_bar ... ok
+test tui::theme::tests::the_semantic_roles_do_not_collide ... ok
+test views::tests::a_batch_that_ran_lists_one_row_per_statement ... ok
+test views::tests::a_gateway_that_does_not_report_counts_is_not_drawn_as_holding_none ... ok
+test views::tests::a_gateway_that_places_nothing_yields_no_table_rather_than_an_empty_one ... ok
+test views::tests::a_gateway_that_reports_no_placement_says_so_once ... ok
+test views::tests::a_host_that_publishes_nothing_says_so_rather_than_drawing_nothing ... ok
+test views::tests::a_lone_statement_that_fails_carries_the_reason_not_a_claim_about_running ... ok
+test views::tests::a_present_count_still_reads_as_a_number ... ok
+test views::tests::a_refused_batch_of_several_says_not_run_and_claims_no_rollback ... ok
+test views::tests::a_statement_that_broke_the_batch_rolls_the_rest_back ... ok
+test views::tests::an_untouched_database_states_its_zeroes_on_both_surfaces ... ok
+test views::tests::each_database_is_placed_with_its_file_and_whether_it_is_there ... ok
+test views::tests::the_copies_view_says_where_the_off_host_copy_is_and_whether_it_restored ... ok
+test views::tests::the_inspect_view_labels_the_p95_and_the_max_under_their_own_names ... ok
+test views::tests::the_per_database_table_puts_the_p95_and_the_max_under_their_own_headers ... ok
+test views::tests::the_placement_says_where_the_gateway_and_its_files_are ... ok
+test transfer::tests::a_publication_leaves_the_file_it_wrote ... ok
+test execution::tests::contention_and_parallel_independent_databases ... ok
+test transfer::tests::a_publication_never_overwrites_an_existing_file ... ok
+test tui::actions::tests::a_script_at_the_cap_is_sent ... ok
+test tui::actions::tests::an_over_long_script_is_refused_before_it_is_sent ... ok
+test store::tests::upload_commit_blocks_concurrent_append_and_abort ... ok
+test store::tests::interrupted_publish_exposes_nothing_and_never_overwrites ... ok
+test store::tests::waiting_writer_makes_new_readers_yield ... ok
+test store::tests::write_markers_survive_restart_and_older_malformed_set_is_skipped ... ok
+test store::tests::the_exclusive_guard_excludes_readers_and_other_writers ... ok
+test store::tests::small_page_export_and_clone_honor_lifecycle_byte_ceiling ... ok
+test store::tests::write_marker_contention_never_reports_freshness ... ok
+test store::tests::sustained_read_flood_still_admits_writers ... ok
+test execution::tests::idempotency_capacity_is_per_principal ... ok
+test mcp::tests::a_result_too_large_is_reported_rather_than_silently_cut ... ok
+
+test result: ok. 196 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.10s
+
+     Running unittests src/main.rs (.cargo/target/debug/deps/dg-4312ef45e3040580)
+
+running 2 tests
+test cmd_data::tests::a_batch_at_the_cap_is_accepted_and_one_over_it_is_refused ... ok
+test cmd_data::tests::the_client_checks_the_servers_own_cap ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/recovery_rehearsal.rs (.cargo/target/debug/deps/recovery_rehearsal-b397803ca2d25f3c)
+
+running 1 test
+test tests::corrupt_object_on_empty_snapshot_records_failure_not_panic ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/access_edge.rs (.cargo/target/debug/deps/access_edge-0bc740e9680a7f02)
+
+running 1 test
+test bad_key_burst_never_disturbs_legitimate_traffic ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.89s
+
+     Running tests/admission.rs (.cargo/target/debug/deps/admission-fa076d8a7b408eea)
+
+running 3 tests
+test eight_concurrent_reads_run_retry_free ... ok
+test burst_waits_instead_of_shedding ... ok
+test reads_proceed_during_slow_write ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s
+
+     Running tests/audit.rs (.cargo/target/debug/deps/audit-3ce3d02316157a5a)
+
+running 11 tests
+test the_trail_on_disk_holds_no_values_and_no_secrets ... ok
+test the_trail_survives_a_restart ... ok
+test a_statement_is_recorded_by_its_shape_and_never_by_its_values ... ok
+test the_human_table_says_when_in_a_form_a_person_reads ... ok
+test an_action_is_recorded_with_the_credential_label_not_its_secret ... ok
+test the_endpoint_never_returns_a_credential_secret ... ok
+test the_command_asks_the_endpoint_for_what_the_operator_asked_for ... ok
+test a_scoped_credential_is_refused_the_audit_log ... ok
+test the_log_is_bounded_and_drops_the_oldest_entries ... ok
+test the_endpoint_filters_by_credential_and_by_time ... ok
+test a_statement_that_ran_through_the_gateway_leaves_no_values_behind ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s
+
+     Running tests/backup_notify.rs (.cargo/target/debug/deps/backup_notify-f2e4eb7dab54d8bb)
+
+running 7 tests
+test the_collector_records_a_post ... ok
+test a_webhook_the_operator_cannot_mean_is_refused_at_startup ... ok
+test dg_backup_digest_reports_the_same_thing_the_sink_sends_and_works_stopped ... ok
+test the_digest_is_delivered_on_its_cadence_with_what_an_operator_needs ... ok
+test delivery_is_off_unless_asked_for ... ok
+test a_sink_that_rejects_does_not_stop_the_next_delivery ... ok
+test a_failed_attempt_is_notified_immediately_and_exactly_once ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.27s
+
+     Running tests/backup_pipeline.rs (.cargo/target/debug/deps/backup_pipeline-2ddc8a1ec609ba59)
+
+running 6 tests
+test failed_run_records_attempt ... ok
+test verify_accepts_published_set ... ok
+test verify_rejects_tampered_and_malformed_sets ... ok
+test script_run_reports_fresh_status ... ok
+test restore_drill_from_versioned_set ... ok
+test interrupted_run_publishes_nothing_and_next_run_recovers ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.43s
+
+     Running tests/backup_run.rs (.cargo/target/debug/deps/backup_run-6d3b7b95263b6e71)
+
+running 11 tests
+test the_cli_view_says_plainly_when_nothing_was_captured ... ok
+test a_failed_validation_publishes_nothing ... ok
+test a_run_while_the_lock_is_held_fails_and_writes_nothing ... ok
+test a_run_without_a_backup_root_fails_and_writes_nothing ... ok
+test a_non_owner_credential_is_refused ... ok
+test the_cli_command_publishes_a_set ... ok
+test the_cli_view_says_what_was_written ... ok
+test a_run_publishes_a_set_the_producer_would_accept ... ok
+test the_set_carries_the_data_as_it_was_at_the_run ... ok
+test the_gateway_reads_back_the_set_it_wrote ... ok
+test every_member_is_a_standalone_database_and_the_manifest_agrees ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.92s
+
+     Running tests/boundary_sweep.rs (.cargo/target/debug/deps/boundary_sweep-26d9fdf26789f4e0)
+
+running 1 test
+test every_wall_accepts_at_the_line_and_rejects_past_it ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 42.89s
+
+     Running tests/branch.rs (.cargo/target/debug/deps/branch-57440017baf62557)
+
+running 10 tests
+test an_app_credential_cannot_fork ... ok
+test the_branch_registry_survives_a_restart ... ok
+test a_fork_onto_a_name_that_is_taken_is_refused ... ok
+test the_branch_list_returns_the_records_and_never_the_credential ... ok
+test the_cli_reads_the_same_branches_the_api_serves ... ok
+test a_moment_before_the_oldest_set_is_refused_and_the_window_is_named ... ok
+test a_branch_whose_database_was_deleted_elsewhere_can_still_be_removed ... ok
+test a_fork_of_the_live_parent_carries_its_tables_and_its_rows ... ok
+test a_fork_of_a_moment_carries_the_rows_of_that_moment ... ok
+test deleting_a_branch_deletes_the_database_and_forgets_the_record ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.31s
+
+     Running tests/chunked_transfer.rs (.cargo/target/debug/deps/chunked_transfer-fb13efe7b391dbae)
+
+running 4 tests
+test chunk_errors_are_stable ... ok
+test transfer_expiry_and_orphans_at_store_level ... ok
+test cli_uses_chunked_transfer ... ok
+test chunked_round_trip_above_single_shot_cap ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.54s
+
+     Running tests/cli.rs (.cargo/target/debug/deps/cli-78834e235770b5ed)
+
+running 5 tests
+test the_tui_help_describes_the_tabbed_view_it_actually_opens ... ok
+test import_rejects_a_directory_without_a_size_error ... ok
+test help_documents_positional_arguments_and_flags ... ok
+test invalid_configuration_fails_without_binding ... ok
+test help_and_version ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/cli_backup.rs (.cargo/target/debug/deps/cli_backup-85b7dfbd96f39fb4)
+
+running 2 tests
+test the_digest_leaves_the_owners_in_flight_directories_alone ... ok
+test the_digest_reports_on_a_registry_it_did_not_create ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/cli_batch_input.rs (.cargo/target/debug/deps/cli_batch_input-fb83893d2475703f)
+
+running 3 tests
+test batch_refuses_more_statements_than_the_api_accepts ... ok
+test batch_rejects_writerless_fifo_promptly ... ok
+test batch_enforces_the_64_kib_boundary ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/cli_churn.rs (.cargo/target/debug/deps/cli_churn-bdb75a010acc4832)
+
+running 1 test
+test full_lifecycle_through_the_binary_only ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.49s
+
+     Running tests/cli_commands.rs (.cargo/target/debug/deps/cli_commands-0bb50788f43bc93f)
+
+running 13 tests
+test execute_refuses_an_over_long_script_before_sending_it ... ok
+test execute_refuses_a_script_with_no_statements ... ok
+test key_tokens_stays_machine_readable_when_piped ... ok
+test execute_reports_a_failing_statement ... ok
+test a_single_statement_error_envelope_is_unchanged ... ok
+test execute_stays_machine_readable_when_piped ... ok
+test execute_runs_a_script_of_exactly_the_cap ... ok
+test a_failing_script_names_the_statement_that_broke_it_on_a_terminal ... ok
+test execute_does_not_claim_a_rollback_when_the_batch_never_ran ... ok
+test a_one_statement_script_that_fails_shows_why_and_is_not_called_not_run ... ok
+test execute_runs_every_statement_of_a_script_and_reports_each_one ... ok
+test key_tokens_lists_the_credentials_that_can_reach_a_database ... ok
+test key_tokens_narrows_the_answer_for_a_script_too ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s
+
+     Running tests/cli_config.rs (.cargo/target/debug/deps/cli_config-6543e4f20e43053b)
+
+running 1 test
+test bare_commands_resolve_flag_over_env_over_default ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.45s
+
+     Running tests/cli_delete_protect.rs (.cargo/target/debug/deps/cli_delete_protect-2c50f643aaa35879)
+
+running 9 tests
+test an_unknown_name_is_not_found_for_every_new_verb ... ok
+test undelete_refuses_a_live_database ... ok
+test undelete_refuses_when_the_original_file_is_missing ... ok
+test an_unprotected_database_is_deleted_without_extra_friction ... ok
+test undelete_refuses_past_the_retention_window ... ok
+test clearing_protection_lets_the_deletion_through ... ok
+test protection_survives_against_a_fresh_read ... ok
+test undelete_brings_a_tombstone_back_with_its_data ... ok
+test a_protected_database_refuses_deletion_and_keeps_its_file ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+
+     Running tests/cli_export_cleanup.rs (.cargo/target/debug/deps/cli_export_cleanup-81a7ae33db733a3c)
+
+running 1 test
+test malformed_export_begin_metadata_releases_retained_snapshot ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running tests/cli_hostile_wire.rs (.cargo/target/debug/deps/cli_hostile_wire-168decfb37db8b45)
+
+running 3 tests
+test a_malformed_backup_stamp_does_not_panic_the_cli ... ok
+test a_database_name_from_the_wire_cannot_repaint_the_terminal ... ok
+test no_dashboard_view_lets_a_wire_value_repaint_the_terminal ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/cli_human.rs (.cargo/target/debug/deps/cli_human-5023fd1394fd7ea8)
+
+running 9 tests
+test the_backup_digest_is_the_one_deliberate_exception ... ok
+test a_failing_command_shows_a_one_line_error_on_a_terminal ... ok
+test dg_init_shows_the_key_to_a_person_and_json_to_a_pipe ... ok
+test a_command_is_not_run_twice ... ok
+test every_mutating_command_still_emits_json_when_piped ... ok
+test every_mutating_command_shows_a_human_view_on_a_terminal ... ok
+test dg_export_shows_what_it_wrote_and_its_hash ... ok
+test every_contract_command_still_emits_json_when_piped ... ok
+test every_contract_command_shows_a_human_view_on_a_terminal ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.70s
+
+     Running tests/cli_info.rs (.cargo/target/debug/deps/cli_info-13e6f26eb95dba69)
+
+running 1 test
+test info_reports_exact_database_facts ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s
+
+     Running tests/cli_inspect_json.rs (.cargo/target/debug/deps/cli_inspect_json-351089ffd223cb18)
+
+running 6 tests
+test a_database_the_gateway_has_never_touched_reports_its_zeroes ... ok
+test the_auxiliary_sections_degrade_instead_of_failing ... ok
+test a_pipe_gets_the_activity_a_terminal_shows ... ok
+test a_tombstoned_database_still_answers ... ok
+test a_pipe_gets_the_backup_state_a_terminal_shows ... ok
+test the_info_the_database_always_had_is_still_there ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+     Running tests/cli_json_contract.rs (.cargo/target/debug/deps/cli_json_contract-92962e551a177c2e)
+
+running 4 tests
+test the_status_shape_the_scripts_read_is_unchanged ... ok
+test the_list_shape_the_scripts_read_is_unchanged ... ok
+test the_create_and_import_shapes_the_scripts_read_are_unchanged ... ok
+test the_query_shape_the_scripts_read_is_unchanged ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+     Running tests/cli_key_bulk_revoke.rs (.cargo/target/debug/deps/cli_key_bulk_revoke-785548b1312c8569)
+
+running 7 tests
+test a_database_with_no_scoped_keys_revokes_nothing_and_says_so ... ok
+test bulk_revoke_requires_exact_confirmation_and_explains_owner_exclusion ... ok
+test the_two_forms_cannot_be_combined ... ok
+test a_database_sweep_leaves_other_databases_alone ... ok
+test the_single_key_form_still_revokes_exactly_one ... ok
+test a_database_sweep_revokes_every_key_scoped_to_it ... ok
+test a_database_sweep_never_revokes_the_owner_key ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+     Running tests/cli_keys.rs (.cargo/target/debug/deps/cli_keys-bea659ca503843b1)
+
+running 1 test
+test key_list_audits_outstanding_access ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.80s
+
+     Running tests/cli_lifecycle.rs (.cargo/target/debug/deps/cli_lifecycle-451f5a6eb326f70b)
+
+running 2 tests
+test import_rejects_oversized_local_files_before_encoding_or_network ... ok
+test export_accepts_large_snapshots_and_publishes_without_clobbering ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.29s
+
+     Running tests/cli_pretty.rs (.cargo/target/debug/deps/cli_pretty-de597eff2f7abcc0)
+
+running 8 tests
+test the_restore_view_shows_the_window_the_replica_offers ... ok
+test the_shell_speaks_json_when_asked ... ok
+test the_backup_view_shows_the_freshness_state ... ok
+test wide_characters_do_not_shear_the_grid ... ok
+test colour_is_off_when_the_environment_says_so ... ok
+test the_terminal_path_draws_a_table_and_no_json ... ok
+test a_null_value_is_shown_as_null ... ok
+test piped_output_stays_json_and_identical_to_the_json_flag ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+
+     Running tests/cli_rows.rs (.cargo/target/debug/deps/cli_rows-d2e6360446968937)
+
+running 11 tests
+test a_sort_column_that_is_not_a_column_is_refused ... ok
+test a_pipe_reads_the_gateways_own_document ... ok
+test the_footer_counts_the_filtered_set_not_the_table ... ok
+test a_terminal_draws_the_rows_and_says_which_slice_it_is ... ok
+test a_sort_orders_the_rows_and_narrows_nothing ... ok
+test a_filter_that_would_write_is_refused ... ok
+test a_table_that_does_not_exist_is_refused ... ok
+test the_last_page_has_no_next_page_to_offer ... ok
+test a_filter_narrows_the_set_on_the_gateway ... ok
+test a_lowercase_set_operation_is_refused_end_to_end ... ok
+test each_page_is_a_different_slice ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s
+
+     Running tests/cli_schema.rs (.cargo/target/debug/deps/cli_schema-2371a0c34a688658)
+
+running 8 tests
+test every_table_is_listed_when_no_table_is_named ... ok
+test the_replications_own_tables_are_not_the_operators_data ... ok
+test the_structure_is_drawn_in_a_terminal ... ok
+test an_unknown_database_is_refused ... ok
+test an_unknown_table_is_not_invented ... ok
+test every_column_carries_its_type_and_its_flags ... ok
+test the_route_answers_one_databases_tables_over_http ... ok
+test a_table_reports_its_indexes_and_its_foreign_keys ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.94s
+
+     Running tests/cli_tables.rs (.cargo/target/debug/deps/cli_tables-78cbbaa18a144457)
+
+running 3 tests
+test status_backup_keys_piped_json_pty_table ... ok
+test query_piped_json_pty_table ... ok
+test list_info_piped_json_pty_table ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.81s
+
+     Running tests/cli_views.rs (.cargo/target/debug/deps/cli_views-b42366e5e2eaf549)
+
+running 6 tests
+test the_views_stay_machine_readable_when_piped ... ok
+test the_watch_view_is_the_status_view_read_once ... ok
+test a_tombstoned_database_is_still_counted_and_still_inspectable ... ok
+test the_status_view_answers_the_operators_questions ... ok
+test the_inspect_view_shows_one_database_and_what_it_did ... ok
+test the_per_database_wait_columns_name_what_they_hold ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.37s
+
+     Running tests/client_audit_limit.rs (.cargo/target/debug/deps/client_audit_limit-7906a6eca74c1f5a)
+
+running 2 tests
+test a_full_audit_trail_is_read_rather_than_refused ... ok
+test the_audit_limit_is_the_trail_size_not_the_query_size ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+     Running tests/clone_marathon.rs (.cargo/target/debug/deps/clone_marathon-2c2e06306b9bcbd3)
+
+running 1 test
+test twenty_clones_with_write_load_stay_exact ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.98s
+
+     Running tests/cmd_config.rs (.cargo/target/debug/deps/cmd_config-9dee252f13e63b4f)
+
+running 8 tests
+/home/dracon/.config/dg/config.toml
+test the_default_location_is_beside_the_default_key_file ... ok
+test a_corrupt_config_is_an_error_not_a_panic ... ok
+{"created":true,"default":false,"key_file":"/tmp/.tmpS8IC6N/micro2.key","name":"micro2","server":"http://127.0.0.1:7432"}
+{"created":true,"default":true,"key_file":"/tmp/.tmpjj7MrH/micro2.key","name":"micro2","server":"http://127.0.0.1:7432"}
+{"created":true,"default":true,"key_file":"/tmp/.tmpkj60NU/micro2.key","name":"micro2","server":"http://127.0.0.1:7432"}
+{"created":true,"default":true,"key_file":"/tmp/.tmpIfhjBq/ctx.key","name":"micro2","server":"http://context:7432"}
+{"created":true,"default":false,"key_file":"/tmp/.tmpE8tq3O/micro2.key","name":"micro2","server":"http://127.0.0.1:7432"}
+{"created":true,"default":true,"key_file":"/tmp/.tmp8HFcLy/micro2.key","name":"micro2","server":"http://127.0.0.1:7432"}
+test writing_without_its_directory_creates_it_privately ... ok
+test resolve_follows_the_documented_order ... ok
+{"created":false,"default":false,"key_file":"/tmp/.tmpS8IC6N/micro2.key","name":"micro2","server":"http://127.0.0.1:7432"}
+test the_config_file_is_private_and_never_widened ... ok
+{"created":true,"default":false,"key_file":"/tmp/.tmpjj7MrH/staging.key","name":"staging","server":"https://staging.example"}
+{"created":true,"default":false,"key_file":"/tmp/.tmp8HFcLy/staging.key","name":"my ctx","server":"https://staging.example"}
+{"removed":"micro2"}
+{"config_path":"/tmp/.tmp8HFcLy/config.toml","contexts":[{"key_file":"/tmp/.tmp8HFcLy/micro2.key","key_present":true,"name":"micro2","server":"http://127.0.0.1:7432"},{"key_file":"/tmp/.tmp8HFcLy/staging.key","key_present":false,"name":"my ctx","server":"https://staging.example"}],"default":"micro2"}
+{"config_path":"/tmp/.tmp8HFcLy/config.toml","default":true,"key_file":"/tmp/.tmp8HFcLy/micro2.key","key_present":true,"name":"micro2","server":"http://127.0.0.1:7432"}
+test removing_the_default_context_clears_the_default ... ok
+test set_list_and_show_round_trip ... ok
+{"removed":"staging"}
+test remove_deletes_only_that_context ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/contents_route.rs (.cargo/target/debug/deps/contents_route-0f02d6f94ef7ca75)
+
+running 7 tests
+test a_database_named_contents_still_works ... ok
+test every_live_database_is_listed ... ok
+test a_database_with_data_reports_its_tables_and_its_rows ... ok
+test the_status_dashboard_keeps_its_unstarred_columns ... ok
+test only_the_owner_may_ask ... ok
+test the_gateways_own_tables_are_not_counted_as_the_operators_data ... ok
+test the_databases_tab_shows_contents_and_labels_its_counters ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s
+
+     Running tests/crash_restart.rs (.cargo/target/debug/deps/crash_restart-7a78394b9d8129ea)
+
+running 2 tests
+test acknowledged_write_survives_exactly_once_across_force_kill_restart ... ok
+test keyed_write_replays_identically_after_restart_without_duplicating ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+
+     Running tests/db_ops.rs (.cargo/target/debug/deps/db_ops-029e0ebc7f53cd78)
+
+running 11 tests
+test the_human_views_say_what_happened ... ok
+test explain_reports_sqlites_own_error_for_a_statement_that_does_not_compile ... ok
+test integrity_refuses_a_credential_that_is_not_the_owner ... ok
+test explain_reports_the_plan_for_a_table_with_no_index ... ok
+test integrity_reports_a_sound_database_as_sound ... ok
+test integrity_reports_a_corrupted_file_as_not_sound ... ok
+test vacuum_says_plainly_when_there_is_nothing_to_reclaim ... ok
+test vacuum_and_integrity_refuse_a_read_only_credential ... ok
+test the_commands_answer_the_three_questions ... ok
+test vacuum_reclaims_the_space_deleted_rows_left_behind ... ok
+test integrity_reports_the_row_that_breaks_a_foreign_key ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
+
+     Running tests/diff.rs (.cargo/target/debug/deps/diff-690291e78e4e5599)
+
+running 11 tests
+test the_human_view_names_the_table_that_differs ... ok
+test a_credential_scoped_to_one_side_is_refused ... ok
+test a_changed_column_list_is_not_compared ... ok
+test the_same_schema_and_the_same_rows_are_identical ... ok
+test a_different_schema_says_what_is_missing_on_each_side ... ok
+test a_different_row_count_is_a_difference ... ok
+test the_endpoint_does_not_modify_the_databases_it_compares ... ok
+test different_rows_are_reported_and_the_table_is_named ... ok
+test the_order_of_the_rows_does_not_matter ... ok
+test the_cli_exits_non_zero_when_the_databases_differ ... ok
+test a_table_over_the_cap_is_truncated_and_not_identical ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+     Running tests/disk_pressure.rs (.cargo/target/debug/deps/disk_pressure-f61de64b0e3e3cb1)
+
+running 1 test
+test file_size_ceiling_kills_the_writer_but_not_the_acknowledged_rows ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.57s
+
+     Running tests/doc_caps.rs (.cargo/target/debug/deps/doc_caps-72665b1feee1a9da)
+
+running 4 tests
+test a_document_that_states_a_different_cap_is_refused ... ok
+test a_document_quoting_a_different_quantity_is_not_refused ... ok
+test a_document_that_states_the_units_own_cap_passes ... ok
+test the_repository_is_consistent ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests/fleet_analytics.rs (.cargo/target/debug/deps/fleet_analytics-c0b597f6e8d71eac)
+
+running 1 test
+test analytics_rolls_up_like_a_real_pipeline ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+     Running tests/fleet_blog.rs (.cargo/target/debug/deps/fleet_blog-1165cc6ac453ad5c)
+
+running 1 test
+test blog_renders_like_a_real_cms ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.95s
+
+     Running tests/fleet_chat.rs (.cargo/target/debug/deps/fleet_chat-1d6c2addffa77c85)
+
+running 1 test
+test chat_reads_like_a_real_client ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.72s
+
+     Running tests/fleet_finale.rs (.cargo/target/debug/deps/fleet_finale-7edabddd3ebc645d)
+
+running 1 test
+test fleet_lives_side_by_side ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.62s
+
+     Running tests/fleet_flags.rs (.cargo/target/debug/deps/fleet_flags-fbd1094ac665926b)
+
+running 1 test
+test flags_serve_like_a_real_config_service ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+
+     Running tests/fleet_shop.rs (.cargo/target/debug/deps/fleet_shop-ac31ba692f20726d)
+
+running 1 test
+test shop_checks_out_like_a_real_store ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.47s
+
+     Running tests/fleet_tasks.rs (.cargo/target/debug/deps/fleet_tasks-c517fb7e0e211274)
+
+running 1 test
+test task_tracker_works_like_a_real_app ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.47s
+
+     Running tests/garbage_sweep.rs (.cargo/target/debug/deps/garbage_sweep-b891a474db30369d)
+
+running 1 test
+test garbage_inputs_reject_cleanly_and_server_recovers ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s
+
+     Running tests/generation_auth.rs (.cargo/target/debug/deps/generation_auth-5101ddc1f28f14a3)
+
+running 1 test
+test purged_name_replacement_rejects_old_scoped_replay_key ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s
+
+     Running tests/import_export_torture.rs (.cargo/target/debug/deps/import_export_torture-8b9be3978a1210c7)
+
+running 1 test
+test twenty_export_import_cycles_with_corruption ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.23s
+
+     Running tests/key_chaos.rs (.cargo/target/debug/deps/key_chaos-90e4af946fe05cb2)
+
+running 1 test
+test every_credential_gets_its_exact_code_on_every_route ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.59s
+
+     Running tests/key_rotation.rs (.cargo/target/debug/deps/key_rotation-4db59c42ee593426)
+
+running 2 tests
+test rotation_kills_old_key_keeps_data_and_scopes ... ok
+test cli_rotate_owner_end_to_end ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.68s
+
+     Running tests/kill_gauntlet.rs (.cargo/target/debug/deps/kill_gauntlet-6ea3199e2956c9af)
+
+running 1 test
+test twenty_kills_leave_zero_unaccounted_rows ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 27.70s
+
+     Running tests/kill_midwrite_10x.rs (.cargo/target/debug/deps/kill_midwrite_10x-1fe2a7592346a327)
+
+running 1 test
+test ten_sigkill_mid_write_rounds_leave_no_partial_batches ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.96s
+
+     Running tests/lifecycle_churn.rs (.cargo/target/debug/deps/lifecycle_churn-a3613ef24417796c)
+
+running 1 test
+test three_hundred_ops_keep_registry_and_files_exact ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 23.56s
+
+     Running tests/litestream_restore.rs (.cargo/target/debug/deps/litestream_restore-b20fe49b4efce1c9)
+
+running 4 tests
+test integrity_check_passes_on_a_fresh_db ... ok
+test integrity_check_fails_on_a_corrupted_db ... ok
+test row_counts_diverge_when_a_row_is_missing ... ok
+test row_counts_match_when_the_copies_are_identical ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.45s
+
+     Running tests/logging_canary.rs (.cargo/target/debug/deps/logging_canary-ec4574f3d918695d)
+
+running 1 test
+test server_and_cli_logs_exclude_credential_and_sql_canaries ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+
+     Running tests/m1_e2e.rs (.cargo/target/debug/deps/m1_e2e-8935f1a313050b31)
+
+running 14 tests
+test bootstrap_refuses_second_owner ... ok
+test cli_commands_against_running_server ... ok
+test json_schema_errors_match_http_contract ... ok
+test round_trip_write_read_persists_across_restart ... ok
+test idempotency_key_replays_committed_write ... ok
+test delete_with_active_writer_is_safe_and_never_recreates ... ok
+test atomic_batch_rolls_back_and_limits_bind ... ok
+test failed_import_and_missing_source_never_publish ... ok
+test clone_during_writes_takes_consistent_snapshot ... ok
+test scoped_keys_enforce_boundaries ... ok
+test cli_lifecycle_commands_against_running_server ... ok
+test request_result_boundaries_reject_cleanly_and_recover ... ok
+test lifecycle_clone_export_import_delete ... ok
+test deadline_failure_recovers_over_http ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.02s
+
+     Running tests/m2_lifecycle.rs (.cargo/target/debug/deps/m2_lifecycle-177866f6ba44fd83)
+
+running 4 tests
+test imported_external_sqlite_file_supports_m1_keyed_writes ... ok
+test idle_server_purges_only_expired_tombstones_and_allows_safe_recreation ... ok
+test concurrent_same_source_exports_and_same_target_publication_are_isolated ... ok
+test contended_capacity_rejects_with_429_and_server_recovers ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.67s
+
+     Running tests/many_databases.rs (.cargo/target/debug/deps/many_databases-ccb0a0b071aef8cf)
+
+running 2 tests
+test registry_cap_supports_hundreds has been running for over 60 seconds
+test three_hundred_databases_persist_across_restart has been running for over 60 seconds
+test three_hundred_databases_persist_across_restart ... ok
+test registry_cap_supports_hundreds ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 91.31s
+
+     Running tests/match_finalization.rs (.cargo/target/debug/deps/match_finalization-7de8e7541039e919)
+
+running 1 test
+test retry_of_a_match_finalization_under_the_same_key_does_not_double_reward ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.16s
+
+     Running tests/mcp.rs (.cargo/target/debug/deps/mcp-8ded930f7e8cdff2)
+
+running 13 tests
+test stdout_capture_child ... ignored, driven by the stdout capture test
+test a_malformed_line_is_answered_and_the_session_continues ... ok
+test an_unknown_method_is_refused_and_a_notification_is_not ... ok
+test the_handshake_lists_tools_and_refuses_an_unknown_one ... ok
+test an_unknown_protocol_revision_is_answered_with_a_known_one ... ok
+test too_many_bind_parameters_are_refused_on_the_wire_code ... ok
+test the_catalogue_offers_reads_and_nothing_else ... ok
+test no_answer_carries_the_credential ... ok
+test an_envelope_that_is_not_json_rpc_is_refused ... ok
+test stdout_carries_the_protocol_and_nothing_else ... ok
+test every_tool_in_the_catalogue_is_callable ... ok
+test a_write_statement_is_refused_before_a_request_is_made ... ok
+test the_tools_answer_from_a_real_gateway ... ok
+
+test result: ok. 12 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.84s
+
+     Running tests/migration_fixture.rs (.cargo/target/debug/deps/migration_fixture-440d2b11414eb554)
+
+running 2 tests
+test incompatible_fixture_rejected_without_publication ... ok
+test synthetic_external_sqlite_imports_with_exact_data ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.99s
+
+     Running tests/operations_scripts.rs (.cargo/target/debug/deps/operations_scripts-d7068df826b8a8ff)
+
+running 18 tests
+test setup_help_documents_interface_without_building ... ok
+test setup_rejects_unknown_arguments_before_doing_anything ... ok
+test backup_rejects_invalid_retention_before_touching_backup_root ... ok
+test the_published_window_covers_the_whole_replica_chain ... ok
+test the_restore_point_script_refuses_a_moment_it_cannot_restore ... ok
+test the_restore_point_script_publishes_the_window_the_replica_offers ... ok
+test the_published_restore_facts_never_carry_a_credential ... ok
+test the_sync_publishes_where_the_off_host_copy_is ... ok
+test the_published_replica_status_never_carries_a_credential ... ok
+test backup_staging_is_unique_and_cleaned_on_failure ... ok
+test failed_restore_drill_terminates_its_server ... ok
+test the_restore_point_script_publishes_what_a_restore_produced ... ok
+test the_restore_drill_publishes_whether_the_copies_restored ... ok
+test an_install_replaces_a_running_binary_without_disturbing_it ... ok
+test backup_uses_array_invocation_and_emits_contract_artifacts ... ok
+test upgrade_rehearsal_passes_on_a_faithful_binary_and_fails_on_a_lost_generation ... ok
+test soak_readiness_wait_is_bounded ... ok
+test setup_flags_an_install_older_than_the_source_tree has been running for over 60 seconds
+test setup_flags_an_install_older_than_the_source_tree ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 157.16s
+
+     Running tests/orphan_guard.rs (.cargo/target/debug/deps/orphan_guard-4d3d9d7d0129ee74)
+
+running 3 tests
+kill: sending signal to 1605634 failed: No such process
+test a_server_started_normally_dies_with_a_sigkilled_launcher ... ok
+test a_server_owned_by_a_live_parent_is_not_reported_as_an_orphan ... ok
+test the_guard_is_clean_first_and_reports_a_planted_orphan_second ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+
+     Running tests/plan_consistency.rs (.cargo/target/debug/deps/plan_consistency-f163d6736f1384d6)
+
+running 2 tests
+test checker_rejects_missing_phase_rollback ... ok
+test canonical_plan_passes ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running tests/query_visibility.rs (.cargo/target/debug/deps/query_visibility-35480f76f5c60a4f)
+
+running 6 tests
+test the_endpoint_is_owner_only ... ok
+test two_spellings_of_the_same_statement_are_one_shape ... ok
+test a_statement_is_recorded_as_its_shape_and_never_as_its_values ... ok
+test the_endpoint_can_narrow_to_one_database ... ok
+test a_deleted_database_does_not_appear_in_the_query_log ... ok
+test the_shapes_are_bounded_per_database ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.83s
+
+     Running tests/recovery_drill.rs (.cargo/target/debug/deps/recovery_drill-1190527a804ad508)
+
+running 1 test
+test snapshot_export_restores_exact_rows_and_rejects_corrupt_input ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+
+     Running tests/recovery_rehearsal.rs (.cargo/target/debug/deps/recovery_rehearsal-b715cbae6947ed34)
+
+running 1 test
+test local_rehearsal_reports_all_faults_and_restore_evidence ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.78s
+
+     Running tests/release_bundle.rs (.cargo/target/debug/deps/release_bundle-10c052566c4e9a31)
+
+running 6 tests
+test micro2_pinned_container_builds_bundle_and_records_builder ... ignored
+test staged_dg_must_be_executable_and_the_gate_enforces_it ... ok
+test micro2_propagates_builder_inspection_failure ... ok
+test explicit_host_bundle_never_claims_micro2_abi_verified ... ok
+test micro2_rejects_missing_container_engine_without_native_fallback ... ok
+test micro2_propagates_build_or_smoke_failure ... ok
+
+test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 2.91s
+
+     Running tests/replay_deep.rs (.cargo/target/debug/deps/replay_deep-76747fa5e375a106)
+
+running 1 test
+test replay_contract_holds_across_restart_cap_conflict_and_namespaces ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 31.61s
+
+     Running tests/resource_report.rs (.cargo/target/debug/deps/resource_report-ede162dbe3990bb7)
+
+running 1 test
+test resource_report_fields_validate_and_cleanup_holds ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.44s
+
+     Running tests/rows_query.rs (.cargo/target/debug/deps/rows_query-76b60e7774e283e3)
+
+running 11 tests
+test a_filter_narrows_the_statement ... ok
+test a_filter_that_is_a_write_is_refused ... ok
+test a_filter_that_mentions_a_write_as_a_string_is_still_a_read ... ok
+test a_table_that_does_not_exist_is_refused_before_any_sql ... ok
+test a_set_operation_inside_a_literal_is_still_a_read ... ok
+test a_sort_column_has_to_be_a_column_of_that_table ... ok
+test each_page_asks_for_its_own_slice ... ok
+test every_refusal_says_which_question_was_wrong ... ok
+test an_over_long_filter_is_refused ... ok
+test a_plain_page_reads_the_table_in_its_own_order ... ok
+test a_sort_is_stable_so_a_page_cannot_repeat_a_row ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/rust_client.rs (.cargo/target/debug/deps/rust_client-b315bd354b44f181)
+
+running 3 tests
+test the_client_and_the_server_agree_on_what_a_read_is ... ok
+test a_request_is_given_up_on_as_what_it_is ... ok
+test rust_client_drives_a_live_gateway_end_to_end ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.59s
+
+     Running tests/schema_shapes.rs (.cargo/target/debug/deps/schema_shapes-6d7aec38bc91f2fd)
+
+running 1 test
+test twenty_shapes_survive_restart_exactly ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.16s
+
+     Running tests/secret_scan.rs (.cargo/target/debug/deps/secret_scan-467b5e13f744f813)
+
+running 4 tests
+test real_credential_shapes_are_reported ... ok
+test known_fake_material_is_accepted ... ok
+test the_report_never_contains_the_secret ... ok
+test the_repository_tree_is_clean ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.97s
+
+     Running tests/shell_control.rs (.cargo/target/debug/deps/shell_control-8fdcfc19809f01c2)
+
+running 5 tests
+test the_shell_has_dot_commands_for_the_operator_surface ... ok
+test the_shell_shows_the_backup_freshness ... ok
+test the_shell_draws_the_same_status_dashboard_as_the_command ... ok
+test the_shell_lists_the_credentials ... ok
+test the_shell_still_draws_its_tables_and_queries ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.32s
+
+     Running tests/shell_e2e.rs (.cargo/target/debug/deps/shell_e2e-79a04656b4d57f9c)
+
+running 6 tests
+test lost_response_is_reported_without_retrying_unkeyed_writes ... ok
+test keyed_transport_failure_retains_key_for_identical_replay ... ok
+test shell_errors_are_stable_and_never_kill_the_session ... ok
+test json_mode_multiline_batch_errors_and_eof ... ok
+test shell_session_covers_use_query_error_recovery_batch_and_quit ... ok
+test typed_batch_failure_consumes_key_and_database_switch_clears_it ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.76s
+
+     Running tests/status.rs (.cargo/target/debug/deps/status-f1fc14c780e7118c)
+
+running 11 tests
+test health_is_unauthenticated_liveness_only ... ok
+test a_host_that_publishes_nothing_reports_nothing_rather_than_nothing_being_true ... ok
+test backups_unreadable_root_is_unknown ... ok
+test status_reports_the_disk_headroom_and_the_settings ... ok
+test backups_report_the_last_run_the_coverage_the_replica_and_the_drill ... ok
+test failed_owner_writes_pin_no_phantom_status_rows ... ok
+test status_shape_counters_and_owner_gate ... ok
+test status_reports_where_the_gateway_and_its_databases_are ... ok
+test backups_freshness_transitions ... ok
+test status_reports_per_database_usage_since_boot ... ok
+test forced_429_is_counted ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.18s
+
+     Running tests/tombstone_purge.rs (.cargo/target/debug/deps/tombstone_purge-6f6118e7a54d9e99)
+
+running 1 test
+test tombstoned_names_purge_and_become_reusable ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.70s
+
+     Running tests/tui_actions.rs (.cargo/target/debug/deps/tui_actions-44786d1787a3a1c0)
+
+running 9 tests
+test every_action_is_in_the_catalogue_once ... ok
+test the_palette_offers_the_operations_an_operator_needs ... ok
+test a_destructive_action_has_to_be_confirmed_by_name ... ok
+test the_actions_ask_the_gateway_for_what_the_api_documents ... ok
+test a_query_that_writes_is_answered_as_a_write ... ok
+test a_read_only_query_that_cannot_reach_the_gateway_says_so ... ok
+test a_whole_request_is_never_made_for_an_over_long_script ... ok
+test a_batch_file_is_read_by_the_rules_the_api_sets ... ok
+test every_request_carries_what_it_can_commit ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+
+     Running tests/tui_browser.rs (.cargo/target/debug/deps/tui_browser-4eaf58d401dcfdc9)
+
+running 27 tests
+test a_page_past_the_end_says_no_rows_match_rather_than_zeroes ... ok
+test a_sort_on_a_missing_column_is_refused_by_the_builder ... ok
+test a_new_browser_is_on_the_first_page_and_says_so ... ok
+test an_empty_answer_says_so ... ok
+test an_empty_filter_clears_it ... ok
+test n_and_p_move_the_page_and_queue_one_reread ... ok
+test an_unread_count_says_so_rather_than_no_rows_match ... ok
+test a_refused_page_reads_like_any_other_refusal ... ok
+test the_filter_is_typed_and_applied_to_the_same_table ... ok
+test the_footer_counts_the_answer_not_the_page ... ok
+test s_leaves_for_the_tables_structure ... ok
+test a_sort_direction_is_optional_and_empty_clears_it ... ok
+test a_page_past_the_end_does_not_draw_a_backwards_range ... ok
+test esc_leaves_the_browser_without_quitting_the_view ... ok
+test the_last_page_is_partial_and_offers_no_next_page ... ok
+test the_outcome_draws_the_rows_with_the_browsers_footer ... ok
+test the_page_cannot_be_moved_past_either_end ... ok
+test the_sort_and_the_filter_are_named_in_the_footer ... ok
+test the_sort_column_is_chosen_by_name ... ok
+test the_count_is_read_from_the_query_document ... ok
+test wheel_events_outside_the_body_do_not_change_the_browser_page ... ok
+test leaving_the_browser_returns_the_dashboard ... ok
+test the_smallest_rows_browser_scrolls_the_fetched_page_without_losing_rows ... ok
+test an_opened_table_takes_the_whole_screen ... ok
+test a_short_rows_browser_screen_keeps_the_whole_fetched_page_visible ... ok
+test the_browser_is_drawn_with_its_rows_and_its_footer ... ok
+test the_arrow_keys_and_the_wheel_move_a_page ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/tui_layout.rs (.cargo/target/debug/deps/tui_layout-426f2c9c5f826afc)
+
+running 32 tests
+test every_tab_is_reachable_from_the_keyboard ... ok
+test a_deletion_asks_for_the_name_twice_and_runs_only_then ... ok
+test an_unreachable_gateway_says_so_rather_than_looking_healthy ... ok
+test a_host_that_publishes_no_copy_status_says_so ... ok
+test a_database_with_no_traffic_is_on_screen_with_zeroes ... ok
+test a_long_error_is_cut_and_says_so ... ok
+test idle_databases_read_as_zeroes_not_as_missing ... ok
+test a_host_that_publishes_no_restore_points_says_so ... ok
+test the_action_list_offers_the_structure_read ... ok
+test a_long_database_list_scrolls_and_says_how_many_it_holds ... ok
+test the_bar_names_the_keys_that_work ... ok
+test a_long_per_database_table_keeps_every_row_and_the_summary_scrolls ... ok
+test the_freshness_reference_is_named_as_an_objective_not_as_an_age_threshold ... ok
+test the_palette_keeps_a_gap_between_a_title_and_its_hint ... ok
+test the_palette_marks_the_actions_that_cannot_be_taken_back ... ok
+test the_action_list_survives_a_terminal_with_no_room ... ok
+test the_tabs_are_written_down_once_and_everything_is_built_from_that_list ... ok
+test the_backups_tab_says_whether_the_copies_are_any_good ... ok
+test every_tab_answers_its_own_question_and_only_its_own ... ok
+test the_queries_tab_says_which_statement_is_the_expensive_one ... ok
+test a_gateway_that_reports_no_placement_says_so_rather_than_looking_empty ... ok
+test the_palette_lists_the_actions_and_the_one_that_is_chosen ... ok
+test the_view_fits_a_small_terminal_without_losing_the_databases ... ok
+test the_service_tab_says_where_the_gateway_is ... ok
+test the_databases_tab_says_how_big_each_database_is ... ok
+test the_backups_tab_says_which_moments_the_copy_can_be_taken_back_to ... ok
+test every_tab_is_named_on_screen_and_holds_its_own_answer ... ok
+test the_locations_tab_says_where_each_database_is_and_whether_it_is_there ... ok
+test a_narrow_terminal_still_names_every_tab ... ok
+test a_tab_cannot_be_scrolled_into_nothing ... ok
+test an_unlisted_state_row_remains_visible_at_short_heights ... ok
+test the_freshness_table_keeps_every_database_row_at_any_height ... ok
+
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+
+     Running tests/tui_mouse.rs (.cargo/target/debug/deps/tui_mouse-6d20a46e67042d58)
+
+running 15 tests
+test clicking_a_credential_opens_nothing ... ok
+test the_wheel_scrolls_the_open_tab_and_stops_at_the_top ... ok
+test a_click_is_ignored_while_a_dialogue_is_open ... ok
+test clicking_between_labels_leaves_the_tab_alone ... ok
+test clicking_a_column_opens_nothing ... ok
+test clicking_a_database_opens_it ... ok
+test the_wheel_scrolls_only_the_open_tab ... ok
+test a_pointer_over_the_header_marks_no_row ... ok
+test a_click_never_starts_an_action ... ok
+test clicking_a_mixed_case_table_name_opens_it ... ok
+test clicking_a_table_in_an_opened_database_opens_that_table ... ok
+test clicking_a_tab_on_the_second_strip_line_opens_it ... ok
+test the_row_under_the_pointer_is_marked ... ok
+test clicking_a_tab_label_switches_to_that_tab ... ok
+test a_table_row_is_clickable_at_a_real_terminal_size ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/tui_page.rs (.cargo/target/debug/deps/tui_page-4905d7daba69c30f)
+
+running 15 tests
+test leaving_a_tab_clears_a_one_time_credential_outcome ... ok
+test the_page_lists_every_table_and_selects_the_first ... ok
+test moving_through_the_list_wraps_nothing_and_stops_at_its_ends ... ok
+test arrow_keys_move_the_selection_and_load_that_tables_rows ... ok
+test vim_keys_do_not_move_the_selection ... ok
+test enter_opens_the_selected_table_in_the_rows_browser ... ok
+test esc_returns_to_the_dashboard ... ok
+test the_wheel_over_the_table_list_moves_the_table_selection ... ok
+test the_wheel_over_values_pages_rows_without_changing_the_table ... ok
+test the_table_list_wheel_stops_at_the_last_table ... ok
+test a_click_on_a_table_name_selects_it ... ok
+test an_empty_database_says_so_instead_of_drawing_an_empty_page ... ok
+test a_click_after_list_scroll_selects_the_table_at_that_visible_row ... ok
+test moving_past_the_visible_list_keeps_the_selection_on_screen ... ok
+test the_page_is_drawn_with_the_list_and_the_values ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/tui_refresh.rs (.cargo/target/debug/deps/tui_refresh-c1533c3084fcc86c)
+
+running 13 tests
+test database_page_counts_rows_under_the_active_filter ... ok
+test database_page_keeps_its_rows_browser_page_when_reloading ... ok
+test a_failed_contents_read_shows_unknown_counts_and_retries ... ok
+test manual_refresh_clears_a_one_time_key_result ... ok
+test palette_refresh_invalidates_contents_inside_the_cadence_window ... ok
+test a_successful_write_refreshes_database_contents_after_the_write ... ok
+test one_failure_is_reported_as_it_is ... ok
+test the_error_says_how_many_reads_failed_and_why ... ok
+test the_view_says_unreachable_when_nothing_answered ... ok
+test the_reads_are_made_together ... ok
+test the_view_says_connected_when_the_gateway_answered_something ... ok
+test opening_a_database_re_reads_the_contents ... ok
+test a_manual_refresh_re_reads_the_contents ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.85s
+
+     Running tests/tui_schema.rs (.cargo/target/debug/deps/tui_schema-485089dfb42c7404)
+
+running 6 tests
+test a_table_that_does_not_exist_is_not_invented ... ok
+test a_refused_structure_reads_like_any_other_refusal ... ok
+test the_view_reads_the_structure_over_the_documented_route ... ok
+test a_whole_database_opens_as_its_contents ... ok
+test the_outcome_names_the_table_and_carries_its_columns ... ok
+test the_grid_is_drawn_on_a_test_terminal ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/tui_tables.rs (.cargo/target/debug/deps/tui_tables-045dd7f389443d43)
+
+running 11 tests
+test only_plain_names_open ... ok
+test open_takes_a_database_a_table_and_an_optional_page ... ok
+test an_open_table_reads_one_page_through_the_query_endpoint ... ok
+test an_overflowing_answer_still_reaches_the_grid ... ok
+test the_open_table_outcome_says_which_slice_is_on_screen ... ok
+test the_tables_view_counts_what_the_database_holds ... ok
+test a_refused_open_reads_like_any_other_refusal ... ok
+test the_tables_outcome_names_the_database ... ok
+test enter_on_the_databases_tab_prefills_the_open_action ... ok
+test a_full_page_of_rows_is_all_drawn ... ok
+test the_open_grid_draws_on_a_test_terminal ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/tui_terminal.rs (.cargo/target/debug/deps/tui_terminal-3567b48add7dfcb4)
+
+running 5 tests
+test a_bare_invocation_off_a_terminal_prints_usage_and_changes_nothing ... ok
+test explicit_tui_refuses_redirected_input_before_taking_over_the_terminal ... ok
+test the_view_leaves_a_shell_that_works ... ok
+test the_view_draws_the_gateway_and_gives_the_terminal_back ... ok
+test a_bare_invocation_opens_the_view_on_a_terminal ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.48s
+
+     Running tests/tui_view.rs (.cargo/target/debug/deps/tui_view-68f6a2fb80f2ecea)
+
+running 8 tests
+test a_refused_batch_reads_the_same_way_on_both_surfaces ... ok
+test the_database_list_shows_every_database_the_gateway_lists ... ok
+test a_lone_statement_that_fails_carries_the_reason ... ok
+test the_cli_and_the_view_show_the_same_numbers ... ok
+test a_section_that_is_only_a_table_does_not_print_an_empty_heading ... ok
+test the_traffic_table_says_what_its_wait_columns_mean ... ok
+test the_database_tab_carries_every_figure ... ok
+test the_tab_is_named_once ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/unit_render.rs (.cargo/target/debug/deps/unit_render-3202c331bd091f04)
+
+running 7 tests
+test a_value_with_special_characters_is_substituted_literally ... ok
+test a_placeholder_with_no_value_is_refused ... ok
+test the_values_it_is_given_replace_the_placeholders ... ok
+test the_rendered_backup_unit_carries_the_producers_reference_layout ... ok
+test the_drift_gate_renders_every_unit_it_compares ... ok
+test the_host_audit_leaves_no_temp_files_behind ... ok
+test a_unit_that_gains_a_placeholder_fails_the_drift_gate ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.34s
+
+     Running unittests src/lib.rs (.cargo/target/debug/deps/dg_client-06e05669b04b98fa)
+
+running 6 tests
+test tests::names_follow_the_gateway_rule ... ok
+test tests::a_batch_is_a_read_only_when_every_statement_is_one ... ok
+test tests::the_statements_decide_whether_a_request_is_a_read ... ok
+test tests::result_parsing_checks_row_width ... ok
+test tests::values_round_trip_the_gateway_encoding ... ok
+test tests::origin_rules_match_the_other_clients ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+exit_code=0
+finished_at: 2026-10-30T17:47:23Z
+git_status_after: 0 modified path(s)
