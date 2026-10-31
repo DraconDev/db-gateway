@@ -120,6 +120,16 @@ check this list was produced from:
   import collections, json, re, sys
   from pathlib import Path
 
+  HEREDOC = re.compile(r"<<-?\s*'?(\w+)'?[^\n]*\n.*?\n\s*\1\s*$", re.S | re.M)
+
+  def strip_heredoc_bodies(command):
+      """Blank a heredoc body, but keep the rest of its command field.
+
+      Skipping the whole field hid a real `turso auth whoami` on 2026-10-31,
+      which shared a bash call with `python3 - <<'EOF'`.
+      """
+      return HEREDOC.sub(" ", command)
+
   def shell_segments(command):
       """Split on separators outside quotes; honour backslash escapes in "..."."""
       out, buf, i, quote = [], [], 0, None
@@ -157,6 +167,8 @@ check this list was produced from:
       for segment in out:
           segment = re.sub(r"\s*2>&1", " ", segment).strip()
           segment = re.sub(r"^timeout\s+\d+\s+", "", segment).strip()
+          if segment.count(")") > segment.count("("):
+              segment = re.sub(r"\)+\s*$", "", segment).strip()
           if segment:
               yield segment
 
@@ -176,7 +188,7 @@ check this list was produced from:
           if not isinstance(command, str):
               continue
           if re.search(r"(?:python3?|cat)\s+[^\n]*<<", command):
-              continue  # a program body, not a shell command
+              command = strip_heredoc_bodies(command)
           for segment in shell_segments(command):
               if segment.startswith("turso "):
                   forms[record["timestamp"][:10]][" ".join(segment.split()[:2])] += 1
@@ -185,18 +197,23 @@ check this list was produced from:
       print(day, dict(forms[day]))
 
 It reports 2026-10-26, 2026-10-28, 2026-10-29 and 2026-10-31, with nothing
-on 2026-10-27 or 2026-10-30, and three `turso auth` segments in total — one on
-2026-10-28 and two on 2026-10-31.
+on 2026-10-27 or 2026-10-30, and four `turso auth` segments in total — one on
+2026-10-28 and three on 2026-10-31. An earlier draft of this file claimed three,
+because the script skipped any command field containing a heredoc and the third
+2026-10-31 `whoami` shared its field with `python3 - <<'EOF'`. Removing only the
+heredoc body, instead of the whole field, is what surfaced it.
 
 Three limits of that script, all covered by the lists below.
 
 First, it counts the first two words of a segment, so it is a prefix, not the full
 command form.
 
-Second, it drops an entire command field that contains a heredoc (`python3 - <<`,
-`cat > f <<`), so a `turso` call sharing that field would not be counted. Neither
-2026-10-31 `auth whoami` command is in a heredoc field, so the count is unaffected
-here, but the blind spot is real.
+Second, a program body is deliberately not treated as a shell command: a `turso`
+call written *inside* a Python or shell script is invisible to this scan. That is
+the intended behaviour (the script does not execute anything), but it means the
+inventory covers shell-level invocations only. A heredoc body is removed rather
+than taking the rest of its command field with it — the earlier draft skipped the
+whole field, which is what hid one 2026-10-31 `auth whoami`.
 
 Third, a `for`-loop body is visible only if the loop is written so the `turso`
 call starts its own segment. On 2026-10-28 the body is
