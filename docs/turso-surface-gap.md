@@ -14,8 +14,8 @@ workload from Turso to `dg` today, what would actually be missing?
   on 2026-10-29, plus the installed `turso` CLI v1.0.15 inventory from
   `--help`. Turso was read only: no database was created, destroyed, imported,
   replicated or re-tokened, and no token was issued or invalidated.
-- **What this revision did not re-read**: the Turso side. The 0.10.0 comparison
-  pass that produced this revision was bound to the committed 2026-10-29 captures
+- **What this revision did not re-read**: the Turso side. The matrix-writing pass
+  that produced this revision was bound to the committed 2026-10-29 captures
   — it ran no `turso` command and opened no console page — so every Turso fact
   below is as of 2026-10-29. Later trace work on 2026-10-31 did run `turso auth
   whoami` twice; that disclosure is documented separately below and in
@@ -1358,9 +1358,9 @@ page's `Next Invoice $5.99` card with its `View Invoice` action, the
 `Quota Critical 99% used … See plans` banners, the `Vegas Blackout:
 Usage was erased on October 11th` notice, and the sidebar's
 Billing/Upgrade entries. This historical audit read the Turso web console and `--help` text. The
-transcript also records 2026-10-26 `turso db inspect ai-model-list` and
-`turso db show ai-model-list` attempts; both commands reported "You are not
-logged in", so no database response is evidenced. It would be inaccurate to
+transcript also records three 2026-10-26 `turso db inspect ai-model-list` and
+`turso db show ai-model-list` invocations; each reported "You are not logged
+in", so no database response is evidenced. It would be inaccurate to
 say the commands were never invoked. No Turso data was created, modified, or
 deleted. All `dg` testing ran against disposable local gateways (temp dirs
 removed afterwards).
