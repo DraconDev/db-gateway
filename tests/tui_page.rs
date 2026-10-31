@@ -623,3 +623,35 @@ fn tab_keys_do_not_move_the_tab_underneath_the_page() {
     app.on_key(key(KeyCode::Esc));
     assert_eq!(app.focus, dg::tui::Focus::Databases);
 }
+
+/// A table list longer than the screen says how much of it is showing.
+///
+/// With forty tables the page drew the first nine-and-twenty and no sign
+/// that the rest existed. The rows table has always reported its slice;
+/// the table list is the same question about the same kind of list.
+#[test]
+fn a_clipped_table_list_reports_its_slice() {
+    let mut app = app();
+    app.page = Some(tall_page(30));
+    let text = screen(&mut app, 100, 24);
+    assert!(
+        text.contains("of 30"),
+        "the clipped list does not say how many tables there are:\n{text}"
+    );
+    assert!(
+        text.contains("1-"),
+        "the clipped list does not say which slice is showing:\n{text}"
+    );
+}
+
+/// A list that fits says nothing about slices, because there are none.
+#[test]
+fn a_table_list_that_fits_does_not_report_a_slice() {
+    let mut app = app();
+    app.page = Some(page());
+    let text = screen(&mut app, 100, 24);
+    assert!(
+        !text.contains(" of 3 "),
+        "a complete list reported a slice it does not have:\n{text}"
+    );
+}

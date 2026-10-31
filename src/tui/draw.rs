@@ -13,7 +13,7 @@ use ratatui::{
     text::{Line, Span, Text},
     widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState, Wrap},
 };
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
     render::{self, Block as ViewBlock, Section, Style as ViewStyle, Table as ViewTable},
@@ -138,9 +138,48 @@ fn paint_style(style: ViewStyle) -> Style {
 }
 
 /// One cell of a view table, as a widget cell.
-fn cell_widget(cell: &render::Cell) -> Cell<'static> {
-    let (text, style) = cell.parts();
-    Cell::from(Span::styled(text.into_owned(), paint_style(style)))
+/// Fit text into exactly `cells` display cells, cutting with a mark.
+///
+/// Cells are counted, not characters: `日` is one character and two
+/// cells. Padding or clipping by character count is what let a wide
+/// glyph straddle its column boundary, so the next column's text was
+/// written over the glyph's right half and two values interleaved into
+/// nonsense (`日/本o語s…`). Fitting the text to the column first means
+/// nothing straddles.
+fn fit_cell(text: &str, cells: usize) -> String {
+    if cells == 0 {
+        return String::new();
+    }
+    let width = UnicodeWidthStr::width(text);
+    if width <= cells {
+        let mut out = String::from(text);
+        out.push_str(&" ".repeat(cells - width));
+        return out;
+    }
+    // Keep a cell for the mark, so a cut value says that it was cut
+    // instead of looking like a shorter value.
+    let mut out = String::new();
+    let mut used = 0usize;
+    for character in text.chars() {
+        let step = UnicodeWidthChar::width(character).unwrap_or(0);
+        if used + step > cells - 1 {
+            break;
+        }
+        out.push(character);
+        used += step;
+    }
+    out.push('…');
+    used += 1;
+    out.push_str(&" ".repeat(cells.saturating_sub(used)));
+    out
+}
+
+/// How a table's columns are laid out, and whether cells must be fitted.
+struct ColumnPlan {
+    constraints: Vec<Constraint>,
+    /// Set when the columns share the area: the cells of one column are
+    /// then narrower than their content, so each is fitted to this width.
+    cell_width: Option<usize>,
 }
 
 /// The widths of a table's columns.
@@ -148,7 +187,7 @@ fn cell_widget(cell: &render::Cell) -> Cell<'static> {
 /// A column is as wide as its widest cell, so the numbers line up
 /// under their headers; when the table is wider than the area, every
 /// column shares what is left rather than one of them taking it all.
-fn widths(table: &ViewTable, area: u16) -> Vec<Constraint> {
+fn widths(table: &ViewTable, area: u16) -> ColumnPlan {
     let columns = table.columns();
     let mut widths: Vec<u16> = columns
         .iter()
@@ -166,28 +205,51 @@ fn widths(table: &ViewTable, area: u16) -> Vec<Constraint> {
     let padded: Vec<u16> = widths.iter().map(|width| width.saturating_add(2)).collect();
     let total: u32 = padded.iter().map(|width| *width as u32).sum();
     if total <= area as u32 {
-        padded.into_iter().map(Constraint::Length).collect()
+        ColumnPlan {
+            constraints: padded.into_iter().map(Constraint::Length).collect(),
+            cell_width: None,
+        }
     } else {
-        vec![Constraint::Ratio(1, columns.len().max(1) as u32); columns.len()]
+        // Every column shares the area, so no column is as wide as its
+        // content and every cell has to be fitted to its share.
+        let share = (area as usize / columns.len().max(1)).max(1);
+        ColumnPlan {
+            constraints: vec![Constraint::Ratio(1, columns.len().max(1) as u32); columns.len()],
+            cell_width: Some(share),
+        }
     }
 }
 
 /// A view table, as a widget.
 fn table_widget(table: &ViewTable, area: u16, max_rows: usize) -> Table<'static> {
+    let plan = widths(table, area);
+    let fitted = |text: &str| match plan.cell_width {
+        Some(cells) => fit_cell(text, cells),
+        None => text.to_string(),
+    };
     let header = Row::new(
         table
             .columns()
             .iter()
-            .map(|(name, _)| Cell::from(Span::styled(name.clone(), paint_style(ViewStyle::Header))))
+            .map(|(name, _)| Cell::from(Span::styled(fitted(name), paint_style(ViewStyle::Header))))
             .collect::<Vec<Cell<'static>>>(),
     );
     let rows = table
         .rows()
         .iter()
         .take(max_rows)
-        .map(|row| Row::new(row.iter().map(cell_widget).collect::<Vec<Cell<'static>>>()))
+        .map(|row| {
+            Row::new(
+                row.iter()
+                    .map(|cell| {
+                        let (text, style) = cell.parts();
+                        Cell::from(Span::styled(fitted(text.as_ref()), paint_style(style)))
+                    })
+                    .collect::<Vec<Cell<'static>>>(),
+            )
+        })
         .collect::<Vec<Row<'static>>>();
-    Table::new(rows, widths(table, area)).header(header)
+    Table::new(rows, plan.constraints).header(header)
 }
 
 /// A table inside a frame, with the view's footer under it as a caption.
@@ -504,25 +566,33 @@ fn database_page(frame: &mut Frame, area: Rect, app: &mut App) {
         };
         lines.push(Line::from(vec![
             Span::styled(if selected { "▸ " } else { "  " }, style),
-            Span::styled(
-                format!("{:<width$}", table.name, width = list_width as usize - 3),
-                style,
-            ),
+            Span::styled(fit_cell(&table.name, list_width as usize - 3), style),
             Span::styled(format!("{:>5}", table.rows), paint_style(ViewStyle::Dim)),
         ]));
     }
-    frame.render_widget(
-        Paragraph::new(Text::from(lines)).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(crate::tui::theme::border_focused())
-                .title(Span::styled(
-                    format!(" {} ", page.database),
-                    crate::tui::theme::heading(),
-                )),
-        ),
-        columns[0],
-    );
+    // A list longer than its viewport used to say nothing at all: with
+    // forty tables the page showed the first thirty-one and no sign that
+    // nine existed. The rows table has always reported "rows 1-10 of N";
+    // the table list is the same question about the same kind of list, so
+    // it answers the same way, and only when it is actually clipped.
+    let drawn = visible.min(page.tables.len().saturating_sub(start));
+    let counter = if page.tables.len() > visible {
+        format!(" {}-{} of {} ", start + 1, start + drawn, page.tables.len())
+    } else {
+        String::new()
+    };
+    let mut block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(crate::tui::theme::border_focused())
+        .title(Span::styled(
+            format!(" {} ", page.database),
+            crate::tui::theme::heading(),
+        ));
+    if !counter.is_empty() {
+        block = block
+            .title(Line::from(Span::styled(counter, paint_style(ViewStyle::Dim))).right_aligned());
+    }
+    frame.render_widget(Paragraph::new(Text::from(lines)).block(block), columns[0]);
     // The values: the selected table's rows, with the footer that says
     // which slice of the answer it is.
     let mut geometry = None;

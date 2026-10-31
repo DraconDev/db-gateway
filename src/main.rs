@@ -546,7 +546,11 @@ enum Command {
     Batch {
         /// Database to run the batch against.
         name: String,
-        /// Batch file: {"statements":[{"sql":"...","args":[]}]}.
+        /// Batch file: {"statements":[{"sql":"...","args":[]}],"atomic":true}.
+        ///
+        /// `atomic` is required, and unknown fields are refused: a file
+        /// without it is rejected as `invalid_request` with no detail, so
+        /// the shape is spelled out in full here.
         file: PathBuf,
         /// Replay key: a retry with the same key and identical body returns
         /// the stored first response instead of re-running the batch.

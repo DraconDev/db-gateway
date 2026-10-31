@@ -721,3 +721,43 @@ fn the_rows_browser_takes_the_whole_screen_with_no_tab_strip() {
         "the browser does not say how to leave it:\n{text}"
     );
 }
+
+/// A wide glyph must not be straddled by the next column.
+///
+/// 日本語のラベル is seven characters and fourteen cells. When a cell was
+/// clipped by characters and the column by cells, the last glyph's right
+/// half fell outside its column, the next column wrote into it, and two
+/// values interleaved into nonsense (`日/本o語s…`). The cells are fitted
+/// to their column now, and a cut one ends in a mark instead of pretending
+/// to be a shorter value.
+#[test]
+fn wide_glyphs_do_not_straddle_into_the_next_column() {
+    // Six columns at this width share nine cells each, which is one cell
+    // short of the eleven a fifth glyph would need -- the exact straddle.
+    let answer = json!({
+        "columns": ["label", "m1", "m2", "m3", "m4", "m5"],
+        "rows": [[
+            "日本語のラベル",
+            "/////", "/////", "/////", "/////", "/////"
+        ]],
+        "rows_affected": 0
+    });
+    let browser = browser();
+    let mut app = app();
+    app.browser = Some(browser.clone());
+    app.outcome = Some(browser_outcome(&browser, &answer));
+    let text = screen(&mut app, 60, 20);
+
+    assert!(
+        !text.contains("日/"),
+        "the next column was written into the wide glyph:\n{text}"
+    );
+    assert!(
+        text.contains("…"),
+        "the clipped cell does not say it was cut:\n{text}"
+    );
+    assert!(
+        text.contains("日本語の"),
+        "the glyphs are not contiguous:\n{text}"
+    );
+}
