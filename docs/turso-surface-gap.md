@@ -18,7 +18,8 @@ workload from Turso to `dg` today, what would actually be missing?
   that produced this revision was bound to the committed 2026-10-29 captures
   — it ran no `turso` command and opened no console page — so every Turso fact
   below is as of 2026-10-29. Later trace work on 2026-10-31 did run `turso auth
-  whoami` twice; that disclosure is documented separately below and in
+  whoami` three times (twice in the archived predecessor pass, once in the
+  correcting pass); that disclosure is documented separately below and in
   `docs/no-turso-contact-2026-10-31.txt`. A Turso capability shipped after
   2026-10-29 is invisible here; where a row could have changed since, it says so.
 - **Evidence**: the captures listed at the end. The October 2026 captures are
@@ -192,18 +193,21 @@ shapes. Those cells are marked unverified rather than guessed.
 **How the no-Turso-contact bound was checked (inspectable, not asserted).**
 The 0.10.0 comparison pass used the committed 2026-10-29 captures rather than
 re-reading Turso. During later trace work on 2026-10-31, `turso auth whoami`
-was invoked twice; both runs reported "You are not logged in". The session
+was invoked three times — twice in the archived predecessor pass at 00:15Z, once
+in the correcting pass at 13:12Z — and every run reported "You are not logged
+in". The session
 transcript records no database-data command or console-page tool call during
 that goal window. The earlier transcript does include three 2026-10-26
 `db inspect/show ai-model-list` attempts, all rejected as not logged in, and
-live console captures from 2026-10-29. On credentials, the accurate account is
+live console captures dated 2026-10-29. On credentials, the accurate account is
 not that none exist: the Turso CLI's token store is
 `~/.config/turso/settings.json` (not `~/.turso/`, which holds only binaries), and
 that file holds credential material from a prior login whose token `exp` is
 2026-10-25T15:19:11Z — already expired when this goal opened. That is why the
 CLI answered "not logged in" and why no Turso data call in this window could
 have authenticated. The trace lists Turso CLI command forms by date, including
-the two 2026-10-31 `auth whoami` calls; it does not claim the binary was never
+all three 2026-10-31 `auth whoami` calls with their timestamps; it does not
+claim the binary was never
 invoked. The transcript inventory and proof that the `docs/evidence/` baseline is
 byte-identical to HEAD and predates this goal are recorded in
 `docs/no-turso-contact-2026-10-31.txt`.
