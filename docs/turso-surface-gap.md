@@ -196,12 +196,16 @@ was invoked twice; both runs reported "You are not logged in". The session
 transcript records no database-data command or console-page tool call during
 that goal window. The earlier transcript does include three 2026-10-26
 `db inspect/show ai-model-list` attempts, all rejected as not logged in, and
-live console captures from 2026-10-29. The listing of `~/.turso/` found no
-settings token store there, but does not establish that credentials are absent
-from every possible source. The trace lists Turso CLI command forms by date,
-including the two 2026-10-31 `auth whoami` calls; it does not claim the binary
-was never invoked. The transcript inventory and proof that the `docs/evidence/`
-baseline is byte-identical to HEAD and predates this goal are recorded in
+live console captures from 2026-10-29. On credentials, the accurate account is
+not that none exist: the Turso CLI's token store is
+`~/.config/turso/settings.json` (not `~/.turso/`, which holds only binaries), and
+that file holds credential material from a prior login whose token `exp` is
+2026-10-25T15:19:11Z — already expired when this goal opened. That is why the
+CLI answered "not logged in" and why no Turso data call in this window could
+have authenticated. The trace lists Turso CLI command forms by date, including
+the two 2026-10-31 `auth whoami` calls; it does not claim the binary was never
+invoked. The transcript inventory and proof that the `docs/evidence/` baseline is
+byte-identical to HEAD and predates this goal are recorded in
 `docs/no-turso-contact-2026-10-31.txt`.
 
 The `dg` side is read from this repository's router, so every route below is
