@@ -178,6 +178,13 @@ the copy here.
 | Retention / snapshot interval | `168h` / `24h` |
 | Covered | every live database, plus the registry (`registry: true`) |
 
+The bucket is named `dg-sandbox`, which reads like scratch space but is not:
+`docs/evidence/litestream-replication-evidence.log:41` shows the running sidecar
+configured against `s3://dg-sandbox/...`. It is the target actually in use. That
+observation does not settle the separate bucket-lifecycle residual above (the
+30/7 daily-version classes) — this read did not establish which bucket that
+lifecycle applies to, so the residual stands on its own.
+
 The replication service behind that is `dg-litestream.service`; the sidecar it
 publishes reports its own state as `active`. The `replica.json` dataset list
 names the live databases (seven at this reading) while the drill and the
