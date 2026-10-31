@@ -1,8 +1,11 @@
 No-Turso-contact trace — 2026-10-31
 =====================================
 
-The objective bound for this goal was: "No Turso CLI invocation, no console read,
-no credentials, no network call to Turso". That bound was not met literally, on
+The bound this file was first written under belonged to the predecessor pass, not
+to this goal: "No Turso CLI invocation, no console read, no credentials, no
+network call to Turso". Naming the pass matters, because this goal's own
+objective does not carry that bound — it requires recording these invocations
+rather than forbidding them. That bound was not met literally, on
 two counts. Gathering this evidence required running the Turso CLI four times
 across the transcript — one run in the earlier capture pass, two in the
 predecessor pass, one in this goal (all disclosed below, with timestamps and
