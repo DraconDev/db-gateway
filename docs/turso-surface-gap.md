@@ -196,7 +196,7 @@ executed — twice, as the unauthenticated `whoami` above — while assembling t
 trace, so the precise claim is "no data call, no credential, no console read"
 rather than "never invoked". The commands, their output, and proof that the
 `docs/evidence/` baseline is byte-identical to HEAD and predates this goal are
-recorded in `docs/verification/no-turso-contact-2026-10-31.txt`.
+recorded in `docs/no-turso-contact-2026-10-31.txt`.
 
 The `dg` side is read from this repository's router, so every route below is
 checkable against `src/api.rs` and the routers it merges.

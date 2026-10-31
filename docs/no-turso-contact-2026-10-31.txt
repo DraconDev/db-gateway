@@ -40,7 +40,34 @@ call", not "the binary was never executed". The document now says that.
   $ git log --name-only --format= v0.10.0^{}..HEAD | grep "^docs/evidence/"
   (no output — this goal never touched docs/evidence/)
 
-4. What this proves and what it does not
+4. Every turso execution in this goal, exhaustively
+-----------------------------------------------------
+The session transcript is the record of what ran. Two checks over it:
+
+  $ grep -c 'turso auth whoami' <session>.jsonl
+  (matches include the transcript's own quoted text, so this is an
+   upper bound, not a count of executions)
+
+  Every command field in the transcript that contains a turso invocation,
+  grouped by date:
+
+    2026-10-26  turso --help, turso db --help, turso db shell --help,
+                turso db execute --help, turso db inspect --help,
+                turso org --help, turso org audit-logs --help
+    2026-10-27  (no turso invocation)
+    2026-10-28  turso --help, turso db --help, turso auth whoami
+    2026-10-29  turso --help (and each subcommand's --help), turso db execute --help
+    2026-10-30  (no turso invocation)
+    2026-10-31  turso auth whoami  <-- twice, both during THIS goal
+
+  Everything dated 2026-10-26 through 2026-10-29 belongs to the EARLIER goal
+  that produced the committed 2026-10-29 captures; those invocations are what
+  `docs/evidence/turso-cli-help-2026-10-29.txt` is. The only invocations inside
+  this goal's window are the two unauthenticated `turso auth whoami` calls
+  disclosed above. No other turso command ran, and no turso command that reads
+  or writes a database, a token or a config file ever ran in this goal.
+
+5. What this proves and what it does not
 ---------------------------------------
 PROVES: no authenticated Turso call can have occurred (no credential), the
 baseline files are unchanged and older than this goal, and no Turso data was
