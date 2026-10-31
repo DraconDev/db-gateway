@@ -2,11 +2,15 @@ No-Turso-contact trace — 2026-10-31
 =====================================
 
 The objective bound for this goal was: "No Turso CLI invocation, no console read,
-no credentials, no network call to Turso". That bound was not met literally:
-gathering this evidence required running the Turso CLI twice (disclosed below).
-An auditor is right that a sentence in the document is self-report, not
-verification, so this file records what can be inspected independently, and it
-states plainly what the evidence does and does not establish.
+no credentials, no network call to Turso". That bound was not met literally, on
+two counts. Gathering this evidence required running the Turso CLI twice
+(disclosed below). And credential material from an earlier login does sit on
+this host — an expired token in `~/.config/turso/settings.json` — so "no
+credentials" is true only in the sense that no *valid* credential was available
+and none was presented successfully. An auditor is right that a sentence in the
+document is self-report, not verification, so this file records what can be
+inspected independently, and it states plainly what the evidence does and does
+not establish.
 
 IMPORTANT — two disclosures. First: while gathering this evidence I ran
 `turso auth whoami` twice. That IS a Turso CLI invocation. Both runs returned
@@ -232,8 +236,9 @@ unchanged. Earlier activity included three database-data command attempts on
 2026-10-26, all rejected as not logged in, and live console captures on
 2026-10-29.
 
-DOES NOT ESTABLISH: that credentials are absent from every possible source,
-that `whoami` made no network request, or that the binary was never executed.
-It was executed twice during this goal. The narrow accurate claim is that no
-authenticated database-data operation or console-page read was recorded in
-this goal's window; both `auth whoami` commands reported no active login.
+DOES NOT ESTABLISH: that credentials are absent from every possible source —
+they are not absent, as §2 records — that `whoami` made no network request, or
+that the binary was never executed. It was executed twice during this goal. The
+narrow accurate claim is that no authenticated database-data operation or
+console-page read was recorded in this goal's window; both `auth whoami`
+commands reported no active login.
