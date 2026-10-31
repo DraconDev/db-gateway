@@ -57,8 +57,9 @@ grep patterns and commands that only write the help capture are not executions.
                 `turso org --help`; `turso api --help`;
                 `turso org audit-logs --help`;
                 `turso org audit-logs list --help`;
-                DATA reads: `turso db inspect ai-model-list` and
-                `turso db show ai-model-list` (show ran twice).
+                database-data attempts: `turso db inspect ai-model-list` and
+                `turso db show ai-model-list` (show ran twice); all three
+                returned "You are not logged in" before any data response.
     2026-10-27  (no turso invocation)
     2026-10-28  `turso --version`; `turso --help`; `turso db --help`;
                 `turso db {config,inspect,replicate,tokens,locations} --help`;
@@ -80,21 +81,26 @@ grep patterns and commands that only write the help capture are not executions.
 
 Across the whole transcript, `turso auth whoami` was executed three times:
 2026-10-28 (the earlier goal) and twice on 2026-10-31 (this goal). The only
-Turso CLI database-data reads in the transcript were the two commands listed
-for 2026-10-26; they belong to the earlier goal. The 2026-10-29 live console
-captures are also earlier-goal activity, not Turso CLI invocations. The only
-Turso CLI invocations inside THIS goal's window were the two `auth whoami`
-status checks; no database-data command is listed for this window.
+Turso CLI database-data command attempts in the transcript were the three
+invocations listed for 2026-10-26; all returned "You are not logged in"
+before a database response, and they belong to the earlier goal. The
+2026-10-29 live console captures are also earlier-goal activity, not Turso CLI
+invocations. The only Turso CLI invocations inside THIS goal's window were the
+two `auth whoami` status checks; no database-data command is listed for this
+window. No console-page read is recorded for 2026-10-31 in the session's tool
+calls.
 
 5. What this proves and what it does not
 ---------------------------------------
 OBSERVED: both `auth whoami` runs reported no active login; the transcript
-inventory contains no database-data command during this goal's window; and the
-baseline evidence files predate this goal and are unchanged. Earlier activity
-in the transcript did include database reads on 2026-10-26 and live console
-captures on 2026-10-29.
+inventory contains no database-data command during this goal's window; no
+console-page tool call is recorded on 2026-10-31; and the baseline evidence
+files predate this goal and are unchanged. Earlier activity in the transcript
+included three database-data command attempts on 2026-10-26, all rejected as not
+logged in, and live console captures on 2026-10-29.
 
 DOES NOT ESTABLISH: that credentials are absent from every possible source,
 that `whoami` made no network request, or that the binary was never executed.
 It was executed twice during this goal. The narrow accurate claim is that no
-authenticated database-data operation was observed in this goal's window.
+authenticated database-data operation or console-page read was recorded in
+this goal's window; both `auth whoami` commands reported no active login.

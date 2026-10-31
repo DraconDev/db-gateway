@@ -187,18 +187,20 @@ and HTTP APIs", and the console's Connect card shows a "Database URL" — but
 naming a surface is not observing its routes, verbs, payloads or error
 shapes. Those cells are marked unverified rather than guessed.
 
-**How the no-Turso-contact bound was actually held (inspectable, not asserted).**
-No Turso data call was made and no credential was used: `turso auth whoami`
-answers "You are not logged in", and this host holds no Turso token store
-(`~/.turso/` contains only the `sqld` bundle and the binary), so no authenticated
-call could have succeeded. One disclosure for accuracy: the binary itself *was*
-executed — twice, as the unauthenticated `whoami` above — while assembling the
-trace, so the precise claim is "no data call, no credential, no console read"
-rather than "never invoked". The trace lists every turso execution in the
-transcript by date, so a reader can confirm that two unauthenticated
-`auth whoami` calls are the whole of it. The commands, their output, and proof that the
-`docs/evidence/` baseline is byte-identical to HEAD and predates this goal are
-recorded in `docs/no-turso-contact-2026-10-31.txt`.
+**How the no-Turso-contact bound was checked (inspectable, not asserted).**
+The 0.10.0 comparison pass used the committed 2026-10-29 captures rather than
+re-reading Turso. During later trace work on 2026-10-31, `turso auth whoami`
+was invoked twice; both runs reported "You are not logged in". The session
+transcript records no database-data command or console-page tool call during
+that goal window. The earlier transcript does include three 2026-10-26
+`db inspect/show ai-model-list` attempts, all rejected as not logged in, and
+live console captures from 2026-10-29. The listing of `~/.turso/` found no
+settings token store there, but does not establish that credentials are absent
+from every possible source. The trace lists Turso CLI command forms by date,
+including the two 2026-10-31 `auth whoami` calls; it does not claim the binary
+was never invoked. The transcript inventory and proof that the `docs/evidence/`
+baseline is byte-identical to HEAD and predates this goal are recorded in
+`docs/no-turso-contact-2026-10-31.txt`.
 
 The `dg` side is read from this repository's router, so every route below is
 checkable against `src/api.rs` and the routers it merges.
@@ -764,8 +766,10 @@ live local gateway (`GET /v1/status`, `/v1/databases`, `/v1/backups`, `/v1/audit
 
 Turso CLI surface: `turso` v1.0.15, captured from local `--help` output in
 `docs/evidence/turso-cli-help-2026-10-29.txt` (no account authentication or
-mutation). The CLI is not authenticated here, so no live `show`/`inspect`/`shell`
-ran against Turso and no Turso data was read through it.
+mutation in that help capture). The transcript separately records three
+2026-10-26 database-data command attempts (`db inspect/show ai-model-list`);
+each returned "You are not logged in" before a data response. These attempts
+must not be described as successful reads, but they did run.
 
 ## Superseded assessment in the per-database capture
 
@@ -1351,11 +1355,13 @@ for third parties. Excluded CLI verbs: `turso auth`, `turso org` (including
 page's `Next Invoice $5.99` card with its `View Invoice` action, the
 `Quota Critical 99% used … See plans` banners, the `Vegas Blackout:
 Usage was erased on October 11th` notice, and the sidebar's
-Billing/Upgrade entries. This audit read the Turso web console and `--help`
-text only; the `turso` CLI is not authenticated here, no live
-`show`/`inspect`/`shell` ran against Turso, and no Turso data was
-created, modified, or deleted. All `dg` testing ran against disposable
-local gateways (temp dirs removed afterwards).
+Billing/Upgrade entries. This historical audit read the Turso web console and `--help` text. The
+transcript also records 2026-10-26 `turso db inspect ai-model-list` and
+`turso db show ai-model-list` attempts; both commands reported "You are not
+logged in", so no database response is evidenced. It would be inaccurate to
+say the commands were never invoked. No Turso data was created, modified, or
+deleted. All `dg` testing ran against disposable local gateways (temp dirs
+removed afterwards).
 
 This report was updated on 2026-10-27, when `dg` gained the structure
 surface described in §5.1: the `GET /v1/databases/{name}/schema` route,
