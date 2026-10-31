@@ -39,7 +39,7 @@ canonical list below. For "what did we actually measure", go to
 | `micro2-measurement-runbook.md` | How host measurements (soaks, sampling) are run on micro2. |
 | `migration-cutover.md` | Migration cutover plan (register member). |
 | `migration-inventory.md` | Migration source/target inventory and per-item status. |
-| `no-turso-contact-2026-10-31.txt` | The trace behind the comparison's no-Turso-contact claim: what was run, what it returned, and why no credential could have been presented. |
+| `no-turso-contact-2026-10-31.txt` | The trace behind the comparison's Turso-contact disclosure: commands by date, their reported results, and the limits of what the credential check establishes. |
 | `observability-contract.md` | The observability contract: signals, alerts, the 3 a.m. rules (register member). |
 | `ovh-sandbox-runbook.md` | Runbook for the sandbox S3 rehearsal packet. |
 | `recovery-contract.md` | Recovery contract: restore guarantees and drills (register member). |
