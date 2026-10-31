@@ -194,7 +194,9 @@ answers "You are not logged in", and this host holds no Turso token store
 call could have succeeded. One disclosure for accuracy: the binary itself *was*
 executed — twice, as the unauthenticated `whoami` above — while assembling the
 trace, so the precise claim is "no data call, no credential, no console read"
-rather than "never invoked". The commands, their output, and proof that the
+rather than "never invoked". The trace lists every turso execution in the
+transcript by date, so a reader can confirm that two unauthenticated
+`auth whoami` calls are the whole of it. The commands, their output, and proof that the
 `docs/evidence/` baseline is byte-identical to HEAD and predates this goal are
 recorded in `docs/no-turso-contact-2026-10-31.txt`.
 

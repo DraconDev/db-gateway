@@ -40,9 +40,10 @@ call", not "the binary was never executed". The document now says that.
   $ git log --name-only --format= v0.10.0^{}..HEAD | grep "^docs/evidence/"
   (no output — this goal never touched docs/evidence/)
 
-4. Every turso execution in this goal, exhaustively
------------------------------------------------------
-The session transcript is the record of what ran. Two checks over it:
+4. Every turso execution, exhaustively
+--------------------------------------
+The session transcript is the record of what ran, across this goal and the
+earlier one that produced the captures. Two checks over it:
 
   $ grep -c 'turso auth whoami' <session>.jsonl
   (matches include the transcript's own quoted text, so this is an
@@ -51,14 +52,19 @@ The session transcript is the record of what ran. Two checks over it:
   Every command field in the transcript that contains a turso invocation,
   grouped by date:
 
-    2026-10-26  turso --help, turso db --help, turso db shell --help,
-                turso db execute --help, turso db inspect --help,
-                turso org --help, turso org audit-logs --help
+    2026-10-26  turso --help, turso db --help, turso db show, turso db shell --help,
+                turso db execute --help, turso db inspect --help, turso group --help,
+                turso db replicate --help, turso db tokens --help, turso org --help,
+                turso api --help, turso org audit-logs --help
     2026-10-27  (no turso invocation)
-    2026-10-28  turso --help, turso db --help, turso auth whoami
+    2026-10-28  turso --version, turso --help, turso db --help, turso db <cmd> --help,
+                turso auth whoami  <-- the FIRST whoami ever run on this host
     2026-10-29  turso --help (and each subcommand's --help), turso db execute --help
     2026-10-30  (no turso invocation)
     2026-10-31  turso auth whoami  <-- twice, both during THIS goal
+
+  Across the whole transcript, `turso auth whoami` was executed three times:
+  2026-10-28 (previous goal), and twice on 2026-10-31 (this goal).
 
   Everything dated 2026-10-26 through 2026-10-29 belongs to the EARLIER goal
   that produced the committed 2026-10-29 captures; those invocations are what
