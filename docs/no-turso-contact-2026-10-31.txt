@@ -53,6 +53,45 @@ collapsed); loops are expanded to their literal subcommand sets. Quoted text
 and grep patterns are not executions. Commands that invoke `turso` inside a
 help-capture loop are executions and are included.
 
+To re-derive the counts, split each bash command on shell separators and keep
+the segments whose first word is `turso` (optionally after `timeout N `). The
+script below is the check this list was produced from:
+
+  import collections, json, re, sys
+  from pathlib import Path
+
+  transcript = Path(sys.argv[1])
+  forms = collections.defaultdict(collections.Counter)
+
+  for line in transcript.read_text(errors="replace").splitlines():
+      try:
+          record = json.loads(line)
+      except ValueError:
+          continue
+      message = record.get("message")
+      if not isinstance(message, dict):
+          continue
+      for item in message.get("content", []):
+          if item.get("type") != "toolCall" or item.get("name") != "bash":
+              continue
+          command = (item.get("arguments") or {}).get("command", "")
+          if not isinstance(command, str):
+              continue
+          if re.search(r"(?:python3?|cat)\s+[^\n]*<<", command):
+              continue  # a program body, not a shell command
+          for segment in re.split(r"&&|;|\|\||\n|\|", re.sub(r"\s*2>&1", " ", command)):
+              segment = re.sub(r"^timeout\s+\d+\s+", "", segment.strip())
+              if segment.startswith("turso "):
+                  forms[record["timestamp"][:10]][" ".join(segment.split()[:2])] += 1
+
+  for day in sorted(forms):
+      print(day, dict(forms[day]))
+
+It reports 2026-10-26, 2026-10-28, 2026-10-29 and 2026-10-31, with nothing
+on 2026-10-27 or 2026-10-30 and exactly two `turso auth` forms on 2026-10-31.
+The two-word form it counts is a prefix, so the full command forms are listed
+below; the per-day lists that follow name each distinct form once.
+
     2026-10-26  `turso --help`; `turso db --help`; `turso db show --help`;
                 `turso db shell --help`; `turso db execute --help`;
                 `turso db inspect --help`; `turso db replicate --help`;
