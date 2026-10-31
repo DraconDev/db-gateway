@@ -5,14 +5,14 @@ The bound this file was first written under belonged to the predecessor pass, no
 to this goal: "No Turso CLI invocation, no console read, no credentials, no
 network call to Turso". Naming the pass matters, because this goal's own
 objective does not carry that bound — it requires recording these invocations
-rather than forbidding them. That bound was not met literally, on
-two counts. Gathering this evidence required running the Turso CLI four times
-across the transcript — one run in the earlier capture pass, two in the
-predecessor pass, one in this goal (all disclosed below, with timestamps and
-results). And credential material from an earlier login does sit
-on this host — an expired token in `~/.config/turso/settings.json` — so "no
-credentials" is true only in the sense that no *valid* credential was available
-and none was presented successfully. An auditor is right that a sentence in the
+rather than forbidding them. That bound was not met literally, on two counts.
+Gathering this evidence required running the Turso CLI four times across the
+transcript — one run in the earlier capture pass, two in the predecessor pass,
+one in this goal (all disclosed below, with timestamps and results). And
+credential material from an earlier login does sit on this host — an expired
+token in `~/.config/turso/settings.json` — so "no credentials" is true only in
+the sense that no *valid* credential was available and none was presented
+successfully. An auditor is right that a sentence in the
 document is self-report, not verification, so this file records what can be
 inspected independently, and it states plainly what the evidence does and does
 not establish.
