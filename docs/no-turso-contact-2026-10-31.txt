@@ -47,8 +47,9 @@ data, but they happened, so the binary was executed and this must not be called
 -----------------------------------------
 The session transcript is JSONL; executed shell commands are in `command`
 fields. This inventory lists each distinct command form once (repeated runs are
-collapsed); loops are expanded to their literal subcommand sets. Quoted text,
-grep patterns and commands that only write the help capture are not executions.
+collapsed); loops are expanded to their literal subcommand sets. Quoted text
+and grep patterns are not executions. Commands that invoke `turso` inside a
+help-capture loop are executions and are included.
 
     2026-10-26  `turso --help`; `turso db --help`; `turso db show --help`;
                 `turso db shell --help`; `turso db execute --help`;
@@ -73,9 +74,10 @@ grep patterns and commands that only write the help capture are not executions.
                 `turso db tokens {create,invalidate} --help`;
                 `turso group {create,list,destroy} --help`;
                 `turso db execute --help`.
-                The listed help forms were run in the inventory loops and again
-                in the commands that wrote
-                `docs/evidence/turso-cli-help-2026-10-29.txt`.
+                A selected subset of these forms was invoked again by the
+                commands that wrote
+                `docs/evidence/turso-cli-help-2026-10-29.txt`; those repeated
+                invocations add no new command forms.
     2026-10-30  (no turso invocation)
     2026-10-31  `turso auth whoami` twice, both during THIS goal.
 
