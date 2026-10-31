@@ -14,11 +14,13 @@ workload from Turso to `dg` today, what would actually be missing?
   on 2026-10-29, plus the installed `turso` CLI v1.0.15 inventory from
   `--help`. Turso was read only: no database was created, destroyed, imported,
   replicated or re-tokened, and no token was issued or invalidated.
-- **What this revision did not re-read**: the Turso side. The 0.10.0 pass that
-  produced this revision was bound to the committed 2026-10-29 captures — no
-  `turso` command ran and no console page was opened — so every Turso fact
-  below is as of 2026-10-29. A Turso capability shipped after that date is
-  invisible here; where a row could have changed since, it says so.
+- **What this revision did not re-read**: the Turso side. The 0.10.0 comparison
+  pass that produced this revision was bound to the committed 2026-10-29 captures
+  — it ran no `turso` command and opened no console page — so every Turso fact
+  below is as of 2026-10-29. Later trace work on 2026-10-31 did run `turso auth
+  whoami` twice; that disclosure is documented separately below and in
+  `docs/no-turso-contact-2026-10-31.txt`. A Turso capability shipped after
+  2026-10-29 is invisible here; where a row could have changed since, it says so.
 - **Evidence**: the captures listed at the end. The October 2026 captures are
   retained unchanged as history and are marked as such wherever they are
   cited.
