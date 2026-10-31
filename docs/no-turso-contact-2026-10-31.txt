@@ -7,23 +7,26 @@ the document is self-report, not verification, so this file records what can be
 inspected independently.
 
 IMPORTANT — one disclosure. While gathering this evidence I ran
-`turso auth whoami` twice. That IS a Turso CLI invocation. It returned "You are
-not logged in", it sent no credential (none exists), and it read no Turso data —
-but it happened, so the honest statement is "no *data* call and no authenticated
-call", not "the binary was never executed". The document now says that.
+`turso auth whoami` twice. That IS a Turso CLI invocation. Both runs returned
+"You are not logged in". This establishes the CLI reported no active login; it
+does not establish that credentials are absent from every possible source or
+that the command made no network request. The two invocations read no database
+data, but they happened, so the binary was executed and this must not be called
+"never invoked".
 
 1. Turso was not authenticated, so a data call could not have succeeded
 ----------------------------------------------------------------------
   $ turso auth whoami
   You are not logged in, please login with turso auth login before running other commands.
 
-2. No credential material exists on this host
----------------------------------------------
+2. No token store observed in `~/.turso/`
+------------------------------------------
   $ ls -A ~/.turso/
   sqld
   turso
-  # The Turso binary and the sqld bundle only. There is no settings.json token
-  # store, so no platform token could be presented.
+  # No settings.json token store appears in this directory. This check is
+  # limited to ~/.turso/; it does not prove there are no credentials in an
+  # environment variable or another location. `auth whoami` reported no login.
 
 3. The baseline captures predate this goal and are byte-identical to HEAD
 ---------------------------------------------------------------------
@@ -40,52 +43,58 @@ call", not "the binary was never executed". The document now says that.
   $ git log --name-only --format= v0.10.0^{}..HEAD | grep "^docs/evidence/"
   (no output — this goal never touched docs/evidence/)
 
-4. Every turso execution, exhaustively
---------------------------------------
-The session transcript is the record of what ran, across this goal and the
-earlier one that produced the captures. Two checks over it:
+4. Turso CLI invocation inventory by date
+-----------------------------------------
+The session transcript is JSONL; executed shell commands are in `command`
+fields. This inventory lists each distinct command form once (repeated runs are
+collapsed); loops are expanded to their literal subcommand sets. Quoted text,
+grep patterns and commands that only write the help capture are not executions.
 
-  $ grep -c 'turso auth whoami' <session>.jsonl
-  (matches include the transcript's own quoted text, so this is an
-   upper bound, not a count of executions)
-
-  Every command field in the transcript that contains a turso invocation,
-  grouped by date:
-
-    2026-10-26  turso --help, turso db --help, turso db shell --help,
-                turso db execute --help, turso db inspect --help, turso group --help,
-                turso db replicate --help, turso db tokens --help, turso org --help,
-                turso api --help, turso org audit-logs --help,
-                AND the only DATA reads of the whole transcript:
-                turso db inspect ai-model-list, turso db show ai-model-list
+    2026-10-26  `turso --help`; `turso db --help`; `turso db show --help`;
+                `turso db shell --help`; `turso db execute --help`;
+                `turso db inspect --help`; `turso db replicate --help`;
+                `turso db tokens --help`; `turso group --help`;
+                `turso org --help`; `turso api --help`;
+                `turso org audit-logs --help`;
+                `turso org audit-logs list --help`;
+                DATA reads: `turso db inspect ai-model-list` and
+                `turso db show ai-model-list` (show ran twice).
     2026-10-27  (no turso invocation)
-    2026-10-28  turso --version, turso --help, turso db --help, turso db <cmd> --help,
-                turso auth whoami  <-- the FIRST whoami ever run on this host
-    2026-10-29  turso --help, then `turso <sub> --help` for auth, config, db, dev,
-                group, org, plan, quickstart, update (the sweep that wrote
-                docs/evidence/turso-cli-help-2026-10-29.txt), plus
-                turso db execute --help
+    2026-10-28  `turso --version`; `turso --help`; `turso db --help`;
+                `turso db {config,inspect,replicate,tokens,locations} --help`;
+                `turso auth whoami`; `turso config --help`
+                (this was the FIRST whoami in the transcript).
+    2026-10-29  `turso --version`; `turso --help`;
+                `turso {auth,config,db,dev,group,org,plan,quickstart,update} --help`;
+                `turso db {config,create,destroy,export,import,inspect,list,
+                locations,replicate,shell,show,tokens,unarchive,update} --help`;
+                `turso db config {attach,delete-protection} --help`;
+                `turso db tokens {create,invalidate} --help`;
+                `turso group {create,list,destroy} --help`;
+                `turso db execute --help`.
+                The listed help forms were run in the inventory loops and again
+                in the commands that wrote
+                `docs/evidence/turso-cli-help-2026-10-29.txt`.
     2026-10-30  (no turso invocation)
-    2026-10-31  turso auth whoami  <-- twice, both during THIS goal
+    2026-10-31  `turso auth whoami` twice, both during THIS goal.
 
-  Across the whole transcript, `turso auth whoami` was executed three times:
-  2026-10-28 (previous goal), and twice on 2026-10-31 (this goal).
-
-  Everything dated 2026-10-26 through 2026-10-29 belongs to the EARLIER goal
-  that produced the committed 2026-10-29 captures; those invocations are what
-  `docs/evidence/turso-cli-help-2026-10-29.txt` is. They are not all harmless
-  help reads: 2026-10-26 ran `turso db inspect ai-model-list` and
-  `turso db show ai-model-list`, which are DATA reads — they happened in the
-  earlier goal, not this one, and no finding in the shipped comparison rests on
-  them. The only invocations inside THIS goal's window are the two
-  unauthenticated `turso auth whoami` calls disclosed above. No other turso
-  command ran here, and no turso command that reads or writes a database, a
-  token or a config file ever ran in this goal.
+Across the whole transcript, `turso auth whoami` was executed three times:
+2026-10-28 (the earlier goal) and twice on 2026-10-31 (this goal). The only
+Turso CLI database-data reads in the transcript were the two commands listed
+for 2026-10-26; they belong to the earlier goal. The 2026-10-29 live console
+captures are also earlier-goal activity, not Turso CLI invocations. The only
+Turso CLI invocations inside THIS goal's window were the two `auth whoami`
+status checks; no database-data command is listed for this window.
 
 5. What this proves and what it does not
 ---------------------------------------
-PROVES: no authenticated Turso call can have occurred (no credential), the
-baseline files are unchanged and older than this goal, and no Turso data was
-read. DOES NOT PROVE: that the binary was never executed — it was, twice, as
-the unauthenticated whoami above. Any future claim of 'never invoked' would be
-false; the accurate claim is 'no data call, no credential, no console read'.
+OBSERVED: both `auth whoami` runs reported no active login; the transcript
+inventory contains no database-data command during this goal's window; and the
+baseline evidence files predate this goal and are unchanged. Earlier activity
+in the transcript did include database reads on 2026-10-26 and live console
+captures on 2026-10-29.
+
+DOES NOT ESTABLISH: that credentials are absent from every possible source,
+that `whoami` made no network request, or that the binary was never executed.
+It was executed twice during this goal. The narrow accurate claim is that no
+authenticated database-data operation was observed in this goal's window.
