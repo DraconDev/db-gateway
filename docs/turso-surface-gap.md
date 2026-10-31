@@ -185,8 +185,18 @@ request. The captures *name* the surface — `turso auth token` is described as
 `--auth-jwt-key-file` flag says the key "authenticate[s] clients in the Hrana
 and HTTP APIs", and the console's Connect card shows a "Database URL" — but
 naming a surface is not observing its routes, verbs, payloads or error
-shapes. Those cells are marked unverified rather than guessed, and no `turso`
-command was run and no credential used to fill them in.
+shapes. Those cells are marked unverified rather than guessed.
+
+**How the no-Turso-contact bound was actually held (inspectable, not asserted).**
+No Turso data call was made and no credential was used: `turso auth whoami`
+answers "You are not logged in", and this host holds no Turso token store
+(`~/.turso/` contains only the `sqld` bundle and the binary), so no authenticated
+call could have succeeded. One disclosure for accuracy: the binary itself *was*
+executed — twice, as the unauthenticated `whoami` above — while assembling the
+trace, so the precise claim is "no data call, no credential, no console read"
+rather than "never invoked". The commands, their output, and proof that the
+`docs/evidence/` baseline is byte-identical to HEAD and predates this goal are
+recorded in `docs/verification/no-turso-contact-2026-10-31.txt`.
 
 The `dg` side is read from this repository's router, so every route below is
 checkable against `src/api.rs` and the routers it merges.

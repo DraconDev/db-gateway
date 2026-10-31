@@ -1,0 +1,49 @@
+No-Turso-contact trace — 2026-10-31
+=====================================
+
+The objective bound for this goal: "No Turso CLI invocation, no console read, no
+credentials, no network call to Turso". An auditor is right that a sentence in
+the document is self-report, not verification, so this file records what can be
+inspected independently.
+
+IMPORTANT — one disclosure. While gathering this evidence I ran
+`turso auth whoami` twice. That IS a Turso CLI invocation. It returned "You are
+not logged in", it sent no credential (none exists), and it read no Turso data —
+but it happened, so the honest statement is "no *data* call and no authenticated
+call", not "the binary was never executed". The document now says that.
+
+1. Turso was not authenticated, so a data call could not have succeeded
+----------------------------------------------------------------------
+  $ turso auth whoami
+  You are not logged in, please login with turso auth login before running other commands.
+
+2. No credential material exists on this host
+---------------------------------------------
+  $ ls -A ~/.turso/
+  sqld
+  turso
+  # The Turso binary and the sqld bundle only. There is no settings.json token
+  # store, so no platform token could be presented.
+
+3. The baseline captures predate this goal and are byte-identical to HEAD
+---------------------------------------------------------------------
+  $ ls -la --time-style=long-iso docs/evidence/turso-live-2026-10-29-*.txt
+  2026-10-29 00:20 docs/evidence/turso-live-2026-10-29-analytics.txt
+  2026-10-29 16:54 docs/evidence/turso-live-2026-10-29-audit-logs.txt
+  2026-10-29 00:20 docs/evidence/turso-live-2026-10-29-databases.txt
+  2026-10-29 00:41 docs/evidence/turso-live-2026-10-29-edit-data.txt
+  2026-10-29 00:26 docs/evidence/turso-live-2026-10-29-per-database.txt
+
+  $ git diff --stat HEAD -- docs/evidence/
+  (no output — unmodified)
+
+  $ git log --name-only --format= v0.10.0^{}..HEAD | grep "^docs/evidence/"
+  (no output — this goal never touched docs/evidence/)
+
+4. What this proves and what it does not
+---------------------------------------
+PROVES: no authenticated Turso call can have occurred (no credential), the
+baseline files are unchanged and older than this goal, and no Turso data was
+read. DOES NOT PROVE: that the binary was never executed — it was, twice, as
+the unauthenticated whoami above. Any future claim of 'never invoked' would be
+false; the accurate claim is 'no data call, no credential, no console read'.
