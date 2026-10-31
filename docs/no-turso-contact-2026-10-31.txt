@@ -64,7 +64,7 @@ check this list was produced from:
   from pathlib import Path
 
   def shell_segments(command):
-      """Split on separators outside quotes; honour \\ escapes in "..."."""
+      """Split on separators outside quotes; honour backslash escapes in "..."."""
       out, buf, i, quote = [], [], 0, None
       while i < len(command):
           ch = command[i]
@@ -92,14 +92,14 @@ check this list was produced from:
                   out.append("".join(buf)); buf = []; i += len(sep); joined = True; break
           if joined:
               continue
-          if ch in (";", "\\n", "|"):
+          if ch in (";", "\n", "|"):
               out.append("".join(buf)); buf = []; i += 1
           else:
               buf.append(ch); i += 1
       out.append("".join(buf))
       for segment in out:
-          segment = re.sub(r"\\s*2>&1", " ", segment).strip()
-          segment = re.sub(r"^timeout\\s+\\d+\\s+", "", segment).strip()
+          segment = re.sub(r"\s*2>&1", " ", segment).strip()
+          segment = re.sub(r"^timeout\s+\d+\s+", "", segment).strip()
           if segment:
               yield segment
 
@@ -118,7 +118,7 @@ check this list was produced from:
           command = (item.get("arguments") or {}).get("command", "")
           if not isinstance(command, str):
               continue
-          if re.search(r"(?:python3?|cat)\\s+[^\\n]*<<", command):
+          if re.search(r"(?:python3?|cat)\s+[^\n]*<<", command):
               continue  # a program body, not a shell command
           for segment in shell_segments(command):
               if segment.startswith("turso "):
