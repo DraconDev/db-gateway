@@ -577,29 +577,31 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
     // browser, takes the WHOLE body. Both are places the operator went,
     // not notes about a place: the dashboard is what you leave behind,
     // and Esc comes back to it.
+    //
+    // "Whole body" means whole: no tab strip. The strip used to be drawn
+    // above both, which contradicted the sentence above -- the page had
+    // the dashboard's menu on top of it, and clicking one of those tabs
+    // changed the tab underneath a page that stayed on screen, so the
+    // click did nothing visible and Esc then landed on a tab nobody
+    // chose. The strip is the dashboard's furniture; a place you went
+    // does not carry it.
     if app.page.is_some() {
-        let strip = tab_strip(frame, area, app);
-        let rows =
-            Layout::vertical([Constraint::Length(strip.height), Constraint::Min(4)]).split(area);
         app.geometry = Geometry {
-            tabs: strip.tabs,
-            strip: Some(strip.area),
-            body: Some(rows[1]),
+            tabs: Vec::new(),
+            strip: None,
+            body: Some(area),
             tables: Vec::new(),
             page_list: None,
             outcome: None,
         };
-        database_page(frame, rows[1], app);
+        database_page(frame, area, app);
         return;
     }
     if app.browser.is_some() && app.outcome.is_some() {
-        let strip = tab_strip(frame, area, app);
-        let rows =
-            Layout::vertical([Constraint::Length(strip.height), Constraint::Min(4)]).split(area);
         app.geometry = Geometry {
-            tabs: strip.tabs,
-            strip: Some(strip.area),
-            body: Some(rows[1]),
+            tabs: Vec::new(),
+            strip: None,
+            body: Some(area),
             tables: Vec::new(),
             page_list: None,
             outcome: None,
@@ -607,11 +609,11 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
         let mut geometry = None;
         let mouse = app.mouse;
         if let Some(outcome) = app.outcome.clone() {
-            let room = usize::from(rows[1].height.saturating_sub(10)).max(6);
-            let compact = if rows[1].height < 20 {
+            let room = usize::from(area.height.saturating_sub(10)).max(6);
+            let compact = if area.height < 20 {
                 app.browser
                     .as_mut()
-                    .and_then(|browser| compact_rows_pane(frame, rows[1], &outcome, browser, mouse))
+                    .and_then(|browser| compact_rows_pane(frame, area, &outcome, browser, mouse))
             } else {
                 None
             };
@@ -620,7 +622,7 @@ fn body(frame: &mut Frame, area: Rect, app: &mut App) {
             } else {
                 outcome_pane_with(
                     frame,
-                    rows[1],
+                    area,
                     &outcome,
                     PaneShape {
                         mouse,
@@ -1510,13 +1512,21 @@ fn status_line(frame: &mut Frame, area: Rect, app: &App) {
     // fall behind the strip. It DID fall behind it: the bar said "1-4"
     // while a fifth tab was on the screen, because the range was written
     // down by hand and only the strip was updated.
+    //
+    // It is also tied to where the strip is drawn: a page or the rows
+    // browser takes the whole body and has no strip, so advertising
+    // tab numbers there would name keys with nothing on screen to reach
+    // -- the same drift, in the other direction.
+    let on_page = app.page.is_some() || app.browser.is_some();
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut used: usize = 0;
-    let tabs = format!("1-{}", Focus::ALL.len());
-    spans.push(Span::styled(tabs.clone(), crate::tui::theme::key()));
-    used += tabs.width();
-    spans.push(Span::styled(" tabs", crate::tui::theme::key_label()));
-    used += " tabs".width();
+    if !on_page {
+        let tabs = format!("1-{}", Focus::ALL.len());
+        spans.push(Span::styled(tabs.clone(), crate::tui::theme::key()));
+        used += tabs.width();
+        spans.push(Span::styled(" tabs", crate::tui::theme::key_label()));
+        used += " tabs".width();
+    }
     // Key, then what it does. The database page moves the left-hand table
     // list with arrows or a wheel over that list; a wheel over values can
     // scroll rows. The rows browser scrolls a clipped page locally and uses
