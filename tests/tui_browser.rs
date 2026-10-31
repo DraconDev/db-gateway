@@ -270,8 +270,12 @@ fn the_smallest_rows_browser_scrolls_the_fetched_page_without_losing_rows() {
         last.contains("ROW-10"),
         "scrolling within the fetched page cannot reach its final row:\n{last}"
     );
+    // The window starts at 4, not 5: the browser owns the whole screen now,
+    // so it gained the line the dashboard tab strip used to take. The
+    // behaviour this guards -- the last row is reachable and the footer
+    // says which slice is showing -- is unchanged.
     assert!(
-        last.contains("visible 5-10 of 10 fetched"),
+        last.contains("visible 4-10 of 10 fetched"),
         "the footer does not describe the final visible window:\n{last}"
     );
 }
@@ -558,8 +562,10 @@ fn wheel_events_outside_the_body_do_not_change_the_browser_page() {
     app.outcome = Some(browser_outcome(&browser(), &page()));
     let _ = screen(&mut app, 120, 40);
 
-    // The top bar, tab strip, and bottom status line are not body controls.
-    for row in [0, 1, 39] {
+    // The top bar and the bottom status line are not body controls. The
+    // browser takes the whole body, so row 1 -- where the tab strip used to
+    // sit -- is inside the body now and scrolling there is legitimate.
+    for row in [0, 39] {
         app.on_mouse(MouseEvent {
             kind: MouseEventKind::ScrollDown,
             column: 10,
@@ -673,4 +679,45 @@ fn leaving_the_browser_returns_the_dashboard() {
     assert!(opened.contains("opened"));
     app.on_key(key(KeyCode::Esc));
     assert!(app.browser.is_none(), "Esc did not leave the browser");
+}
+
+/// The rows browser is a place too: it takes the whole screen, with no
+/// dashboard tab strip above it.
+///
+/// The strip used to be drawn over the browser for the same reason it was
+/// drawn over the database page: the layout treated a place as a note
+/// about the dashboard. A tab click there moved a tab nobody could see.
+#[test]
+fn the_rows_browser_takes_the_whole_screen_with_no_tab_strip() {
+    let mut app = app();
+    app.browser = Some(browser());
+    app.outcome = Some(browser_outcome(&browser(), &page()));
+    let text = screen(&mut app, 120, 40);
+
+    // The rows are there.
+    assert!(
+        text.contains("products in shop"),
+        "the browser is missing its headline:\n{text}"
+    );
+    assert!(
+        text.contains("rows 1-10 of 62"),
+        "the browser is missing its footer:\n{text}"
+    );
+
+    // The dashboard's furniture is not. Only the strip names these tabs.
+    for other in ["backups", "keys", "queries", "locations"] {
+        assert!(
+            !text.contains(other),
+            "the dashboard tab strip is still over the browser ({other}):\n{text}"
+        );
+    }
+    assert!(
+        !text.contains("1-6 tabs"),
+        "the status bar still advertises a strip that is not drawn:\n{text}"
+    );
+    // One exit, and it is named.
+    assert!(
+        text.contains("esc back"),
+        "the browser does not say how to leave it:\n{text}"
+    );
 }

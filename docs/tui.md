@@ -272,6 +272,19 @@ A database is a place you go, so it gets a page with room for the thing
 you came to look at. The earlier shape — a note under a dashboard that
 kept the whole screen — had room for a summary, not for a table.
 
+The page takes the **whole screen**: the dashboard's tab strip is not
+drawn on it. The strip is the dashboard's menu, and there is nothing to
+switch between on a page — a strip above it made the page look like a
+pane and made a tab click do nothing, because the click changed the tab
+hiding underneath while the page stayed put. `esc` puts the dashboard
+back, strip and all, on the tab you left.
+
+For the same reason `1`–`6` and `tab` do nothing while a page or the rows
+browser is open. With no strip on screen those keys would move the tab
+*underneath* the place you are in — a change you cannot see — and `esc`
+would then land on a tab you never chose. The status bar says what the
+open place does offer, including the key that leaves it.
+
 | Key | What it does |
 |---|---|
 | `↓` / `↑`, or wheel over the list | Move to the next / previous tables (three per wheel notch) |
@@ -290,6 +303,8 @@ table's rows, so the name on the left is the data on the right.
 Opening a table opens its **rows**: the data, ten at a time. The table
 takes the WHOLE screen while it is open — it is the thing you opened, not
 a note about it under a dashboard. `esc` puts the dashboard back.
+No tab strip is drawn over it either, for the reason given under the
+database page.
 
 This is a place the operator stays in, not a one-shot read, so the table,
 the page and the choices narrowing it are kept together — every keystroke
@@ -404,7 +419,9 @@ leaves, so the shell you return to keeps its selection and its wheel.
 Only the strip and the body are targets: a click on the separators, the
 top bar or the status line does nothing, and a click that lands while the
 actions list or a prompt is open belongs to that dialogue rather than to
-the view underneath it. The mark follows the pointer and leaves with it:
+the view underneath it. The strip is only on the dashboard — a page or the
+rows browser fills the screen, so there is no strip there to click and no
+hidden tab to move. The mark follows the pointer and leaves with it:
 a header is never marked, because a header is not a row, and a table the
 pointer has left keeps no mark behind.
 

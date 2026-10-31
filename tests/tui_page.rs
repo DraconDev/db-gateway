@@ -509,3 +509,117 @@ fn the_table_list_wheel_stops_at_the_last_table() {
     assert_eq!(app.browser.as_ref().map(|browser| browser.page), Some(0));
     assert_eq!(app.take_pending(), None);
 }
+
+/// The page is the whole screen: the dashboard's tab strip is not drawn
+/// on top of it.
+///
+/// The strip used to be drawn above the page, so the dashboard's menu
+/// came along to a place the operator had gone to. That also made a tab
+/// click a no-op: it moved the tab underneath a page that stayed on
+/// screen, so nothing changed and Esc then landed on a tab nobody chose.
+#[test]
+fn the_page_takes_the_whole_screen_with_no_tab_strip() {
+    let mut app = app();
+    app.page = Some(page());
+    let text = screen(&mut app, 100, 24);
+
+    // The page is there: its database, its tables, its values block.
+    assert!(text.contains("inventory"), "the page is missing:\n{text}");
+    assert!(
+        text.contains("products"),
+        "the table list is missing:\n{text}"
+    );
+    assert!(
+        text.contains("values"),
+        "the values pane is missing:\n{text}"
+    );
+
+    // The dashboard's furniture is not. Every other tab is named only by
+    // the strip, so if the strip is gone none of those names appear.
+    for other in ["service", "backups", "keys", "queries", "locations"] {
+        assert!(
+            !text.contains(other),
+            "the dashboard tab strip is still on the page ({other}):\n{text}"
+        );
+    }
+    // And the bar does not advertise tab numbers the screen cannot show.
+    assert!(
+        !text.contains("1-6 tabs"),
+        "the status bar still advertises the tab strip:\n{text}"
+    );
+    // The way out is on the bar, because a place with one exit has to say
+    // where it is.
+    assert!(
+        text.contains("esc back"),
+        "the page does not say how to leave it:\n{text}"
+    );
+}
+
+/// Esc leaves the page and the dashboard comes back with its strip.
+#[test]
+fn escaping_the_page_brings_the_dashboard_strip_back() {
+    let mut app = app();
+    app.page = Some(page());
+    assert!(
+        !screen(&mut app, 100, 24).contains("locations"),
+        "the strip was drawn on the page"
+    );
+    app.on_key(key(KeyCode::Esc));
+    assert!(app.page.is_none(), "esc did not leave the page");
+    let dashboard = screen(&mut app, 100, 24);
+    for tab in [
+        "databases",
+        "service",
+        "backups",
+        "keys",
+        "queries",
+        "locations",
+    ] {
+        assert!(
+            dashboard.contains(tab),
+            "the dashboard strip is missing {tab:?} after esc:\n{dashboard}"
+        );
+    }
+    assert!(
+        dashboard.contains("1-6 tabs"),
+        "the dashboard bar does not advertise its tabs again:\n{dashboard}"
+    );
+}
+
+/// A tab key pressed on the page does not move the tab underneath it.
+///
+/// With no strip on screen, `3` must not silently switch the hidden
+/// dashboard to backups: the operator would leave the page and find
+/// themselves somewhere they never asked to be.
+#[test]
+fn tab_keys_do_not_move_the_tab_underneath_the_page() {
+    let mut app = app();
+    app.page = Some(page());
+    app.focus = dg::tui::Focus::Databases;
+    app.on_key(key(KeyCode::Char('3')));
+    assert!(app.page.is_some(), "a number key closed the page");
+    assert_eq!(
+        app.focus,
+        dg::tui::Focus::Databases,
+        "a number key moved the hidden dashboard tab"
+    );
+    app.on_key(key(KeyCode::Tab));
+    assert_eq!(
+        app.focus,
+        dg::tui::Focus::Databases,
+        "tab moved the hidden dashboard tab"
+    );
+    // The page's own keys still work.
+    app.on_key(key(KeyCode::Down));
+    assert_eq!(
+        app.page
+            .as_ref()
+            .and_then(DatabasePage::current)
+            .map(|t| t.name.as_str()),
+        Some("stock_moves"),
+        "the page stopped responding to its own keys"
+    );
+    // And leaving returns to the tab the operator actually chose.
+    app.on_key(key(KeyCode::Esc));
+    assert_eq!(app.focus, dg::tui::Focus::Databases);
+}
