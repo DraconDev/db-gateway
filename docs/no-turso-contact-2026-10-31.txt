@@ -226,7 +226,7 @@ calls.
 
 5. What this proves and what it does not
 ---------------------------------------
-OBSERVED: the only Turso credential on this host is an expired token from a
+OBSERVED: the Turso credential found on this host is an expired token from a
 prior login (`~/.config/turso/settings.json`, `exp` 2026-10-25T15:19:11Z), so no
 Turso API call made after that instant could have authenticated with it. Both
 `auth whoami` runs confirmed no active login. The transcript inventory contains
