@@ -14,8 +14,8 @@ that the command made no network request. The two invocations read no database
 data, but they happened, so the binary was executed and this must not be called
 "never invoked".
 
-1. Turso was not authenticated, so a data call could not have succeeded
-----------------------------------------------------------------------
+1. Status check result: the CLI reported no active login
+--------------------------------------------------------
   $ turso auth whoami
   You are not logged in, please login with turso auth login before running other commands.
 
