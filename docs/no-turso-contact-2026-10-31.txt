@@ -52,14 +52,19 @@ earlier one that produced the captures. Two checks over it:
   Every command field in the transcript that contains a turso invocation,
   grouped by date:
 
-    2026-10-26  turso --help, turso db --help, turso db show, turso db shell --help,
+    2026-10-26  turso --help, turso db --help, turso db shell --help,
                 turso db execute --help, turso db inspect --help, turso group --help,
                 turso db replicate --help, turso db tokens --help, turso org --help,
-                turso api --help, turso org audit-logs --help
+                turso api --help, turso org audit-logs --help,
+                AND the only DATA reads of the whole transcript:
+                turso db inspect ai-model-list, turso db show ai-model-list
     2026-10-27  (no turso invocation)
     2026-10-28  turso --version, turso --help, turso db --help, turso db <cmd> --help,
                 turso auth whoami  <-- the FIRST whoami ever run on this host
-    2026-10-29  turso --help (and each subcommand's --help), turso db execute --help
+    2026-10-29  turso --help, then `turso <sub> --help` for auth, config, db, dev,
+                group, org, plan, quickstart, update (the sweep that wrote
+                docs/evidence/turso-cli-help-2026-10-29.txt), plus
+                turso db execute --help
     2026-10-30  (no turso invocation)
     2026-10-31  turso auth whoami  <-- twice, both during THIS goal
 
@@ -68,10 +73,14 @@ earlier one that produced the captures. Two checks over it:
 
   Everything dated 2026-10-26 through 2026-10-29 belongs to the EARLIER goal
   that produced the committed 2026-10-29 captures; those invocations are what
-  `docs/evidence/turso-cli-help-2026-10-29.txt` is. The only invocations inside
-  this goal's window are the two unauthenticated `turso auth whoami` calls
-  disclosed above. No other turso command ran, and no turso command that reads
-  or writes a database, a token or a config file ever ran in this goal.
+  `docs/evidence/turso-cli-help-2026-10-29.txt` is. They are not all harmless
+  help reads: 2026-10-26 ran `turso db inspect ai-model-list` and
+  `turso db show ai-model-list`, which are DATA reads — they happened in the
+  earlier goal, not this one, and no finding in the shipped comparison rests on
+  them. The only invocations inside THIS goal's window are the two
+  unauthenticated `turso auth whoami` calls disclosed above. No other turso
+  command ran here, and no turso command that reads or writes a database, a
+  token or a config file ever ran in this goal.
 
 5. What this proves and what it does not
 ---------------------------------------
