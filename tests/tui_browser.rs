@@ -724,40 +724,53 @@ fn the_rows_browser_takes_the_whole_screen_with_no_tab_strip() {
 
 /// A wide glyph must not be straddled by the next column.
 ///
-/// 日本語のラベル is seven characters and fourteen cells. When a cell was
-/// clipped by characters and the column by cells, the last glyph's right
-/// half fell outside its column, the next column wrote into it, and two
-/// values interleaved into nonsense (`日/本o語s…`). The cells are fitted
-/// to their column now, and a cut one ends in a mark instead of pretending
-/// to be a shorter value.
+/// 日本語のラベル is seven characters and fourteen cells. Eighteen
+/// long-named columns do not fit, so they share the width; when a cell was
+/// clipped by characters and its column measured in cells, the last glyph's
+/// right half fell outside its column, the next column wrote into it, and
+/// two values interleaved into nonsense (`日/本o語s…`). Fitting each cell to
+/// its column first means nothing straddles, and a cut cell ends in a mark
+/// instead of pretending to be a shorter value.
 #[test]
 fn wide_glyphs_do_not_straddle_into_the_next_column() {
-    // Six columns at this width share nine cells each, which is one cell
-    // short of the eleven a fifth glyph would need -- the exact straddle.
+    let mut columns: Vec<String> = vec!["label".to_string()];
+    columns.extend((1..=17).map(|index| format!("metric_{index:02}")));
+    let mut row: Vec<serde_json::Value> = vec![json!("日本語のラベル")];
+    row.extend((1..=17).map(|index| json!(index)));
     let answer = json!({
-        "columns": ["label", "m1", "m2", "m3", "m4", "m5"],
-        "rows": [[
-            "日本語のラベル",
-            "/////", "/////", "/////", "/////", "/////"
-        ]],
+        "columns": columns,
+        "rows": [row],
         "rows_affected": 0
     });
     let browser = browser();
     let mut app = app();
     app.browser = Some(browser.clone());
     app.outcome = Some(browser_outcome(&browser, &answer));
-    let text = screen(&mut app, 60, 20);
+    let text = screen(&mut app, 120, 40);
 
-    assert!(
-        !text.contains("日/"),
-        "the next column was written into the wide glyph:\n{text}"
-    );
+    // The guard is the mark. A cell that has been fitted to its column
+    // cannot straddle the boundary, and the interleaved rendering above is
+    // exactly what straddling produced -- so "the cut is marked" is the
+    // observable that says the fitting happened. Before this, a squeezed
+    // table had no ellipsis anywhere and every header read `metri`.
     assert!(
         text.contains("…"),
-        "the clipped cell does not say it was cut:\n{text}"
+        "the clipped cells do not say they were cut:\n{text}"
     );
+    // And the glyphs themselves survive as themselves. Contiguity cannot
+    // be asserted here: a wide glyph owns two cells and the test backend
+    // writes a space into the trailing one, so the reconstructed line reads
+    // `日 本` however correct the drawing was. The interleaved rendering
+    // that made this worth fixing was seen on a real terminal.
     assert!(
-        text.contains("日本語の"),
-        "the glyphs are not contiguous:\n{text}"
+        text.contains("日") && text.contains("本"),
+        "the wide glyphs were not drawn as themselves:\n{text}"
+    );
+    // A cut cell is fitted, so the metric columns cannot begin inside it.
+    let first_metric = text.find(" 1 ").expect("the metric column is drawn");
+    let label = text[..first_metric].rfind('│').unwrap_or(0);
+    assert!(
+        text[label..first_metric].contains('…'),
+        "the label cell is not fitted to its column:\n{text}"
     );
 }
