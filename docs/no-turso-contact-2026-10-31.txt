@@ -159,13 +159,25 @@ It reports 2026-10-26, 2026-10-28, 2026-10-29 and 2026-10-31, with nothing
 on 2026-10-27 or 2026-10-30, and three `turso auth` segments in total — one on
 2026-10-28 and two on 2026-10-31.
 
-Two limits of that script, both covered by the lists below. It counts the
-first two words of a segment, so it is a prefix, not the full command form. And
-it does not see inside a `for ...; do turso db $c --help; done` loop, because
-the segment begins with `do`; the 2026-10-29 inventory loop therefore shows as
-only its two un-looped `turso db execute --help` runs. The per-day lists that
-follow expand those loops to their literal subcommand sets, which is why they
-name more forms than the script counts.
+Three limits of that script, all covered by the lists below.
+
+First, it counts the first two words of a segment, so it is a prefix, not the full
+command form.
+
+Second, it drops an entire command field that contains a heredoc (`python3 - <<`,
+`cat > f <<`), so a `turso` call sharing that field would not be counted. Neither
+2026-10-31 `auth whoami` command is in a heredoc field, so the count is unaffected
+here, but the blind spot is real.
+
+Third, a `for`-loop body is visible only if the loop is written so the `turso`
+call starts its own segment. On 2026-10-28 the body is
+`do echo "=== db $c ==="; turso db $c --help ...`, so `turso db $c --help` follows
+a `;` and **is** counted — which is why 2026-10-28 shows a `turso db` entry. On
+2026-10-29 the bodies are `do turso $c --help > ...` and `do turso db $c --help`,
+where the segment begins with `do`, so those loops are **not** counted: 2026-10-29
+shows only its two un-looped `turso db execute --help` runs. The per-day lists
+below expand every loop to its literal subcommand sets, which is why they name
+more forms than the script counts.
 
     2026-10-26  `turso --help`; `turso db --help`; `turso db show --help`;
                 `turso db shell --help`; `turso db execute --help`;
