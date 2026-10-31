@@ -27,9 +27,9 @@ nothing earlier.
 IMPORTANT — three disclosures. First: the Turso CLI was executed four times
 across the transcript — `turso auth whoami` at 2026-10-28T23:55:08Z (earlier
 capture pass), at 2026-10-31T00:15:46Z and 2026-10-31T00:15:58Z (predecessor
-pass), and at
-2026-10-31T13:12:02Z (this goal). That IS a Turso CLI invocation, and an earlier
-draft of this file said "twice" because it counted only the predecessor's two.
+pass), and at 2026-10-31T13:12:02Z (this goal). That IS a Turso CLI invocation,
+and an earlier draft of this file said "twice" because it counted only the
+predecessor's two.
 All four runs returned "You are not logged in". Second: an earlier draft said no
 credential store could be found because `~/.turso/` holds only binaries. That was
 the wrong directory. The Turso CLI's token store is
