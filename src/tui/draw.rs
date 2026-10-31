@@ -525,21 +525,12 @@ fn database_page(frame: &mut Frame, area: Rect, app: &mut App) {
     // The list is as wide as its widest line, within reason: a table name
     // can be long, and a list that eats the screen leaves no room for the
     // values it exists to show.
-    let widest = page
-        .tables
-        .iter()
-        .map(|table| table.name.chars().count())
-        .max()
-        .unwrap_or(0)
-        + 4;
-    let list_width = (widest as u16).clamp(16, area.width.saturating_sub(30).max(16));
-    let columns =
-        Layout::horizontal([Constraint::Length(list_width), Constraint::Min(20)]).split(area);
-    // The list: one line per table, with its row count, the selected one
-    // marked. The mark is a symbol as well as a colour, so it survives a
-    // monochrome terminal.
-    let mut lines: Vec<Line<'static>> = Vec::new();
-    let visible = usize::from(columns[0].height.saturating_sub(2)).max(1);
+    //
+    // How many tables fit does not depend on how wide the list is -- the
+    // split below is horizontal, so the list is as tall as the page -- and
+    // measuring that first is what lets the width be chosen from the slice
+    // the list is actually going to show.
+    let visible = usize::from(area.height.saturating_sub(2)).max(1);
     // The table list can be taller than its viewport. Keep the selection
     // visible before drawing, and persist the measured scroll so mouse
     // clicks on this frame map back to the same table indices.
@@ -549,6 +540,34 @@ fn database_page(frame: &mut Frame, area: Rect, app: &mut App) {
         current.selected = page.selected;
         current.list_scroll = start;
     }
+    // A list longer than its viewport used to say nothing at all: with
+    // forty tables the page showed the first thirty-six and no sign that
+    // four existed. The rows table has always reported "rows 1-10 of N";
+    // the table list is the same question about the same kind of list. It
+    // reports its slice only when there is one.
+    let drawn = visible.min(page.tables.len().saturating_sub(start));
+    let counter = if page.tables.len() > visible {
+        format!(" {}-{} of {} ", start + 1, start + drawn, page.tables.len())
+    } else {
+        String::new()
+    };
+    // The slice counter is part of the title, so it sets a floor on the
+    // width too. Sizing the list for the names alone drew the counter over
+    // the database's own name, which left the title reading "s 1-36 of 40".
+    let widest = page
+        .tables
+        .iter()
+        .map(|table| UnicodeWidthStr::width(table.name.as_str()))
+        .max()
+        .unwrap_or(0)
+        .max(UnicodeWidthStr::width(counter.as_str()));
+    let list_width = ((widest + 4) as u16).clamp(16, area.width.saturating_sub(30).max(16));
+    let columns =
+        Layout::horizontal([Constraint::Length(list_width), Constraint::Min(20)]).split(area);
+    // The list: one line per table, with its row count, the selected one
+    // marked. The mark is a symbol as well as a colour, so it survives a
+    // monochrome terminal.
+    let mut lines: Vec<Line<'static>> = Vec::new();
     // Where the list's rows really are, so a click on a table name
     // selects that table -- the mouse and arrow keys move the same list.
     let list_inner = Block::default().borders(Borders::ALL).inner(columns[0]);
@@ -570,17 +589,6 @@ fn database_page(frame: &mut Frame, area: Rect, app: &mut App) {
             Span::styled(format!("{:>5}", table.rows), paint_style(ViewStyle::Dim)),
         ]));
     }
-    // A list longer than its viewport used to say nothing at all: with
-    // forty tables the page showed the first thirty-one and no sign that
-    // nine existed. The rows table has always reported "rows 1-10 of N";
-    // the table list is the same question about the same kind of list, so
-    // it answers the same way, and only when it is actually clipped.
-    let drawn = visible.min(page.tables.len().saturating_sub(start));
-    let counter = if page.tables.len() > visible {
-        format!(" {}-{} of {} ", start + 1, start + drawn, page.tables.len())
-    } else {
-        String::new()
-    };
     let mut block = Block::default()
         .borders(Borders::ALL)
         .border_style(crate::tui::theme::border_focused())
