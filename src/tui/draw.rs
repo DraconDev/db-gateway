@@ -551,16 +551,12 @@ fn database_page(frame: &mut Frame, area: Rect, app: &mut App) {
     } else {
         String::new()
     };
-    // The slice counter is part of the title, so it sets a floor on the
-    // width too. Sizing the list for the names alone drew the counter over
-    // the database's own name, which left the title reading "s 1-36 of 40".
     let widest = page
         .tables
         .iter()
         .map(|table| UnicodeWidthStr::width(table.name.as_str()))
         .max()
-        .unwrap_or(0)
-        .max(UnicodeWidthStr::width(counter.as_str()));
+        .unwrap_or(0);
     let list_width = ((widest + 4) as u16).clamp(16, area.width.saturating_sub(30).max(16));
     let columns =
         Layout::horizontal([Constraint::Length(list_width), Constraint::Min(20)]).split(area);
@@ -597,8 +593,13 @@ fn database_page(frame: &mut Frame, area: Rect, app: &mut App) {
             crate::tui::theme::heading(),
         ));
     if !counter.is_empty() {
-        block = block
-            .title(Line::from(Span::styled(counter, paint_style(ViewStyle::Dim))).right_aligned());
+        // The bottom border, not the top: the top one carries the
+        // database's name, and a long name plus a long slice cannot share
+        // fourteen cells -- sharing them drew "s 1-36 of 40", which loses
+        // the name AND reads like a typo.
+        block = block.title_bottom(
+            Line::from(Span::styled(counter, paint_style(ViewStyle::Dim))).right_aligned(),
+        );
     }
     frame.render_widget(Paragraph::new(Text::from(lines)).block(block), columns[0]);
     // The values: the selected table's rows, with the footer that says
