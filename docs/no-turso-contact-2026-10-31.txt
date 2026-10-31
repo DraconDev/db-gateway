@@ -8,27 +8,55 @@ An auditor is right that a sentence in the document is self-report, not
 verification, so this file records what can be inspected independently, and it
 states plainly what the evidence does and does not establish.
 
-IMPORTANT — one disclosure. While gathering this evidence I ran
+IMPORTANT — two disclosures. First: while gathering this evidence I ran
 `turso auth whoami` twice. That IS a Turso CLI invocation. Both runs returned
-"You are not logged in". This establishes the CLI reported no active login; it
-does not establish that credentials are absent from every possible source or
-that the command made no network request. The two invocations read no database
-data, but they happened, so the binary was executed and this must not be called
-"never invoked".
+"You are not logged in". Second, and more important: an earlier draft of this
+file said no credential store could be found because `~/.turso/` holds only
+binaries. That was the wrong directory. The Turso CLI's token store is
+`~/.config/turso/settings.json`, that file exists and holds credential material
+from a previous login, and its token expired on 2026-10-25 — six days before
+this goal opened. §2 records this in full. "No credential exists" was false;
+"no valid credential was available" is what the evidence shows.
+
+Neither the two `auth whoami` runs nor anything else here read database data, so
+the binary was executed and this must not be called "never invoked". The
+`whoami` runs do not establish that they made no network request.
 
 1. Status check result: the CLI reported no active login
 --------------------------------------------------------
   $ turso auth whoami
   You are not logged in, please login with turso auth login before running other commands.
 
-2. No token store observed in `~/.turso/`
-------------------------------------------
+2. Credential material from a previous login does exist on this host
+--------------------------------------------------------------------
+The obvious place to look is `~/.turso/`, and it holds only binaries — but that
+is not where the Turso CLI keeps its auth token:
+
   $ ls -A ~/.turso/
   sqld
   turso
-  # No settings.json token store appears in this directory. This check is
-  # limited to ~/.turso/; it does not prove there are no credentials in an
-  # environment variable or another location. `auth whoami` reported no login.
+
+Its real store is `~/.config/turso/settings.json`. That file exists:
+
+  $ stat -c '%a %s %y %n' ~/.config/turso/settings.json
+  600 26430 2026-10-25 00:44:00.000000000 +0000 /home/dracon/.config/turso/settings.json
+
+It contains top-level `token`, `username`, `usedcommands` and `cache` keys, with
+`usedcommands.auth_login: true` — so a login did happen at some point and its
+credential material is still on disk. The value is not reproduced here.
+
+The token is a JWT whose `exp` claim is `1792941551`, i.e.
+**2026-10-25T15:19:11Z**. That expired six days before this goal's window opened
+on 2026-10-31, which is why `turso auth whoami` reports "You are not logged in"
+despite the file being present.
+
+So the accurate statement is not "no credential exists". It is: credential
+material from an expired login sits at `~/.config/turso/settings.json`, it had
+already lapsed before this goal began, and every `turso` command in this window
+was rejected for want of a valid login. A data call could not have succeeded
+because the only token on the box was expired, not because no token existed.
+A hypervisor or external host sharing this home directory could present a
+credential this file does not record; nothing here rules that out.
 
 3. The baseline captures predate this goal and are byte-identical to HEAD
 ---------------------------------------------------------------------
@@ -182,12 +210,15 @@ calls.
 
 5. What this proves and what it does not
 ---------------------------------------
-OBSERVED: both `auth whoami` runs reported no active login; the transcript
-inventory contains no database-data command during this goal's window; no
-console-page tool call is recorded on 2026-10-31; and the baseline evidence
-files predate this goal and are unchanged. Earlier activity in the transcript
-included three database-data command attempts on 2026-10-26, all rejected as not
-logged in, and live console captures on 2026-10-29.
+OBSERVED: the only Turso credential on this host is an expired token from a
+prior login (`~/.config/turso/settings.json`, `exp` 2026-10-25T15:19:11Z), so no
+Turso API call made after that instant could have authenticated with it. Both
+`auth whoami` runs confirmed no active login. The transcript inventory contains
+no database-data command during this goal's window, no console-page tool call is
+recorded on 2026-10-31, and the baseline evidence files predate this goal and are
+unchanged. Earlier activity included three database-data command attempts on
+2026-10-26, all rejected as not logged in, and live console captures on
+2026-10-29.
 
 DOES NOT ESTABLISH: that credentials are absent from every possible source,
 that `whoami` made no network request, or that the binary was never executed.
