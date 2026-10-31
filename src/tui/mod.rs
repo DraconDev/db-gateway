@@ -827,6 +827,20 @@ impl App {
         if self.browser.is_some() && self.browser_key(&key) {
             return;
         }
+        // A place with no tab strip must not take tab keys either. The
+        // strip is what advertises `1`-`6` and `tab`; with the strip gone,
+        // those keys would move the tab UNDERNEATH a page that stays on
+        // screen, so the keystroke would do nothing visible and Esc would
+        // then land on a tab nobody chose. The page and the browser own the
+        // keyboard; Esc is how you leave them.
+        if (self.page.is_some() || self.browser.is_some())
+            && matches!(
+                key.code,
+                KeyCode::Tab | KeyCode::BackTab | KeyCode::Char('1'..='9')
+            )
+        {
+            return;
+        }
         match key.code {
             KeyCode::Char('q') => self.quit = true,
             KeyCode::Char('r') => {
