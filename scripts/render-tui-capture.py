@@ -12,13 +12,30 @@ Used by `scripts/capture-tui-evidence.sh`.
 
 import re
 import sys
+import unicodedata
 
 CURSOR_HOME = re.compile(r"\x1b\[(\d+);(\d+)H")
 CURSOR_ELSEWHERE = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
 
 
+def cells(character: str) -> int:
+    """How many terminal cells one character occupies.
+
+    A terminal advances by CELLS, not characters: `日` is one character and
+    two cells, and a combining accent is one character and no cells. Counting
+    characters here shifted every later column one cell left, so a table of
+    CJK values was rebuilt with the next column's text interleaved between
+    the glyphs -- a fault in this renderer that looked like a fault in the
+    view. The evidence pack is only worth reading if it is honest about
+    what the terminal showed.
+    """
+    if unicodedata.combining(character):
+        return 0
+    return 2 if unicodedata.east_asian_width(character) in ("W", "F") else 1
+
+
 class Screen:
-    """A grid of characters, written the way a terminal writes them."""
+    """A grid of cells, written the way a terminal writes them."""
 
     def __init__(self) -> None:
         self.rows: dict[int, dict[int, str]] = {}
@@ -40,8 +57,19 @@ class Screen:
                 continue
             if character == "\x1b":
                 continue
-            self.rows.setdefault(self.row, {})[self.column] = character
-            self.column += 1
+            width = cells(character)
+            row = self.rows.setdefault(self.row, {})
+            if width == 0:
+                # A combining mark belongs to the cell already there.
+                previous = max((column for column in row if column < self.column), default=None)
+                if previous is not None:
+                    row[previous] += character
+                continue
+            row[self.column] = character
+            if width == 2:
+                # The glyph owns the next cell too; nothing else may claim it.
+                row[self.column + 1] = None
+            self.column += width
 
     def text(self) -> list[str]:
         """The screen as lines, with the trailing space trimmed."""
@@ -50,12 +78,17 @@ class Screen:
         height = max(self.rows)
         lines = []
         for row in range(1, height + 1):
-            cells = self.rows.get(row, {})
-            if not cells:
+            row_cells = self.rows.get(row, {})
+            if not row_cells:
                 lines.append("")
                 continue
-            width = max(cells)
-            line = "".join(cells.get(column, " ") for column in range(1, width + 1))
+            width = max(row_cells)
+            line = "".join(
+                ""
+                if row_cells.get(column, " ") is None
+                else row_cells.get(column, " ")
+                for column in range(1, width + 1)
+            )
             lines.append(line.rstrip())
         return [line for line in lines if line.strip()]
 
