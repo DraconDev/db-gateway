@@ -78,8 +78,10 @@ the tab it names.
 The view shows **one tab at a time** rather than tiling every answer. Tiling
 forces each answer into a fraction of the width, which squeezes a wide table
 and cuts a long list; a tab gives the whole body to the thing being read. The
-cost — six answers are off screen — is paid by the strip, which always names
-every tab.
+cost — six answers are off screen — is paid by the strip, which names every
+tab while the dashboard is showing. Opening a database or a table's rows is
+a place you go rather than a tab you switch, so those two screens fill the
+whole window and carry no strip.
 
 ### One question per tab
 
