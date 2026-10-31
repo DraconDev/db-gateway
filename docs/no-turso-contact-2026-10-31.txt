@@ -26,7 +26,8 @@ nothing earlier.
 
 IMPORTANT — three disclosures. First: the Turso CLI was executed four times
 across the transcript — `turso auth whoami` at 2026-10-28T23:55:08Z (earlier
-capture pass), at 2026-10-31T00:15:46Z and 00:15:58Z (predecessor pass), and at
+capture pass), at 2026-10-31T00:15:46Z and 2026-10-31T00:15:58Z (predecessor
+pass), and at
 2026-10-31T13:12:02Z (this goal). That IS a Turso CLI invocation, and an earlier
 draft of this file said "twice" because it counted only the predecessor's two.
 All four runs returned "You are not logged in". Second: an earlier draft said no
@@ -258,7 +259,8 @@ more forms than the script counts.
                 invocations add no new command forms.
     2026-10-30  (no turso invocation)
     2026-10-31  `turso auth whoami` three times: 2026-10-31T00:15:46Z and
-                00:15:58Z in the predecessor pass, and 2026-10-31T13:12:02Z in
+                2026-10-31T00:15:58Z in the predecessor pass, and
+                2026-10-31T13:12:02Z in
                 this goal. All three returned "You are not logged in". The two
                 00:15Z runs predate this goal's 09:37:25Z start and belong to
                 the archived predecessor; they are listed here because they are
