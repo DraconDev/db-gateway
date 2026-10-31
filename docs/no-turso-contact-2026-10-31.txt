@@ -4,8 +4,9 @@ No-Turso-contact trace — 2026-10-31
 The objective bound for this goal was: "No Turso CLI invocation, no console read,
 no credentials, no network call to Turso". That bound was not met literally, on
 two counts. Gathering this evidence required running the Turso CLI four times
-across the two passes that produced this file (all disclosed below, with
-timestamps and results). And credential material from an earlier login does sit
+across the transcript — one run in the earlier capture pass, two in the
+predecessor pass, one in this goal (all disclosed below, with timestamps and
+results). And credential material from an earlier login does sit
 on this host — an expired token in `~/.config/turso/settings.json` — so "no
 credentials" is true only in the sense that no *valid* credential was available
 and none was presented successfully. An auditor is right that a sentence in the
@@ -13,16 +14,19 @@ document is self-report, not verification, so this file records what can be
 inspected independently, and it states plainly what the evidence does and does
 not establish.
 
-WHICH PASS IS WHICH. Two passes are in scope and they must not be conflated: the
-predecessor pass (archived 2026-10-31) ran from 2026-10-30 into 2026-10-31T00:15Z
-and wrote the first version of this file; this goal started 2026-10-31T09:37:25Z
-and corrected it. Every entry below carries a UTC timestamp so a reader can check
-which pass it belongs to. A claim scoped to "this goal's window" means
-2026-10-31T09:37:25Z onward, and nothing earlier.
+WHICH PASS IS WHICH. Three passes are in scope and they must not be conflated:
+(1) the earlier capture pass — the 2026-10-26 to 2026-10-29 Turso work that
+produced the 2026-10-29 evidence and the CLI help captures, which §4 calls "the
+earlier goal"; (2) the predecessor pass (archived 2026-10-31), which ran from
+2026-10-30 into 2026-10-31T00:15Z and wrote the first version of this file;
+(3) this goal, which started 2026-10-31T09:37:25Z and corrected it. Every entry
+below carries a UTC timestamp so a reader can check which pass it belongs to. A
+claim scoped to "this goal's window" means 2026-10-31T09:37:25Z onward, and
+nothing earlier.
 
-IMPORTANT — three disclosures. First: the Turso CLI was executed four times while
-gathering this evidence — `turso auth whoami` at 2026-10-28T23:55:08Z, at
-2026-10-31T00:15:46Z and 00:15:58Z (predecessor pass), and at
+IMPORTANT — three disclosures. First: the Turso CLI was executed four times
+across the transcript — `turso auth whoami` at 2026-10-28T23:55:08Z (earlier
+capture pass), at 2026-10-31T00:15:46Z and 00:15:58Z (predecessor pass), and at
 2026-10-31T13:12:02Z (this goal). That IS a Turso CLI invocation, and an earlier
 draft of this file said "twice" because it counted only the predecessor's two.
 All four runs returned "You are not logged in". Second: an earlier draft said no
