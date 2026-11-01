@@ -215,6 +215,14 @@ fn the_gateway_guard_still_refuses_its_own_objects() {
         "a refused index was created anyway: {names:?}"
     );
 
+    // Give the table an index to rebuild, so a targeted REINDEX below has
+    // something to do — SQLite emits no `Reindex` callback for a table with
+    // no index, and such a statement is a harmless no-op in either version.
+    fleet.cli.ok(
+        "index to rebuild",
+        &["query", &db, "CREATE INDEX guard_idx ON instruments(isin)"],
+    );
+
     // A targeted REINDEX reaches the gateway's own table indirectly: SQLite
     // rebuilds `_dg_replay`'s implicit index and reports it as
     // `sqlite_autoindex__dg_replay_1`, which does not begin with `_dg_`, so
@@ -229,6 +237,8 @@ fn the_gateway_guard_still_refuses_its_own_objects() {
         "REINDEX main._dg_replay",
         "REINDEX _DG_REPLAY",
         "REINDEX instruments",
+        "REINDEX guard_idx",
+        "REINDEX main.guard_idx",
         // A comment is whitespace to SQLite: `REINDEX/*--*/x` is
         // `REINDEX x`, and a `--` inside a block comment used to swallow
         // the rest of the statement along with the target.
@@ -250,12 +260,14 @@ fn the_gateway_guard_still_refuses_its_own_objects() {
             "sql_forbidden",
         );
     }
-    fleet
-        .cli
-        .ok("reindex an index", &["query", &db, "REINDEX t_by_a"]);
-    fleet
-        .cli
-        .ok("reindex a table", &["query", &db, "REINDEX instruments"]);
+
+    // The bare sweep still works, and the index it rebuilt is intact.
+    fleet.cli.ok("bare reindex", &["query", &db, "REINDEX"]);
+    let names = index_names(&schema_of(&fleet, &db, "instruments"));
+    assert!(
+        names.contains(&"guard_idx".to_string()),
+        "a bare REINDEX lost the index: {names:?}"
+    );
 }
 
 #[test]
