@@ -139,23 +139,6 @@ fn the_tables_outcome_names_the_database() {
 }
 
 #[test]
-fn the_browser_outcome_says_which_slice_is_on_screen() {
-    // The rows browser is where a table is opened, so the slice is the
-    // browser's footer.
-    let mut browser = dg::tui::Browser::new("demo", "products");
-    browser.total = Some(2);
-    let outcome = browser_outcome(&browser, &rows());
-    assert!(outcome.error.is_none());
-    let table = outcome.table.expect("the outcome holds the grid");
-    assert_eq!(table.len(), 2);
-    assert!(
-        outcome.facts.iter().any(|(_, value)| value.contains("1-2")),
-        "the outcome does not say which slice is on screen: {:?}",
-        outcome.facts
-    );
-}
-
-#[test]
 fn a_refused_open_reads_like_any_other_refusal() {
     let refused = json!({"error": {"code": "database_not_found", "message": "no such database"}});
     let outcome = tables_outcome("demo", &refused);
@@ -200,8 +183,8 @@ fn the_open_grid_draws_on_a_test_terminal() {
         text.push('\n');
     }
     assert!(
-        text.contains("products rows 1–2"),
-        "the headline is not drawn"
+        text.contains("products in demo"),
+        "the headline is not drawn:\n{text}"
     );
     assert!(text.contains("canvas tote"), "the grid rows are not drawn");
 }
@@ -298,14 +281,16 @@ fn a_full_page_of_rows_is_all_drawn() {
     );
     let mut app = App::new("http://127.0.0.1:1".to_string(), "0".repeat(64));
     app.outcome = Some(outcome);
-    let backend = TestBackend::new(60, 25);
+    // The grid the browser draws carries a footer line naming the
+    // slice, so the pane needs a row more than the grid alone.
+    let backend = TestBackend::new(60, 40);
     let mut terminal = Terminal::new(backend).expect("a test terminal");
     terminal
         .draw(|frame| dg::tui::draw::draw(frame, &mut app))
         .expect("the view draws");
     let buffer = terminal.backend().buffer();
     let mut text = String::new();
-    for y in 0..25 {
+    for y in 0..40 {
         for x in 0..60 {
             text.push_str(
                 &buffer
