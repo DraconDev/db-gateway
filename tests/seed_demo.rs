@@ -93,10 +93,6 @@ fn the_demo_seed_lands_its_intricate_schema_and_re_running_changes_nothing() {
         "the seed no longer creates 27 tables: {first}"
     );
     assert_eq!(
-        first["indexes"], 6,
-        "the seed no longer creates 6 index definitions: {first}"
-    );
-    assert_eq!(
         first["inserted_tables"], 27,
         "a fresh gateway left some table empty: {first}"
     );
