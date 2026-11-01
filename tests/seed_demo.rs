@@ -27,6 +27,8 @@
 //! unrelated count does not need this test rewritten.
 
 #[path = "common/mod.rs"]
+mod common;
+
 use common::Fleet;
 use std::path::PathBuf;
 use std::process::Command;
