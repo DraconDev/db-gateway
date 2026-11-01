@@ -130,6 +130,41 @@ fn moving_through_the_list_wraps_nothing_and_stops_at_its_ends() {
 }
 
 #[test]
+/// The row count must be visible in the table list.
+///
+/// `docs/tui.md` draws the page as `│▸ products  60│` -- the count sits
+/// inside the list pane. The line is built as marker + name + a
+/// five-cell right-aligned count, but the pane's inner area is two cells
+/// narrower than the width the line was sized against, so the count was
+/// always clipped off the right edge and the operator never saw it. The
+/// name also lost the last cell, so a cut name lost the '…' that says
+/// it was cut.
+#[test]
+fn the_table_list_shows_the_row_count() {
+    let mut app = app();
+    app.page = Some(page());
+    let values = json!({
+        "columns": ["id", "sku"],
+        "rows": [[1, "SKU-1001"], [2, "SKU-1002"]],
+        "rows_affected": 0
+    });
+    let mut browser = dg::tui::Browser::new("inventory", "products");
+    browser.total = Some(60);
+    app.browser = Some(browser.clone());
+    app.outcome = Some(dg::tui::browser_outcome(&browser, &values));
+    let text = screen(&mut app, 130, 45);
+
+    // The selected table's row count (60) is drawn in the list pane.
+    let list_line = text
+        .lines()
+        .find(|line| line.contains("products"))
+        .unwrap_or_else(|| panic!("the products row is not drawn:\n{text}"));
+    assert!(
+        list_line.contains("60"),
+        "the row count is not visible in the table list: {list_line:?}\n{text}"
+    );
+}
+
 fn the_page_is_drawn_with_the_list_and_the_values() {
     let mut app = app();
     app.page = Some(page());
