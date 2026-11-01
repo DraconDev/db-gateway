@@ -908,6 +908,15 @@ mod tests {
             authorize(action("products_by_sku"), false, false),
             Authorization::Deny
         ));
+        // The synthetic name SQLite really reports for `_dg_replay`'s
+        // implicit index does not begin with `_dg_`, so this arm alone
+        // cannot recognise it — which is why the statement has to be
+        // classified before it is prepared. Both halves, side by side:
+        assert!(matches!(
+            authorize(action("sqlite_autoindex__dg_replay_1"), false, true),
+            Authorization::Allow
+        ));
+        assert!(!may_reindex("REINDEX _dg_replay"));
         // And the named `_dg_` namespace stays closed in every case.
         for name in ["_dg_replay", "_DG_Replay", "_dg_sneaky"] {
             assert!(
@@ -952,6 +961,10 @@ mod tests {
             "EXPLAIN REINDEX _dg_replay",
             "EXPLAIN QUERY PLAN REINDEX _dg_replay",
             "EXPLAIN CREATE INDEX i ON t(a)",
+            "; REINDEX _dg_replay",
+            ";REINDEX _dg_replay",
+            "REINDEX\u{a0}_dg_replay",
+            "REINDEX;REINDEX _dg_replay",
             "REINDEX, DROP TABLE t",
             "SELECT 1",
             "DROP INDEX i",

@@ -34,8 +34,11 @@ fixes; 1.0.0 waits for production acceptance.
   stays refused, including `ALTER`, views, triggers, pragmas, a
   `REINDEX` that names an object (only the bare sweep is offered) and any
   `_dg_`-prefixed object, and a read-only credential still cannot touch
-  an index. `scripts/seed-demo.py` seeds three explicit indexes again as
-  part of its demo schema.
+  an index. The bare sweep does rebuild the gateway's own implicit index
+  along with everything else — SQLite reports it under a synthetic
+  `sqlite_autoindex_*` name, so no statement can be told apart by name —
+  which reads nothing back and changes nothing. `scripts/seed-demo.py`
+  seeds three explicit indexes again as part of its demo schema.
 
 ### Fixed
 
