@@ -11,12 +11,24 @@ created with IF NOT EXISTS and rows are inserted only into tables
 that are still empty, so re-running it changes nothing.
 
 The generators below are the source of the live demo shape: 60
-products / 121 stock moves / 20 suppliers, 40 customers / 90 orders /
-180 order items, 15 accounts / 15 budgets / 120 entries, 70 sessions /
-200 events, 50 notes / 89 tags, plus the small billing and probe
-seeds. A fresh gateway seeded by this script holds exactly those
-counts; the live gateway already does, so re-running it inserts
-nothing.
+products / 121 stock moves / 20 suppliers / 80 price-history rows /
+4 warehouses / 160 stock positions / 12 category nodes / 20 wide
+extract rows, 40 customers / 90 orders / 180 order items / 60
+shipments / 15 refunds / 40 order notes, 15 accounts / 15 budgets /
+120 entries / 42 fx rates / 14 reconciliations, 70 sessions / 200
+events, 50 notes / 89 tags, plus the small billing and probe seeds.
+A fresh gateway seeded by this script holds exactly those counts; the
+live gateway already does, so re-running it inserts nothing.
+
+The demo schema is deliberately more intricate than a tutorial's: a
+composite primary key (`product_prices`, `warehouse_stock`,
+`fx_rates`), a self-referencing tree (`category_tree`), declared
+foreign keys, index definitions so `dg schema` has something to
+show, a NULL-heavy table (`shipments` — most rows have not shipped),
+long unicode text (`order_notes`), and one wide, awkward,
+denormalized extract (`inventory.legacy_stock_extract`, 14 columns
+with long names and mixed NULL rates) that exercises the table and
+row panes against a shape they cannot lay out neatly.
 
 Exit nonzero when any step fails. Prints a one-line JSON summary.
 """
@@ -38,6 +50,47 @@ TABLES = {
             reason TEXT, at TEXT)""",
         """CREATE TABLE IF NOT EXISTS suppliers
            (id INTEGER PRIMARY KEY, name TEXT, country TEXT, lead_days INTEGER)""",
+        # A composite primary key: one price per product per effective date,
+        # which is the shape a reader has to reason about rather than scan.
+        """CREATE TABLE IF NOT EXISTS product_prices
+           (product_id INTEGER NOT NULL REFERENCES products(id),
+            valid_from TEXT NOT NULL, price_cents INTEGER NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'EUR',
+            PRIMARY KEY (product_id, valid_from))""",
+        """CREATE TABLE IF NOT EXISTS warehouses
+           (id TEXT PRIMARY KEY, city TEXT NOT NULL, region TEXT,
+            capacity_pallets INTEGER)""",
+        # Two-column key over two foreign keys, plus a nullable reservation.
+        """CREATE TABLE IF NOT EXISTS warehouse_stock
+           (warehouse_id TEXT NOT NULL REFERENCES warehouses(id),
+            product_id INTEGER NOT NULL REFERENCES products(id),
+            qty INTEGER NOT NULL, reserved_qty INTEGER,
+            PRIMARY KEY (warehouse_id, product_id))""",
+        # A self-referencing tree: parent_id points back into this table.
+        """CREATE TABLE IF NOT EXISTS category_tree
+           (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES category_tree(id),
+            name TEXT NOT NULL, depth INTEGER NOT NULL)""",
+        # The awkward one: 14 columns, long header names, mixed NULL rates.
+        # A denormalized nightly extract is exactly how tables like this are
+        # born, and it is the shape most likely to break a pane that assumes
+        # it can lay columns out neatly.
+        """CREATE TABLE IF NOT EXISTS legacy_stock_extract
+           (extract_row_id INTEGER PRIMARY KEY,
+            source_system_identifier TEXT NOT NULL,
+            sku_normalized_at_extraction_time TEXT,
+            product_description_as_stored_in_the_legacy_erp_system TEXT,
+            warehouse_code TEXT, quantity_on_hand_units INTEGER,
+            quantity_reserved_units INTEGER,
+            quantity_available_units INTEGER,
+            unit_cost_micros_at_last_revaluation INTEGER,
+            revaluation_timestamp_utc TEXT, currency_iso_code TEXT,
+            discontinued_flag INTEGER, notes_from_the_merchandising_team TEXT,
+            extract_generated_at_utc TEXT NOT NULL)""",
+        "CREATE INDEX IF NOT EXISTS products_by_sku ON products(sku)",
+        "CREATE INDEX IF NOT EXISTS stock_moves_by_product
+           ON stock_moves(product_id)",
+        "CREATE INDEX IF NOT EXISTS product_prices_by_valid_from
+           ON product_prices(valid_from)",
     ],
     "orders": [
         """CREATE TABLE IF NOT EXISTS customers
@@ -49,6 +102,23 @@ TABLES = {
         """CREATE TABLE IF NOT EXISTS order_items
            (id INTEGER PRIMARY KEY, order_id INTEGER, product_id INTEGER,
             qty INTEGER, price_cents INTEGER)""",
+        # Mostly NULL: only the shipped orders carry a carrier and a tracking
+        # number, so a reader that renders NULLs as blanks has to be right.
+        """CREATE TABLE IF NOT EXISTS shipments
+           (id INTEGER PRIMARY KEY, order_id INTEGER NOT NULL REFERENCES orders(id),
+            carrier TEXT, tracking_number TEXT, shipped_at TEXT,
+            delivered_at TEXT, status TEXT NOT NULL)""",
+        """CREATE TABLE IF NOT EXISTS refunds
+           (id INTEGER PRIMARY KEY, order_id INTEGER NOT NULL REFERENCES orders(id),
+            amount_cents INTEGER NOT NULL, currency TEXT NOT NULL,
+            reason TEXT, refunded_at TEXT NOT NULL)""",
+        # Long unicode bodies: wrapping, truncation and column width all fail
+        # visibly here rather than silently in a screenshot.
+        """CREATE TABLE IF NOT EXISTS order_notes
+           (id INTEGER PRIMARY KEY, order_id INTEGER NOT NULL REFERENCES orders(id),
+            body TEXT NOT NULL, author TEXT NOT NULL, created_at TEXT NOT NULL)""",
+        "CREATE INDEX IF NOT EXISTS orders_by_customer ON orders(customer_id)",
+        "CREATE INDEX IF NOT EXISTS order_items_by_order ON order_items(order_id)",
     ],
     "ledger": [
         """CREATE TABLE IF NOT EXISTS accounts
@@ -59,6 +129,17 @@ TABLES = {
         """CREATE TABLE IF NOT EXISTS entries
            (id INTEGER PRIMARY KEY, account_id INTEGER, amount_cents INTEGER,
             memo TEXT, at TEXT)""",
+        # Composite key again, but over a date and a currency rather than ids.
+        """CREATE TABLE IF NOT EXISTS fx_rates
+           (rate_date TEXT NOT NULL, currency TEXT NOT NULL,
+            rate_micros INTEGER NOT NULL,
+            PRIMARY KEY (rate_date, currency))""",
+        # A nullable close date: an open reconciliation has no closed_at.
+        """CREATE TABLE IF NOT EXISTS reconciliations
+           (id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id),
+            period TEXT NOT NULL, expected_cents INTEGER NOT NULL,
+            actual_cents INTEGER NOT NULL, closed_at TEXT)""",
+        "CREATE INDEX IF NOT EXISTS entries_by_account ON entries(account_id)",
     ],
     "sessions": [
         """CREATE TABLE IF NOT EXISTS sessions
