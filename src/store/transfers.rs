@@ -32,6 +32,37 @@ pub(super) struct Transfer {
     /// or the owner; uploads are owner-only at the API layer.
     creator: String,
     pub(super) created: Instant,
+    /// Serializes the mutating operations of THIS transfer against each
+    /// other: an upload's appends, its commit and its abort take turns.
+    ///
+    /// The registry mutex protects the registry, not the bytes. Holding it
+    /// across a file write blocked every other transfer operation behind
+    /// one 1 MiB write, so it was released before the write -- but the
+    /// registry mutex never gave *per-upload* exclusion, and without it two
+    /// appends for the same upload could both pass the offset check, both
+    /// write, and then the loser's "the transfer moved on" branch truncated
+    /// the file back to the old offset, deleting bytes the winner had
+    /// already acknowledged. The acknowledged offset then no longer matched
+    /// the bytes on disk and a chunked import silently lost data.
+    ///
+    /// One lock per transfer gives exactly that exclusion without holding
+    /// the registry mutex during file I/O: appends, commits and aborts of
+    /// one upload take turns, while every other transfer keeps running.
+    /// Snapshot transfers never take it -- their file is frozen and only
+    /// read.
+    operation: Arc<Mutex<()>>,
+}
+
+/// Take a transfer's operation lock, recovering from a poisoned mutex.
+///
+/// A panic inside one append must not wedge the upload for its whole
+/// lifetime: the guard is still handed out, because the state the lock
+/// protects (the acknowledged offset and the file) is re-validated by
+/// every operation that takes it.
+fn lock_operation(operation: &Arc<Mutex<()>>) -> std::sync::MutexGuard<'_, ()> {
+    operation
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 pub struct SnapshotInfo {
@@ -351,6 +382,7 @@ impl Store {
                     file,
                     creator: principal.hash.clone(),
                     created: Instant::now(),
+                    operation: Arc::new(Mutex::new(())),
                 },
             )?;
             Ok(SnapshotInfo { id, size, sha256 })
@@ -480,6 +512,7 @@ impl Store {
                 file,
                 creator: String::new(),
                 created: Instant::now(),
+                operation: Arc::new(Mutex::new(())),
             },
         );
         if outcome.is_err() {
@@ -498,24 +531,24 @@ impl Store {
         if bytes.len() > MAX_CHUNK {
             return Err(Error::invalid());
         }
-        // The same shape as `snapshot_chunk`: look the transfer up under
-        // the lock, clone what the write needs, and release the lock
-        // before touching the filesystem. Holding the registry mutex
-        // across the file open and the write serialized every other
-        // transfer operation -- other chunks, status checks, aborts, a
-        // snapshot read -- behind one up-to-1 MiB disk write.
+        // Serialize this upload's own operations against each other. The
+        // registry mutex is still only held for the lookups below, so the
+        // file write never blocks another transfer's status check, chunk or
+        // abort -- but two appends of THIS upload can no longer both pass
+        // the offset check and write over each other. The lock is taken
+        // before the offset is read, so the offset and the bytes it
+        // describes belong to the same turn.
+        let operation = self.upload_operation(id)?;
+        let _guard = lock_operation(&operation);
+
+        // Re-read the acknowledged offset under the registry lock: another
+        // append of this upload may have advanced it while this one waited
+        // for the lock, and a commit may have claimed the upload.
         let (file_path, prior) = {
             let mut transfers = self.transfers.lock().map_err(|_| Error::internal())?;
             let transfer = match transfers.get_mut(id) {
                 Some(t) if t.created.elapsed() < self.transfer_ttl => t,
-                _ => {
-                    let stale = transfers.remove(id);
-                    drop(transfers);
-                    if let Some(t) = stale {
-                        remove_staging_dir(&t.dir);
-                    }
-                    return Err(upload_missing());
-                }
+                _ => return Err(upload_missing()),
             };
             let TransferKind::Upload { received, state } = &mut transfer.kind else {
                 return Err(upload_missing());
@@ -540,39 +573,62 @@ impl Store {
             .append(true)
             .open(&file_path)
             .and_then(|mut f| {
+                // The file must hold exactly the acknowledged bytes: the
+                // append writes at the end, so a tail that outlived its
+                // acknowledgement would be kept and the file would no
+                // longer match the offset it is asked about.
+                f.set_len(prior)?;
                 f.write_all(bytes).inspect_err(|_error| {
                     // write_all may persist a prefix before returning an I/O
                     // error. Restore the acknowledged offset so retrying appends
                     // the complete chunk exactly once.
                     let _ = f.set_len(prior);
-                })
+                })?;
+                // The file ends exactly at the offset this append is about
+                // to acknowledge.
+                f.set_len(prior + bytes.len() as u64)
             });
         if let Err(error) = write {
             tracing::warn!(error = %error, "upload append failed");
-            return Err(Error::internal());
+            // An upload that was aborted or expired while the bytes were
+            // being written is gone, not broken.
+            let gone = self
+                .transfers
+                .lock()
+                .map(|transfers| transfers.get(id).is_none())
+                .unwrap_or(false);
+            return Err(if gone {
+                upload_missing()
+            } else {
+                Error::internal()
+            });
         }
-        // Advance the acknowledged offset under the lock, and only if the
-        // transfer is still the one this write was made for: a release
-        // or a TTL purge between the lookup and the write must not be
-        // undone by a write that lands after it.
+        // Advance the acknowledged offset under the lock. Only another
+        // append moves it, and the appends of one upload are serialized by
+        // the operation lock held above, so it cannot have moved under this
+        // write. The state is deliberately NOT re-checked here: a commit
+        // that claimed the upload while this chunk was being written is
+        // waiting for exactly this append to finish, and its import must
+        // include the bytes this append is about to acknowledge.
         let mut transfers = self.transfers.lock().map_err(|_| Error::internal())?;
         let Some(transfer) = transfers.get_mut(id) else {
             return Err(upload_missing());
         };
-        let TransferKind::Upload { received, state } = &mut transfer.kind else {
+        let TransferKind::Upload { received, .. } = &mut transfer.kind else {
             return Err(upload_missing());
         };
-        if *state != UploadState::Open || *received != prior {
-            // The transfer moved on while the bytes were being written:
-            // the bytes are in the file but the transfer no longer
-            // accounts for them, so the file is trimmed back and the
-            // upload is reported as gone rather than as a success that
-            // counts bytes nobody will read.
-            let _ = std::fs::OpenOptions::new()
-                .write(true)
-                .open(&file_path)
-                .and_then(|f| f.set_len(prior));
-            return Err(upload_missing());
+        if *received != prior {
+            // Unreachable while the operation lock is held. The bytes are
+            // NOT trimmed back: truncating a file whose length another
+            // request already acknowledged is the data loss this lock
+            // exists to prevent, so the inconsistency is reported instead.
+            tracing::warn!(
+                upload = id,
+                acknowledged = *received,
+                expected = prior,
+                "the acknowledged offset moved while the chunk was written"
+            );
+            return Err(Error::internal());
         }
         *received += bytes.len() as u64;
         Ok(*received)
@@ -592,7 +648,10 @@ impl Store {
     /// single-shot import path. A failed commit keeps the upload so the
     /// client can fix the target name and retry; abort or TTL releases it.
     pub fn upload_commit(&self, id: &str, name: &str) -> Result<()> {
-        let file = {
+        // Claim the upload for the commit under the registry lock, so a
+        // second commit and every new append are rejected while the
+        // publication runs.
+        let (file, operation) = {
             let mut transfers = self.transfers.lock().map_err(|_| Error::internal())?;
             self.purge_expired_locked(&mut transfers);
             let transfer = transfers.get_mut(id).ok_or_else(upload_missing)?;
@@ -606,8 +665,49 @@ impl Store {
                 return Err(Error::busy());
             }
             *state = UploadState::Committing;
-            transfer.file.clone()
+            (transfer.file.clone(), transfer.operation.clone())
         };
+        // Wait for an in-flight append of this upload to finish before the
+        // file is read: a commit that imports the file while a chunk is
+        // still being written publishes a half-written database. The
+        // registry mutex is NOT held here, so every other transfer
+        // operation keeps running.
+        let _guard = lock_operation(&operation);
+        // The upload may have been aborted or expired while the commit
+        // waited for the append to finish.
+        let received = {
+            let mut transfers = self.transfers.lock().map_err(|_| Error::internal())?;
+            let transfer = transfers.get_mut(id).ok_or_else(upload_missing)?;
+            let TransferKind::Upload { received, state } = &mut transfer.kind else {
+                return Err(upload_missing());
+            };
+            if *state != UploadState::Committing {
+                return Err(Error::busy());
+            }
+            *received
+        };
+        // The file must hold exactly the acknowledged bytes. A file that is
+        // longer or shorter than the acknowledged offset is not the upload
+        // the client assembled, and importing it would publish something
+        // the client never sent.
+        let length = std::fs::metadata(&file)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        if length != received {
+            tracing::warn!(
+                upload = id,
+                on_disk = length,
+                acknowledged = received,
+                "the upload file and its acknowledged offset disagree"
+            );
+            let mut transfers = self.transfers.lock().map_err(|_| Error::internal())?;
+            self.restore_open_after_failed_commit(id, &mut transfers);
+            return Err(Error::new(
+                409,
+                "upload_out_of_sync",
+                "the upload file does not match its acknowledged length",
+            ));
+        }
 
         let result = self.import_from(name, &file);
         if result.is_ok() {
@@ -624,6 +724,11 @@ impl Store {
     }
 
     pub fn upload_abort(&self, id: &str) -> Result<()> {
+        // The abort waits for an in-flight append of this upload, so the
+        // upload is either aborted as a whole or not at all -- never
+        // half-written with its acknowledged offset pointing past the end.
+        let operation = self.upload_operation(id)?;
+        let _guard = lock_operation(&operation);
         let removed = {
             let mut transfers = self.transfers.lock().map_err(|_| Error::internal())?;
             self.purge_expired_locked(&mut transfers);
@@ -640,6 +745,30 @@ impl Store {
             remove_staging_dir(&transfer.dir);
         }
         Ok(())
+    }
+
+    /// The operation lock of the upload `id`, purging an expired entry.
+    ///
+    /// The lookup takes the registry mutex only for the lookup itself; the
+    /// lock it returns is the upload's own, so the caller can serialize
+    /// against the upload's other operations without holding the registry
+    /// mutex across any file I/O.
+    fn upload_operation(&self, id: &str) -> Result<Arc<Mutex<()>>> {
+        let mut transfers = self.transfers.lock().map_err(|_| Error::internal())?;
+        match transfers.get(id) {
+            Some(transfer) if transfer.created.elapsed() < self.transfer_ttl => {
+                Ok(transfer.operation.clone())
+            }
+            Some(_) => {
+                let stale = transfers.remove(id);
+                drop(transfers);
+                if let Some(transfer) = stale {
+                    remove_staging_dir(&transfer.dir);
+                }
+                Err(upload_missing())
+            }
+            None => Err(upload_missing()),
+        }
     }
 
     /// Drop expired transfers and their retained directories. Driven by the
