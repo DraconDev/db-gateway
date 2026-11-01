@@ -38,6 +38,19 @@ dg --key-file owner.key execute game_a script.sql   # run a SQL file, statement 
 dg --key-file owner.key tui                # the terminal view: service, databases, backups and keys, live
 ```
 
+Want material to look at instead of a single hand-made table? `scripts/seed-demo.py` fills seven
+linked databases (inventory, orders, ledger, sessions, notes, plus the billing and probe seeds) with
+27 tables and roughly 1,500 rows: a composite primary key (`product_prices(product_id, valid_from)`,
+`warehouse_stock`, `fx_rates(rate_date, currency)`), a self-referencing tree (`category_tree`),
+declared foreign keys, a UNIQUE tracking number, a NULL-heavy `shipments` table where most rows have
+not shipped, unicode note bodies, and one deliberately wide 14-column extract
+(`legacy_stock_extract`) with long column names. It is idempotent — re-running it inserts nothing —
+and `tests/seed_demo.rs` holds it to that against a fresh gateway.
+
+```sh
+python3 scripts/seed-demo.py --server http://127.0.0.1:7432 --key-file owner.key
+```
+
 v0.10.0 adds owner-only `dg protect <db>` / `dg protect <db> --off` guards and `dg undelete <db>` inside the retention window. `dg inspect --json` now carries the same activity and backup facts as the terminal view; `dg key revoke --database <db> --confirm <db>` cuts every application key scoped to a leaked database while excluding the owner key.
 
 Prefer an uninstalled debug build instead: `cargo build --locked` plus `export PATH="$PWD/.cargo/target/debug:$PATH"`, then the same commands. `scripts/setup.sh --help` lists options (`--prefix`, `--no-install`, `--strict`). It also reports when the `dg` already installed is older than the source tree — that is how a binary that predates a redesign keeps being run without anyone noticing — and `--strict` turns that warning into a failure. The install does not need the running `dg` closed first: it replaces the binary's path rather than the file, so a view that is already open keeps running on the code it started with, and the next launch picks up the new build.
