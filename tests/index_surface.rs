@@ -217,21 +217,21 @@ fn the_gateway_guard_still_refuses_its_own_objects() {
 
     // A targeted REINDEX reaches the gateway's own table indirectly: SQLite
     // rebuilds `_dg_replay`'s implicit index and reports it as
-    // `sqlite_autoindex__dg_replay_1`, which does not begin with `_dg_`.
-    // Naming the table, naming that index, and qualifying either with the
-    // schema all have to be refused — a bare `REINDEX` (asserted in the
-    // test above) stays allowed, which is why this cannot be enforced by
-    // the authorizer alone.
+    // `sqlite_autoindex__dg_replay_1`, which does not begin with `_dg_`, so
+    // the name alone cannot be the guard. The gateway therefore offers only
+    // a BARE `REINDEX` (asserted above) — the same surface it had before the
+    // `Reindex` action was allowed — and every spelling that names an object
+    // is refused, including the two that defeated an earlier, text-matching
+    // attempt at this screen.
     for sql in [
         "REINDEX _dg_replay",
         "REINDEX \"sqlite_autoindex__dg_replay_1\"",
         "REINDEX main._dg_replay",
         "REINDEX _DG_REPLAY",
-        // A comment is whitespace to SQLite, so a screen that reads the
-        // statement text has to read it the way SQLite does -- including
-        // the case that first got through here, a `--` inside a block
-        // comment, which a naive line-comment scanner swallows along with
-        // the rest of the statement.
+        "REINDEX instruments",
+        // A comment is whitespace to SQLite: `REINDEX/*--*/x` is
+        // `REINDEX x`, and a `--` inside a block comment used to swallow
+        // the rest of the statement along with the target.
         "REINDEX /*c*/ _dg_replay",
         "REINDEX main . _dg_replay",
         "REINDEX/*--*/_dg_replay",
@@ -242,19 +242,14 @@ fn the_gateway_guard_still_refuses_its_own_objects() {
         // bytecode naming the index it would have rebuilt.
         "EXPLAIN REINDEX _dg_replay",
         "EXPLAIN QUERY PLAN REINDEX _dg_replay",
+        "EXPLAIN CREATE INDEX explain_idx ON instruments(isin)",
     ] {
         fleet.cli.err(
-            &format!("targeted reindex of {sql}"),
+            &format!("targeted reindex: {sql}"),
             &["query", &db, sql],
             "sql_forbidden",
         );
     }
-    // And the screen does not over-reach: a user's own table and index are
-    // both legitimate REINDEX targets.
-    fleet.cli.ok(
-        "reindex the user's index",
-        &["query", &db, "CREATE INDEX t_by_a ON instruments(isin)"],
-    );
     fleet
         .cli
         .ok("reindex an index", &["query", &db, "REINDEX t_by_a"]);
