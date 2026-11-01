@@ -90,14 +90,13 @@ pub fn router(store: Arc<Store>, deployment: Deployment) -> Router {
         .route("/v1/queries", get(queries))
         .route("/v1/databases/{name}/query", post(query))
         .route("/v1/databases/{name}/batch", post(batch))
-        .layer(DefaultBodyLimit::max(65536))
         // The placement of this gateway is a property of the process, not
         // of the store, so it travels as an extension rather than inside
         // the shared state every handler already takes.
         .layer(Extension(deployment))
         .with_state(store.clone())
         // The comparison is its own router: it opens the two database
-        // files itself, read-only, and it is a read in every sense that
+        // files themselves, read-only, and it is a read in every sense that
         // matters to the admission lanes.
         .merge(crate::diff::router(store.clone()))
         // The audit log is its own router too, and so are the three
@@ -113,6 +112,20 @@ pub fn router(store: Arc<Store>, deployment: Deployment) -> Router {
         // The branch registry is read when the router is built, which is
         // startup: a fork made yesterday is still a fork today.
         .merge(crate::branch::router(store))
+        // The general body cap goes LAST, after every merge.
+        //
+        // `Router::layer` maps over the routes that exist at the moment it
+        // is called, and `Router::merge` inserts another router's routes
+        // afterwards WITHOUT re-applying the outer router's layers. A cap
+        // added before the merges therefore covered only the routes
+        // declared above it: `/v1/diff` and `/v1/branch` fell back to
+        // axum's own 2 MiB default and accepted a body 32x the documented
+        // 64 KiB bound. Applying it here covers every route in the
+        // gateway, merged or not, and the per-route caps declared with
+        // `MethodRouter::layer` (the import's 12 MiB, the chunk body's
+        // 2 MiB) still win on their own routes because a route-level layer
+        // is applied closer to the handler.
+        .layer(DefaultBodyLimit::max(65536))
 }
 fn json_body<T>(body: std::result::Result<Json<T>, JsonRejection>) -> Result<T> {
     body.map(|Json(value)| value).map_err(|err| {
