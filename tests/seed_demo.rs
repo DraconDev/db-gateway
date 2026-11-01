@@ -62,14 +62,17 @@ fn seed(fleet: &Fleet) -> serde_json::Value {
         .unwrap_or_else(|_| panic!("the seed summary is not JSON: {stdout}"))
 }
 
-/// The table names a database reports, from `dg tables`.
+/// The table names a database reports, from `dg info`.
 fn tables(fleet: &Fleet, db: &str) -> Vec<String> {
-    let listed = fleet.cli.ok(&format!("tables {db}"), &["tables", db]);
-    listed["tables"]
+    let info = fleet.cli.ok(&format!("info {db}"), &["info", db]);
+    info["tables"]
         .as_array()
-        .unwrap_or_else(|| panic!("{db} has no tables array: {listed}"))
+        .unwrap_or_else(|| panic!("{db} has no tables array: {info}"))
         .iter()
-        .map(|table| table["name"].as_str().unwrap().to_string())
+        .map(|table| match table.as_str() {
+            Some(name) => name.to_string(),
+            None => table["name"].as_str().unwrap().to_string(),
+        })
         .collect()
 }
 
