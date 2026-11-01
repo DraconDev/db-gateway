@@ -19,6 +19,46 @@ fixes; 1.0.0 waits for production acceptance.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The 64 KiB request-body cap now holds on every route.** The cap was
+  applied to the gateway's own routes before the diff, branch, audit,
+  db-ops and backup-run routers were merged in, and a router merge does
+  not re-apply the outer router's layers — so `/v1/diff` and
+  `/v1/branch` fell back to the framework's own 2 MiB default and
+  accepted a body 32x the documented bound. The cap is now applied
+  after every merge, and the import's own 12 MiB and the chunk body's
+  2 MiB still win on their routes.
+- **A row read is not reported as a write.** `dg rows` classified its
+  SELECTs as writes, so a timeout against an unreachable gateway was
+  reported as `outcome_unknown` — "writes may have committed, replay
+  only with the same idempotency key" — for a query that committed
+  nothing and for which no key is ever sent. It now reads as what it
+  is: an unavailable gateway.
+- **The audit trail no longer records one action twice.** The action
+  that pushed the trail past its 4 MiB bound was written once by the
+  rewrite and once by the append that followed it, so the operator read
+  it as two actions.
+- **The database page shows its row counts.** The table list was sized
+  against the table names alone, so the count at the end of every line
+  was clipped off the right edge and never drawn.
+- **The shell and the one-shot commands agree.** `.backups` drew the
+  `behind` backup state as an alarm while `dg backup status` drew it
+  as a quiet line; `.schema` returned the CREATE text alone where
+  `dg schema` returns the columns, types, flags, indexes and foreign
+  keys. Both now use the shared view.
+- **An upload chunk no longer blocks every other transfer.** The
+  chunk append held the transfer registry lock across the disk write,
+  so status checks, aborts and snapshot reads queued behind it.
+- **`dg execute` refuses a file it cannot use.** The SQL file was read
+  whole and without a ceiling, and a FIFO with no writer blocked it
+  forever. It is now read under the request body's own bound and
+  refused if it is not a regular file.
+- **The "open table" action has one implementation.** The one-shot
+  grid it used to draw was unreachable — the action opens the rows
+  browser — and it drew a different shape from the live one. It is
+  gone.
+
 ## [0.10.0] — 2026-10-30
 
 ### Added
