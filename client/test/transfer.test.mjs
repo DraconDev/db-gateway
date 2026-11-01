@@ -47,9 +47,9 @@ test('a severed export is an interrupted transfer, not a write that may have com
 test('a severed import begin is an interrupted transfer too', async () => {
   const mock = await mockGateway((req) => req.socket.destroy());
   try {
-    const db = new Gateway(mock.address, 'a'.repeat(64)).database('game_a');
+    const gateway = new Gateway(mock.address, 'a'.repeat(64));
     await assert.rejects(
-      () => db.importChunked('game_a', new Uint8Array([1, 2, 3])),
+      () => gateway.importChunked('game_a', new Uint8Array([1, 2, 3])),
       (error) => {
         assert.equal(error.code, 'transport_unavailable',
           `a severed import begin must not report ${error.code}`);
