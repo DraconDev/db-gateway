@@ -23,9 +23,11 @@ live gateway already does, so re-running it inserts nothing.
 The demo schema is deliberately more intricate than a tutorial's: a
 composite primary key (`product_prices`, `warehouse_stock`,
 `fx_rates`), a self-referencing tree (`category_tree`), declared
-foreign keys, index definitions so `dg schema` has something to
-show, a NULL-heavy table (`shipments` — most rows have not shipped),
-long unicode text (`order_notes`), and one wide, awkward,
+foreign keys, a UNIQUE column (`shipments.tracking_number`) so the
+schema view has index rows to show — the gateway refuses
+`CREATE INDEX`, but the keys a table declares still get SQLite's own
+indexes — a NULL-heavy table (`shipments`, most rows have not
+shipped), long unicode text (`order_notes`), and one wide, awkward,
 denormalized extract (`inventory.legacy_stock_extract`, 14 columns
 with long names and mixed NULL rates) that exercises the table and
 row panes against a shape they cannot lay out neatly.
@@ -592,7 +594,6 @@ def main():
         "server": args.server,
         "databases": {},
         "tables": 0,
-        "indexes": 0,
         "inserted_tables": 0,
     }
     for db in TABLES:
@@ -602,11 +603,9 @@ def main():
         for statement in statements:
             run(dg, args.server, args.key_file, "query", db, statement)
         tables = []
-        indexes = 0
         for statement in statements:
             name = table_name(statement)
             if name is None:
-                indexes += 1
                 continue
             tables.append(name)
             if table_rows(dg, args.server, args.key_file, db, name) == 0:
@@ -624,11 +623,9 @@ def main():
                 filled.append(name)
         summary["databases"][db] = {
             "tables": len(tables),
-            "indexes": indexes,
             "filled": filled,
         }
         summary["tables"] += len(tables)
-        summary["indexes"] += indexes
         summary["inserted_tables"] += len(filled)
     print(json.dumps(summary))
 
