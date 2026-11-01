@@ -123,3 +123,34 @@ async fn the_general_body_cap_holds_on_an_unmerged_route() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The per-route caps still win over the general one.
+///
+/// The import route declares its own 12 MiB cap and the chunk route its
+/// own 2 MiB, both with `MethodRouter::layer`, which sits closer to the
+/// handler than the router-level layer. Moving the general cap after the
+/// merges must not have shrunk those two envelopes.
+#[tokio::test]
+async fn the_import_route_keeps_its_own_larger_cap() {
+    let dir = std::env::temp_dir().join(format!("dg-bodycap3-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (address, owner) = serve(&dir).await;
+
+    // 100 KiB: over the 64 KiB general cap, under the import's 12 MiB.
+    // The import must NOT refuse it for size -- it will refuse it for
+    // another reason (the name does not exist), and the point is that
+    // the refusal is not 413.
+    let (status, body) = post(
+        &address,
+        &owner,
+        "/v1/databases/imported/import",
+        &json!({"data": "x".repeat(100 * 1024)}),
+    )
+    .await;
+    assert_ne!(
+        status, 413,
+        "the import route lost its own 12 MiB cap: {body}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
