@@ -99,9 +99,15 @@ TABLES = {
             qty INTEGER, price_cents INTEGER)""",
         # Mostly NULL: only the shipped orders carry a carrier and a tracking
         # number, so a reader that renders NULLs as blanks has to be right.
+        # `tracking_number` is UNIQUE, which is how this demo gets an index
+        # the schema view can show: the gateway refuses `CREATE INDEX`
+        # outright (an index is a fail-closed object here), but the keys a
+        # table declares get SQLite's own indexes, so a UNIQUE column and a
+        # composite primary key still give `dg schema` real index rows to
+        # report.
         """CREATE TABLE IF NOT EXISTS shipments
            (id INTEGER PRIMARY KEY, order_id INTEGER NOT NULL REFERENCES orders(id),
-            carrier TEXT, tracking_number TEXT, shipped_at TEXT,
+            carrier TEXT, tracking_number TEXT UNIQUE, shipped_at TEXT,
             delivered_at TEXT, status TEXT NOT NULL)""",
         """CREATE TABLE IF NOT EXISTS refunds
            (id INTEGER PRIMARY KEY, order_id INTEGER NOT NULL REFERENCES orders(id),
