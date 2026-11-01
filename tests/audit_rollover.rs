@@ -44,11 +44,14 @@ fn the_action_that_triggers_the_rollover_is_written_once() {
     let path = dir.path().join("audit.jsonl");
     let log = AuditLog::open(&path);
 
-    // Fill past the bound. Each entry is about 4 KiB, so a thousand of
-    // them is 4 MiB.
-    let chunk = 4 * 1024;
-    for _ in 0..1200 {
-        log.record(entry_with_marker("filler-", chunk - 128));
+    // Fill past the bound with ordinary entries -- a statement shape
+    // and a principal, which is what the trail really holds. The ring
+    // keeps only the newest 2000, so the FILE grows well past the bound
+    // while the ring stays small, which is the situation the rollover
+    // exists for.
+    let chunk = 200;
+    for index in 0..24_000 {
+        log.record(entry_with_marker(&format!("filler-{index}-"), chunk - 64));
     }
     let size = std::fs::metadata(&path).unwrap().len();
     assert!(
@@ -96,9 +99,9 @@ fn a_restarted_gateway_reads_the_action_back_once() {
 
     {
         let log = AuditLog::open(&path);
-        let chunk = 4 * 1024;
-        for _ in 0..1200 {
-            log.record(entry_with_marker("filler-", chunk - 128));
+        let chunk = 200;
+        for index in 0..24_000 {
+            log.record(entry_with_marker(&format!("filler-{index}-"), chunk - 64));
         }
         let marker = "the-action-that-triggers-the-rollover";
         log.record(entry_with_marker(marker, chunk - 128));
