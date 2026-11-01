@@ -547,14 +547,16 @@ CLI looks the same everywhere. The rules it follows:
   `CREATE [UNIQUE] INDEX`, `DROP INDEX` and `REINDEX`**, and by nothing
   else: `ALTER`, views, triggers, temp objects, virtual tables, pragmas
   and user transactions stay refused with `sql_forbidden`, and so does
-  any statement naming a `_dg_`-prefixed object — `CREATE INDEX ON
-  _dg_replay`, and also `REINDEX _dg_replay`, whose rebuild SQLite
-  reports under the synthetic name `sqlite_autoindex__dg_replay_1`
-  rather than the table's. A bare `REINDEX` names nothing and sweeps
-  every index in the file, the gateway's own included, and stays
-  allowed: it rebuilds indexes from their own tables' rows, exposes no
-  row and changes no schema. Indexes may be created
-  and dropped freely because they change access paths, not data — and
+  any statement naming a `_dg_`-prefixed object. `REINDEX` is the one
+  statement offered bare only: it sweeps every index in the file — the
+  gateway's own included, which SQLite reports under a synthetic
+  `sqlite_autoindex_*` name rather than the table's — and that is
+  harmless, because a rebuild reads nothing back and changes no schema.
+  A `REINDEX` that names an object is refused, as it was before this
+  release: the callback it produces carries an index name and no table,
+  so the gateway cannot tell a user's index from its own. Indexes may be
+  created and dropped freely because they change access paths, not data
+  — and
   because the refusal to create one was never a decision: SQLite asks
   the authorizer about a `REINDEX` while it builds an index, that action
   was missing from the list, and the fail-closed default denied the
