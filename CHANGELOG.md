@@ -34,11 +34,14 @@ fixes; 1.0.0 waits for production acceptance.
   commit and abort of one upload take turns, while the registry mutex is
   still released before every file operation so no other transfer waits
   on a disk write. A commit also waits for an in-flight append before it
-  reads the file, and it refuses with `upload_out_of_sync` (409) rather
-  than publishing a file whose length disagrees with the acknowledged
-  offset. `tests/upload_append_lock.rs` covers the race, the commit
-  ordering and the lock behaviour; the first two fail against the
-  implementation that shipped them.
+  reads the file, so a half-written upload is never published. A file
+  left longer than the acknowledged offset by a partial write is trimmed
+  back to it under that lock — the bytes past it were never acknowledged
+  — while a file that has lost acknowledged bytes is refused with
+  `upload_out_of_sync` (409) instead of being published short.
+  `tests/upload_append_lock.rs` covers the race, the commit ordering, the
+  trim and the refusal; run against the implementations that shipped
+  them, the race, the commit-ordering and the trim tests all fail.
 - **The 64 KiB request-body cap now holds on every route.** The cap was
   applied to the gateway's own routes before the diff, branch, audit,
   db-ops and backup-run routers were merged in, and a router merge does
