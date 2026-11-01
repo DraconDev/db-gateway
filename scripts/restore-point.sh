@@ -163,7 +163,15 @@ publish() {
     # publish <file-name> <json-on-stdin>
     local name="$1"
     local tmp="$DG_BACKUP_ROOT/$name.tmp"
-    [ -d "$DG_BACKUP_ROOT" ] || return 0
+    # A missing backup root means the facts cannot be published at all.
+    # This used to return 0, so the unit stayed green while the window it
+    # publishes silently froze at its last value -- and the operator's
+    # "can I get my data back from last Tuesday?" answer went stale with
+    # no failure signal anywhere. A publisher that cannot publish says so.
+    if [ ! -d "$DG_BACKUP_ROOT" ]; then
+        log "FAIL: the backup root $DG_BACKUP_ROOT is not a directory; the facts cannot be published"
+        return 1
+    fi
     cat >"$tmp"
     chmod 0644 "$tmp"
     mv -f "$tmp" "$DG_BACKUP_ROOT/$name"
@@ -199,7 +207,16 @@ if [ "$MODE" = "list" ]; then
             :
         else
             log "warning: could not list the replica files for $name"
+            # The empty listing is NOT the same answer as "the replica
+            # holds nothing", and the difference matters: the first means
+            # the question could not be asked, the second is the answer.
+            # A database the sidecar has not snapshotted yet legitimately
+            # answers "nothing there", so this is not a failure of the
+            # run -- but it is recorded, so the published window says
+            # "unknown" for that database instead of quietly claiming
+            # there is nothing to restore from.
             : >"$WORK/$name.ltx"
+            : >"$WORK/$name.failed"
         fi
     done < <(config_paths)
 
@@ -215,10 +232,14 @@ import sys
 work, published_at, sidecar = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 
 databases = {}
+listing_failed = []
 for entry in sorted(os.listdir(work)):
     if not entry.endswith(".ltx"):
         continue
     name = entry[: -len(".ltx")]
+    failed = os.path.exists(os.path.join(work, name + ".failed"))
+    if failed:
+        listing_failed.append(name)
     files = []
     with open(os.path.join(work, entry), encoding="utf-8") as stream:
         for line in stream:
@@ -242,6 +263,10 @@ for entry in sorted(os.listdir(work)):
         "files": len(files),
         "bytes": sum(f["size"] for f in files),
         "inventory": files,
+        # "failed" means the replica could not be asked, which is not the
+        # same answer as "the replica holds nothing". A reader that only
+        # looks at the counts cannot tell those apart.
+        "listing": "failed" if failed else "ok",
     }
 
 stamps = sorted(
@@ -276,6 +301,10 @@ record = {
     "window_start": stamps[0] if stamps else None,
     "window_end": stamps[-1] if stamps else None,
     "sidecar": sidecar,
+    # The databases whose replica could not be listed. The window is
+    # truthful about them (their own answer is unknown) instead of
+    # silently claiming there is nothing to restore from.
+    "listing_failed": listing_failed,
     "databases": databases,
 }
 json.dump(record, sys.stdout, sort_keys=True)

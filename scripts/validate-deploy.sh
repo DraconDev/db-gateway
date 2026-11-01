@@ -117,6 +117,21 @@ for expected in \
         || fail "dg-backup.service must pass $expected"
 done
 
+log "checking the two halves of the snapshot cadence agree"
+# The gateway's backup-health alarm and the daily digest's staleness
+# verdict are judged by the SAME number, but the number is written twice
+# -- once as --backup-cadence-secs in dg.service, once as --cadence-secs
+# in dg-backup-digest.service -- and nothing compared them. A host that
+# rendered one half with a different value reported every database
+# overdue in one half and fresh in the other, behind a green gate. The
+# guide calls them "the same number"; this check is what makes that true.
+serve_cadence="$(grep -oE '\-\-backup-cadence-secs [0-9]+' "$UNIT" | head -1 | awk '{print $NF}')"
+digest_cadence="$(grep -oE '(^|[[:space:]])\-\-cadence-secs [0-9]+' "$ROOT/deploy/dg-backup-digest.service" | head -1 | awk '{print $NF}')"
+[ -n "$serve_cadence" ] || fail "dg.service must pass --backup-cadence-secs"
+[ -n "$digest_cadence" ] || fail "dg-backup-digest.service must pass --cadence-secs"
+[ "$serve_cadence" = "$digest_cadence" ] \
+    || fail "the snapshot cadence disagrees: dg.service says ${serve_cadence}s, dg-backup-digest.service says ${digest_cadence}s"
+
 # --------------------------------------------------------------------------
 # Portable-artifact gate.
 #
