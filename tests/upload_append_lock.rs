@@ -160,7 +160,7 @@ fn two_appends_at_the_same_offset_leave_the_acknowledged_offset_matching_the_byt
     // A barrier, so the appends really do race for the same offset.
     let barrier = Arc::new(Barrier::new(4));
     let mut threads = Vec::new();
-    for tag in [b'A', b'B', b'C', b'D'] {
+    for tag in *b"ABCD" {
         let store = store.clone();
         let upload = upload.clone();
         let barrier = barrier.clone();
