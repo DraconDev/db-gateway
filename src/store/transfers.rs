@@ -65,6 +65,65 @@ fn lock_operation(operation: &Arc<Mutex<()>>) -> std::sync::MutexGuard<'_, ()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+fn upload_out_of_sync() -> Error {
+    Error::new(
+        409,
+        "upload_out_of_sync",
+        "the upload file does not match its acknowledged length",
+    )
+}
+
+/// Make sure the upload file holds exactly the acknowledged `length` bytes.
+///
+/// Called with the transfer's operation lock held, so no other append, commit
+/// or abort of this upload is touching the file.
+///
+/// A file LONGER than the acknowledged offset is repairable, and repairing it
+/// is the whole reason the operation lock exists: the extra tail can only come
+/// from a partial write that could not be rolled back, and those bytes were
+/// never acknowledged, so trimming them back is the exact repair. Before the
+/// operation lock this trim was the data-loss bug -- it could cut bytes a
+/// concurrent append had just acknowledged -- but with the lock held the only
+/// bytes it removes are ones no client was ever told about.
+///
+/// A file SHORTER than the acknowledged offset is reported, never repaired:
+/// bytes that left the disk cannot be conjured back, and acknowledging the
+/// remaining prefix would tell the client that a chunk it sent is present when
+/// it is not. That is the one honest dead end, and the docs tell the client to
+/// restart the upload.
+fn repair_or_refuse(file: &Path, length: u64, id: &str) -> Result<()> {
+    let on_disk = std::fs::metadata(file)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+    if on_disk == length {
+        return Ok(());
+    }
+    if on_disk < length {
+        tracing::warn!(
+            upload = id,
+            on_disk,
+            acknowledged = length,
+            "the upload file is shorter than its acknowledged offset"
+        );
+        return Err(upload_out_of_sync());
+    }
+    tracing::warn!(
+        upload = id,
+        on_disk,
+        acknowledged = length,
+        "the upload file holds unacknowledged bytes; trimming them back"
+    );
+    if std::fs::OpenOptions::new()
+        .write(true)
+        .open(file)
+        .and_then(|f| f.set_len(length))
+        .is_err()
+    {
+        return Err(upload_out_of_sync());
+    }
+    Ok(())
+}
+
 pub struct SnapshotInfo {
     pub id: String,
     pub size: u64,
@@ -573,22 +632,7 @@ impl Store {
         // writes at the end of the file, so a file that holds more than
         // the acknowledged offset would put this chunk at the wrong place
         // and the acknowledged offset would stop describing the file.
-        let on_disk = std::fs::metadata(&file_path)
-            .map(|metadata| metadata.len())
-            .unwrap_or(0);
-        if on_disk != prior {
-            tracing::warn!(
-                upload = id,
-                on_disk,
-                acknowledged = prior,
-                "the upload file and its acknowledged offset disagree"
-            );
-            return Err(Error::new(
-                409,
-                "upload_out_of_sync",
-                "the upload file does not match its acknowledged length",
-            ));
-        }
+        repair_or_refuse(&file_path, prior, id)?;
         let write = std::fs::OpenOptions::new()
             .append(true)
             .open(&file_path)
@@ -702,26 +746,14 @@ impl Store {
             *received
         };
         // The file must hold exactly the acknowledged bytes. A file that is
-        // longer or shorter than the acknowledged offset is not the upload
-        // the client assembled, and importing it would publish something
-        // the client never sent.
-        let length = std::fs::metadata(&file)
-            .map(|metadata| metadata.len())
-            .unwrap_or(0);
-        if length != received {
-            tracing::warn!(
-                upload = id,
-                on_disk = length,
-                acknowledged = received,
-                "the upload file and its acknowledged offset disagree"
-            );
+        // longer is the repairable case (unacknowledged bytes from a partial
+        // write) and is trimmed back under the operation lock; a file that is
+        // shorter cannot be repaired and must not be published, because the
+        // import would be missing chunks the client was told were received.
+        if let Err(error) = repair_or_refuse(&file, received, id) {
             let mut transfers = self.transfers.lock().map_err(|_| Error::internal())?;
             self.restore_open_after_failed_commit(id, &mut transfers);
-            return Err(Error::new(
-                409,
-                "upload_out_of_sync",
-                "the upload file does not match its acknowledged length",
-            ));
+            return Err(error);
         }
 
         let result = self.import_from(name, &file);
