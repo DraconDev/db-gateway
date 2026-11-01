@@ -22,13 +22,14 @@
 //! * a read-only credential cannot create, drop or reindex, and can still
 //!   read.
 //!
-//! The first three would have failed before the `Reindex` action was
-//! allowed. The last two would have passed either way, which is the point
-//! of keeping them here: they are the boundary the change must not move,
-//! and one of them moved anyway on the first attempt — a targeted
-//! `REINDEX _dg_replay` was allowed because the callback reports
-//! `sqlite_autoindex__dg_replay_1`, a name that does not begin with the
-//! table's. That case is now asserted below.
+//! Creation and the bare `REINDEX` would have failed with `sql_forbidden`
+//! before the `Reindex` action was allowed; `DROP INDEX` and both guard
+//! cases would have passed either way, which is the point of keeping them
+//! here — they are the boundary the change must not move. One of them moved
+//! anyway on the first attempt: a targeted `REINDEX _dg_replay` was allowed
+//! because the callback reports `sqlite_autoindex__dg_replay_1`, a name
+//! that does not begin with the table's. That case is now asserted below,
+//! and the gateway offers only a bare `REINDEX` as a result.
 
 #[path = "common/mod.rs"]
 mod common;
