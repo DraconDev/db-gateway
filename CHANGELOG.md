@@ -31,7 +31,8 @@ fixes; 1.0.0 waits for production acceptance.
   consistent: a write credential may create, drop and rebuild indexes,
   and `dg schema` reports them with their columns and uniqueness
   (`tests/index_surface.rs`, `tests/schema_shapes.rs`). Everything else
-  stays refused, including `ALTER`, views, triggers, pragmas and any
+  stays refused, including `ALTER`, views, triggers, pragmas, a
+  `REINDEX` that names an object (only the bare sweep is offered) and any
   `_dg_`-prefixed object, and a read-only credential still cannot touch
   an index. `scripts/seed-demo.py` seeds three explicit indexes again as
   part of its demo schema.
