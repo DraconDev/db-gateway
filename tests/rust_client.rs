@@ -285,3 +285,35 @@ fn the_client_and_the_server_agree_on_what_a_read_is() {
         );
     }
 }
+
+/// The credential must never reach a debug output.
+///
+/// The `Debug` implementation on `dg_client::Gateway` used to be derived,
+/// so `{:?}` printed the full owner or scoped key — the one value in the
+/// type that must never reach a log, and the one `read_key_file` goes to
+/// such lengths to protect (0600 mode, no group or other access). A
+/// derived `Debug` is a promise that the type's debug output is safe to
+/// log, so the promise is now kept by hand.
+#[test]
+fn a_gateway_never_prints_its_credential() {
+    let credential = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    let gateway = dg_client::Gateway::new("http://127.0.0.1:7432/", credential)
+        .expect("a loopback origin is accepted");
+    let rendered = format!("{gateway:?}");
+    assert!(
+        !rendered.contains(credential),
+        "the debug output carries the credential: {rendered}"
+    );
+    assert!(
+        rendered.contains("redacted"),
+        "the debug output must say the credential is redacted: {rendered}"
+    );
+
+    // The same holds for the database handle, which embeds the gateway.
+    let database = gateway.database("game_a");
+    let rendered = format!("{database:?}");
+    assert!(
+        !rendered.contains(credential),
+        "the database's debug output carries the credential: {rendered}"
+    );
+}
