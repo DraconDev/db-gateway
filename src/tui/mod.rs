@@ -2222,43 +2222,6 @@ pub fn schema_outcome(name: &str, table: Option<&str>, response: &Value) -> Outc
 ///
 /// Pure for the same reason: the grid the operator pages is built
 /// here, from the columns and rows the gateway returned, and the
-/// headline says which slice of the table is on screen.
-pub fn open_table_outcome(name: &str, table: &str, page: u64, response: &Value) -> Outcome {
-    if let Some(error) = refusal(response) {
-        return error;
-    }
-    let Some(columns) = response["columns"].as_array() else {
-        return Outcome {
-            headline: "the table could not be read".to_string(),
-            facts: vec![("database".to_string(), name.to_string())],
-            table: None,
-            error: Some("the gateway answered without columns".to_string()),
-        };
-    };
-    let rows: Vec<Vec<Value>> = response["rows"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default()
-        .iter()
-        .map(|row| row.as_array().cloned().unwrap_or_default())
-        .collect();
-    let names: Vec<String> = columns
-        .iter()
-        .map(|column| column.as_str().unwrap_or("").to_string())
-        .collect();
-    let first = page.saturating_mul(crate::tui::actions::TABLE_PAGE_SIZE);
-    Outcome {
-        headline: if rows.is_empty() {
-            format!("{table} has no rows on page {page}")
-        } else {
-            format!("{table} rows {}–{}", first + 1, first + rows.len() as u64)
-        },
-        facts: vec![("database".to_string(), name.to_string())],
-        table: Some(render::Table::from_json(&names, &rows)),
-        error: None,
-    }
-}
-
 /// The outcome of the rows browser: one page of a table, with the
 /// footer that says which slice of the answer it is.
 ///
@@ -2345,9 +2308,6 @@ fn outcome_of(invocation: &Invocation, statements: &[String], response: &Value) 
     }
     if let Invocation::Schema { name, table } = invocation {
         return schema_outcome(name, table.as_deref(), response);
-    }
-    if let Invocation::OpenTable { name, table, page } = invocation {
-        return open_table_outcome(name, table, *page, response);
     }
     if !statements.is_empty() {
         let outcome = views::batch_outcomes(statements, response);

@@ -503,6 +503,13 @@ impl Invocation {
             | Invocation::Quit => {
                 return Err(invalid("this action makes no request"));
             }
+            // Opening a table opens the ROWS BROWSER, which makes its
+            // own reads -- the structure, the count and the page -- and
+            // keeps its state between them. It does not make one request
+            // of its own, so there is none here to describe.
+            Invocation::OpenTable { .. } => {
+                return Err(invalid("this action opens the rows browser"));
+            }
             Invocation::Query { name, sql } => Request {
                 method: Method::POST,
                 path: format!("/v1/databases/{name}/query"),
@@ -527,18 +534,6 @@ impl Invocation {
                     path,
                     body: None,
                     semantics: Semantics::Read,
-                }
-            }
-            Invocation::OpenTable { name, table, page } => {
-                let offset = page.saturating_mul(TABLE_PAGE_SIZE);
-                let sql = format!(
-                    "SELECT * FROM \"{table}\" ORDER BY rowid LIMIT {TABLE_PAGE_SIZE} OFFSET {offset}"
-                );
-                Request {
-                    method: Method::POST,
-                    path: format!("/v1/databases/{name}/query"),
-                    body: Some(json!({"sql": sql, "args": []})),
-                    semantics: crate::client::semantics_of(std::slice::from_ref(&sql)),
                 }
             }
             Invocation::CreateDatabase { name } => Request {
