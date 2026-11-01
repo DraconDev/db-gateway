@@ -13,7 +13,7 @@
 //! where it did not hold) as well as on one that was not, so a future
 //! merge cannot quietly widen the envelope again.
 
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 /// Serve a data directory over a real socket with the FULL API router --
 /// the diff, branch, audit, db-ops and backup-run routers merged in, the
 /// same way `dg serve` builds it.
-async fn serve(data_dir: &PathBuf) -> (String, String) {
+async fn serve(data_dir: &Path) -> (String, String) {
     let store = dg::store::Store::open(data_dir).unwrap();
     let owner = store.bootstrap().unwrap();
     let store = Arc::new(store);
