@@ -391,6 +391,17 @@ fn authorize(ctx: AuthContext<'_>, read_only: bool) -> Authorization {
             index_name,
             table_name,
         } => !read_only && !protected(index_name) && !protected(table_name),
+        // `CREATE INDEX` is not one authorizer call. SQLite also asks about
+        // a REINDEX of the index it is building, and a bare `REINDEX`
+        // statement is nothing but that same call. Without this arm the
+        // fall-through below denied the whole statement, so the gateway
+        // refused to create an index while happily dropping one -- the
+        // `CreateIndex` arm above was unreachable and the refusal was an
+        // accident of the allow list, not a policy. Allowing it here grants
+        // exactly `CREATE [UNIQUE] INDEX`, `DROP INDEX` and `REINDEX` to a
+        // write credential, and the `_dg_` guard still keeps the gateway's
+        // own tables out of reach.
+        Reindex { index_name } => !read_only && !protected(index_name),
         // No user transactions, attachment, PRAGMAs, virtual tables, triggers,
         // views, temp objects or ALTER in M1. Unknown actions fail closed.
         _ => false,
