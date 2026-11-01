@@ -5,12 +5,15 @@
 //! Twenty tables cover every common column affinity (INTEGER, REAL,
 //! TEXT, BLOB, NUMERIC, VARCHAR, DECIMAL, defaults, NOT NULL, UNIQUE,
 //! CHECK, composite keys, WITHOUT ROWID, and a FOREIGN KEY chain that
-//! is enforced at runtime). Forbidden objects are pinned to their
-//! fail-closed codes (CREATE INDEX included: the authorizer falls
-//! through to deny, so M1 has no indexes). 5000 mixed rows go in via
-//! atomic batches; every table is dumped in rowid order with blobs
-//! hex-encoded, the server is killed and restarted on the same data
-//! dir, and every dump must be identical.
+//! is enforced at runtime). Indexes are authorable: a plain and a
+//! unique index are created, both appear in `pragma_index_list`, the
+//! unique one rejects a duplicate, and both drop cleanly. Objects the
+//! gateway still refuses are pinned to their fail-closed codes — views,
+//! triggers, temp tables and `ALTER` among them — and a
+//! `_dg_`-prefixed index name is refused the same way. 5000 mixed rows
+//! go in via atomic batches; every table is dumped in rowid order with
+//! blobs hex-encoded, the server is killed and restarted on the same
+//! data dir, and every dump must be identical.
 
 use serde_json::{Value, json};
 use std::{
@@ -143,8 +146,7 @@ const FORBIDDEN: &[(&str, u16, &str)] = &[
         403,
         "sql_forbidden",
     ),
-    ("CREATE INDEX fidx ON t00(a)", 403, "sql_forbidden"),
-    ("CREATE UNIQUE INDEX fuidx ON t01(x)", 403, "sql_forbidden"),
+    ("CREATE INDEX _dg_sneaky ON t00(a)", 403, "sql_forbidden"),
     (
         "INSERT INTO t11(child, parent) VALUES (1, 99999)",
         400,
@@ -243,6 +245,59 @@ fn twenty_shapes_survive_restart_exactly() {
         assert_eq!(got_body["error"]["code"], *code, "{sql}");
     }
 
+    // Indexes are authorable. This was refused until the `Reindex`
+    // authorizer action was allowed: `CREATE INDEX` makes SQLite ask
+    // about a REINDEX of the index it is building, that action was
+    // missing from the allow list, and the fail-closed default denied the
+    // whole statement — while `DROP INDEX`, whose actions were all listed,
+    // already worked. Proving the positive case keeps the pair honest:
+    // create it, find it, enforce it, drop it.
+    for (sql, table, index, unique) in [
+        ("CREATE INDEX idx_t00_a ON t00(a)", "t00", "idx_t00_a", "0"),
+        (
+            "CREATE UNIQUE INDEX uidx_t01_x ON t01(x)",
+            "t01",
+            "uidx_t01_x",
+            "1",
+        ),
+    ] {
+        let (status, body) = query(&server, "shapes", sql);
+        assert_eq!(status, 200, "{sql}: {body}");
+        let (status, body) = query(
+            &server,
+            "shapes",
+            &format!(
+                "SELECT \"unique\", (SELECT count(*) FROM pragma_index_info('{index}')) \
+                 FROM pragma_index_list('{table}') WHERE name = '{index}'"
+            ),
+        );
+        assert_eq!(status, 200, "index list: {body}");
+        let row = body["rows"][0].as_array().unwrap();
+        assert_eq!(row[0], unique, "{sql} uniqueness: {body}");
+        assert_eq!(row[1], 1, "{sql} covers no column: {body}");
+    }
+    // The unique index is enforced, not decorative.
+    let (status, body) = query(&server, "shapes", "INSERT INTO t01(x) VALUES (1.5)");
+    assert_eq!(status, 200, "first unique insert: {body}");
+    let (status, body) = query(&server, "shapes", "INSERT INTO t01(x) VALUES (1.5)");
+    assert_eq!(status, 400, "a duplicate unique value was accepted: {body}");
+    assert_eq!(body["error"]["code"], "invalid_sql");
+    // Dropping and reindexing are the other two halves of the surface.
+    for sql in ["DROP INDEX idx_t00_a", "DROP INDEX uidx_t01_x", "REINDEX"] {
+        let (status, body) = query(&server, "shapes", sql);
+        assert_eq!(status, 200, "{sql}: {body}");
+    }
+    // The dropped indexes are really gone, so the restart dump below is
+    // comparing tables and data only.
+    let (status, body) = query(
+        &server,
+        "shapes",
+        "SELECT count(*) FROM sqlite_master WHERE type = 'index' \
+         AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_dg_%'",
+    );
+    assert_eq!(status, 200, "index residue: {body}");
+    assert_eq!(body["rows"][0][0], 0, "index residue: {body}");
+
     // Seed the FK parent first (t10): t11 rows reference parent = 1.
     let (status, body) = query(
         &server,
@@ -272,7 +327,10 @@ fn twenty_shapes_survive_restart_exactly() {
     }
     assert_eq!(done, 5000);
 
-    // sqlite_master: exactly our 20 tables, no views/triggers/indexes.
+    // sqlite_master: exactly our 20 tables. The index and unique-index
+    // rows created above are gone by now (both dropped); the tables' own
+    // constraint-backed autoindexes are excluded by the sqlite_% prefix
+    // filter, which is why this count is stable.
     let (status, body) = query(
         &server,
         "shapes",
