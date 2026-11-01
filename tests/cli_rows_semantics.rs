@@ -20,19 +20,25 @@ use std::process::Command;
 
 /// Run `dg rows` against an origin nothing is listening on.
 fn rows_against_a_dead_gateway(database: &str) -> (bool, String, String) {
+    // The credential has to be a real, readable key file: the CLI reads
+    // it before it opens the connection, and a missing key would be
+    // refused before the transport was ever tried.
+    let key_file = std::env::temp_dir().join(format!("dg-rows-sem-{}", std::process::id()));
+    std::fs::write(&key_file, "owner-key-for-the-test").unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_dg"))
         .args([
             "--server",
             // Port 1 is reserved and nothing listens on it.
             "http://127.0.0.1:1",
             "--key-file",
-            "/dev/null",
+            key_file.to_str().unwrap(),
             "rows",
             database,
             "notes",
         ])
         .output()
         .unwrap();
+    let _ = std::fs::remove_file(&key_file);
     (
         output.status.success(),
         String::from_utf8_lossy(&output.stdout).into_owned(),
