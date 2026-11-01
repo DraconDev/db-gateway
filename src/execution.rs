@@ -805,6 +805,7 @@ mod tests {
         let action = |name: &'static str| AuthContext {
             action: AuthAction::Reindex { index_name: name },
             database_name: Some("main"),
+            accessor: None,
         };
         // A write credential may rebuild an ordinary index.
         assert!(matches!(
