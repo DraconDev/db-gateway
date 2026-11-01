@@ -21,6 +21,24 @@ fixes; 1.0.0 waits for production acceptance.
 
 ### Fixed
 
+- **One upload's chunks can no longer overwrite each other.** An
+  append read the acknowledged offset under the transfer registry lock,
+  released it, and wrote the file — so two chunks submitted at the same
+  offset both passed the offset check and both wrote. Whichever finished
+  second then found the offset already advanced, took its "the transfer
+  moved on" branch, and truncated the file back to the old offset:
+  bytes the first request had already acknowledged were deleted, and the
+  offset the client was told about no longer described the file. A
+  chunked import could therefore lose data while both requests reported
+  sensibly. Each transfer now carries its own operation lock — appends,
+  commit and abort of one upload take turns, while the registry mutex is
+  still released before every file operation so no other transfer waits
+  on a disk write. A commit also waits for an in-flight append before it
+  reads the file, and it refuses with `upload_out_of_sync` (409) rather
+  than publishing a file whose length disagrees with the acknowledged
+  offset. `tests/upload_append_lock.rs` covers the race, the commit
+  ordering and the lock behaviour; the first two fail against the
+  implementation that shipped them.
 - **The 64 KiB request-body cap now holds on every route.** The cap was
   applied to the gateway's own routes before the diff, branch, audit,
   db-ops and backup-run routers were merged in, and a router merge does
