@@ -864,15 +864,14 @@ pub fn execute_detailed(
 mod tests {
     use super::*;
 
-    /// The four index statements the gateway now allows, and the two
-    /// guards on the arm that makes them possible.
+    /// The four index statements the gateway now allows, and the guards
+    /// that keep the gateway's own objects out of them.
     ///
-    /// `Reindex` is worth testing directly rather than only through a
-    /// fleet: its `protected()` branch cannot be reached by SQL. A
-    /// `_dg_`-named index cannot be created (that attempt fails one
-    /// callback earlier, in `CreateIndex`, which is the arm already
-    /// covered by the schema-shape test), so only a direct call proves the
-    /// guard is wired at all.
+    /// The `Reindex` arm itself is tested directly because no SQL statement
+    /// can reach its `protected()` branch through `CREATE INDEX`: a
+    /// `_dg_`-named index cannot be created (that attempt fails one callback
+    /// earlier, in `CreateIndex`, which the schema-shape test covers), so
+    /// only a direct call proves the guard is wired at all.
     #[test]
     fn the_reindex_arm_honours_both_its_guards() {
         let action = |name: &'static str| AuthContext {
@@ -890,11 +889,62 @@ mod tests {
             authorize(action("products_by_sku"), true),
             Authorization::Deny
         ));
-        // Neither may reach the gateway's own namespace, in any case.
+        // Neither may name one of the gateway's own indexes.
         for name in ["_dg_replay", "_DG_Replay", "_dg_sneaky"] {
             assert!(
                 matches!(authorize(action(name), false), Authorization::Deny),
                 "{name} was not refused for a write credential"
+            );
+        }
+    }
+
+    /// `REINDEX _dg_replay` reports the implicit index
+    /// `sqlite_autoindex__dg_replay_1` and no table name, so the authorizer
+    /// arm cannot see the table. `run_statement` screens the name the user
+    /// actually wrote, and these are the three pieces of that screen.
+    #[test]
+    fn a_targeted_reindex_is_screened_by_the_name_it_names() {
+        assert_eq!(reindex_target("REINDEX"), None);
+        assert_eq!(reindex_target("reindex   "), None);
+        assert_eq!(reindex_target("REINDEX;"), None);
+        assert_eq!(reindex_target("SELECT 1"), None);
+        assert_eq!(reindex_target("REINDEXx t"), None);
+        assert_eq!(reindex_target("REINDEX _dg_replay"), Some("_dg_replay"));
+        assert_eq!(reindex_target("  reindex  t  "), Some("t  "));
+        assert_eq!(
+            reindex_target("-- tidy the index up\nREINDEX products_by_sku"),
+            Some("products_by_sku")
+        );
+        assert_eq!(reindex_target("/* why */ REINDEX t"), Some("t"));
+
+        // Reserved: the explicit form, the name SQLite synthesises for it,
+        // and a qualified or quoted spelling of either.
+        for target in [
+            "_dg_replay",
+            "_DG_Replay",
+            "sqlite_autoindex__dg_replay_1",
+            "main._dg_replay",
+            "main.\"_dg_replay\"",
+            "\"sqlite_autoindex__dg_replay_1\"",
+            "[_dg_replay]",
+            "`_dg_replay`",
+        ] {
+            assert!(
+                reindex_names_reserved(target),
+                "{target} was not recognised as reserved"
+            );
+        }
+        // Not reserved: a user's table or index, and the implicit index
+        // SQLite derives from a user table.
+        for target in [
+            "products_by_sku",
+            "products",
+            "main.products_by_sku",
+            "sqlite_autoindex_products_1",
+        ] {
+            assert!(
+                !reindex_names_reserved(target),
+                "{target} was wrongly refused"
             );
         }
     }
