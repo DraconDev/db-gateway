@@ -176,7 +176,9 @@ fn the_table_list_shows_the_row_count() {
     long_app.page = Some(long);
     long_app.browser = Some(browser.clone());
     long_app.outcome = Some(dg::tui::browser_outcome(&browser, &values));
-    let text = screen(&mut long_app, 130, 45);
+    // A narrow screen: the list pane cannot grow to fit the name, so the
+    // name is cut -- and a cut name must keep its mark.
+    let text = screen(&mut long_app, 60, 45);
     let line = text
         .lines()
         .find(|line| line.contains("a_very_long"))
