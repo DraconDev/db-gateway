@@ -261,25 +261,49 @@ impl Session<'_> {
                     return self.batch_line(argument, out).await;
                 }
             }
-            ".tables" | ".schema" => {
-                let (sql, args) = if command == ".tables" {
-                    (
-                        "SELECT name FROM sqlite_master WHERE type='table' AND lower(substr(name,1,4))!='_dg_' ORDER BY name",
-                        json!([]),
-                    )
-                } else {
-                    (
-                        "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL AND lower(substr(name,1,4))!='_dg_' AND (?='' OR name=?) ORDER BY name",
-                        json!([argument, argument]),
-                    )
-                };
+            ".tables" => {
+                let sql = "SELECT name FROM sqlite_master WHERE type='table' AND lower(substr(name,1,4))!='_dg_' ORDER BY name";
                 // The statements decide whether this is a read or a
                 // write, not the method: a query is a POST either way.
                 let semantics = crate::client::semantics_of(std::slice::from_ref(&sql));
                 let response = self
-                    .request("query", json!({"sql":sql,"args":args}), None, semantics)
+                    .request(
+                        "query",
+                        json!({"sql":sql,"args":json!([])}),
+                        None,
+                        semantics,
+                    )
                     .await?;
                 render_with(&response, self.json_mode, self.theme, out)?;
+            }
+            ".schema" => {
+                // The SAME view `dg schema` draws: the columns, their
+                // declared types, the not-null and primary-key flags, the
+                // indexes and the foreign keys. It used to be a raw
+                // query for the CREATE text alone, so the shell answered
+                // a different question than the command of the same name
+                // -- and the documentation says the dot-commands draw the
+                // same views as the one-shot commands, so the two cannot
+                // drift apart.
+                let database = self
+                    .database
+                    .as_deref()
+                    .ok_or_else(|| Error::new(400, "no_database_selected", "run use <db> first"))?;
+                let path = if argument.is_empty() {
+                    format!("/v1/databases/{database}/schema")
+                } else {
+                    format!("/v1/databases/{database}/schema?table={argument}")
+                };
+                let document = self.get(&path).await?;
+                if self.json_mode {
+                    writeln!(out, "{document}").map_err(io)?;
+                } else {
+                    let sections = crate::views::structure_sections(
+                        &document,
+                        (!argument.is_empty()).then_some(argument),
+                    );
+                    crate::render::write_sections(out, self.theme, &sections)?;
+                }
             }
             ".status" => {
                 let response = self.get("/v1/status").await?;
