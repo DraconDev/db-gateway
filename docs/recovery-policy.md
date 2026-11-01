@@ -43,7 +43,10 @@ that travels with a consistent manifest for same-host accidents.
 The Tier 2 RPO objective — **1 hour, the producer cadence** — is also the
 owner-approved *snapshot cadence* the backup-health alarm is judged against
 (observability contract §2a). It is configured on the host as
-`--backup-cadence-secs 3600` on `dg serve` and `dg backup digest`.
+`--backup-cadence-secs 3600` on `dg serve` and `--cadence-secs 3600` on
+`dg backup digest` — the two flags have different names because the two
+subcommands declare them separately, and copying the `serve` spelling
+onto the digest command is a usage error.
 
 The two numbers are the same for one reason: the producer publishes hourly,
 so a change is legitimately unrepresented for up to an hour. The cadence is

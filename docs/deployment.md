@@ -116,7 +116,9 @@ since the last publication is reported and the daily digest is red
 whenever anything has happened on the host. A host whose producer runs on
 a different interval must render the same number in both units, and the
 units are the only place it is set — the gateway and the digest each read
-it from their own command line, so the two halves cannot disagree.
+it from their own command line, so the two halves cannot disagree:
+`scripts/validate-deploy.sh` reads both numbers out of the two units and
+fails when they differ, which is what keeps that sentence true.
 
 `dg-backup.service` passes the rendered paths to the producer it drives
 (`--server http://{{DG_LISTEN}} --key-file {{DG_OWNER_KEY_FILE}}
