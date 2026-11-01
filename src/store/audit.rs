@@ -265,7 +265,15 @@ impl AuditLog {
             return;
         };
         let size = line.len() as u64 + 1;
-        if trail.bytes + size > MAX_FILE_BYTES && !trail.rewrite(entries) {
+        if trail.bytes + size > MAX_FILE_BYTES {
+            // The rewrite writes the WHOLE ring, and the ring already
+            // holds the entry that is being recorded -- so the rewrite
+            // has already written this line. Appending it again would
+            // leave the action that triggered the rollover in the file
+            // twice, and the operator would read one action as two.
+            if !trail.rewrite(entries) {
+                return;
+            }
             return;
         }
         let written = trail

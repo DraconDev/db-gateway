@@ -30,6 +30,15 @@ fn entry_with_marker(marker: &str) -> AuditEntry {
     }
 }
 
+/// The entry that crosses the bound: a marker plus enough detail to
+/// push the file past it on its own.
+fn the_rollover_entry(marker: &str) -> AuditEntry {
+    let mut entry = entry_with_marker(marker);
+    let detail = entry.detail.take().unwrap_or_default();
+    entry.detail = Some(format!("{detail}{}", "x".repeat(4096)));
+    entry
+}
+
 /// Fill the trail file until it is one entry short of the rollover.
 ///
 /// The entries are ordinary ones -- a principal and a statement shape,
@@ -39,7 +48,9 @@ fn fill_to_the_bound(path: &Path, log: &AuditLog) {
     let mut index = 0usize;
     loop {
         let size = std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
-        if size + 512 >= MAX_FILE_BYTES {
+        // Stop with room for the rollover entry to cross the bound on
+        // its own: a filler must not be the one that triggers it.
+        if size + 1024 >= MAX_FILE_BYTES {
             return;
         }
         log.record(entry_with_marker(&format!("filler-{index}")));
@@ -58,7 +69,7 @@ fn the_action_that_triggers_the_rollover_is_written_once() {
 
     // The action that tips the file over the bound.
     let marker = "the-action-that-triggers-the-rollover";
-    log.record(entry_with_marker(marker));
+    log.record(the_rollover_entry(marker));
 
     let text = std::fs::read_to_string(&path).unwrap();
     let occurrences = text.matches(marker).count();
@@ -93,7 +104,7 @@ fn a_restarted_gateway_reads_the_action_back_once() {
     {
         let log = AuditLog::open(&path);
         fill_to_the_bound(&path, &log);
-        log.record(entry_with_marker(marker));
+        log.record(the_rollover_entry(marker));
     }
 
     // A fresh log over the same file is what a restarted gateway builds.
