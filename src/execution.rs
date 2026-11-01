@@ -879,126 +879,87 @@ mod tests {
     /// The four index statements the gateway now allows, and the guards
     /// that keep the gateway's own objects out of them.
     ///
-    /// The `Reindex` arm itself is tested directly because no SQL statement
-    /// can reach its `protected()` branch through `CREATE INDEX`: a
-    /// `_dg_`-named index cannot be created (that attempt fails one callback
-    /// earlier, in `CreateIndex`, which the schema-shape test covers), so
-    /// only a direct call proves the guard is wired at all.
+    /// The `Reindex` arm is tested directly because no SQL statement can
+    /// reach its `protected()` half through `CREATE INDEX`: a `_dg_`-named
+    /// index cannot be created (that attempt fails one callback earlier, in
+    /// `CreateIndex`, which the schema-shape test covers), so only a direct
+    /// call proves the guard is wired at all.
     #[test]
-    fn the_reindex_arm_honours_both_its_guards() {
+    fn the_reindex_arm_honours_all_three_of_its_guards() {
         let action = |name: &'static str| AuthContext {
             action: AuthAction::Reindex { index_name: name },
             database_name: Some("main"),
             accessor: None,
         };
-        // A write credential may rebuild an ordinary index.
+        // A statement that legitimately rebuilds an index, for a write
+        // credential, naming an ordinary index.
         assert!(matches!(
-            authorize(action("products_by_sku"), false),
+            authorize(action("products_by_sku"), false, true),
             Authorization::Allow
         ));
         // A read-only credential may not: a REINDEX writes the index.
         assert!(matches!(
-            authorize(action("products_by_sku"), true),
+            authorize(action("products_by_sku"), true, true),
             Authorization::Deny
         ));
-        // Neither may name one of the gateway's own indexes.
+        // A statement that is not a `CREATE [UNIQUE] INDEX` or a bare
+        // `REINDEX` may not rebuild anything, whatever it names.
+        assert!(matches!(
+            authorize(action("products_by_sku"), false, false),
+            Authorization::Deny
+        ));
+        // And the named `_dg_` namespace stays closed in every case.
         for name in ["_dg_replay", "_DG_Replay", "_dg_sneaky"] {
             assert!(
-                matches!(authorize(action(name), false), Authorization::Deny),
+                matches!(authorize(action(name), false, true), Authorization::Deny),
                 "{name} was not refused for a write credential"
             );
         }
     }
 
-    /// `REINDEX _dg_replay` reports the implicit index
-    /// `sqlite_autoindex__dg_replay_1` and no table name, so the authorizer
-    /// arm cannot see the table. `run_statement` screens the name the user
-    /// actually wrote, and these are the three pieces of that screen.
+    /// The classifier that decides whether a statement may rebuild an index
+    /// at all. It is a positive allowlist, so an unrecognised spelling costs
+    /// a refusal -- the direction the earlier name-matching screen got wrong.
     #[test]
-    fn a_targeted_reindex_is_screened_by_the_name_it_names() {
-        assert_eq!(reindex_target("REINDEX"), None);
-        assert_eq!(reindex_target("reindex   "), None);
-        assert_eq!(reindex_target("REINDEX;"), None);
-        assert_eq!(reindex_target("SELECT 1"), None);
-        assert_eq!(reindex_target("REINDEXx t"), None);
-        assert_eq!(reindex_target("REINDEX _dg_replay"), Some("_dg_replay"));
-        assert_eq!(reindex_target("  reindex  t  "), Some("t  "));
-        assert_eq!(
-            reindex_target("-- tidy the index up\nREINDEX products_by_sku"),
-            Some("products_by_sku")
-        );
-        assert_eq!(reindex_target("/* why */ REINDEX t"), Some("t"));
-        // A comment is whitespace to SQLite, so it cannot hide the target,
-        // and the target comes back with its leading comments already gone.
-        assert_eq!(
-            reindex_target("REINDEX /*c*/ _dg_replay"),
-            Some("_dg_replay")
-        );
-        assert_eq!(
-            reindex_target("REINDEX -- why\n_dg_replay"),
-            Some("_dg_replay")
-        );
-        // `EXPLAIN` compiles the statement and hands back the bytecode, so
-        // the statement behind it is the one to screen.
-        assert_eq!(
-            reindex_target("EXPLAIN REINDEX _dg_replay"),
-            Some("_dg_replay")
-        );
-        assert_eq!(
-            reindex_target("explain query plan REINDEX _dg_replay"),
-            Some("_dg_replay")
-        );
-        assert_eq!(reindex_target("EXPLAIN QUERY PLAN SELECT 1"), None);
-        assert_eq!(reindex_target("EXPLAIN"), None);
-
-        // Reserved: the explicit form, the name SQLite synthesises for it,
-        // and a qualified or quoted spelling of either.
-        for target in [
-            "_dg_replay",
-            "_DG_Replay",
-            "sqlite_autoindex__dg_replay_1",
-            "main._dg_replay",
-            "main.\"_dg_replay\"",
-            "\"sqlite_autoindex__dg_replay_1\"",
-            "/*c*/ _dg_replay",
-            "/*c*/ main./*c*/_dg_replay",
-            "main . _dg_replay",
-            "-- why\n_dg_replay",
-            "  _dg_replay -- trailing comment",
-            "[_dg_replay]",
-            "`_dg_replay`",
+    fn only_index_creation_and_a_bare_reindex_may_rebuild() {
+        for allowed in [
+            "REINDEX",
+            "reindex",
+            "  REINDEX  ",
+            "REINDEX;",
+            "REINDEX -- tidy up",
+            "/* housekeeping */ REINDEX",
+            "REINDEX\n",
+            "CREATE INDEX products_by_sku ON products(sku)",
+            "create index if not exists i on t(a)",
+            "CREATE UNIQUE INDEX u ON t(a)",
+            "CREATE/*c*/UNIQUE/*c*/INDEX u ON t(a)",
+            "create/*c*/index i on t(a)",
         ] {
-            assert!(
-                reindex_names_reserved(target),
-                "{target} was not recognised as reserved"
-            );
+            assert!(may_reindex(allowed), "{allowed:?} should be allowed");
         }
-        // The two ways a comment can be read wrongly: `--` inside a block
-        // comment used to swallow the rest of the statement, which let
-        // `REINDEX/*--*/_dg_replay` through.
-        for target in [
-            "/*--*/_dg_replay",
-            "/* -- */ _dg_replay",
-            "main./*--*/_dg_replay",
-            "/* /* */ _dg_replay",
+        // Everything that names an object, or hides the command behind
+        // another one, is refused -- including the two spellings that got
+        // through the name-matching screen this replaced.
+        for refused in [
+            "REINDEX _dg_replay",
+            "REINDEX products_by_sku",
+            "REINDEX main._dg_replay",
+            "REINDEX/*--*/_dg_replay",
+            "REINDEX /* -- */ _dg_replay",
+            "REINDEX main./*--*/_dg_replay",
+            "REINDEX \"sqlite_autoindex__dg_replay_1\"",
+            "EXPLAIN REINDEX _dg_replay",
+            "EXPLAIN QUERY PLAN REINDEX _dg_replay",
+            "EXPLAIN CREATE INDEX i ON t(a)",
+            "REINDEX, DROP TABLE t",
+            "SELECT 1",
+            "DROP INDEX i",
+            "CREATE TABLE t(a UNIQUE)",
+            "CREATE TRIGGER x AFTER INSERT ON t BEGIN SELECT 1; END",
+            "",
         ] {
-            assert!(
-                reindex_names_reserved(target),
-                "{target} was not recognised as reserved"
-            );
-        }
-        // Not reserved: a user's table or index, and the implicit index
-        // SQLite derives from a user table.
-        for target in [
-            "products_by_sku",
-            "products",
-            "main.products_by_sku",
-            "sqlite_autoindex_products_1",
-        ] {
-            assert!(
-                !reindex_names_reserved(target),
-                "{target} was wrongly refused"
-            );
+            assert!(!may_reindex(refused), "{refused:?} should be refused");
         }
     }
 
