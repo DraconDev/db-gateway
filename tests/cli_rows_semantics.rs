@@ -24,7 +24,10 @@ fn rows_against_a_dead_gateway(database: &str) -> (bool, String, String) {
     // it before it opens the connection, and a missing key would be
     // refused before the transport was ever tried.
     let key_file = std::env::temp_dir().join(format!("dg-rows-sem-{}", std::process::id()));
-    std::fs::write(&key_file, "owner-key-for-the-test").unwrap();
+    // The credential has to LOOK like a credential: the CLI reads the
+    // file and refuses anything that is not 64 hex characters before it
+    // ever opens a connection.
+    std::fs::write(&key_file, "a".repeat(64)).unwrap();
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&key_file, std::fs::Permissions::from_mode(0o600)).unwrap();
