@@ -20,8 +20,16 @@ fn post(port: u16, key: &str, path: &str, body: &[u8]) -> (u16, String) {
     s.write_all(req.as_bytes()).unwrap();
     s.write_all(body).unwrap();
     s.flush().unwrap();
+    s.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
     let mut out = String::new();
-    s.read_to_string(&mut out).unwrap();
+    let mut buf = [0u8; 8192];
+    loop {
+        match s.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => out.push_str(&String::from_utf8_lossy(&buf[..n])),
+            Err(_) => break,
+        }
+    }
     let status = out.split_whitespace().nth(1).unwrap_or("?").to_string();
     (status.parse().unwrap_or(0), out)
 }
