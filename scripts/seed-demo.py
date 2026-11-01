@@ -23,14 +23,15 @@ live gateway already does, so re-running it inserts nothing.
 The demo schema is deliberately more intricate than a tutorial's: a
 composite primary key (`product_prices`, `warehouse_stock`,
 `fx_rates`), a self-referencing tree (`category_tree`), declared
-foreign keys, a UNIQUE column (`shipments.tracking_number`) so the
-schema view has index rows to show — the gateway refuses
-`CREATE INDEX`, but the keys a table declares still get SQLite's own
-indexes — a NULL-heavy table (`shipments`, most rows have not
-shipped), long unicode text (`order_notes`), and one wide, awkward,
-denormalized extract (`inventory.legacy_stock_extract`, 14 columns
-with long names and mixed NULL rates) that exercises the table and
-row panes against a shape they cannot lay out neatly.
+foreign keys, explicit indexes as well as the ones a declared key
+produces (`products_by_sku`, a two-column
+`stock_moves_by_product`, `legacy_stock_extract_by_warehouse`,
+`order_notes_by_order`, plus the `UNIQUE` autoindex on
+`shipments.tracking_number`), a NULL-heavy table (`shipments`, most
+rows have not shipped), long unicode text (`order_notes`), and one
+wide, awkward, denormalized extract (`inventory.legacy_stock_extract`,
+14 columns with long names and mixed NULL rates) that exercises the
+table and row panes against a shape they cannot lay out neatly.
 
 Exit nonzero when any step fails. Prints a one-line JSON summary.
 """
@@ -88,6 +89,17 @@ TABLES = {
             revaluation_timestamp_utc TEXT, currency_iso_code TEXT,
             discontinued_flag INTEGER, notes_from_the_merchandising_team TEXT,
             extract_generated_at_utc TEXT NOT NULL)""",
+        # Explicit indexes, so the demo covers the whole index surface and not
+        # only the ones a declared key happens to produce: a plain index on a
+        # non-key column (`products.sku`), one on a join column
+        # (`stock_moves.product_id`), and a multi-column one so `dg schema`
+        # has a covering index to describe as well as the sqlite_autoindex_*
+        # rows the keys already create.
+        "CREATE INDEX IF NOT EXISTS products_by_sku ON products(sku)",
+        "CREATE INDEX IF NOT EXISTS stock_moves_by_product "
+        "ON stock_moves(product_id, at)",
+        "CREATE INDEX IF NOT EXISTS legacy_stock_extract_by_warehouse "
+        "ON legacy_stock_extract(warehouse_code)",
     ],
     "orders": [
         """CREATE TABLE IF NOT EXISTS customers
@@ -101,12 +113,8 @@ TABLES = {
             qty INTEGER, price_cents INTEGER)""",
         # Mostly NULL: only the shipped orders carry a carrier and a tracking
         # number, so a reader that renders NULLs as blanks has to be right.
-        # `tracking_number` is UNIQUE, which is how this demo gets an index
-        # the schema view can show: the gateway refuses `CREATE INDEX`
-        # outright (an index is a fail-closed object here), but the keys a
-        # table declares get SQLite's own indexes, so a UNIQUE column and a
-        # composite primary key still give `dg schema` real index rows to
-        # report.
+        # `tracking_number` is UNIQUE, which gives the schema view an
+        # autoindex alongside the explicitly created ones above.
         """CREATE TABLE IF NOT EXISTS shipments
            (id INTEGER PRIMARY KEY, order_id INTEGER NOT NULL REFERENCES orders(id),
             carrier TEXT, tracking_number TEXT UNIQUE, shipped_at TEXT,
@@ -120,6 +128,8 @@ TABLES = {
         """CREATE TABLE IF NOT EXISTS order_notes
            (id INTEGER PRIMARY KEY, order_id INTEGER NOT NULL REFERENCES orders(id),
             body TEXT NOT NULL, author TEXT NOT NULL, created_at TEXT NOT NULL)""",
+        "CREATE INDEX IF NOT EXISTS order_notes_by_order "
+        "ON order_notes(order_id, created_at)",
     ],
     "ledger": [
         """CREATE TABLE IF NOT EXISTS accounts
@@ -594,6 +604,7 @@ def main():
         "server": args.server,
         "databases": {},
         "tables": 0,
+        "indexes": 0,
         "inserted_tables": 0,
     }
     for db in TABLES:
@@ -603,9 +614,11 @@ def main():
         for statement in statements:
             run(dg, args.server, args.key_file, "query", db, statement)
         tables = []
+        indexes = 0
         for statement in statements:
             name = table_name(statement)
             if name is None:
+                indexes += 1
                 continue
             tables.append(name)
             if table_rows(dg, args.server, args.key_file, db, name) == 0:
@@ -623,9 +636,11 @@ def main():
                 filled.append(name)
         summary["databases"][db] = {
             "tables": len(tables),
+            "indexes": indexes,
             "filled": filled,
         }
         summary["tables"] += len(tables)
+        summary["indexes"] += indexes
         summary["inserted_tables"] += len(filled)
     print(json.dumps(summary))
 

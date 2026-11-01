@@ -96,6 +96,10 @@ fn the_demo_seed_lands_its_intricate_schema_and_re_running_changes_nothing() {
         "the seed no longer creates 27 tables: {first}"
     );
     assert_eq!(
+        first["indexes"], 4,
+        "the seed no longer creates its four explicit indexes: {first}"
+    );
+    assert_eq!(
         first["inserted_tables"], 27,
         "a fresh gateway left some table empty: {first}"
     );
@@ -163,7 +167,76 @@ fn the_demo_seed_lands_its_intricate_schema_and_re_running_changes_nothing() {
     );
     assert!(
         !prices["indexes"].as_array().unwrap().is_empty(),
-        "the seed's index definitions are not visible in the schema: {prices}"
+        "the composite key's index is not visible in the schema: {prices}"
+    );
+
+    // The explicit indexes the seed creates are authorable and visible, with
+    // the columns each one covers — including the two-column case, which is
+    // the one a single-column assumption would misreport.
+    let inventory_schema = fleet.cli.ok("schema inventory", &["schema", "inventory"]);
+    let by_name = |table: &str| -> Vec<(String, bool, Vec<String>)> {
+        let entry = inventory_schema["tables"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|candidate| candidate["name"] == table)
+            .unwrap_or_else(|| panic!("{table} missing from the schema: {inventory_schema}"));
+        entry["indexes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|index| {
+                (
+                    index["name"].as_str().unwrap().to_string(),
+                    index["unique"].as_bool().unwrap(),
+                    index["columns"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|column| column.as_str().unwrap().to_string())
+                        .collect(),
+                )
+            })
+            .collect()
+    };
+    let product_indexes = by_name("products");
+    assert!(
+        product_indexes
+            .iter()
+            .any(|(name, unique, columns)| name == "products_by_sku"
+                && !unique
+                && columns == &vec!["sku".to_string()]),
+        "products_by_sku is missing or misreported: {product_indexes:?}"
+    );
+    let move_indexes = by_name("stock_moves");
+    assert!(
+        move_indexes
+            .iter()
+            .any(|(name, _, columns)| name == "stock_moves_by_product"
+                && columns == &vec!["product_id".to_string(), "at".to_string()]),
+        "the two-column index is missing or lost its columns: {move_indexes:?}"
+    );
+    let extract_indexes = by_name("legacy_stock_extract");
+    assert!(
+        extract_indexes.iter().any(|(name, _, columns)| name
+            == "legacy_stock_extract_by_warehouse"
+            && columns == &vec!["warehouse_code".to_string()]),
+        "the wide table's index is missing: {extract_indexes:?}"
+    );
+    let orders_schema = fleet.cli.ok("schema orders", &["schema", "orders"]);
+    let notes = orders_schema["tables"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|table| table["name"] == "order_notes")
+        .unwrap();
+    assert!(
+        notes["indexes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|index| index["name"] == "order_notes_by_order"),
+        "order_notes_by_order is missing: {notes}"
     );
 
     // The NULL-heavy table really is NULL-heavy: most shipments have not
