@@ -6,7 +6,15 @@ export interface BatchResult { results: QueryResult[] }
 /// Whether a request can have committed data. The HTTP method cannot
 /// answer this — a query is a POST whether it reads or writes — so the
 /// statements decide, with the same rule the server uses.
-export type Semantics = 'read' | 'write';
+///
+/// A third state answers the transfer phase. `export`/`import` begin,
+/// chunk and release move bytes and commit nothing while still using
+/// POST or DELETE, so the method cannot tell them from a write. The
+/// CLI and the Rust client carry the same three states, and the reason
+/// is the same on both sides: telling an operator that "a write may
+/// have committed" about a request that had neither a write nor an
+/// idempotency key is advice they cannot follow.
+export type Semantics = 'read' | 'transfer' | 'write';
 /// Transport budgets. The defaults are the published contract; they are
 /// injectable so a test can prove real delayed-completion behaviour in
 /// milliseconds instead of sleeping for a minute, without weakening what a
@@ -23,7 +31,8 @@ export interface RequestOptions {
   /// What this request can commit. Defaults to the method's own answer
   /// (GET reads, everything else writes), which is correct for the
   /// management routes and fail-closed for anything else. Query and
-  /// batch pass the statement-derived answer explicitly.
+  /// batch pass the statement-derived answer explicitly, and the
+  /// transfer-phase calls pass `'transfer'`.
   semantics?: Semantics;
   /// Override this one request's budget. Only tests have a reason to.
   timeoutMs?: number;
@@ -55,6 +64,21 @@ export interface DatabaseLocation {
   /** Whether the name is tombstoned: deleted, but still on disk until the retention window purges it. */
   tombstoned: boolean;
 }
+/** The free space on the volume the gateway keeps its files on. */
+export interface DiskSpace {
+  /** The volume's total size, in bytes. */
+  total_bytes?: number;
+  /** Bytes still available on the volume. */
+  free_bytes?: number;
+  /** Bytes in use on the volume. */
+  used_bytes?: number;
+  /** How full the volume is, as a percentage. */
+  used_percent?: number;
+  /** The volume's total inode count. */
+  total_inodes?: number;
+  /** The volume's free inode count. */
+  free_inodes?: number;
+}
 /** Where the gateway is running, and where it keeps its files. */
 export interface Deployment {
   /** The machine's hostname, or null when the platform does not report one. */
@@ -67,6 +91,12 @@ export interface Deployment {
   backup_root?: string | null;
   /** Where each registered database lives, tombstoned ones included. */
   databases?: Record<string, DatabaseLocation>;
+  /** The free space on the data volume, when the platform reports it. */
+  disk?: DiskSpace | null;
+  /** The total the database files occupy, in bytes. */
+  databases_bytes?: number;
+  /** How long a deleted name is held before it is purged, in seconds. */
+  retention_secs?: number;
 }
 export interface StatusResponse {
   version: string;
