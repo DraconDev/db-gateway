@@ -296,16 +296,190 @@ def gen_tags():
     ]
 
 
+def gen_product_prices():
+    # 80 rows: two effective dates for each of the first forty products. The
+    # key is (product_id, valid_from), so the ids alone are not unique -- a
+    # reader has to show both columns to make the row addresses make sense.
+    rows = []
+    for i in range(1, 41):
+        rows.append(f"({i},'2026-09-01',{500 + 37 * i},'EUR')")
+        rows.append(f"({i},'2026-10-15',{520 + 41 * i},'EUR')")
+    return rows
+
+
+def gen_warehouses():
+    return [
+        "('wh-ber','Berlin','DE',4200)",
+        "('wh-ham','Hamburg','DE',2600)",
+        "('wh-poz','Poznan','PL',1800)",
+        "('wh-kra','Krakow','PL',NULL)",
+    ]
+
+
+def gen_warehouse_stock():
+    # 160 positions: four warehouses x the first forty products. Products
+    # 41-60 deliberately sit in no warehouse, so a join against this table
+    # has gaps to notice. `reserved_qty` is NULL where nothing is reserved.
+    warehouses = ["wh-ber", "wh-ham", "wh-poz", "wh-kra"]
+    rows = []
+    for warehouse in warehouses:
+        for product in range(1, 41):
+            qty = (product * 3 + len(warehouse)) % 90
+            reserved = "NULL" if product % 4 != 0 else str((product * 2) % 20)
+            rows.append(f"('{warehouse}',{product},{qty},{reserved})")
+    return rows
+
+
+def gen_category_tree():
+    # 12 nodes: three roots (parent_id NULL) and nine children. The parents
+    # are always smaller ids than the children, so the tree can be walked
+    # either direction without meeting a cycle.
+    roots = [(1, "hardware"), (2, "consumables"), (3, "services")]
+    rows = [f"({node},NULL,'{name}',0)" for node, name in roots]
+    for node in range(4, 13):
+        parent = 1 + (node % 3)
+        rows.append(f"({node},{parent},'group {node}',1)")
+    return rows
+
+
+def gen_legacy_stock_extract():
+    # 20 rows over 14 columns, written the way a nightly ERP extract really
+    # is: half the columns are NULL in half the rows, one description is
+    # ~120 characters, and the currency column is quietly inconsistent.
+    rows = []
+    for i in range(1, 21):
+        sku = "NULL" if i % 5 == 0 else f"'SKU-{1000 + (i % 60)}'"
+        description = (
+            "NULL"
+            if i % 3 == 0
+            else "'Item with a description long enough to overflow any "
+            "reasonable column width, kept verbatim from the ERP'"
+        )
+        warehouse = "NULL" if i % 7 == 0 else "'wh-ber'" if i % 2 else "'wh-poz'"
+        on_hand = "NULL" if i % 6 == 0 else str(i * 11)
+        reserved = "NULL" if i % 4 == 0 else str(i)
+        available = "NULL" if i % 6 == 0 else str(i * 10)
+        unit_cost = "NULL" if i % 9 == 0 else str(125_000 + 1_500 * i)
+        revalued = f"'2026-10-{14 + (i % 9):02d}T02:00:00Z'"
+        currency = "'EUR'" if i % 4 else "'eur'"
+        discontinued = "1" if i % 8 == 0 else "0"
+        notes = "NULL" if i % 2 else f"'checked by hand, batch {i}'"
+        rows.append(
+            f"({i},'erp-nightly',{sku},{description},{warehouse},{on_hand},"
+            f"{reserved},{available},{unit_cost},{revalued},{currency},"
+            f"{discontinued},{notes},'2026-10-28T03:00:00Z')"
+        )
+    return rows
+
+
+def gen_shipments():
+    # 60 shipments over 90 orders. Only the first twenty have left the
+    # warehouse with a carrier and a tracking number; the rest are booked and
+    # waiting, which is why four of the six columns are NULL in most rows.
+    rows = []
+    for i in range(1, 61):
+        booked = f"'2026-10-{10 + (i % 15):02d}T11:00:00Z'"
+        if i <= 20:
+            carrier = f"'carrier-{i % 3}'"
+            tracking = f"'TRK{i:06d}'"
+            shipped = booked
+            delivered = (
+                f"'2026-10-{11 + (i % 15):02d}T16:00:00Z'" if i % 2 else "NULL"
+            )
+            status = "'delivered'" if i % 2 else "'in-transit'"
+        else:
+            carrier, tracking, shipped, delivered = "NULL", "NULL", "NULL", "NULL"
+            status = "'booked'"
+        rows.append(
+            f"({i},{(i % 90) + 1},{carrier},{tracking},{shipped},{delivered},{status})"
+        )
+    return rows
+
+
+def gen_refunds():
+    # 15 partial refunds in mixed currencies: the amounts are cents in the
+    # refund's own currency, not the order's, which is the kind of thing a
+    # total-by-currency query has to account for.
+    rows = []
+    for i in range(1, 16):
+        currency = "'GBP'" if i % 3 == 0 else "'EUR'"
+        reason = "'damaged'" if i % 2 else "'wrong item'"
+        rows.append(
+            f"({i},{(i % 90) + 1},{250 + 80 * i},{currency},{reason},"
+            f"'2026-10-{18 + (i % 10):02d}T12:00:00Z')"
+        )
+    return rows
+
+
+def gen_order_notes():
+    # 40 notes with long unicode bodies: wrapping, truncation and column
+    # widths all fail visibly here rather than silently in a screenshot.
+    bodies = [
+        "customer asked for delivery to the side door — gate code 4417, "
+        "ring the bell twice",
+        "Zahlung per Überweisung eingegangen; Rechnung wurde storniert, "
+        "kunde möchte die Bestellung dennoch behalten",
+        "アドレスが古いため再確認が必要 — 連絡済み（10月21日）",
+        "split shipment approved: the fragile items go separately so nothing "
+        "arrives broken this time",
+    ]
+    rows = []
+    for i in range(1, 41):
+        body = bodies[i % len(bodies)].replace("'", "''")
+        rows.append(
+            f"({i},{(i % 90) + 1},'{body}','agent-{i % 4}',"
+            f"'2026-10-{12 + (i % 16):02d}T09:30:00Z')"
+        )
+    return rows
+
+
+def gen_fx_rates():
+    # 42 rates: fourteen business days x three currencies. The key is the
+    # date and the currency together -- no single column identifies a row.
+    currencies = [("EUR", 1_000_000), ("GBP", 1_168_000), ("USD", 917_000)]
+    rows = []
+    for day in range(14):
+        date = f"2026-10-{10 + day:02d}"
+        for currency, base in currencies:
+            # A stable per-day wobble so the series is not a flat line.
+            rate = base + (day * 1_700) - (day % 3) * 2_100
+            rows.append(f"('{date}','{currency}',{rate})")
+    return rows
+
+
+def gen_reconciliations():
+    # 14 reconciliations, the last four still open (closed_at NULL).
+    rows = []
+    for i in range(1, 15):
+        expected = 50_000 + 1_000 * i
+        actual = expected if i % 5 else expected - 250
+        closed = (
+            f"'2026-10-{20 + (i % 8):02d}T18:00:00Z'" if i <= 10 else "NULL"
+        )
+        rows.append(f"({i},{(i % 15) + 1},'2026-10',{expected},{actual},{closed})")
+    return rows
+
+
 GENERATORS = {
     ("inventory", "products"): gen_products,
     ("inventory", "stock_moves"): gen_stock_moves,
     ("inventory", "suppliers"): gen_suppliers,
+    ("inventory", "product_prices"): gen_product_prices,
+    ("inventory", "warehouses"): gen_warehouses,
+    ("inventory", "warehouse_stock"): gen_warehouse_stock,
+    ("inventory", "category_tree"): gen_category_tree,
+    ("inventory", "legacy_stock_extract"): gen_legacy_stock_extract,
     ("orders", "customers"): gen_customers,
     ("orders", "orders"): gen_orders,
     ("orders", "order_items"): gen_order_items,
+    ("orders", "shipments"): gen_shipments,
+    ("orders", "refunds"): gen_refunds,
+    ("orders", "order_notes"): gen_order_notes,
     ("ledger", "accounts"): gen_accounts,
     ("ledger", "budgets"): gen_budgets,
     ("ledger", "entries"): gen_entries,
+    ("ledger", "fx_rates"): gen_fx_rates,
+    ("ledger", "reconciliations"): gen_reconciliations,
     ("sessions", "sessions"): gen_sessions,
     ("sessions", "events"): gen_events,
     ("notes", "notes"): gen_notes,
@@ -391,6 +565,23 @@ def resolve_dg(explicit):
     return "dg"
 
 
+def table_name(statement):
+    """The table a CREATE TABLE statement defines, or None for anything else.
+
+    The demo now mixes table definitions with index definitions, so the
+    caller cannot assume every statement is a table: an index has no rows to
+    count and no generator, and treating one as a table would insert into a
+    name that does not exist.
+    """
+    tokens = statement.split()
+    if len(tokens) < 2 or tokens[0].upper() != "CREATE" or tokens[1].upper() != "TABLE":
+        return None
+    at = 2
+    if tokens[at].upper() == "IF":
+        at += 3  # skip IF NOT EXISTS
+    return tokens[at]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--server", default="http://127.0.0.1:7432")
@@ -399,20 +590,27 @@ def main():
     args = parser.parse_args()
     dg = resolve_dg(args.dg)
 
-    summary = {"server": args.server, "databases": {}, "inserted_tables": 0}
+    summary = {
+        "server": args.server,
+        "databases": {},
+        "tables": 0,
+        "indexes": 0,
+        "inserted_tables": 0,
+    }
     for db in TABLES:
         ensure_db(dg, args.server, args.key_file, db)
     for db, statements in TABLES.items():
         filled = []
         for statement in statements:
             run(dg, args.server, args.key_file, "query", db, statement)
-        # Table name is the token after CREATE TABLE [IF NOT EXISTS].
+        tables = []
+        indexes = 0
         for statement in statements:
-            tokens = statement.split()
-            at = tokens.index("TABLE") + 1
-            if tokens[at].upper() == "IF":
-                at += 3  # skip IF NOT EXISTS
-            name = tokens[at]
+            name = table_name(statement)
+            if name is None:
+                indexes += 1
+                continue
+            tables.append(name)
             if table_rows(dg, args.server, args.key_file, db, name) == 0:
                 values = GENERATORS[(db, name)]()
                 for start in range(0, len(values), INSERT_CHUNK):
@@ -427,9 +625,12 @@ def main():
                     )
                 filled.append(name)
         summary["databases"][db] = {
-            "tables": len(statements),
+            "tables": len(tables),
+            "indexes": indexes,
             "filled": filled,
         }
+        summary["tables"] += len(tables)
+        summary["indexes"] += indexes
         summary["inserted_tables"] += len(filled)
     print(json.dumps(summary))
 
