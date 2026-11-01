@@ -391,22 +391,35 @@ fn reserved(name: &str) -> bool {
 /// gateway's own; a targeted one must be screened by the name the user
 /// wrote. `REINDEX` is a top-level command and cannot appear anywhere else
 /// in SQL, so the token after the keyword is the whole target.
+///
+/// `EXPLAIN` is peeled off first: it compiles the statement without running
+/// it and hands back the bytecode, which names the index it would have
+/// rebuilt, so the statement behind it is the statement to screen.
 fn reindex_target(sql: &str) -> Option<&str> {
-    let sql = strip_leading_comments(sql).trim_start();
-    let end = sql
-        .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-        .unwrap_or(sql.len());
-    if !sql[..end].eq_ignore_ascii_case("reindex") {
+    let mut rest = skip_leading_comments(sql).trim_start();
+    for _ in 0..3 {
+        let (keyword, after) = split_keyword(rest);
+        if !matches!(
+            keyword.to_ascii_lowercase().as_str(),
+            "explain" | "query" | "plan"
+        ) {
+            break;
+        }
+        rest = skip_leading_comments(after).trim_start();
+    }
+    let (keyword, after) = split_keyword(rest);
+    if !keyword.eq_ignore_ascii_case("reindex") {
         return None;
     }
-    let target = sql[end..].trim_start();
+    let target = skip_leading_comments(after).trim_start();
     if target.is_empty() || target.starts_with(';') {
         return None;
     }
     Some(target)
 }
 
-fn strip_leading_comments(mut sql: &str) -> &str {
+/// Skip the comments at the front of `sql`, keeping the rest a slice.
+fn skip_leading_comments(mut sql: &str) -> &str {
     loop {
         let trimmed = sql.trim_start();
         if let Some(rest) = trimmed.strip_prefix("--") {
@@ -421,26 +434,50 @@ fn strip_leading_comments(mut sql: &str) -> &str {
     }
 }
 
+/// The leading bare word of `sql`, and what follows it.
+fn split_keyword(sql: &str) -> (&str, &str) {
+    let end = sql
+        .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+        .unwrap_or(sql.len());
+    (&sql[..end], &sql[end..])
+}
+
 /// Drop every comment, not just the leading one: SQLite treats a comment as
 /// whitespace, so `REINDEX /*x*/ _dg_replay` is the same statement as
 /// `REINDEX _dg_replay` and `main . _dg_replay` is the same target as
 /// `main._dg_replay`. A screen that reads the text has to see what SQLite
 /// sees.
 fn strip_comments(sql: &str) -> String {
+    let bytes = sql.as_bytes();
     let mut out = String::with_capacity(sql.len());
-    let mut rest = sql;
-    while let Some(index) = rest.find("--").or_else(|| rest.find("/*")) {
-        let is_line = rest[index..].starts_with("--");
-        out.push_str(&rest[..index]);
-        let after = &rest[index..];
-        let skip = if is_line {
-            after.find('\n').map(|end| end + 1).unwrap_or(after.len())
-        } else {
-            after.find("*/").map(|end| end + 2).unwrap_or(after.len())
-        };
-        rest = &after[skip..];
+    let mut index = 0;
+    while index < bytes.len() {
+        // The earliest marker wins, and the whole construct it opens is
+        // consumed -- a `--` inside `/* ... */` is part of the block
+        // comment, not the start of a line comment, and reading it the
+        // other way round would silently drop the rest of the statement,
+        // which is exactly what a name screen must not do.
+        if bytes[index..].starts_with(b"--") {
+            index += 2;
+            while index < bytes.len() && bytes[index] != b'\n' {
+                index += 1;
+            }
+            continue;
+        }
+        if bytes[index..].starts_with(b"/*") {
+            index += 2;
+            while index < bytes.len() && !bytes[index..].starts_with(b"*/") {
+                index += 1;
+            }
+            index = (index + 2).min(bytes.len());
+            continue;
+        }
+        // Every marker above is ASCII, so a byte that is not one of them
+        // sits on a character boundary and can be copied whole.
+        let ch = sql[index..].chars().next().unwrap_or('\0');
+        out.push(ch);
+        index += ch.len_utf8();
     }
-    out.push_str(rest);
     out
 }
 
