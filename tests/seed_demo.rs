@@ -199,7 +199,7 @@ fn the_demo_seed_lands_its_intricate_schema_and_re_running_changes_nothing() {
     );
     for (label, needle) in [
         ("em dash", "\u{2014}"),
-        ("umlaut", "\u{fc}"),
+        ("umlaut", "\u{f6}"),
         ("katakana", "\u{30a2}"),
     ] {
         let rows = fleet.cli.q(
