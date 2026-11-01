@@ -232,6 +232,12 @@ fn a_read_only_credential_can_not_touch_indexes() {
     let dir = tempfile::tempdir().unwrap();
     let key_file = dir.path().join("reader.key");
     std::fs::write(&key_file, &key).unwrap();
+    // The CLI refuses a credential file other users could read, and
+    // `fs::write` creates one 0644.
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&key_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
     let reader = common::Cli {
         server: fleet.cli.server.clone(),
         key_file,
