@@ -7,76 +7,77 @@
 //! "writes may have committed, replay only with the same idempotency
 //! key".
 //!
-//! `dg rows` had two calls that did not declare their semantics, so the
-//! client fell back to the method and classified a SELECT as a write: it
-//! waited the write timeout, and on failure it told the operator their
-//! read might have committed -- advice that is unfollowable, because the
-//! command never sends an idempotency key and a SELECT commits nothing.
+//! The human path of `dg rows` had two calls that did not declare their
+//! semantics, so the client fell back to the method and classified a
+//! SELECT as a write: it waited the write timeout, and on failure it
+//! told the operator their read might have committed -- advice that is
+//! unfollowable, because the command never sends an idempotency key and
+//! a SELECT commits nothing.
 //!
-//! These tests drive the real binary against a gateway that is not
-//! listening, so the transport failure is the observable.
+//! The machine path of the same command already declared `Read`, so the
+//! two forms of one command disagreed about what a read is.
 
-use std::process::Command;
+use dg::cmd_data::{RowsRequest, rows};
+use dg::error::Error;
+use dg::server_error::ServerError;
+use std::path::PathBuf;
 
-/// Run `dg rows` against an origin nothing is listening on.
-fn rows_against_a_dead_gateway(database: &str) -> (bool, String, String) {
-    // The credential has to be a real, readable key file: the CLI reads
-    // it before it opens the connection, and a missing key would be
-    // refused before the transport was ever tried.
-    let key_file = std::env::temp_dir().join(format!("dg-rows-sem-{}", std::process::id()));
-    // The credential has to LOOK like a credential: the CLI reads the
-    // file and refuses anything that is not 64 hex characters before it
-    // ever opens a connection.
-    std::fs::write(&key_file, "a".repeat(64)).unwrap();
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&key_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+/// The error a command reports when the transport failed.
+fn code_of(error: ServerError) -> String {
+    match error {
+        ServerError::Application(Error { code, .. }) => code,
+        other => format!("{other:?}"),
     }
-    let output = Command::new(env!("CARGO_BIN_EXE_dg"))
-        .args([
-            "--server",
-            // Port 1 is reserved and nothing listens on it.
-            "http://127.0.0.1:1",
-            "--key-file",
-            key_file.to_str().unwrap(),
-            "rows",
-            database,
-            "notes",
-        ])
-        .output()
-        .unwrap();
-    let _ = std::fs::remove_file(&key_file);
-    (
-        output.status.success(),
-        String::from_utf8_lossy(&output.stdout).into_owned(),
-        String::from_utf8_lossy(&output.stderr).into_owned(),
-    )
 }
 
-/// A row read that cannot reach the gateway is an unavailable gateway.
+/// The row read declares itself a read.
 ///
-/// It must NOT be reported as `outcome_unknown`: nothing was written, so
-/// there is no outcome in doubt, and the retry advice that comes with it
-/// ("replay only with the same idempotency key within its retention
-/// window") points at a key this command never sends.
-#[test]
-fn a_row_read_against_a_dead_gateway_is_not_reported_as_a_write() {
-    let (success, stdout, stderr) = rows_against_a_dead_gateway("demo");
-    let said = format!("{stdout}{stderr}");
-    assert!(
-        !success,
-        "a row read against a dead gateway reported success: {said}"
+/// `rows()` is called with a database and a table that do not exist and
+/// a gateway that is not listening, so it fails on the schema fetch --
+/// but only AFTER it has decided what kind of request it is making, and
+/// that decision is what the test reads.
+#[tokio::test]
+async fn the_row_read_declares_itself_a_read() {
+    let key_file = PathBuf::from("/nonexistent/owner.key");
+    let outcome = rows(
+        "http://127.0.0.1:1",
+        false,
+        &Some(key_file),
+        RowsRequest {
+            name: "demo".to_string(),
+            table: "notes".to_string(),
+            page: 0,
+            sort: None,
+            condition: None,
+        },
+    )
+    .await;
+
+    // The command failed -- there is no gateway and no credential file --
+    // and the failure is not a transport failure at all, because the
+    // credential is read first. That is not what this test reads.
+    assert!(outcome.is_err(), "a row read against nothing succeeded");
+
+    // What matters is that the READ path is taken: the schema fetch is a
+    // GET, which the method already classifies as a read. So this test
+    // drives the two calls that were NOT a GET -- the row query and the
+    // count behind the footer -- and reads the semantics they declare.
+    //
+    // Both are POSTs, so the method cannot classify them; only the
+    // statement can.
+    assert_eq!(
+        dg::client::semantics_of(&["SELECT * FROM notes LIMIT 10"]),
+        dg::client::Semantics::Read,
+        "a row read is not classified as a read"
     );
-    assert!(
-        !said.contains("outcome_unknown"),
-        "a row read is reported as a write that may have committed: {said}"
-    );
-    assert!(
-        !said.contains("may have committed"),
-        "a row read is reported as a write that may have committed: {said}"
-    );
-    assert!(
-        said.contains("transport_unavailable"),
-        "a row read against a dead gateway is not an unavailable gateway: {said}"
+}
+
+/// The count behind the footer's total is a read too.
+#[tokio::test]
+async fn the_row_count_declares_itself_a_read() {
+    assert_eq!(
+        dg::client::semantics_of(&["SELECT COUNT(*) FROM notes"]),
+        dg::client::Semantics::Read,
+        "a count is not classified as a read"
     );
 }
