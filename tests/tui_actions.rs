@@ -70,12 +70,6 @@ fn the_actions_ask_the_gateway_for_what_the_api_documents() {
             "/v1/databases/demo/schema?table=products",
         ),
         (
-            ActionKind::OpenTable,
-            "demo products",
-            Method::POST,
-            "/v1/databases/demo/query",
-        ),
-        (
             ActionKind::DeleteDatabase,
             "demo",
             Method::DELETE,
@@ -122,10 +116,15 @@ fn the_actions_ask_the_gateway_for_what_the_api_documents() {
         let invocation = kind.parse(arguments).expect("the arguments parse");
         if matches!(
             invocation,
-            Invocation::ExportDatabase { .. } | Invocation::ImportDatabase { .. }
+            Invocation::ExportDatabase { .. }
+                | Invocation::ImportDatabase { .. }
+                | Invocation::OpenTable { .. }
         ) {
             // The two transfers are several requests, and the library
             // owns the whole sequence: they are not one request.
+            // Opening a table is the same shape: it opens the ROWS
+            // BROWSER, which makes its own reads -- the structure, the
+            // count and the page -- so it is not one request either.
             assert!(
                 invocation.request().is_err(),
                 "{kind:?} claims to be one request"
