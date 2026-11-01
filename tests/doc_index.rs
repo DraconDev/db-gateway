@@ -49,10 +49,7 @@ fn fixture(registered: &[&str], unregistered: &[&str]) -> tempfile::TempDir {
 
 #[test]
 fn an_index_that_names_every_file_passes() {
-    let dir = fixture(
-        &["deployment.md", "evidence/run.txt"],
-        &[],
-    );
+    let dir = fixture(&["deployment.md", "evidence/run.txt"], &[]);
     let (ok, stderr) = check(dir.path());
     assert!(ok, "the check rejected a complete index: {stderr}");
 }

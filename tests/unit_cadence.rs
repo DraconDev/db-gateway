@@ -40,7 +40,9 @@ fn fixture(serve_cadence: Option<&str>, digest_cadence: Option<&str>) -> tempfil
             "[Service]\nExecStart=/usr/local/bin/dg serve --listen 127.0.0.1:7432 \
              --backup-cadence-secs {seconds}\n"
         ),
-        None => "[Service]\nExecStart=/usr/local/bin/dg serve --listen 127.0.0.1:7432\n".to_string(),
+        None => {
+            "[Service]\nExecStart=/usr/local/bin/dg serve --listen 127.0.0.1:7432\n".to_string()
+        }
     };
     let digest = match digest_cadence {
         Some(seconds) => format!(
