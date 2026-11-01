@@ -14,16 +14,21 @@
 //! * a plain index and a unique index can be created, and `dg schema`
 //!   reports both with the columns they cover and the right uniqueness;
 //! * the unique one is enforced — a duplicate is rejected, not stored;
-//! * `DROP INDEX` and a bare `REINDEX` still work;
+//! * `DROP INDEX` keeps working, and a bare `REINDEX` starts working —
+//!   it was the same missing action, and it sweeps every index in the
+//!   file, the gateway's own included;
 //! * the `_dg_` guard survived the change: an index whose name claims to
 //!   belong to the gateway is refused;
 //! * a read-only credential cannot create, drop or reindex, and can still
 //!   read.
 //!
-//! Every one of the first three would have failed before the `Reindex`
-//! action was allowed; the last two would have passed either way, which is
-//! the point of keeping them here — they are the boundary the change must
-//! not move.
+//! The first three would have failed before the `Reindex` action was
+//! allowed. The last two would have passed either way, which is the point
+//! of keeping them here: they are the boundary the change must not move,
+//! and one of them moved anyway on the first attempt — a targeted
+//! `REINDEX _dg_replay` was allowed because the callback reports
+//! `sqlite_autoindex__dg_replay_1`, a name that does not begin with the
+//! table's. That case is now asserted below.
 
 #[path = "common/mod.rs"]
 mod common;
@@ -209,6 +214,38 @@ fn the_gateway_guard_still_refuses_its_own_objects() {
         names.is_empty(),
         "a refused index was created anyway: {names:?}"
     );
+
+    // A targeted REINDEX reaches the gateway's own table indirectly: SQLite
+    // rebuilds `_dg_replay`'s implicit index and reports it as
+    // `sqlite_autoindex__dg_replay_1`, which does not begin with `_dg_`.
+    // Naming the table, naming that index, and qualifying either with the
+    // schema all have to be refused — a bare `REINDEX` (asserted in the
+    // test above) stays allowed, which is why this cannot be enforced by
+    // the authorizer alone.
+    for sql in [
+        "REINDEX _dg_replay",
+        "REINDEX \"sqlite_autoindex__dg_replay_1\"",
+        "REINDEX main._dg_replay",
+        "REINDEX _DG_REPLAY",
+    ] {
+        fleet.cli.err(
+            &format!("targeted reindex of {sql}"),
+            &["query", &db, sql],
+            "sql_forbidden",
+        );
+    }
+    // And the screen does not over-reach: a user's own table and index are
+    // both legitimate REINDEX targets.
+    fleet.cli.ok(
+        "reindex the user's index",
+        &["query", &db, "CREATE INDEX t_by_a ON instruments(isin)"],
+    );
+    fleet
+        .cli
+        .ok("reindex an index", &["query", &db, "REINDEX t_by_a"]);
+    fleet
+        .cli
+        .ok("reindex a table", &["query", &db, "REINDEX instruments"]);
 }
 
 #[test]
