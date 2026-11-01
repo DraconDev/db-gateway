@@ -245,9 +245,10 @@ fn a_commit_waits_for_an_in_flight_append_before_it_reads_the_upload_file() {
     let mut writer = std::fs::OpenOptions::new().write(true).open(&file).unwrap();
 
     let chunk = vec![b'A'; 1024 * 1024];
+    let payload = chunk.clone();
     let append_store = store.clone();
     let append_id = upload.clone();
-    let append = std::thread::spawn(move || append_store.upload_append(&append_id, 0, &chunk));
+    let append = std::thread::spawn(move || append_store.upload_append(&append_id, 0, &payload));
 
     // Let the append reach the blocked write.
     std::thread::sleep(Duration::from_millis(300));
