@@ -227,6 +227,10 @@ fn the_gateway_guard_still_refuses_its_own_objects() {
         "REINDEX \"sqlite_autoindex__dg_replay_1\"",
         "REINDEX main._dg_replay",
         "REINDEX _DG_REPLAY",
+        // A comment is whitespace to SQLite, so a screen that reads the
+        // statement text has to read it the way SQLite does.
+        "REINDEX /*c*/ _dg_replay",
+        "REINDEX main . _dg_replay",
     ] {
         fleet.cli.err(
             &format!("targeted reindex of {sql}"),
