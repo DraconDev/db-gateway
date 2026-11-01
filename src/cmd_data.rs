@@ -643,8 +643,8 @@ pub async fn execute(
     let script = dg::execution::read_text_file_limited(&file, dg::execution::MAX_SCRIPT_FILE_BYTES)
         .map_err(|error| {
             Application(Error::with_message(
+                error.status,
                 error.code,
-                error.code.as_str(),
                 format!("cannot read the SQL file: {}", error.message),
             ))
         })?;
