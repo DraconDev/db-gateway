@@ -23,6 +23,17 @@
 //! The credential is the one the CLI already uses, resolved the same way
 //! and read from the same place: the agent never supplies a key, so a
 //! prompt that asks for one cannot make the server hand over a secret.
+//!
+//! It has to be the OWNER credential. Four of the six tools -- the
+//! service status, the database inventory, one database's details and
+//! the backup freshness -- read endpoints the gateway reserves for the
+//! owner, so a scoped application key is refused by those four and
+//! answered by the other two. That is deliberate: those views are about
+//! the SERVICE and about EVERY database, which a key scoped to one
+//! database has no business seeing. The consequence is that the MCP
+//! server needs the owner credential, and it is said so here and in
+//! `docs/api.md` rather than left to be discovered as four tools that
+//! always fail.
 
 use crate::client::{self, Semantics};
 use crate::error::{Error, Result};

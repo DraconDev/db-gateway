@@ -83,6 +83,13 @@ Two rules shape the whole surface:
   and `dg_query` rejects a statement that would write before it sends
   anything, so an agent talking to this server cannot ask it to change
   anything.
+- **The credential has to be the owner's.** Four of the six tools --
+  `dg_status`, `dg_info`, `dg_inspect` and `dg_backups` -- read routes
+  the gateway reserves for the owner: they are about the service and
+  about every database, not about the one a scoped key may reach. With
+  a scoped application key those four are refused (`403 forbidden`)
+  and only `dg_list` and `dg_query` answer, so the MCP server has to
+  run with the owner credential.
 - **Stdout is the transport.** Every byte on stdout is a JSON-RPC
   message, because stdout is how the client and the server talk: a
   stray print breaks the session. Diagnostics go to stderr, through
