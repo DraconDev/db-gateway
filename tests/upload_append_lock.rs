@@ -239,16 +239,21 @@ fn a_commit_waits_for_an_in_flight_append_before_it_reads_the_upload_file() {
         make_it_a_fifo(&file),
         "the upload file could not become a FIFO"
     );
-    let mut reader = std::fs::OpenOptions::new().read(true).open(&file).unwrap();
-    // A writer as well, so that a commit which reaches the file does not
-    // block on the FIFO's own open.
-    let mut writer = std::fs::OpenOptions::new().write(true).open(&file).unwrap();
 
     let chunk = vec![b'A'; 1024 * 1024];
     let payload = chunk.clone();
     let append_store = store.clone();
     let append_id = upload.clone();
     let append = std::thread::spawn(move || append_store.upload_append(&append_id, 0, &payload));
+
+    // A FIFO's read open waits for a writer, so it is opened after the
+    // append is on its way: the append's write open completes with it,
+    // and the append then blocks in the write because the pipe is full
+    // and nobody drains it.
+    let mut reader = std::fs::OpenOptions::new().read(true).open(&file).unwrap();
+    // A writer as well, so that a commit which reaches the file does not
+    // block on the FIFO's own open.
+    let mut writer = std::fs::OpenOptions::new().write(true).open(&file).unwrap();
 
     // Let the append reach the blocked write.
     std::thread::sleep(Duration::from_millis(300));
