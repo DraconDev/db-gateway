@@ -58,6 +58,67 @@ fixes; 1.0.0 waits for production acceptance.
   grid it used to draw was unreachable — the action opens the rows
   browser — and it drew a different shape from the live one. It is
   gone.
+- **The deploy guide says to create the backup root.** The gateway's
+  unit carries it in `ReadWritePaths=` and both backup units run with
+  `WorkingDirectory=`, so a host that followed the guide exactly could
+  not start the gateway and could not publish a backup set. The guide
+  now has a step that creates it, mode `0700`, owned by the service
+  user.
+- **The two halves of the snapshot cadence are compared.** The
+  gateway's freshness alarm and the daily digest's staleness verdict
+  are judged by the same number, but the number was written twice, in
+  two unit files, and nothing compared them. The deploy gate now reads
+  both numbers out of the two units and fails when they differ, which
+  is what makes the guide's "the two halves cannot disagree" true.
+- **The restore-point publisher can fail.** A missing backup root made
+  the whole publish a silent no-op behind a green unit, so the window
+  the gateway reports froze at its last value with no failure signal.
+  It now fails with a named reason, and a replica listing that could
+  not be answered is published as "unknown" for that database instead
+  of claiming the replica holds nothing.
+- **The recovery policy names the flag the digest takes.** It is
+  `--cadence-secs` on `dg backup digest`; `--backup-cadence-secs` is
+  `dg serve`'s spelling, and copying it across is a usage error.
+- **The deployment guide names the sidecar units it ships.** It said no
+  unit was provided while three were: the replication sidecar and the
+  re-render service and timer.
+- **The documentation index registers every file under `docs/`.** It
+  opens with "every file is one of: canonical, historical evidence,
+  superseded", and 49 of the 135 files were named nowhere — including
+  the release receipts and the Turso captures the surface comparison
+  cites. They are registered now, and a deploy gate fails when a file
+  is not, because the earlier one-off listing did not hold.
+- **The surface comparison no longer documents a command that cannot
+  be run.** `dg key tokens` takes the database positionally, and
+  `docs/turso-surface-gap.md` wrote it as `--database`.
+- **The surface comparison no longer claims a column chooser.** The
+  Edit Data row was closed as "already at parity" on `f`/`o`/`c`
+  covering "column choice"; `c` clears the filter, and neither the CLI
+  nor the browser can choose a column. The Columns half is now an
+  open difference.
+- **The release receipts say which one carries the artifact hash.**
+  Only the newer receipt records it; the older one records the tree it
+  tested, which is what it does establish.
+- **The TypeScript client tells a severed export from a write that may
+  have committed.** The transfer phase moves bytes and commits nothing
+  while still using POST and DELETE, so it now has its own semantics
+  — the same third state the CLI and the Rust client carry — and a
+  severed export is an interrupted transfer, not an unknown outcome.
+- **The Rust client no longer prints the credential in its debug
+  output.** The derived `Debug` on `Gateway` carried the full key; it
+  is now hand-written and redacted.
+- **Both clients carry the deployment fields `/v1/status` publishes.**
+  The disk reading, the databases' total size and the retention window
+  were dropped on the way out, so neither client could surface them.
+- **The TypeScript client accepts every literal loopback origin.** It
+  allowed only `127.0.0.1` and `[::1]`; the CLI and the Rust crate
+  accept any literal loopback address, so the three clients no longer
+  answer the same question differently.
+- **The CI job's backstop covers the steps that follow the suite.** A
+  30-minute timeout against a 1500-second suite budget left five
+  minutes for the release build, the container build, the TypeScript
+  suite and the deploy gates, so a suite that ran over its budget was
+  cancelled instead of warned about.
 
 ## [0.10.0] — 2026-10-30
 
