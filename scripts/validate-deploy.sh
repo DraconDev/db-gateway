@@ -419,6 +419,13 @@ log "checking the live documents state the gateway's cap consistently"
 python3 "$ROOT/scripts/check-doc-caps.py" "$ROOT" \
     || fail "a live document states a memory cap the gateway unit does not set"
 
+log "checking the documentation index registers every file under docs/"
+# The index opens with "Every file is one of: Canonical, Historical
+# evidence, Superseded". That promise was kept once by hand and drifted
+# again, so the check that holds it lives in scripts/check-doc-index.py.
+python3 "$ROOT/scripts/check-doc-index.py" "$ROOT" \
+    || fail "a file under docs/ is not registered in docs/README.md"
+
 if command -v systemd-analyze >/dev/null 2>&1; then
     log "running systemd-analyze verify on substituted copy"
     tmp="$(mktemp -d "${TMPDIR:-/tmp}/dg-unit-XXXXXX")"

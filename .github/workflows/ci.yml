@@ -7,7 +7,15 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The hard backstop, and it has to cover the whole job: the suite
+    # budget below (1500s) plus the steps that follow it — the release
+    # build, the container engine and the pinned builder image, the
+    # TypeScript suite (which builds the Rust binary itself), and the
+    # deploy/host gates. At 30 minutes the backstop landed INSIDE the
+    # budget's own headroom, so a suite that ran over its budget was
+    # cancelled instead of warned about — the opposite of what the
+    # budget exists to say.
+    timeout-minutes: 45
     steps:
       # Third-party actions are pinned to full commit SHAs, matching the
       # rustsec/audit-check gate below, so a moved tag cannot change what
@@ -35,7 +43,7 @@ jobs:
       # Budget is 1500s, ~2.3x that measurement, so the warning fires on
       # real growth rather than runner noise. Over-budget warns instead
       # of failing: a slow suite is a triage signal, and the job's
-      # 30-minute timeout is the hard backstop. When the warning fires,
+      # timeout is the hard backstop. When the warning fires,
       # profile the slowest test binaries (`cargo test -- --format
       # terse` timings, or --test-threads=1) and either fix the slow
       # test or raise the budget here AND in the A15 record with a new
