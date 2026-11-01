@@ -378,7 +378,7 @@ Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1
 | `invalid_credential` | 401 | Missing/unknown/revoked key |
 | `forbidden` | 403 | App key on a management route |
 | `database_forbidden` | 403 | Key not scoped to this database |
-| `sql_forbidden` | 403 | Read-only write attempt, or SQL touching protected `_dg_*` tables / disallowed features (attach, pragmas, `ALTER`, triggers/views, `CREATE INDEX`, temp objects, virtual tables, load_extension, user transactions) |
+| `sql_forbidden` | 403 | Read-only write attempt, or SQL touching protected `_dg_*` objects / disallowed features (attach, pragmas, `ALTER`, triggers/views, temp objects, virtual tables, load_extension, user transactions) |
 | `database_not_found` | 404 | No such database (never silently created); `dg undelete` uses it for a name never registered, while a purged name returns `database_purged` |
 | `key_not_found` | 404 | Revoking a credential name that does not exist; nothing was revoked |
 | `metadata_corrupt` | 500 | Startup migration found an unreadable credential row; the server log names it |
@@ -539,10 +539,21 @@ CLI looks the same everywhere. The rules it follows:
   declared type, its not-null and primary-key flags, the table's indexes
   and foreign keys, and its `CREATE` statement. It reads the structure
   of the schema, not the rows; a pipe gets the gateway's JSON document
-  unchanged. The index rows come from the keys a table declares —
-  `PRIMARY KEY` and `UNIQUE` — because `CREATE INDEX` is one of the
-  refused statements, so a schema view never invents an index the
-  gateway would not let you create.
+  unchanged. Index rows are whatever the table really has — the ones its
+  declared keys imply (`PRIMARY KEY`, `UNIQUE`, reported under SQLite's
+  own `sqlite_autoindex_*` names) and the ones a statement created with
+  `CREATE INDEX`.
+- **A schema can be changed by `CREATE TABLE`, `DROP TABLE`,
+  `CREATE [UNIQUE] INDEX`, `DROP INDEX` and `REINDEX`**, and by nothing
+  else: `ALTER`, views, triggers, temp objects, virtual tables, pragmas
+  and user transactions stay refused with `sql_forbidden`, and so does
+  any statement naming a `_dg_`-prefixed object. Indexes may be created
+  and dropped freely because they change access paths, not data — and
+  because the refusal to create one was never a decision: SQLite asks
+  the authorizer about a `REINDEX` while it builds an index, that action
+  was missing from the list, and the fail-closed default denied the
+  statement. The gateway could already drop an index it could not
+  create, so this makes the two halves say the same thing.
 - **The shell is the control surface.** `dg shell` has dot-commands for
   the operator's whole surface — `.status`, `.keys`, `.backups`, plus
   `.tables` and `.schema` — and they draw the SAME views as the

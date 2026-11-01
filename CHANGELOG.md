@@ -19,6 +19,23 @@ fixes; 1.0.0 waits for production acceptance.
 
 ## [Unreleased]
 
+### Added
+
+- **`CREATE INDEX`, `CREATE UNIQUE INDEX` and `REINDEX` now work.** They
+  were refused with `sql_forbidden`, and not by a decision: SQLite asks
+  the authorizer about a `REINDEX` of the index it is building, that
+  action was missing from the gateway's allow list, and the fail-closed
+  default denied the whole statement. The visible symptom was a gateway
+  that could `DROP INDEX` an index it refused to create — `DropIndex`
+  only needs actions that were already listed. The surface is now
+  consistent: a write credential may create, drop and rebuild indexes,
+  and `dg schema` reports them with their columns and uniqueness
+  (`tests/index_surface.rs`, `tests/schema_shapes.rs`). Everything else
+  stays refused, including `ALTER`, views, triggers, pragmas and any
+  `_dg_`-prefixed object, and a read-only credential still cannot touch
+  an index. `scripts/seed-demo.py` seeds four explicit indexes again as
+  part of its demo schema.
+
 ### Fixed
 
 - **One upload's chunks can no longer overwrite each other.** An

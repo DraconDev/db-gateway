@@ -1239,9 +1239,13 @@ this work:
   the column names; the type now lives in the structure view instead.
 - **Editing the structure**: Turso's panel edits columns, constraints
   and indexes in place (`Add column`, `Add constraint`, `Add index`).
-  `dg`'s structure view is read-only by design; changing a schema is
-  a `CREATE` / `ALTER` statement run through the query path, which is
-  where `dg` keeps every write.
+  `dg`'s structure view is read-only by design; changing a schema is a
+  statement run through the query path, which is where `dg` keeps every
+  write. What that path accepts is narrower than "any `CREATE`":
+  `CREATE TABLE`, `DROP TABLE`, `CREATE [UNIQUE] INDEX`, `DROP INDEX`
+  and `REINDEX` are allowed, and `ALTER` is refused (`sql_forbidden`),
+  so "add a column" and "add a constraint" have no in-place equivalent
+  here while "add an index" does — as a statement, not a affordance.
 - **The remaining §1–§3 and account surfaces** are unchanged: usage
   history, per-database network bytes, and everything about billing,
   plans, organisations and invoices stays out of scope.
