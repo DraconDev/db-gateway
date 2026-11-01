@@ -498,39 +498,47 @@ impl Store {
         if bytes.len() > MAX_CHUNK {
             return Err(Error::invalid());
         }
-        let mut transfers = self.transfers.lock().map_err(|_| Error::internal())?;
-        let transfer = match transfers.get_mut(id) {
-            Some(t) if t.created.elapsed() < self.transfer_ttl => t,
-            _ => {
-                let stale = transfers.remove(id);
-                drop(transfers);
-                if let Some(t) = stale {
-                    remove_staging_dir(&t.dir);
+        // The same shape as `snapshot_chunk`: look the transfer up under
+        // the lock, clone what the write needs, and release the lock
+        // before touching the filesystem. Holding the registry mutex
+        // across the file open and the write serialized every other
+        // transfer operation -- other chunks, status checks, aborts, a
+        // snapshot read -- behind one up-to-1 MiB disk write.
+        let (file_path, prior) = {
+            let mut transfers = self.transfers.lock().map_err(|_| Error::internal())?;
+            let transfer = match transfers.get_mut(id) {
+                Some(t) if t.created.elapsed() < self.transfer_ttl => t,
+                _ => {
+                    let stale = transfers.remove(id);
+                    drop(transfers);
+                    if let Some(t) = stale {
+                        remove_staging_dir(&t.dir);
+                    }
+                    return Err(upload_missing());
                 }
+            };
+            let TransferKind::Upload { received, state } = &mut transfer.kind else {
                 return Err(upload_missing());
+            };
+            if *state != UploadState::Open {
+                return Err(Error::busy());
             }
+            if offset != *received {
+                return Err(Error::invalid());
+            }
+            if *received + bytes.len() as u64 > MAX_TRANSFER_SIZE {
+                return Err(Error::new(
+                    413,
+                    "result_limit_exceeded",
+                    "upload exceeds chunked transfer ceiling",
+                ));
+            }
+            (transfer.file.clone(), *received)
         };
-        let TransferKind::Upload { received, state } = &mut transfer.kind else {
-            return Err(upload_missing());
-        };
-        if *state != UploadState::Open {
-            return Err(Error::busy());
-        }
-        if offset != *received {
-            return Err(Error::invalid());
-        }
-        if *received + bytes.len() as u64 > MAX_TRANSFER_SIZE {
-            return Err(Error::new(
-                413,
-                "result_limit_exceeded",
-                "upload exceeds chunked transfer ceiling",
-            ));
-        }
         use std::io::Write;
-        let prior = *received;
         let write = std::fs::OpenOptions::new()
             .append(true)
-            .open(&transfer.file)
+            .open(&file_path)
             .and_then(|mut f| {
                 f.write_all(bytes).inspect_err(|_error| {
                     // write_all may persist a prefix before returning an I/O
@@ -542,6 +550,29 @@ impl Store {
         if let Err(error) = write {
             tracing::warn!(error = %error, "upload append failed");
             return Err(Error::internal());
+        }
+        // Advance the acknowledged offset under the lock, and only if the
+        // transfer is still the one this write was made for: a release
+        // or a TTL purge between the lookup and the write must not be
+        // undone by a write that lands after it.
+        let mut transfers = self.transfers.lock().map_err(|_| Error::internal())?;
+        let Some(transfer) = transfers.get_mut(id) else {
+            return Err(upload_missing());
+        };
+        let TransferKind::Upload { received, state } = &mut transfer.kind else {
+            return Err(upload_missing());
+        };
+        if *state != UploadState::Open || *received != prior {
+            // The transfer moved on while the bytes were being written:
+            // the bytes are in the file but the transfer no longer
+            // accounts for them, so the file is trimmed back and the
+            // upload is reported as gone rather than as a success that
+            // counts bytes nobody will read.
+            let _ = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&file_path)
+                .and_then(|mut f| f.set_len(prior));
+            return Err(upload_missing());
         }
         *received += bytes.len() as u64;
         Ok(*received)
