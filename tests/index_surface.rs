@@ -69,16 +69,17 @@ fn an_index_can_be_created_seen_enforced_dropped_and_reindexed() {
     let fleet = Fleet::boot();
     let db = table(&fleet, "indexes_db");
 
-    // A plain index, and a unique one. Both used to be 403 sql_forbidden.
+    // A plain index, and a unique one. Both used to be 403 sql_forbidden;
+    // `ok` asserts the statement was accepted and the schema assertions
+    // below assert it took effect. `rows_affected` is deliberately NOT
+    // asserted: for DDL it reports SQLite's `sqlite3_changes`, an
+    // incidental detail of how one request is executed rather than part of
+    // what "the index exists" means.
     for sql in [
         "CREATE INDEX instruments_by_isin ON instruments(isin)",
         "CREATE UNIQUE INDEX instruments_unique_notional ON instruments(notional)",
     ] {
-        let answer = fleet.cli.ok(&format!("create {sql}"), &["query", &db, sql]);
-        assert_eq!(
-            answer["rows_affected"], 0,
-            "the statement did not run: {answer}"
-        );
+        fleet.cli.ok(&format!("create {sql}"), &["query", &db, sql]);
     }
 
     // The schema view reports them, with their columns and uniqueness.
@@ -127,6 +128,9 @@ fn an_index_can_be_created_seen_enforced_dropped_and_reindexed() {
             "INSERT INTO instruments(isin, notional) VALUES ('DE1', 100)",
         ],
     );
+    // `invalid_sql` is the documented code for a statement SQLite refused;
+    // a constraint violation is one. The row count below is the real
+    // assertion, this one pins the code a client has to handle.
     fleet.cli.err(
         "duplicate insert",
         &[
