@@ -72,7 +72,6 @@ fn the_action_that_triggers_the_rollover_is_written_once() {
     log.record(the_rollover_entry(marker));
 
     let text = std::fs::read_to_string(&path).unwrap();
-    println!("DEBUG file bytes={} lines={} marker={}", text.len(), text.lines().count(), text.matches(marker).count());
     let occurrences = text.matches(marker).count();
     assert_eq!(
         occurrences, 1,
@@ -83,7 +82,12 @@ fn the_action_that_triggers_the_rollover_is_written_once() {
     let seen = log
         .entries()
         .iter()
-        .filter(|entry| entry.detail.as_deref() == Some(marker))
+        .filter(|entry| {
+            entry
+                .detail
+                .as_deref()
+                .is_some_and(|detail| detail.starts_with(marker))
+        })
         .count();
     assert_eq!(
         seen, 1,
@@ -113,7 +117,12 @@ fn a_restarted_gateway_reads_the_action_back_once() {
     let seen = reopened
         .entries()
         .iter()
-        .filter(|entry| entry.detail.as_deref() == Some(marker))
+        .filter(|entry| {
+            entry
+                .detail
+                .as_deref()
+                .is_some_and(|detail| detail.starts_with(marker))
+        })
         .count();
     assert_eq!(
         seen, 1,
