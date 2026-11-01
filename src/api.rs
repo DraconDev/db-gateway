@@ -90,6 +90,7 @@ pub fn router(store: Arc<Store>, deployment: Deployment) -> Router {
         .route("/v1/queries", get(queries))
         .route("/v1/databases/{name}/query", post(query))
         .route("/v1/databases/{name}/batch", post(batch))
+        .layer(DefaultBodyLimit::max(65536))
         // The placement of this gateway is a property of the process, not
         // of the store, so it travels as an extension rather than inside
         // the shared state every handler already takes.
@@ -125,7 +126,6 @@ pub fn router(store: Arc<Store>, deployment: Deployment) -> Router {
         // `MethodRouter::layer` (the import's 12 MiB, the chunk body's
         // 2 MiB) still win on their own routes because a route-level layer
         // is applied closer to the handler.
-        .layer(DefaultBodyLimit::max(65536))
 }
 fn json_body<T>(body: std::result::Result<Json<T>, JsonRejection>) -> Result<T> {
     body.map(|Json(value)| value).map_err(|err| {
