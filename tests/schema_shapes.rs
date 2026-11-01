@@ -6,8 +6,10 @@
 //! TEXT, BLOB, NUMERIC, VARCHAR, DECIMAL, defaults, NOT NULL, UNIQUE,
 //! CHECK, composite keys, WITHOUT ROWID, and a FOREIGN KEY chain that
 //! is enforced at runtime). Indexes are authorable: a plain and a
-//! unique index are created, both appear in `pragma_index_list`, the
-//! unique one rejects a duplicate, and both drop cleanly. Objects the
+//! unique index are created, both are found in `sqlite_master` (the test
+//! cannot ask `pragma_index_list` — PRAGMA is one of the refused
+//! statements), the unique one rejects a duplicate, and both drop
+//! cleanly. Objects the
 //! gateway still refuses are pinned to their fail-closed codes — views,
 //! triggers, temp tables and `ALTER` among them — and a
 //! `_dg_`-prefixed index name is refused the same way. 5000 mixed rows

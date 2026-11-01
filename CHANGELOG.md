@@ -33,7 +33,7 @@ fixes; 1.0.0 waits for production acceptance.
   (`tests/index_surface.rs`, `tests/schema_shapes.rs`). Everything else
   stays refused, including `ALTER`, views, triggers, pragmas and any
   `_dg_`-prefixed object, and a read-only credential still cannot touch
-  an index. `scripts/seed-demo.py` seeds four explicit indexes again as
+  an index. `scripts/seed-demo.py` seeds three explicit indexes again as
   part of its demo schema.
 
 ### Fixed

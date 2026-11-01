@@ -24,11 +24,11 @@ The demo schema is deliberately more intricate than a tutorial's: a
 composite primary key (`product_prices`, `warehouse_stock`,
 `fx_rates`), a self-referencing tree (`category_tree`), declared
 foreign keys, explicit indexes as well as the ones a declared key
-produces (`products_by_sku`, a two-column
-`stock_moves_by_product`, `legacy_stock_extract_by_warehouse`,
-`order_notes_by_order`, plus the `UNIQUE` autoindex on
-`shipments.tracking_number`), a NULL-heavy table (`shipments`, most
-rows have not shipped), long unicode text (`order_notes`), and one
+produces (`products_by_sku` on the sku, `stock_moves_by_product` on the
+join column, `order_notes_by_order` on its order, plus the `UNIQUE`
+autoindex on `shipments.tracking_number`), a NULL-heavy table
+(`shipments`, most rows have not shipped), long unicode text
+(`order_notes`), and one
 wide, awkward, denormalized extract (`inventory.legacy_stock_extract`,
 14 columns with long names and mixed NULL rates) that exercises the
 table and row panes against a shape they cannot lay out neatly.
