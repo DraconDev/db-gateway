@@ -454,21 +454,11 @@ pub struct DatabaseInfo {
 /// one printed the credential in full, and a derived `Debug` is a promise
 /// that the type's debug output is safe to log. The credential is the
 /// one value in this type that must never reach a log.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Gateway {
     origin: String,
     credential: String,
     client: reqwest::Client,
-}
-
-impl std::fmt::Debug for Gateway {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("Gateway")
-            .field("origin", &self.origin)
-            .field("credential", &"<redacted>")
-            .finish_non_exhaustive()
-    }
 }
 
 impl Gateway {
