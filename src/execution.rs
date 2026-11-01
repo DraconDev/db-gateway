@@ -977,11 +977,28 @@ mod tests {
             Some("products_by_sku")
         );
         assert_eq!(reindex_target("/* why */ REINDEX t"), Some("t"));
-        // A comment is whitespace to SQLite, so it cannot hide the target.
+        // A comment is whitespace to SQLite, so it cannot hide the target,
+        // and the target comes back with its leading comments already gone.
         assert_eq!(
             reindex_target("REINDEX /*c*/ _dg_replay"),
-            Some("/*c*/ _dg_replay")
+            Some("_dg_replay")
         );
+        assert_eq!(
+            reindex_target("REINDEX -- why\n_dg_replay"),
+            Some("_dg_replay")
+        );
+        // `EXPLAIN` compiles the statement and hands back the bytecode, so
+        // the statement behind it is the one to screen.
+        assert_eq!(
+            reindex_target("EXPLAIN REINDEX _dg_replay"),
+            Some("_dg_replay")
+        );
+        assert_eq!(
+            reindex_target("explain query plan REINDEX _dg_replay"),
+            Some("_dg_replay")
+        );
+        assert_eq!(reindex_target("EXPLAIN QUERY PLAN SELECT 1"), None);
+        assert_eq!(reindex_target("EXPLAIN"), None);
 
         // Reserved: the explicit form, the name SQLite synthesises for it,
         // and a qualified or quoted spelling of either.
@@ -999,6 +1016,20 @@ mod tests {
             "  _dg_replay -- trailing comment",
             "[_dg_replay]",
             "`_dg_replay`",
+        ] {
+            assert!(
+                reindex_names_reserved(target),
+                "{target} was not recognised as reserved"
+            );
+        }
+        // The two ways a comment can be read wrongly: `--` inside a block
+        // comment used to swallow the rest of the statement, which let
+        // `REINDEX/*--*/_dg_replay` through.
+        for target in [
+            "/*--*/_dg_replay",
+            "/* -- */ _dg_replay",
+            "main./*--*/_dg_replay",
+            "/* /* */ _dg_replay",
         ] {
             assert!(
                 reindex_names_reserved(target),
