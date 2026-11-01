@@ -228,9 +228,20 @@ fn the_gateway_guard_still_refuses_its_own_objects() {
         "REINDEX main._dg_replay",
         "REINDEX _DG_REPLAY",
         // A comment is whitespace to SQLite, so a screen that reads the
-        // statement text has to read it the way SQLite does.
+        // statement text has to read it the way SQLite does -- including
+        // the case that first got through here, a `--` inside a block
+        // comment, which a naive line-comment scanner swallows along with
+        // the rest of the statement.
         "REINDEX /*c*/ _dg_replay",
         "REINDEX main . _dg_replay",
+        "REINDEX/*--*/_dg_replay",
+        "REINDEX /* -- */ _dg_replay",
+        "REINDEX main./*--*/_dg_replay",
+        "REINDEX/* /* */_dg_replay",
+        // `EXPLAIN` compiles the statement without running it and returns
+        // bytecode naming the index it would have rebuilt.
+        "EXPLAIN REINDEX _dg_replay",
+        "EXPLAIN QUERY PLAN REINDEX _dg_replay",
     ] {
         fleet.cli.err(
             &format!("targeted reindex of {sql}"),
