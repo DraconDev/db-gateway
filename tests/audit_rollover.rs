@@ -12,22 +12,14 @@
 //! kind of thing that makes a trail untrustworthy, so the rollover has
 //! to end with the file holding each action once.
 
-use dg::store::audit::{AuditEntry, AuditLog, MAX_FILE_BYTES};
+use dg::store::{AuditEntry, AuditLog};
 use std::path::Path;
 
-/// An entry whose serialized line is about `size` bytes.
-fn entry_of_size(size: usize) -> AuditEntry {
-    AuditEntry {
-        at: 1_700_000_000,
-        principal: "owner".to_string(),
-        role: "owner".to_string(),
-        action: "query".to_string(),
-        database: Some("demo".to_string()),
-        detail: Some("x".repeat(size)),
-    }
-}
+/// The bound the trail file is rolled over at.
+const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
 
-/// An entry with a detail a reader can look for.
+/// An entry with a detail a reader can look for, and a total line size
+/// of roughly `size` bytes.
 fn entry_with_marker(marker: &str, size: usize) -> AuditEntry {
     AuditEntry {
         at: 1_700_000_000,
@@ -39,35 +31,34 @@ fn entry_with_marker(marker: &str, size: usize) -> AuditEntry {
     }
 }
 
-/// Open an audit log over a file.
-fn log_over(path: &Path) -> AuditLog {
-    AuditLog::open(path)
-}
-
-/// The trail holds each action once, even across the rollover.
+/// The action that triggers the rollover is written once.
 ///
-/// The file is filled past its 4 MiB bound with actions that are each
-/// distinguishable, then one more action is recorded. That last action
-/// is the one that triggers the rewrite, so it is the one that would be
-/// written twice.
+/// The file is filled past its 4 MiB bound with entries big enough that
+/// the ring's own cap does not keep the file small -- the ring holds
+/// 2000 entries, so 4 KiB entries reach the bound -- and then one more
+/// action is recorded. That last action is the one that tips the file
+/// over, so it is the one that would be written twice.
 #[test]
 fn the_action_that_triggers_the_rollover_is_written_once() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("audit.jsonl");
-    let log = log_over(&path);
+    let log = AuditLog::open(&path);
 
-    // Fill the file to just under the bound with distinguishable
-    // entries. Each is a kilobyte, so a few thousand of them is a few
-    // megabytes -- the bound is 4 MiB.
-    let chunk = 1024;
-    let count = (MAX_FILE_BYTES as usize / chunk) + 8;
-    for _ in 0..count {
-        log.record(entry_of_size(chunk - 64));
+    // Fill past the bound. Each entry is about 4 KiB, so a thousand of
+    // them is 4 MiB.
+    let chunk = 4 * 1024;
+    for _ in 0..1200 {
+        log.record(entry_with_marker("filler-", chunk - 128));
     }
+    let size = std::fs::metadata(&path).unwrap().len();
+    assert!(
+        size > MAX_FILE_BYTES,
+        "the file never reached the rollover bound: {size} bytes"
+    );
 
     // The action that tips the file over the bound.
     let marker = "the-action-that-triggers-the-rollover";
-    log.record(entry_with_marker(marker, chunk - 64));
+    log.record(entry_with_marker(marker, chunk - 128));
 
     let text = std::fs::read_to_string(&path).unwrap();
     let occurrences = text.matches(marker).count();
@@ -93,15 +84,40 @@ fn the_action_that_triggers_the_rollover_is_written_once() {
     );
 }
 
-/// A trail that was written twice is read back twice -- the proof that
-/// the duplication is visible to the operator, not just to the file.
+/// The trail a restarted gateway reads back holds each action once.
+///
+/// The file is the durable record, so the duplication the operator sees
+/// after a restart is the one that matters: `read_trail` reads every
+/// line back, including the line that was written twice.
 #[test]
-fn the_error_shape_is_not_swallowed() {
-    // A guard against the test above silently passing because the log
-    // could not be opened at all: an unreadable trail must be visible.
+fn a_restarted_gateway_reads_the_action_back_once() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("audit.jsonl");
-    let log = log_over(&path);
-    log.record(entry_of_size(16));
-    assert!(path.exists(), "the trail file was never created");
+
+    {
+        let log = AuditLog::open(&path);
+        let chunk = 4 * 1024;
+        for _ in 0..1200 {
+            log.record(entry_with_marker("filler-", chunk - 128));
+        }
+        let marker = "the-action-that-triggers-the-rollover";
+        log.record(entry_with_marker(marker, chunk - 128));
+    }
+
+    // A fresh log over the same file is what a restarted gateway builds.
+    let reopened = AuditLog::open(&path);
+    let seen = reopened
+        .entries()
+        .iter()
+        .filter(|entry| {
+            entry
+                .detail
+                .as_deref()
+                .is_some_and(|detail| detail.starts_with("the-action-that-triggers-the-rollover"))
+        })
+        .count();
+    assert_eq!(
+        seen, 1,
+        "a restarted gateway reads the rollover action back {seen} times"
+    );
 }
