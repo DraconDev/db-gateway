@@ -141,8 +141,6 @@ fn moving_through_the_list_wraps_nothing_and_stops_at_its_ends() {
 /// it was cut.
 #[test]
 fn the_table_list_shows_the_row_count() {
-    let mut app = app();
-    app.page = Some(page());
     let values = json!({
         "columns": ["id", "sku"],
         "rows": [[1, "SKU-1001"], [2, "SKU-1002"]],
@@ -150,9 +148,12 @@ fn the_table_list_shows_the_row_count() {
     });
     let mut browser = dg::tui::Browser::new("inventory", "products");
     browser.total = Some(60);
-    app.browser = Some(browser.clone());
-    app.outcome = Some(dg::tui::browser_outcome(&browser, &values));
-    let text = screen(&mut app, 130, 45);
+
+    let mut first = app();
+    first.page = Some(page());
+    first.browser = Some(browser.clone());
+    first.outcome = Some(dg::tui::browser_outcome(&browser, &values));
+    let text = screen(&mut first, 130, 45);
 
     // The selected table's row count (60) is drawn in the list pane.
     let list_line = text
@@ -167,12 +168,12 @@ fn the_table_list_shows_the_row_count() {
     // A name too long for the pane keeps its mark: the cut says it was
     // cut instead of looking like a shorter name.
     let mut long = page();
-    if let Some(long_page) = long.as_mut() {
+    if let Some(long_page) = Some(&mut long).as_mut() {
         long_page.tables[0].name =
             "a_very_long_table_name_that_cannot_fit_in_the_list_pane".to_string();
     }
     let mut long_app = app();
-    long_app.page = long;
+    long_app.page = Some(long);
     long_app.browser = Some(browser.clone());
     long_app.outcome = Some(dg::tui::browser_outcome(&browser, &values));
     let text = screen(&mut long_app, 130, 45);
