@@ -69,8 +69,8 @@ test('explicit replay requires the original idempotency key', async () => {
 });
 
 // A read never commits anything, so it must not be reported with the code
-// that tells an operator a write may have committed. Split on the method, the
-// way web/src/api.ts does.
+// that tells an operator a write may have committed. The client classifies
+// by the statements it sends, with the same rule the server uses.
 test('severed read surfaces transport_unavailable, never outcome_unknown', async () => {
   const mock = await mockEndpoint((req, res) => req.socket.destroy());
   try {
