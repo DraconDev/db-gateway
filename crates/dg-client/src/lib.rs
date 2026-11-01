@@ -16,7 +16,7 @@
 //! - a request is classified by the statements it sends, with the same
 //!   rule the server uses, so a read-only query gives up in ten seconds
 //!   and is never reported as a write that may have committed. (The
-//!   TypeScript client is untouched and still classifies by method.)
+//!   TypeScript client classifies the same way.)
 //! - no hidden retries: replay is an explicit caller decision via
 //!   [`Database::execute_with_key`] / [`Database::batch_with_key`].
 //!
@@ -378,6 +378,40 @@ pub struct Deployment {
     /// Where each registered database lives.
     #[serde(default)]
     pub databases: std::collections::BTreeMap<String, DatabaseLocation>,
+    /// The free space on the volume the data directory lives on, when the
+    /// platform reports it. The server publishes it so an operator can see
+    /// the pressure before a write fails.
+    #[serde(default)]
+    pub disk: Option<DiskSpace>,
+    /// The total the database files occupy, in bytes.
+    #[serde(default)]
+    pub databases_bytes: Option<u64>,
+    /// How long a deleted name is held before it is purged, in seconds.
+    #[serde(default)]
+    pub retention_secs: Option<u64>,
+}
+
+/// The free space on the volume the gateway keeps its files on.
+#[derive(Clone, Debug, Deserialize)]
+pub struct DiskSpace {
+    /// The volume's total size, in bytes.
+    #[serde(default)]
+    pub total_bytes: Option<u64>,
+    /// Bytes still available on the volume.
+    #[serde(default)]
+    pub free_bytes: Option<u64>,
+    /// Bytes in use on the volume.
+    #[serde(default)]
+    pub used_bytes: Option<u64>,
+    /// How full the volume is, as a percentage.
+    #[serde(default)]
+    pub used_percent: Option<f64>,
+    /// The volume's total inode count.
+    #[serde(default)]
+    pub total_inodes: Option<u64>,
+    /// The volume's free inode count.
+    #[serde(default)]
+    pub free_inodes: Option<u64>,
 }
 
 /// Where one database's file is, and whether it is there.
@@ -415,11 +449,26 @@ pub struct DatabaseInfo {
 
 /// A connection to one gateway origin with one credential (owner or a
 /// database-scoped key). Cheap to clone; the HTTP pool is shared.
-#[derive(Clone, Debug)]
+///
+/// The [`std::fmt::Debug`] implementation is hand-written: the derived
+/// one printed the credential in full, and a derived `Debug` is a promise
+/// that the type's debug output is safe to log. The credential is the
+/// one value in this type that must never reach a log.
+#[derive(Clone)]
 pub struct Gateway {
     origin: String,
     credential: String,
     client: reqwest::Client,
+}
+
+impl std::fmt::Debug for Gateway {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Gateway")
+            .field("origin", &self.origin)
+            .field("credential", &"<redacted>")
+            .finish_non_exhaustive()
+    }
 }
 
 impl Gateway {
