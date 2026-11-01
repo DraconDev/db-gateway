@@ -535,8 +535,6 @@ impl Store {
             }
             (transfer.file.clone(), *received)
         };
-        // MUTATION: hold the registry lock across the file open and write.
-        let _held = self.transfers.lock().map_err(|_| Error::internal())?;
         use std::io::Write;
         let write = std::fs::OpenOptions::new()
             .append(true)

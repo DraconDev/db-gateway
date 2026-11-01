@@ -91,10 +91,19 @@ fn an_upload_status_is_answered_while_its_append_is_writing() {
     // The append is now blocked in the open. Let it settle.
     std::thread::sleep(Duration::from_millis(300));
 
-    // The status needs the same lock the append used to hold.
+    // The status needs the same lock the append used to hold. It runs
+    // on its own thread with a deadline, so a lock that is never
+    // released is a FAILURE and not a hung test.
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let status_store = store.clone();
+    let status_id = upload.clone();
     let start = Instant::now();
-    let status = store.upload_status(&upload);
-    let elapsed = start.elapsed();
+    std::thread::spawn(move || {
+        let answer = status_store.upload_status(&status_id);
+        let _ = sender.send((answer, start.elapsed()));
+    });
+
+    let answered = receiver.recv_timeout(Duration::from_secs(5));
 
     // Unblock the writer so the test does not leave a thread behind:
     // opening the FIFO for reading releases the writer's open.
@@ -103,6 +112,9 @@ fn an_upload_status_is_answered_while_its_append_is_writing() {
     }
     let _ = writer.join();
 
+    let (status, elapsed) = answered.expect(
+        "the status check never came back: the append held the transfer registry lock across its write",
+    );
     assert!(status.is_ok(), "the upload's status failed: {status:?}");
     assert!(
         elapsed < Duration::from_secs(5),
