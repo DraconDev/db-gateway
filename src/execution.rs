@@ -508,11 +508,9 @@ fn run_statement(
         .map(json_to_sql)
         .collect::<std::result::Result<Vec<_>, _>>()
         .map_err(|_| Error::invalid())?;
-    if false {
-        if let Some(target) = reindex_target(&statement.sql) {
-            if reindex_names_reserved(target) {
-                return Err(Error::new(403, "sql_forbidden", "reserved object name"));
-            }
+    if let Some(target) = reindex_target(&statement.sql) {
+        if reindex_names_reserved(target) {
+            return Err(Error::new(403, "sql_forbidden", "reserved object name"));
         }
     }
     conn.authorizer(Some(move |ctx: AuthContext<'_>| authorize(ctx, read_only)))?;
