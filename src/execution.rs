@@ -399,8 +399,21 @@ fn authorize(ctx: AuthContext<'_>, read_only: bool) -> Authorization {
         // `CreateIndex` arm above was unreachable and the refusal was an
         // accident of the allow list, not a policy. Allowing it here grants
         // exactly `CREATE [UNIQUE] INDEX`, `DROP INDEX` and `REINDEX` to a
-        // write credential, and the `_dg_` guard still keeps the gateway's
-        // own tables out of reach.
+        // write credential.
+        //
+        // The guard here is NAME-ONLY, and that is a limitation worth
+        // stating rather than glossing: SQLite reports a REINDEX with the
+        // index name and no table name, so an index can be filtered but
+        // its table cannot. Names the gateway owns (`_dg_*`) stay out of
+        // reach for `CREATE INDEX` and `DROP INDEX`, whose callbacks carry
+        // both names, but a bare `REINDEX` also reaches a table's implicit
+        // autoindex -- including `sqlite_autoindex__dg_replay_1`, whose
+        // name starts with `sqlite_`, not `_dg_`. That is acceptable
+        // because a REINDEX only rebuilds an index from its own table's
+        // rows: no row is exposed, no schema changes, and nothing about the
+        // gateway's tables becomes reachable. Filtering it further would
+        // need SQLite to say which table an index belongs to, which it does
+        // not.
         Reindex { index_name } => !read_only && !protected(index_name),
         // No user transactions, attachment, PRAGMAs, virtual tables, triggers,
         // views, temp objects or ALTER in M1. Unknown actions fail closed.
@@ -777,6 +790,41 @@ pub fn execute_detailed(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The four index statements the gateway now allows, and the two
+    /// guards on the arm that makes them possible.
+    ///
+    /// `Reindex` is worth testing directly rather than only through a
+    /// fleet: its `protected()` branch cannot be reached by SQL. A
+    /// `_dg_`-named index cannot be created (that attempt fails one
+    /// callback earlier, in `CreateIndex`, which is the arm already
+    /// covered by the schema-shape test), so only a direct call proves the
+    /// guard is wired at all.
+    #[test]
+    fn the_reindex_arm_honours_both_its_guards() {
+        let action = |name: &'static str| AuthContext {
+            action: AuthAction::Reindex { index_name: name },
+            database_name: Some("main"),
+        };
+        // A write credential may rebuild an ordinary index.
+        assert!(matches!(
+            authorize(action("products_by_sku"), false),
+            Authorization::Allow
+        ));
+        // A read-only credential may not: a REINDEX writes the index.
+        assert!(matches!(
+            authorize(action("products_by_sku"), true),
+            Authorization::Deny
+        ));
+        // Neither may reach the gateway's own namespace, in any case.
+        for name in ["_dg_replay", "_DG_Replay", "_dg_sneaky"] {
+            assert!(
+                matches!(authorize(action(name), false), Authorization::Deny),
+                "{name} was not refused for a write credential"
+            );
+        }
+    }
+
     #[test]
     fn lane_classifier_marks_only_reads() {
         let s = |sql: &str| Statement {
