@@ -179,23 +179,37 @@ fn the_demo_seed_lands_its_intricate_schema_and_re_running_changes_nothing() {
         "the shipments table is no longer the NULL-heavy shape the demo relies on"
     );
     // And the notes carry characters outside ASCII, so wrapping and column
-    // width are exercised against text that is not one byte per glyph. The
-    // three scripts are asserted separately: a single "non-ASCII" check
-    // would pass on one em dash and say nothing about wide glyphs.
-    for (label, needle, expected) in [
-        ("em dash", "\u{2014}", 10),
-        ("umlaut", "\u{fc}", 10),
-        ("katakana", "\u{30a2}", 10),
+    // width are exercised against text that is not one byte per glyph.
+    //
+    // The property is stated the way it matters rather than as a per-script
+    // count: most notes are not ASCII (`length` counts characters, the cast
+    // to a blob counts bytes, and UTF-8 makes the second larger), and each of
+    // the three scripts is present, so a note body edited to plain English
+    // cannot quietly take the coverage with it.
+    let unicode = fleet.cli.q(
+        "non-ascii notes",
+        "orders",
+        "SELECT count(*) FROM order_notes
+         WHERE length(body) <> length(cast(body AS blob))",
+    );
+    assert_eq!(
+        unicode[0][0].as_i64().unwrap(),
+        30,
+        "the order notes are no longer mostly non-ASCII"
+    );
+    for (label, needle) in [
+        ("em dash", "\u{2014}"),
+        ("umlaut", "\u{fc}"),
+        ("katakana", "\u{30a2}"),
     ] {
         let rows = fleet.cli.q(
             &format!("notes with an {label}"),
             "orders",
             &format!("SELECT count(*) FROM order_notes WHERE instr(body, '{needle}') > 0"),
         );
-        assert_eq!(
-            rows[0][0].as_i64().unwrap(),
-            expected,
-            "the order notes no longer carry the {label}s the demo relies on"
+        assert!(
+            rows[0][0].as_i64().unwrap() >= 5,
+            "the order notes no longer carry {label} text: {rows:?}"
         );
     }
 
