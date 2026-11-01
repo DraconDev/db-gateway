@@ -42,10 +42,11 @@ Want material to look at instead of a single hand-made table? `scripts/seed-demo
 linked databases (inventory, orders, ledger, sessions, notes, plus the billing and probe seeds) with
 27 tables and roughly 1,500 rows: a composite primary key (`product_prices(product_id, valid_from)`,
 `warehouse_stock`, `fx_rates(rate_date, currency)`), a self-referencing tree (`category_tree`),
-declared foreign keys, a UNIQUE tracking number, a NULL-heavy `shipments` table where most rows have
-not shipped, unicode note bodies, and one deliberately wide 14-column extract
-(`legacy_stock_extract`) with long column names. It is idempotent — re-running it inserts nothing —
-and `tests/seed_demo.rs` holds it to that against a fresh gateway.
+declared foreign keys, four explicit indexes beside the ones the keys imply, a UNIQUE tracking
+number, a NULL-heavy `shipments` table where most rows have not shipped, unicode note bodies, and
+one deliberately wide 14-column extract (`legacy_stock_extract`) with long column names. It is
+idempotent — re-running it inserts nothing — and `tests/seed_demo.rs` holds it to that against a
+fresh gateway.
 
 ```sh
 python3 scripts/seed-demo.py --server http://127.0.0.1:7432 --key-file owner.key
