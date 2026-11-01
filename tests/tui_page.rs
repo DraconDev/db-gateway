@@ -167,14 +167,15 @@ fn the_table_list_shows_the_row_count() {
     // A name too long for the pane keeps its mark: the cut says it was
     // cut instead of looking like a shorter name.
     let mut long = page();
-    if let Some(page) = long.as_mut() {
-        page.tables[0].name = "a_very_long_table_name_that_cannot_fit_in_the_list_pane".to_string();
+    if let Some(long_page) = long.as_mut() {
+        long_page.tables[0].name =
+            "a_very_long_table_name_that_cannot_fit_in_the_list_pane".to_string();
     }
-    let mut app = app();
-    app.page = long;
-    app.browser = Some(browser.clone());
-    app.outcome = Some(dg::tui::browser_outcome(&browser, &values));
-    let text = screen(&mut app, 130, 45);
+    let mut long_app = app();
+    long_app.page = long;
+    long_app.browser = Some(browser.clone());
+    long_app.outcome = Some(dg::tui::browser_outcome(&browser, &values));
+    let text = screen(&mut long_app, 130, 45);
     let line = text
         .lines()
         .find(|line| line.contains("a_very_long"))
