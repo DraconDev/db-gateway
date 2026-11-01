@@ -238,10 +238,20 @@ impl Metrics {
             entry.rows_written += rows_written;
         }
     }
-    /// Drop the per-name counters for a purged database. Only safe under the
-    /// exclusive lifecycle lease, which every admitted request holds in
-    /// shared form, so no in-flight request can still be recording or
-    /// reading this name's entry.
+    /// Drop the per-name counters for a name with no live registry row.
+    ///
+    /// This is a BEST-EFFORT cleanup, not an exclusive operation. The
+    /// caller is a request that holds the lifecycle lease in its SHARED
+    /// form, so a concurrent request for the same name can still be
+    /// recording into this entry -- and it can re-create the entry
+    /// immediately after it was removed.
+    ///
+    /// That is why the entry is a diagnostic view and not a source of
+    /// truth: a name whose row reappears in `/v1/status` is a name
+    /// something touched recently, and the next failed write for it --
+    /// or its purge -- clears it again. Taking the exclusive lease here
+    /// would deadlock, because every admitted request already holds the
+    /// shared one.
     pub fn forget(&self, name: &str) {
         if let Ok(mut queue) = self.queue.lock() {
             queue.remove(name);
