@@ -23,8 +23,12 @@ be inspected later, so each release that has one records the actual output.
 that touched `src/` is `34beb29`, an ancestor of both tested revisions, and no
 `src/` change follows it.
 
-Both receipts record an identical `dg` artifact (`798d3c5f…`), so neither
-describes a different binary from the one that shipped.
+The newer receipt records the `dg` artifact it tested (`798d3c5f…`), so it
+describes the binary that shipped. The older one does not: its header names
+the revision, the branch, the toolchain and the host, but no artifact hash —
+that run predates the hash being written into the header. What both receipts
+do establish is the tree they tested: the last commit that touched `src/` is
+`34beb29`, an ancestor of both, so neither ran against different code.
 
 **No sentence here says which commit the tag currently points at, on purpose.**
 Every receipt is added by a docs-only commit on top of what it tested, so each
