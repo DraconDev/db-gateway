@@ -388,7 +388,7 @@ Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1
 | `upload_out_of_sync` | 409 | The upload file holds fewer bytes than the server acknowledged — acknowledged data is gone, so the upload cannot be resumed or committed; restart it |
 | `invalid_request` | 400 | Malformed JSON, unknown fields, bad name, unsupported arg, empty batch, more than 32 batch statements, SQL text over 64 KiB, more than 256 args, or malformed idempotency key |
 | `invalid_request` | 413 | JSON body over the 64 KiB general cap; import requests have a 12 MiB encoded transport envelope, while decoded import data is capped at 8 MiB |
-| `invalid_sql` | 400 | Syntax error, wrong parameter count, unknown table/column |
+| `invalid_sql` | 400 | Syntax error, wrong parameter count, unknown table/column, or a constraint the statement would violate (`UNIQUE`, `NOT NULL`, `CHECK`, `FOREIGN KEY`) |
 | `result_limit_exceeded` | 413 | Result exceeds 256 KiB or 1000 rows |
 | `idempotency_key_conflict` | 409 | Same key, different request body |
 | `idempotency_key_not_supported` | 400 | Idempotency key sent on a read-only request; keys only apply to writes |
