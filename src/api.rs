@@ -90,7 +90,6 @@ pub fn router(store: Arc<Store>, deployment: Deployment) -> Router {
         .route("/v1/queries", get(queries))
         .route("/v1/databases/{name}/query", post(query))
         .route("/v1/databases/{name}/batch", post(batch))
-        .layer(DefaultBodyLimit::max(65536))
         // The placement of this gateway is a property of the process, not
         // of the store, so it travels as an extension rather than inside
         // the shared state every handler already takes.
