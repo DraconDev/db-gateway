@@ -91,15 +91,12 @@ TABLES = {
             extract_generated_at_utc TEXT NOT NULL)""",
         # Explicit indexes, so the demo covers the whole index surface and not
         # only the ones a declared key happens to produce: a plain index on a
-        # non-key column (`products.sku`), one on a join column
-        # (`stock_moves.product_id`), and a multi-column one so `dg schema`
-        # has a covering index to describe as well as the sqlite_autoindex_*
-        # rows the keys already create.
+        # non-key column (`products.sku`) and one on a join column
+        # (`stock_moves.product_id`), so `dg schema` has created indexes to
+        # describe beside the sqlite_autoindex_* rows the keys already make.
         "CREATE INDEX IF NOT EXISTS products_by_sku ON products(sku)",
         "CREATE INDEX IF NOT EXISTS stock_moves_by_product "
-        "ON stock_moves(product_id, at)",
-        "CREATE INDEX IF NOT EXISTS legacy_stock_extract_by_warehouse "
-        "ON legacy_stock_extract(warehouse_code)",
+        "ON stock_moves(product_id)",
     ],
     "orders": [
         """CREATE TABLE IF NOT EXISTS customers
@@ -129,7 +126,7 @@ TABLES = {
            (id INTEGER PRIMARY KEY, order_id INTEGER NOT NULL REFERENCES orders(id),
             body TEXT NOT NULL, author TEXT NOT NULL, created_at TEXT NOT NULL)""",
         "CREATE INDEX IF NOT EXISTS order_notes_by_order "
-        "ON order_notes(order_id, created_at)",
+        "ON order_notes(order_id)",
     ],
     "ledger": [
         """CREATE TABLE IF NOT EXISTS accounts

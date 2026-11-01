@@ -96,10 +96,6 @@ fn the_demo_seed_lands_its_intricate_schema_and_re_running_changes_nothing() {
         "the seed no longer creates 27 tables: {first}"
     );
     assert_eq!(
-        first["indexes"], 4,
-        "the seed no longer creates its four explicit indexes: {first}"
-    );
-    assert_eq!(
         first["inserted_tables"], 27,
         "a fresh gateway left some table empty: {first}"
     );
@@ -212,16 +208,10 @@ fn the_demo_seed_lands_its_intricate_schema_and_re_running_changes_nothing() {
     assert!(
         move_indexes
             .iter()
-            .any(|(name, _, columns)| name == "stock_moves_by_product"
-                && columns == &vec!["product_id".to_string(), "at".to_string()]),
-        "the two-column index is missing or lost its columns: {move_indexes:?}"
-    );
-    let extract_indexes = by_name("legacy_stock_extract");
-    assert!(
-        extract_indexes.iter().any(|(name, _, columns)| name
-            == "legacy_stock_extract_by_warehouse"
-            && columns == &vec!["warehouse_code".to_string()]),
-        "the wide table's index is missing: {extract_indexes:?}"
+            .any(|(name, unique, columns)| name == "stock_moves_by_product"
+                && !unique
+                && columns == &vec!["product_id".to_string()]),
+        "stock_moves_by_product is missing or misreported: {move_indexes:?}"
     );
     let orders_schema = fleet.cli.ok("schema orders", &["schema", "orders"]);
     let notes = orders_schema["tables"]
@@ -230,13 +220,20 @@ fn the_demo_seed_lands_its_intricate_schema_and_re_running_changes_nothing() {
         .iter()
         .find(|table| table["name"] == "order_notes")
         .unwrap();
-    assert!(
-        notes["indexes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|index| index["name"] == "order_notes_by_order"),
-        "order_notes_by_order is missing: {notes}"
+    let note_index = notes["indexes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|index| index["name"] == "order_notes_by_order")
+        .unwrap_or_else(|| panic!("order_notes_by_order is missing: {notes}"));
+    assert_eq!(
+        note_index["columns"],
+        serde_json::json!(["order_id"]),
+        "order_notes_by_order does not cover the join column: {note_index}"
+    );
+    assert_eq!(
+        note_index["unique"], false,
+        "order_notes_by_order should be a plain index: {note_index}"
     );
 
     // The NULL-heavy table really is NULL-heavy: most shipments have not
