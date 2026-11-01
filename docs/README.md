@@ -49,6 +49,7 @@ canonical list below. For "what did we actually measure", go to
 | `resource-budget.md` | The measured 1 GiB host budget; `validate-deploy.sh` checks MemoryMax against it. |
 | `resource-harness.md` | The resource-measurement harness: what the numbers mean. |
 | `upgrade-rollback.md` | Upgrade and rollback procedure for the deployed gateway. |
+| `audits/tui-audit.md` | The `dg tui` audit register: the coverage matrix for the six tabs and the findings it drove, with the test that now pins each one. |
 
 ## Superseded
 
@@ -109,6 +110,41 @@ megaplan register, which names its path; it does not move.
 - **CLI pet-trio campaigns** — `pet-livefire-2026-10-17.log`,
   `pet-trio-2026-10-16.log`, `pet-trio-extensive-2026-10-16.log`,
   `pet-trio-suites-2026-10-16.log`.
+- **TUI live captures and audits** — `tui-live-2026-10-25.log`,
+  `tui-live-2026-10-25.txt`, `tui-live-0.9.0-2026-10-26.log`,
+  `tui-live-0.9.0-2026-10-26.txt`, `tui-view-2026-10-21.log`,
+  `tui-view-2026-10-21.txt`, `tui-view-2026-10-22.log`,
+  `tui-view-2026-10-22.txt`, `tui-audit-runtime.log`, `tui-audit-runtime.txt`,
+  `tui-schema-action-2026-10-27.txt`, `rows-browser-live-2026-10-27.txt`,
+  `schema-live-2026-10-27.txt`, `database-page-inventory-2026-10-28.txt`,
+  and the seven raw terminal captures under `evidence/tui-live-2026-10-25-raw/`
+  (`backups.raw`, `databases.raw`, `keys.raw`, `locations.raw`,
+  `palette.raw`, `queries.raw`, `service.raw`).
+- **Turso console captures (2026-10-26 … 2026-10-29)** — the Turso side of
+  the surface comparison: `turso-cli-help-2026-10-29.txt`,
+  `turso-databases-2026-10-26.txt`, `turso-analytics-2026-10-26.txt`,
+  `turso-audit-logs-2026-10-26.txt`, `turso-structure-2026-10-27.txt`,
+  `turso-edit-data-2026-10-26.png`, `turso-edit-data-grid-2026-10-27.png`,
+  `turso-structure-indexes-2026-10-27.png`,
+  `turso-structure-view-2026-10-27.png`,
+  `turso-edit-data-live-2026-10-29.png`,
+  `turso-live-2026-10-29-analytics.txt`,
+  `turso-live-2026-10-29-audit-logs.txt`,
+  `turso-live-2026-10-29-databases.txt`,
+  `turso-live-2026-10-29-edit-data.txt`,
+  `turso-live-2026-10-29-per-database.txt`.
+- **Suite, soak & replica campaigns (0.4.2 / 0.9.0)** —
+  `cargo-test-full-suite-2026-10-29.txt`,
+  `workspace-suite-0.9.0.log`, `coverage-matrix-2026-10-25.md`,
+  `live-exercise-2026-10-25.json`,
+  `noisy-neighbor-cross-db-0.4.2-2026-10-25.json`,
+  `replica-bucket-layout-2026-10-25.txt`, `soak-0.4.2-2026-10-25.log`,
+  `soak-starvation-0.4.2-2026-10-25.json`.
+- **Release verification receipts** — `verification/README.md` (the register
+  that explains them), `verification/full-suite-eeed1a4.log`,
+  `verification/full-suite-eeed1a4-summary.txt`,
+  `verification/full-suite-c13bf7f.log`,
+  `verification/full-suite-c13bf7f-summary.txt`.
 
 ## Rules
 
