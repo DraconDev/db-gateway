@@ -368,6 +368,76 @@ mod import_schema_tests {
 fn protected(name: &str) -> bool {
     name.to_ascii_lowercase().starts_with("_dg_")
 }
+
+/// Is this name one the gateway keeps for itself, in either the explicit
+/// `_dg_...` form or the implicit-index form SQLite derives from it?
+fn reserved(name: &str) -> bool {
+    if protected(name) {
+        return true;
+    }
+    let lower = name.to_ascii_lowercase();
+    let Some(rest) = lower.strip_prefix("sqlite_autoindex_") else {
+        return false;
+    };
+    protected(rest)
+}
+
+/// The object a `REINDEX` statement names, or `None` when it names none.
+///
+/// This exists because the authorizer cannot answer the question: SQLite
+/// reports a rebuild as `Reindex { index_name }` with no table, and for an
+/// implicit index that name is `sqlite_autoindex_<table>_<n>`. A bare
+/// `REINDEX` sweeps every index in the file, so it necessarily sweeps the
+/// gateway's own; a targeted one must be screened by the name the user
+/// wrote. `REINDEX` is a top-level command and cannot appear anywhere else
+/// in SQL, so the token after the keyword is the whole target.
+fn reindex_target(sql: &str) -> Option<&str> {
+    let sql = strip_leading_comments(sql).trim_start();
+    let end = sql
+        .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+        .unwrap_or(sql.len());
+    if !sql[..end].eq_ignore_ascii_case("reindex") {
+        return None;
+    }
+    let target = sql[end..].trim_start();
+    if target.is_empty() || target.starts_with(';') {
+        return None;
+    }
+    Some(target)
+}
+
+fn strip_leading_comments(mut sql: &str) -> &str {
+    loop {
+        let trimmed = sql.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("--") {
+            sql = rest.split_once('\n').map(|(_, after)| after).unwrap_or("");
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("/*") {
+            sql = rest.split_once("*/").map(|(_, after)| after).unwrap_or("");
+            continue;
+        }
+        return trimmed;
+    }
+}
+
+/// Does this `REINDEX` target name something the gateway reserves?
+///
+/// Deliberately generous: quotes and a `schema.` qualifier are stripped
+/// and every dot-separated segment is screened, so a name that is only
+/// reserved in part is still refused. Over-refusing a `REINDEX` target is
+/// a cheap mistake; under-refusing rebuilds the wrong table.
+fn reindex_names_reserved(target: &str) -> bool {
+    let token = target
+        .split(|c: char| c.is_whitespace() || c == ';')
+        .next()
+        .unwrap_or("");
+    let unquoted: String = token
+        .chars()
+        .filter(|c| !matches!(c, '"' | '\'' | '`' | '[' | ']'))
+        .collect();
+    unquoted.split('.').any(reserved)
+}
 fn authorize(ctx: AuthContext<'_>, read_only: bool) -> Authorization {
     use AuthAction::*;
     let allowed = match ctx.action {
@@ -401,19 +471,17 @@ fn authorize(ctx: AuthContext<'_>, read_only: bool) -> Authorization {
         // exactly `CREATE [UNIQUE] INDEX`, `DROP INDEX` and `REINDEX` to a
         // write credential.
         //
-        // The guard here is NAME-ONLY, and that is a limitation worth
-        // stating rather than glossing: SQLite reports a REINDEX with the
-        // index name and no table name, so an index can be filtered but
-        // its table cannot. Names the gateway owns (`_dg_*`) stay out of
-        // reach for `CREATE INDEX` and `DROP INDEX`, whose callbacks carry
-        // both names, but a bare `REINDEX` also reaches a table's implicit
-        // autoindex -- including `sqlite_autoindex__dg_replay_1`, whose
-        // name starts with `sqlite_`, not `_dg_`. That is acceptable
-        // because a REINDEX only rebuilds an index from its own table's
-        // rows: no row is exposed, no schema changes, and nothing about the
-        // gateway's tables becomes reachable. Filtering it further would
-        // need SQLite to say which table an index belongs to, which it does
-        // not.
+        // The callback carries only an index name and no table, so this arm
+        // cannot be the whole guard: for an implicit index the name is
+        // `sqlite_autoindex_<table>_<n>`, which does not begin with the
+        // table's own name. `run_statement` therefore screens a REINDEX that
+        // *names* an object before the statement is even prepared, where the
+        // name the user wrote is still visible; this arm keeps the reserved
+        // `_dg_` names out as well, because an index can also be named
+        // directly. A bare `REINDEX` has no name to screen and necessarily
+        // sweeps the gateway's own implicit index -- that is allowed and
+        // harmless: it rebuilds an index from its own table's rows, exposes
+        // no row, and changes no schema.
         Reindex { index_name } => !read_only && !protected(index_name),
         // No user transactions, attachment, PRAGMAs, virtual tables, triggers,
         // views, temp objects or ALTER in M1. Unknown actions fail closed.
@@ -440,6 +508,11 @@ fn run_statement(
         .map(json_to_sql)
         .collect::<std::result::Result<Vec<_>, _>>()
         .map_err(|_| Error::invalid())?;
+    if let Some(target) = reindex_target(&statement.sql) {
+        if reindex_names_reserved(target) {
+            return Err(Error::new(403, "sql_forbidden", "reserved object name"));
+        }
+    }
     conn.authorizer(Some(move |ctx: AuthContext<'_>| authorize(ctx, read_only)))?;
     let result = (|| {
         let mut stmt = conn.prepare(&statement.sql)?;
