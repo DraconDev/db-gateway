@@ -4,6 +4,13 @@ use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 
+fn free_port() -> u16 {
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let p = l.local_addr().unwrap().port();
+    drop(l);
+    p
+}
+
 fn post(port: u16, key: &str, path: &str, body: &[u8]) -> (u16, String) {
     let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
     let req = format!(
@@ -29,12 +36,14 @@ fn the_documented_body_cap_is_applied_on_every_route() {
         .arg(&dir)
         .output()
         .unwrap();
+    let key = String::from_utf8(init.stdout.clone()).unwrap().trim().to_string();
     std::fs::write(&keyfile, init.stdout).unwrap();
-    let key = String::from_utf8(init.stdout).unwrap().trim().to_string();
 
     let mut child: Child = Command::new(env!("CARGO_BIN_EXE_dg"))
         .args(["serve", "--data-dir"])
         .arg(&dir)
+        .arg("--listen")
+        .arg(format!("127.0.0.1:{}", free_port()))
         .stdout(Stdio::piped())
         .spawn()
         .unwrap();
