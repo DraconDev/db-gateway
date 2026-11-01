@@ -129,7 +129,6 @@ fn moving_through_the_list_wraps_nothing_and_stops_at_its_ends() {
     assert_eq!(page.current().map(|t| t.name.as_str()), Some("products"));
 }
 
-#[test]
 /// The row count must be visible in the table list.
 ///
 /// `docs/tui.md` draws the page as `│▸ products  60│` -- the count sits
@@ -189,6 +188,7 @@ fn the_table_list_shows_the_row_count() {
     );
 }
 
+#[test]
 fn the_page_is_drawn_with_the_list_and_the_values() {
     let mut app = app();
     app.page = Some(page());
