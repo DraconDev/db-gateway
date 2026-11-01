@@ -179,13 +179,50 @@ fn the_demo_seed_lands_its_intricate_schema_and_re_running_changes_nothing() {
         "the shipments table is no longer the NULL-heavy shape the demo relies on"
     );
     // And the notes carry characters outside ASCII, so wrapping and column
-    // width are exercised against text that is not one byte per glyph.
-    let unicode = fleet.cli.q(
-        "unicode notes",
-        "orders",
-        "SELECT count(*) FROM order_notes WHERE body <> cast(body AS blob)",
+    // width are exercised against text that is not one byte per glyph. The
+    // three scripts are asserted separately: a single "non-ASCII" check
+    // would pass on one em dash and say nothing about wide glyphs.
+    for (label, needle, expected) in [
+        ("em dash", "\u{2014}", 10),
+        ("umlaut", "\u{fc}", 10),
+        ("katakana", "\u{30a2}", 10),
+    ] {
+        let rows = fleet.cli.q(
+            &format!("notes with an {label}"),
+            "orders",
+            &format!("SELECT count(*) FROM order_notes WHERE instr(body, '{needle}') > 0"),
+        );
+        assert_eq!(
+            rows[0][0].as_i64().unwrap(),
+            expected,
+            "the order notes no longer carry the {label}s the demo relies on"
+        );
+    }
+
+    // The awkward wide table: fourteen columns, and at least one column name
+    // long enough that a pane which assumes short headers has to make a real
+    // decision rather than fit everything.
+    let wide = schema["tables"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|table| table["name"] == "legacy_stock_extract")
+        .unwrap_or_else(|| panic!("no legacy_stock_extract in the schema: {schema}"));
+    let wide_columns = wide["columns"].as_array().unwrap();
+    assert_eq!(
+        wide_columns.len(),
+        14,
+        "the wide extract is no longer fourteen columns: {wide}"
     );
-    let _ = unicode;
+    let longest = wide_columns
+        .iter()
+        .map(|column| column["name"].as_str().unwrap().len())
+        .max()
+        .unwrap();
+    assert!(
+        longest >= 45,
+        "the wide extract has no long column name any more (longest {longest})"
+    );
 
     // Idempotency: a second run creates nothing and inserts nothing.
     let second = seed(&fleet);
