@@ -28,8 +28,8 @@ fail() { echo "[check-unit-cadence] FAIL: $*" >&2; exit 1; }
 [ -f "$SERVE" ] || fail "missing $SERVE"
 [ -f "$DIGEST" ] || fail "missing $DIGEST"
 
-serve_cadence="$(grep -oE '\-\-backup-cadence-secs [0-9]+' "$SERVE" | head -1 | awk '{print $NF}')"
-digest_cadence="$(grep -oE '(^|[[:space:]])\-\-cadence-secs [0-9]+' "$DIGEST" | head -1 | awk '{print $NF}')"
+serve_cadence="$(grep -oE -- '--backup-cadence-secs [0-9]+' "$SERVE" | head -1 | awk '{print $NF}')"
+digest_cadence="$(grep -oE -- '(^|[[:space:]])--cadence-secs [0-9]+' "$DIGEST" | head -1 | awk '{print $NF}')"
 
 [ -n "$serve_cadence" ] || fail "dg.service must pass --backup-cadence-secs"
 [ -n "$digest_cadence" ] || fail "dg-backup-digest.service must pass --cadence-secs"

@@ -79,7 +79,7 @@ fn a_second_readme_needs_its_path_not_just_its_name() {
     std::fs::create_dir_all(root.join("docs/verification")).unwrap();
     std::fs::write(root.join("docs/README.md"), "# Index\n").unwrap();
     std::fs::write(root.join("docs/verification/README.md"), "receipts\n").unwrap();
-    let (ok, stderr) = check(root.path());
+    let (ok, stderr) = check(root);
     assert!(!ok, "a second README must be named by its path");
     assert!(
         stderr.contains("verification/README.md"),
