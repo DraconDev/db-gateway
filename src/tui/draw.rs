@@ -570,8 +570,8 @@ fn database_page(frame: &mut Frame, area: Rect, app: &mut App) {
     const MARKER: usize = 2;
     const COUNT: usize = 5;
     let chrome = MARKER + COUNT + 2;
-    let list_width =
-        ((widest as usize + chrome) as u16).clamp(16, area.width.saturating_sub(30).max(16));
+    let list_width = (widest + chrome).min(u16::MAX as usize) as u16;
+    let list_width = list_width.clamp(16, area.width.saturating_sub(30).max(16));
     let columns =
         Layout::horizontal([Constraint::Length(list_width), Constraint::Min(20)]).split(area);
     // The list: one line per table, with its row count, the selected one
