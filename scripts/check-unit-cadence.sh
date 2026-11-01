@@ -31,8 +31,8 @@ fail() { echo "[check-unit-cadence] FAIL: $*" >&2; exit 1; }
 # The extraction tolerates "no match": with `set -o pipefail` a failing
 # grep would abort the script before the explicit check below could name
 # the flag that is missing.
-serve_cadence="$(grep -oE -- '--backup-cadence-secs [0-9]+' "$SERVE" | head -1 | awk '{print $NF}' || true)"
-digest_cadence="$(grep -oE -- '(^|[[:space:]])--cadence-secs [0-9]+' "$DIGEST" | head -1 | awk '{print $NF}' || true)"
+serve_cadence="$(sed -n 's/.*--backup-cadence-secs \([0-9][0-9]*\).*/\1/p' "$SERVE" | head -1 || true)"
+digest_cadence="$(sed -n 's/.*[^a-z-]--cadence-secs \([0-9][0-9]*\).*/\1/p' "$DIGEST" | head -1 || true)"
 
 [ -n "$serve_cadence" ] || fail "dg.service must pass --backup-cadence-secs"
 [ -n "$digest_cadence" ] || fail "dg-backup-digest.service must pass --cadence-secs"
