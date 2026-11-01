@@ -1017,7 +1017,7 @@ pub async fn rows(
         &format!("/v1/databases/{name}/query"),
         Some(serde_json::json!({"sql": query.sql, "args": []})),
         None,
-        dg::client::Semantics::Write,
+        dg::client::semantics_of(&[query.sql.as_str()]),
     )
     .await
     .map_err(Application)?;
@@ -1061,7 +1061,7 @@ async fn read_count(
         &format!("/v1/databases/{name}/query"),
         Some(serde_json::json!({"sql": sql, "args": []})),
         None,
-        dg::client::Semantics::Write,
+        dg::client::semantics_of(&[sql]),
     )
     .await
     .map_err(Application)?;
