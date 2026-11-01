@@ -1002,13 +1002,22 @@ pub async fn rows(
             refusal.message(),
         ))
     })?;
-    let response = dg::client::request(
+    // A row read is a read, and the transport has to be told so. The
+    // method cannot say it -- a query is a POST -- so the SQL decides,
+    // with the same classification the server uses. Without this the
+    // read waited the write timeout and, when it gave up, reported
+    // `outcome_unknown`: "writes may have committed, replay only with the
+    // same idempotency key", for a SELECT that committed nothing and
+    // for which no key is ever sent. Advice an operator cannot follow is
+    // its own kind of wrong answer.
+    let response = dg::client::request_with_semantics(
         server,
         &key,
         Method::POST,
         &format!("/v1/databases/{name}/query"),
         Some(serde_json::json!({"sql": query.sql, "args": []})),
         None,
+        dg::client::semantics_of(&[query.sql.as_str()]),
     )
     .await
     .map_err(Application)?;
@@ -1043,13 +1052,16 @@ async fn read_count(
     name: &str,
     sql: &str,
 ) -> Result<u64, dg::ServerError> {
-    let response = dg::client::request(
+    // The count behind the footer's total is a read too, and it has to
+    // be told so for the same reason the row read above is.
+    let response = dg::client::request_with_semantics(
         server,
         key,
         Method::POST,
         &format!("/v1/databases/{name}/query"),
         Some(serde_json::json!({"sql": sql, "args": []})),
         None,
+        dg::client::semantics_of(&[sql]),
     )
     .await
     .map_err(Application)?;
