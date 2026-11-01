@@ -17,16 +17,68 @@
 //! about what a read is.
 //!
 //! The test drives the real binary on a real terminal (the human path is
-//! only taken when stdout is a terminal), against a gateway that is not
-//! listening, so the transport failure is the observable.
+//! only taken when stdout is a terminal) against a gateway that answers
+//! the schema request and then DROPS the connection on the row query, so
+//! the transport failure is the observable.
 
+use std::io::{Read, Write};
+use std::net::TcpListener;
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
-/// Draw `dg rows` on a real terminal, against a gateway that is not
-/// there, and read what an operator reads.
-fn rows_on_a_terminal() -> String {
+/// The schema document the fake gateway answers with: one table, so the
+/// command proceeds to the row query.
+const SCHEMA: &str = r#"{"database":"demo","tombstoned":false,"created_at":1700000000,
+"tables":[{"name":"notes","rows":3,"columns":[
+{"name":"id","type":"INTEGER","not_null":false,"primary_key":true,"default":null},
+{"name":"body","type":"TEXT","not_null":false,"primary_key":false,"default":null}],
+"indexes":[],"foreign_keys":[],"sql":"CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT)"}]}"#;
+
+/// A gateway that answers the schema and drops every other connection.
+///
+/// It listens on an ephemeral port and, for each connection, reads the
+/// request head: a request for the schema is answered, and anything else
+/// gets the connection closed with no reply at all. That is a transport
+/// failure, which is exactly what the client has to classify.
+fn fake_gateway() -> (String, Arc<AtomicBool>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let running = Arc::new(AtomicBool::new(true));
+    let flag = running.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            if !flag.load(Ordering::Relaxed) {
+                return;
+            }
+            let Ok(mut stream) = stream else { return };
+            std::thread::spawn(move || {
+                let mut head = [0u8; 8192];
+                let read = match stream.read(&mut head) {
+                    Ok(read) => read,
+                    Err(_) => return,
+                };
+                let request = String::from_utf8_lossy(&head[..read]).to_string();
+                if request.contains("/schema") {
+                    let body = SCHEMA.replace('\n', "");
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = stream.write_all(response.as_bytes());
+                    let _ = stream.flush();
+                }
+                // Anything else: drop the connection without a reply.
+            });
+        }
+    });
+    (format!("http://{address}"), running)
+}
+
+/// Draw `dg rows` on a real terminal and read what an operator reads.
+fn rows_on_a_terminal(server: &str) -> String {
     let key_file = std::env::temp_dir().join(format!("dg-rows-tty-{}", std::process::id()));
     // The credential has to LOOK like a credential: the CLI refuses
     // anything that is not 64 hex characters before it opens a
@@ -38,8 +90,9 @@ fn rows_on_a_terminal() -> String {
     // `script` gives the child a terminal on stdout, so the command
     // takes its human path.
     let command = format!(
-        "{} --server http://127.0.0.1:1 --key-file {} rows demo notes",
+        "{} --server {} --key-file {} rows demo notes",
         env!("CARGO_BIN_EXE_dg"),
+        server,
         key_file.to_str().unwrap()
     );
     let output = Command::new("script")
@@ -57,8 +110,11 @@ fn rows_on_a_terminal() -> String {
 /// ("replay only with the same idempotency key within its retention
 /// window") points at a key this command never sends.
 #[test]
-fn a_row_read_against_a_dead_gateway_is_not_reported_as_a_write() {
-    let text = rows_on_a_terminal();
+fn a_row_read_against_a_broken_gateway_is_not_reported_as_a_write() {
+    let (server, running) = fake_gateway();
+    let text = rows_on_a_terminal(&server);
+    running.store(false, Ordering::Relaxed);
+
     assert!(
         !text.contains("outcome_unknown"),
         "a row read is reported as a write that may have committed: {text}"
@@ -69,12 +125,6 @@ fn a_row_read_against_a_dead_gateway_is_not_reported_as_a_write() {
     );
     assert!(
         text.contains("transport_unavailable"),
-        "a row read against a dead gateway is not an unavailable gateway: {text}"
+        "a row read against a broken gateway is not an unavailable gateway: {text}"
     );
-}
-
-/// The key file the test used, kept so a failure can be reproduced.
-#[allow(dead_code)]
-fn key_path() -> PathBuf {
-    std::env::temp_dir().join(format!("dg-rows-tty-{}", std::process::id()))
 }
