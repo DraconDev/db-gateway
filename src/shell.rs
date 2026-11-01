@@ -532,7 +532,7 @@ impl Session<'_> {
                     // status`. The same fact has to look the same in
                     // both places, or the operator learns to ignore one
                     // of them.
-                    crate::render::Cell::styled(state, dg::views::backup_state_style(state)),
+                    crate::render::Cell::styled(state, crate::views::backup_state_style(state)),
                     crate::render::Cell::text(
                         fresh["newest_set"]
                             .as_str()
