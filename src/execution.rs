@@ -369,69 +369,50 @@ fn protected(name: &str) -> bool {
     name.to_ascii_lowercase().starts_with("_dg_")
 }
 
-/// Is this name one the gateway keeps for itself, in either the explicit
-/// `_dg_...` form or the implicit-index form SQLite derives from it?
-fn reserved(name: &str) -> bool {
-    if protected(name) {
+/// May the statement being prepared produce a `Reindex` authorizer
+/// callback at all?
+///
+/// SQLite emits `Reindex { index_name }` in exactly two situations: while an
+/// explicit `CREATE [UNIQUE] INDEX` fills the index it is building, and for a
+/// `REINDEX` command, once per index it rebuilds -- bare, with no second
+/// argument, so the callback names the index but never the table.
+///
+/// That is why this classifies the STATEMENT instead of comparing a target
+/// name against the reserved prefix. Reading a name out of the text was the
+/// obvious first design and it was wrong twice: `REINDEX /*--*/ _dg_replay`
+/// got through a scanner that took a `--` inside a block comment for the
+/// start of a line comment and swallowed the target with it, and
+/// `EXPLAIN REINDEX _dg_replay` got through because the command was not in
+/// front. A positive allowlist cannot fail that way: this answers a question
+/// about the shape of the statement, and every spelling it does not
+/// recognise ends in a refusal, not an allowance.
+///
+/// The two shapes it recognises are the two the gateway offers -- creating
+/// an index, and a bare `REINDEX` that sweeps every index in the file (the
+/// gateway's own implicit index included, which is how SQLite reports it
+/// and is harmless: a rebuild reads nothing back and changes no schema). A
+/// `REINDEX` that names an object is not offered, exactly as before this
+/// change, and neither is `EXPLAIN` of either.
+fn may_reindex(sql: &str) -> bool {
+    let stripped = strip_comments(sql);
+    let sql = stripped.trim();
+    let (first, rest) = split_keyword(sql);
+    if first.eq_ignore_ascii_case("reindex") {
+        // A bare `REINDEX` names nothing; anything else names an object.
+        let rest = rest.trim();
+        return rest.is_empty() || rest == ";";
+    }
+    if !first.eq_ignore_ascii_case("create") {
+        return false;
+    }
+    let (second, rest) = split_keyword(rest.trim_start());
+    if second.eq_ignore_ascii_case("index") {
         return true;
     }
-    let lower = name.to_ascii_lowercase();
-    let Some(rest) = lower.strip_prefix("sqlite_autoindex_") else {
-        return false;
-    };
-    protected(rest)
-}
-
-/// The object a `REINDEX` statement names, or `None` when it names none.
-///
-/// This exists because the authorizer cannot answer the question: SQLite
-/// reports a rebuild as `Reindex { index_name }` with no table, and for an
-/// implicit index that name is `sqlite_autoindex_<table>_<n>`. A bare
-/// `REINDEX` sweeps every index in the file, so it necessarily sweeps the
-/// gateway's own; a targeted one must be screened by the name the user
-/// wrote. `REINDEX` is a top-level command and cannot appear anywhere else
-/// in SQL, so the token after the keyword is the whole target.
-///
-/// `EXPLAIN` is peeled off first: it compiles the statement without running
-/// it and hands back the bytecode, which names the index it would have
-/// rebuilt, so the statement behind it is the statement to screen.
-fn reindex_target(sql: &str) -> Option<&str> {
-    let mut rest = skip_leading_comments(sql).trim_start();
-    for _ in 0..3 {
-        let (keyword, after) = split_keyword(rest);
-        if !matches!(
-            keyword.to_ascii_lowercase().as_str(),
-            "explain" | "query" | "plan"
-        ) {
-            break;
-        }
-        rest = skip_leading_comments(after).trim_start();
-    }
-    let (keyword, after) = split_keyword(rest);
-    if !keyword.eq_ignore_ascii_case("reindex") {
-        return None;
-    }
-    let target = skip_leading_comments(after).trim_start();
-    if target.is_empty() || target.starts_with(';') {
-        return None;
-    }
-    Some(target)
-}
-
-/// Skip the comments at the front of `sql`, keeping the rest a slice.
-fn skip_leading_comments(mut sql: &str) -> &str {
-    loop {
-        let trimmed = sql.trim_start();
-        if let Some(rest) = trimmed.strip_prefix("--") {
-            sql = rest.split_once('\n').map(|(_, after)| after).unwrap_or("");
-            continue;
-        }
-        if let Some(rest) = trimmed.strip_prefix("/*") {
-            sql = rest.split_once("*/").map(|(_, after)| after).unwrap_or("");
-            continue;
-        }
-        return trimmed;
-    }
+    second.eq_ignore_ascii_case("unique")
+        && split_keyword(rest.trim_start())
+            .0
+            .eq_ignore_ascii_case("index")
 }
 
 /// The leading bare word of `sql`, and what follows it.
@@ -442,26 +423,25 @@ fn split_keyword(sql: &str) -> (&str, &str) {
     (&sql[..end], &sql[end..])
 }
 
-/// Drop every comment, not just the leading one: SQLite treats a comment as
-/// whitespace, so `REINDEX /*x*/ _dg_replay` is the same statement as
-/// `REINDEX _dg_replay` and `main . _dg_replay` is the same target as
-/// `main._dg_replay`. A screen that reads the text has to see what SQLite
-/// sees.
+/// Replace every comment with a single space.
+///
+/// SQLite treats a comment as whitespace, and a space keeps the tokens on
+/// either side separate -- removing the comment outright would turn
+/// `CREATE/*x*/INDEX` into `CREATEINDEX` and make a legitimate statement
+/// unrecognisable. A `--` inside `/* ... */` is part of the block comment,
+/// not the start of a line comment, so the scan dispatches on the earliest
+/// marker and consumes the whole construct it opens.
 fn strip_comments(sql: &str) -> String {
     let bytes = sql.as_bytes();
     let mut out = String::with_capacity(sql.len());
     let mut index = 0;
     while index < bytes.len() {
-        // The earliest marker wins, and the whole construct it opens is
-        // consumed -- a `--` inside `/* ... */` is part of the block
-        // comment, not the start of a line comment, and reading it the
-        // other way round would silently drop the rest of the statement,
-        // which is exactly what a name screen must not do.
         if bytes[index..].starts_with(b"--") {
             index += 2;
             while index < bytes.len() && bytes[index] != b'\n' {
                 index += 1;
             }
+            out.push(' ');
             continue;
         }
         if bytes[index..].starts_with(b"/*") {
@@ -470,10 +450,11 @@ fn strip_comments(sql: &str) -> String {
                 index += 1;
             }
             index = (index + 2).min(bytes.len());
+            out.push(' ');
             continue;
         }
-        // Every marker above is ASCII, so a byte that is not one of them
-        // sits on a character boundary and can be copied whole.
+        // Every marker above is ASCII, so a byte that is not one of them sits
+        // on a character boundary and can be copied whole.
         let ch = sql[index..].chars().next().unwrap_or('\0');
         out.push(ch);
         index += ch.len_utf8();
@@ -481,27 +462,7 @@ fn strip_comments(sql: &str) -> String {
     out
 }
 
-/// Does this `REINDEX` target name something the gateway reserves?
-///
-/// Deliberately generous: quotes and a `schema.` qualifier are stripped
-/// and every dot-separated segment is screened, so a name that is only
-/// reserved in part is still refused. Over-refusing a `REINDEX` target is
-/// a cheap mistake; under-refusing rebuilds the wrong table.
-fn reindex_names_reserved(target: &str) -> bool {
-    let cleaned = strip_comments(target);
-    // Whitespace is insignificant between the parts of an object reference,
-    // so `main . _dg_replay` is screened as `main._dg_replay`.
-    let compact: String = cleaned
-        .chars()
-        .filter(|c| !c.is_whitespace() && *c != ';')
-        .collect();
-    let unquoted: String = compact
-        .chars()
-        .filter(|c| !matches!(c, '"' | '\'' | '`' | '[' | ']'))
-        .collect();
-    unquoted.split('.').any(reserved)
-}
-fn authorize(ctx: AuthContext<'_>, read_only: bool) -> Authorization {
+fn authorize(ctx: AuthContext<'_>, read_only: bool, may_reindex: bool) -> Authorization {
     use AuthAction::*;
     let allowed = match ctx.action {
         Read { table_name, .. } => !protected(table_name),
@@ -531,21 +492,11 @@ fn authorize(ctx: AuthContext<'_>, read_only: bool) -> Authorization {
         // refused to create an index while happily dropping one -- the
         // `CreateIndex` arm above was unreachable and the refusal was an
         // accident of the allow list, not a policy. Allowing it here grants
-        // exactly `CREATE [UNIQUE] INDEX`, `DROP INDEX` and `REINDEX` to a
-        // write credential.
-        //
-        // The callback carries only an index name and no table, so this arm
-        // cannot be the whole guard: for an implicit index the name is
-        // `sqlite_autoindex_<table>_<n>`, which does not begin with the
-        // table's own name. `run_statement` therefore screens a REINDEX that
-        // *names* an object before the statement is even prepared, where the
-        // name the user wrote is still visible; this arm keeps the reserved
-        // `_dg_` names out as well, because an index can also be named
-        // directly. A bare `REINDEX` has no name to screen and necessarily
-        // sweeps the gateway's own implicit index -- that is allowed and
-        // harmless: it rebuilds an index from its own table's rows, exposes
-        // no row, and changes no schema.
-        Reindex { index_name } => !read_only && !protected(index_name),
+        // exactly `CREATE [UNIQUE] INDEX` and a bare `REINDEX` to a write
+        // credential; `may_reindex` is what decides whether the statement
+        // being prepared is one of those two, because the callback itself
+        // carries only an index name and no table.
+        Reindex { index_name } => may_reindex && !read_only && !protected(index_name),
         // No user transactions, attachment, PRAGMAs, virtual tables, triggers,
         // views, temp objects or ALTER in M1. Unknown actions fail closed.
         _ => false,
@@ -571,10 +522,10 @@ fn run_statement(
         .map(json_to_sql)
         .collect::<std::result::Result<Vec<_>, _>>()
         .map_err(|_| Error::invalid())?;
-    if reindex_target(&statement.sql).is_some_and(reindex_names_reserved) {
-        return Err(Error::new(403, "sql_forbidden", "reserved object name"));
-    }
-    conn.authorizer(Some(move |ctx: AuthContext<'_>| authorize(ctx, read_only)))?;
+    let may_reindex = may_reindex(&statement.sql);
+    conn.authorizer(Some(move |ctx: AuthContext<'_>| {
+        authorize(ctx, read_only, may_reindex)
+    }))?;
     let result = (|| {
         let mut stmt = conn.prepare(&statement.sql)?;
         // prepare rejects stacked statements (rusqlite Error::MultipleStatement
