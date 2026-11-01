@@ -36,6 +36,57 @@ pub const MAX_BATCH_STATEMENTS: usize = 32;
 /// How many bytes a batch file may hold.
 pub const MAX_BATCH_FILE_BYTES: usize = 64 * 1024;
 
+/// How many bytes a SQL script may hold.
+///
+/// A script is sent as ONE atomic batch, so it cannot be bigger than the
+/// request body the API accepts. A script past that cannot be sent at
+/// all, so the CLI refuses it before reading it rather than after
+/// materialising it.
+pub const MAX_SCRIPT_FILE_BYTES: usize = 8 * 1024 * 1024;
+
+/// Read a text file under a ceiling: a regular file, at most `max`
+/// bytes.
+///
+/// The rules belong to the file, not to the caller: a FIFO, a device or
+/// a directory is refused rather than read -- a FIFO with no writer
+/// would block the caller forever -- and the ceiling is enforced on the
+/// bytes that arrive rather than on what the path claims.
+pub fn read_text_file_limited(path: &Path, max: usize) -> Result<String> {
+    use std::fs::OpenOptions;
+    use std::io::Read;
+    // Open once with O_NONBLOCK so a writer-less FIFO cannot make the
+    // caller hang before the descriptor is checked. The metadata check
+    // is on that same descriptor, so a path replacement cannot turn
+    // this into a read of a different file.
+    #[cfg(unix)]
+    let file = {
+        use std::os::unix::fs::OpenOptionsExt;
+        OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(path)
+    };
+    #[cfg(not(unix))]
+    let file = OpenOptions::new().read(true).open(path);
+    let mut file = file.map_err(|_| Error::invalid())?;
+    if !file.metadata().map_err(|_| Error::invalid())?.is_file() {
+        return Err(Error::invalid());
+    }
+    let mut bytes = Vec::new();
+    Read::by_ref(&mut file)
+        .take(max as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| Error::invalid())?;
+    if bytes.len() > max {
+        return Err(Error::new(
+            413,
+            "input_limit_exceeded",
+            "the file is larger than the ceiling",
+        ));
+    }
+    String::from_utf8(bytes).map_err(|_| Error::invalid())
+}
+
 /// Read a batch file: a regular file, at most 64 KiB, holding the
 /// API's own batch shape.
 ///
