@@ -385,7 +385,7 @@ Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1
 | `internal_error` | 500 | The server could not complete the request for an internal reason (an unreadable snapshot file, a failed write); the server log names it |
 | `snapshot_not_found` | 404 | Snapshot unknown, expired, or created by another principal |
 | `upload_not_found` | 404 | Upload unknown or expired |
-| `upload_out_of_sync` | 409 | The upload file's length disagrees with the offset the server acknowledged — an append or a commit found a file it did not assemble; restart the upload |
+| `upload_out_of_sync` | 409 | The upload file holds fewer bytes than the server acknowledged — acknowledged data is gone, so the upload cannot be resumed or committed; restart it |
 | `invalid_request` | 400 | Malformed JSON, unknown fields, bad name, unsupported arg, empty batch, more than 32 batch statements, SQL text over 64 KiB, more than 256 args, or malformed idempotency key |
 | `invalid_request` | 413 | JSON body over the 64 KiB general cap; import requests have a 12 MiB encoded transport envelope, while decoded import data is capped at 8 MiB |
 | `invalid_sql` | 400 | Syntax error, wrong parameter count, unknown table/column |
