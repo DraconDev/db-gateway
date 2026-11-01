@@ -400,13 +400,31 @@ function isStatusResponse(v: unknown): v is StatusResponse {
     isNonNegativeInt(requests.capacity_exceeded) && isNonNegativeInt(requests.query_deadline_exceeded) &&
     isNonNegativeInt(requests.internal_error);
 }
+/// Whether a host is a literal loopback address. The CLI and the Rust
+/// client accept any literal loopback IP (`IpAddr::is_loopback`), so the
+/// answer here is the same rule and not a shorter list of literals: a
+/// name is not an origin rule, and `127.0.0.2` is as local as
+/// `127.0.0.1`. The URL parser keeps an IPv6 literal in brackets.
+function isLoopbackHost(hostname: string): boolean {
+  const bare = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
+  if (bare.includes(':')) {
+    // The only IPv6 loopback address is ::1.
+    return bare === '::1';
+  }
+  const parts = bare.split('.');
+  if (parts.length !== 4) return false;
+  const octets = parts.map((part) => (/^\d{1,3}$/.test(part) ? Number(part) : Number.NaN));
+  if (octets.some((octet) => Number.isNaN(octet) || octet > 255)) return false;
+  // 127.0.0.0/8 is the IPv4 loopback block.
+  return octets[0] === 127;
+}
 export class Gateway {
   private readonly origin: string;
   private readonly readTimeoutMs: number;
   private readonly writeTimeoutMs: number;
   constructor(server: string, private readonly credential: string, options: GatewayOptions = {}) {
     const url = new URL(server);
-    if (!(url.protocol === 'https:' || (url.protocol === 'http:' && (url.hostname === '127.0.0.1' || url.hostname === '[::1]'))) || url.username || url.password || url.search || url.hash || url.pathname !== '/') {
+    if (!(url.protocol === 'https:' || (url.protocol === 'http:' && isLoopbackHost(url.hostname))) || url.username || url.password || url.search || url.hash || url.pathname !== '/') {
       throw new Error('Use HTTPS or literal loopback HTTP origin');
     }
     this.origin = url.origin;
@@ -428,15 +446,34 @@ export class Gateway {
     // Collapsing the two told the operator a write may have committed even
     // for a failed list/status call -- and, in the other direction, turned
     // a read-only query into "outcome unknown" it could never have caused.
-    const mayWrite = (options.semantics ?? (method === 'GET' ? 'read' : 'write')) === 'write';
+    //
+    // The transfer phase is the third state: it moves bytes and commits
+    // nothing, so a severed transfer is an interrupted transfer, not a
+    // possibly-committed write. The CLI and the Rust client say the same
+    // thing in the same words.
+    const semantics = options.semantics ?? (method === 'GET' ? 'read' : 'write');
+    const mayWrite = semantics === 'write';
     // A read that is given up on costs a retry and nothing else, so it gives
     // up quickly. A write is not the same: giving up on one leaves the
     // outcome in doubt, and the answer is what removes the doubt -- so a
-    // write waits far longer. The CLI and the Rust client follow the same
-    // rule, and the three encode one transport contract.
-    const timeoutMs = options.timeoutMs ?? (mayWrite ? this.writeTimeoutMs : this.readTimeoutMs);
+    // write waits far longer. A transfer moves bytes (up to 128 MiB) and
+    // commits nothing, so it gets the long budget but the read's remedy.
+    // The CLI and the Rust client follow the same rule, and the three
+    // encode one transport contract.
+    const timeoutMs = options.timeoutMs ?? (semantics === 'read' ? this.readTimeoutMs : this.writeTimeoutMs);
     const readFailure = (detail: string) => new GatewayError('transport_unavailable', `${detail} The gateway is unavailable through the configured origin.`, 503);
+    const transferFailure = (detail: string) => new GatewayError('transport_unavailable', `${detail} The transfer was interrupted; begin the transfer again.`, 503);
     const writeInDoubt = (detail: string) => new GatewayError('outcome_unknown', `${detail} A write may have committed. Replay with the same key/body within retention; never blindly retry an unkeyed write.`);
+    // A transport failure: the request did not get an answer. A read and a
+    // transfer committed nothing, so both are recoverable by trying again;
+    // only a write leaves the outcome in doubt.
+    const transportFailed = (detail: string) =>
+      mayWrite ? writeInDoubt(detail) : (semantics === 'transfer' ? transferFailure(detail) : readFailure(detail));
+    // A response that arrived and is not what it should be. The transfer
+    // phase committed nothing either, so it gets the malformed-response
+    // verdict rather than the in-doubt one.
+    const malformed = (detail: string) =>
+      mayWrite ? writeInDoubt(detail) : new GatewayError('invalid_gateway_response', `${detail}.`, 502);
     // Whether a failure was the clock running out rather than the response
     // being wrong. A timeout means the gateway is unavailable -- and for a
     // read that is a retry, never ``invalid_gateway_response``, because the
@@ -444,12 +481,14 @@ export class Gateway {
     // either name depending on where it fires, so both are matched.
     const timedOut = (error: unknown): boolean =>
       error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
+    const timeoutDetail = () => semantics === 'transfer'
+      ? 'The request was not answered before the transfer timeout.'
+      : 'The request was not answered before the read timeout.';
     let response: Response;
     try {
       response = await fetch(this.origin + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
     } catch (error) {
-      if (!mayWrite) throw readFailure(timedOut(error) ? 'The request was not answered before the read timeout.' : 'The request could not be sent.');
-      throw writeInDoubt('Transport failed.');
+      throw transportFailed(timedOut(error) ? timeoutDetail() : 'The request could not be sent.');
     }
     let bytes: Uint8Array;
     try {
@@ -477,26 +516,24 @@ export class Gateway {
       // which is a different (and wrong) diagnosis. A genuinely truncated or
       // malformed response keeps its own mapping below.
       if (timedOut(error)) {
-        if (!mayWrite) throw readFailure('The response was not received before the read timeout.');
-        throw writeInDoubt('The response was interrupted by the write timeout.');
+        throw transportFailed(semantics === 'transfer'
+          ? 'The response was not received before the transfer timeout.'
+          : 'The response was not received before the read timeout.');
       }
       const detail = error instanceof Error && error.message === 'Response limit' ? 'The gateway response exceeded the configured limit' : 'The gateway response was interrupted';
-      if (!mayWrite) throw new GatewayError('invalid_gateway_response', `${detail}.`, 502);
-      throw writeInDoubt(`${detail}.`);
+      throw malformed(`${detail}.`);
     }
     let raw: unknown;
     try {
       raw = JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(bytes));
     } catch {
-      if (!mayWrite) throw new GatewayError('invalid_gateway_response', 'Gateway returned invalid JSON.', 502);
-      throw writeInDoubt('The gateway returned an unreadable response.');
+      throw malformed('Gateway returned invalid JSON');
     }
     if (!response.ok) {
       if (object(raw) && object(raw.error) && typeof raw.error.code === 'string' && typeof raw.error.message === 'string') {
         throw new GatewayError(raw.error.code, raw.error.message, response.status);
       }
-      if (!mayWrite) throw new GatewayError('invalid_gateway_response', 'Gateway returned a malformed error response.', 502);
-      throw writeInDoubt('The gateway returned an unreadable error response.');
+      throw malformed('The gateway returned an unreadable error response');
     }
     return raw;
   }
@@ -576,13 +613,13 @@ export class Gateway {
   async importChunked(name: string, data: Uint8Array): Promise<{ imported: string }> {
     assertName(name);
     if (!(data instanceof Uint8Array) || data.length > MAX_TRANSFER_BYTES) throw new Error('Import data exceeds the 128 MiB transfer bound');
-    const begin = await this.request(`/v1/databases/${name}/import/begin`, 'POST', {});
+    const begin = await this.request(`/v1/databases/${name}/import/begin`, 'POST', {}, { semantics: 'transfer' });
     if (!object(begin) || !isHex64(begin.upload)) throw new GatewayError('outcome_unknown','Malformed upload begin response');
     const upload = begin.upload;
     try {
       for (let offset = 0; offset < data.length; offset += CHUNK_BYTES) {
         const part = data.subarray(offset, offset + CHUNK_BYTES);
-        const ack = await this.request(`/v1/uploads/${upload}/chunk`, 'POST', { offset, data_base64: bytesToBase64(part) });
+        const ack = await this.request(`/v1/uploads/${upload}/chunk`, 'POST', { offset, data_base64: bytesToBase64(part) }, { semantics: 'transfer' });
         if (!object(ack) || ack.received !== offset + part.length) {
           throw new GatewayError('outcome_unknown','Upload acknowledgement mismatch');
         }
@@ -591,7 +628,7 @@ export class Gateway {
       if (!object(done) || done.imported !== name) throw new GatewayError('outcome_unknown','Malformed commit response');
       return { imported: name };
     } catch (error) {
-      try { await this.request(`/v1/uploads/${upload}`, 'DELETE'); } catch { /* best-effort slot release */ }
+      try { await this.request(`/v1/uploads/${upload}`, 'DELETE', undefined, { semantics: 'transfer' }); } catch { /* best-effort slot release */ }
       throw error;
     }
   }
@@ -636,7 +673,7 @@ export class Database {
   }
   async exportSnapshot(): Promise<SnapshotData & { database: string }> {
     const result = await this.gateway.request(
-      `/v1/databases/${this.name}/export`, 'POST', {}, { maxResponseBytes: 12 * 1024 * 1024 });
+      `/v1/databases/${this.name}/export`, 'POST', {}, { maxResponseBytes: 12 * 1024 * 1024, semantics: 'transfer' });
     if (!object(result) || result.database !== this.name || !isHex64(result.sha256) ||
         !isTransferSize(result.size) || typeof result.data_base64 !== 'string') {
       throw new GatewayError('outcome_unknown','Malformed export response');
@@ -648,7 +685,7 @@ export class Database {
     return { database: this.name, size: result.size, sha256: result.sha256, data };
   }
   async exportChunked(): Promise<SnapshotData> {
-    const begin = await this.gateway.request(`/v1/databases/${this.name}/export/begin`, 'POST', {});
+    const begin = await this.gateway.request(`/v1/databases/${this.name}/export/begin`, 'POST', {}, { semantics: 'transfer' });
     if (!object(begin) || !isHex64(begin.snapshot)) {
       throw new GatewayError('outcome_unknown','Malformed export begin response');
     }
@@ -686,7 +723,7 @@ export class Database {
       // A completed transfer still occupies one of the server's eight slots;
       // release it on every path so normal client use cannot self-throttle.
       try {
-        await this.gateway.request(`/v1/snapshots/${snapshot}`, 'DELETE');
+        await this.gateway.request(`/v1/snapshots/${snapshot}`, 'DELETE', undefined, { semantics: 'transfer' });
       } catch {
         // Preserve the export result/error; the server TTL remains the fallback.
       }
