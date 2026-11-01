@@ -86,11 +86,6 @@ TABLES = {
             revaluation_timestamp_utc TEXT, currency_iso_code TEXT,
             discontinued_flag INTEGER, notes_from_the_merchandising_team TEXT,
             extract_generated_at_utc TEXT NOT NULL)""",
-        "CREATE INDEX IF NOT EXISTS products_by_sku ON products(sku)",
-        "CREATE INDEX IF NOT EXISTS stock_moves_by_product "
-        "ON stock_moves(product_id)",
-        "CREATE INDEX IF NOT EXISTS product_prices_by_valid_from "
-        "ON product_prices(valid_from)",
     ],
     "orders": [
         """CREATE TABLE IF NOT EXISTS customers
@@ -117,8 +112,6 @@ TABLES = {
         """CREATE TABLE IF NOT EXISTS order_notes
            (id INTEGER PRIMARY KEY, order_id INTEGER NOT NULL REFERENCES orders(id),
             body TEXT NOT NULL, author TEXT NOT NULL, created_at TEXT NOT NULL)""",
-        "CREATE INDEX IF NOT EXISTS orders_by_customer ON orders(customer_id)",
-        "CREATE INDEX IF NOT EXISTS order_items_by_order ON order_items(order_id)",
     ],
     "ledger": [
         """CREATE TABLE IF NOT EXISTS accounts
@@ -139,7 +132,6 @@ TABLES = {
            (id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id),
             period TEXT NOT NULL, expected_cents INTEGER NOT NULL,
             actual_cents INTEGER NOT NULL, closed_at TEXT)""",
-        "CREATE INDEX IF NOT EXISTS entries_by_account ON entries(account_id)",
     ],
     "sessions": [
         """CREATE TABLE IF NOT EXISTS sessions
