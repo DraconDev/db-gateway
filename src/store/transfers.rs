@@ -571,7 +571,7 @@ impl Store {
             let _ = std::fs::OpenOptions::new()
                 .write(true)
                 .open(&file_path)
-                .and_then(|mut f| f.set_len(prior));
+                .and_then(|f| f.set_len(prior));
             return Err(upload_missing());
         }
         *received += bytes.len() as u64;
