@@ -72,6 +72,7 @@ fn the_action_that_triggers_the_rollover_is_written_once() {
     log.record(the_rollover_entry(marker));
 
     let text = std::fs::read_to_string(&path).unwrap();
+    println!("DEBUG file bytes={} lines={} marker={}", text.len(), text.lines().count(), text.matches(marker).count());
     let occurrences = text.matches(marker).count();
     assert_eq!(
         occurrences, 1,
