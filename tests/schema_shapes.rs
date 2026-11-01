@@ -283,12 +283,24 @@ fn twenty_shapes_survive_restart_exactly() {
             "{sql} does not name its column: {body}"
         );
     }
-    // The unique index is enforced, not decorative.
-    let (status, body) = query(&server, "shapes", "INSERT INTO t01(x) VALUES (1.5)");
+    // The unique index is enforced, not decorative. The check runs on a
+    // scratch table so the 5000-row accounting below is untouched.
+    for sql in [
+        "CREATE TABLE t_uniq(x REAL)",
+        "CREATE UNIQUE INDEX u_t_uniq ON t_uniq(x)",
+    ] {
+        let (status, body) = query(&server, "shapes", sql);
+        assert_eq!(status, 200, "{sql}: {body}");
+    }
+    let (status, body) = query(&server, "shapes", "INSERT INTO t_uniq(x) VALUES (1.5)");
     assert_eq!(status, 200, "first unique insert: {body}");
-    let (status, body) = query(&server, "shapes", "INSERT INTO t01(x) VALUES (1.5)");
+    let (status, body) = query(&server, "shapes", "INSERT INTO t_uniq(x) VALUES (1.5)");
     assert_eq!(status, 400, "a duplicate unique value was accepted: {body}");
     assert_eq!(body["error"]["code"], "invalid_sql");
+    for sql in ["DROP INDEX u_t_uniq", "DROP TABLE t_uniq"] {
+        let (status, body) = query(&server, "shapes", sql);
+        assert_eq!(status, 200, "{sql}: {body}");
+    }
     // Dropping and reindexing are the other two halves of the surface.
     for sql in ["DROP INDEX idx_t00_a", "DROP INDEX uidx_t01_x", "REINDEX"] {
         let (status, body) = query(&server, "shapes", sql);
