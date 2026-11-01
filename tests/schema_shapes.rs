@@ -252,13 +252,15 @@ fn twenty_shapes_survive_restart_exactly() {
     // whole statement — while `DROP INDEX`, whose actions were all listed,
     // already worked. Proving the positive case keeps the pair honest:
     // create it, find it, enforce it, drop it.
-    for (sql, table, index, unique) in [
-        ("CREATE INDEX idx_t00_a ON t00(a)", "t00", "idx_t00_a", "0"),
+    // `pragma_index_list` is not readable through the query path (a PRAGMA
+    // is a refused action), so the index is found where SQLite records it:
+    // sqlite_master, whose `sql` column carries the UNIQUE keyword.
+    for (sql, index, unique) in [
+        ("CREATE INDEX idx_t00_a ON t00(a)", "idx_t00_a", false),
         (
             "CREATE UNIQUE INDEX uidx_t01_x ON t01(x)",
-            "t01",
             "uidx_t01_x",
-            "1",
+            true,
         ),
     ] {
         let (status, body) = query(&server, "shapes", sql);
@@ -266,15 +268,20 @@ fn twenty_shapes_survive_restart_exactly() {
         let (status, body) = query(
             &server,
             "shapes",
-            &format!(
-                "SELECT \"unique\", (SELECT count(*) FROM pragma_index_info('{index}')) \
-                 FROM pragma_index_list('{table}') WHERE name = '{index}'"
-            ),
+            &format!("SELECT type, upper(sql) FROM sqlite_master WHERE name = '{index}'"),
         );
-        assert_eq!(status, 200, "index list: {body}");
-        let row = body["rows"][0].as_array().unwrap();
-        assert_eq!(row[0], unique, "{sql} uniqueness: {body}");
-        assert_eq!(row[1], 1, "{sql} covers no column: {body}");
+        assert_eq!(status, 200, "index lookup: {body}");
+        assert_eq!(body["rows"][0][0], "index", "{sql} not registered: {body}");
+        let definition = body["rows"][0][1].as_str().unwrap();
+        assert_eq!(
+            definition.contains("UNIQUE"),
+            unique,
+            "{sql} uniqueness: {body}"
+        );
+        assert!(
+            definition.contains("(A)") || definition.contains("(X)"),
+            "{sql} does not name its column: {body}"
+        );
     }
     // The unique index is enforced, not decorative.
     let (status, body) = query(&server, "shapes", "INSERT INTO t01(x) VALUES (1.5)");
