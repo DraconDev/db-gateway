@@ -19,7 +19,8 @@ fn post(port: u16, key: &str, path: &str, body: &[u8]) -> (u16, String) {
     (status.parse().unwrap_or(0), out)
 }
 
-fn main() {
+#[test]
+fn the_documented_body_cap_is_applied_on_every_route() {
     let dir = std::env::temp_dir().join(format!("dg-bl-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let keyfile: PathBuf = dir.join("owner.key");
