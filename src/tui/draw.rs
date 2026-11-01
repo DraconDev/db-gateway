@@ -1670,9 +1670,16 @@ fn status_line(frame: &mut Frame, area: Rect, app: &App) {
         // what is left -- and the cut says so. A message that runs off
         // the edge without saying it is a message half-read.
         let room = (area.width as usize).saturating_sub(used);
+        // The cut is measured in CELLS, not characters. `error.width()` is
+        // a cell count, and the message is the gateway's own text -- a
+        // SQLite error quotes the offending identifier, and a message
+        // with wide characters is twice as wide as it is long. Cutting it
+        // by characters produced text wider than the room, so the '…'
+        // landed past the right edge and was clipped: the message ran off
+        // the edge with nothing saying it had. `fit_cell` cuts on cells
+        // and leaves the mark.
         let text = if error.width() > room {
-            let cut: String = error.chars().take(room.saturating_sub(1)).collect();
-            format!("{cut}…")
+            fit_cell(error, room)
         } else {
             error.clone()
         };
