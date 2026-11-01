@@ -744,26 +744,14 @@ impl Store {
             *received
         };
         // The file must hold exactly the acknowledged bytes. A file that is
-        // longer or shorter than the acknowledged offset is not the upload
-        // the client assembled, and importing it would publish something
-        // the client never sent.
-        let length = std::fs::metadata(&file)
-            .map(|metadata| metadata.len())
-            .unwrap_or(0);
-        if length != received {
-            tracing::warn!(
-                upload = id,
-                on_disk = length,
-                acknowledged = received,
-                "the upload file and its acknowledged offset disagree"
-            );
+        // longer is the repairable case (unacknowledged bytes from a partial
+        // write) and is trimmed back under the operation lock; a file that is
+        // shorter cannot be repaired and must not be published, because the
+        // import would be missing chunks the client was told were received.
+        if let Err(error) = repair_or_refuse(&file, received, id) {
             let mut transfers = self.transfers.lock().map_err(|_| Error::internal())?;
             self.restore_open_after_failed_commit(id, &mut transfers);
-            return Err(Error::new(
-                409,
-                "upload_out_of_sync",
-                "the upload file does not match its acknowledged length",
-            ));
+            return Err(error);
         }
 
         let result = self.import_from(name, &file);
