@@ -163,6 +163,26 @@ fn the_table_list_shows_the_row_count() {
         list_line.contains("60"),
         "the row count is not visible in the table list: {list_line:?}\n{text}"
     );
+
+    // A name too long for the pane keeps its mark: the cut says it was
+    // cut instead of looking like a shorter name.
+    let mut long = page();
+    if let Some(page) = long.as_mut() {
+        page.tables[0].name = "a_very_long_table_name_that_cannot_fit_in_the_list_pane".to_string();
+    }
+    let mut app = app();
+    app.page = long;
+    app.browser = Some(browser.clone());
+    app.outcome = Some(dg::tui::browser_outcome(&browser, &values));
+    let text = screen(&mut app, 130, 45);
+    let line = text
+        .lines()
+        .find(|line| line.contains("a_very_long"))
+        .unwrap_or_else(|| panic!("the long-named row is not drawn:\n{text}"));
+    assert!(
+        line.contains('…'),
+        "a cut table name lost its mark: {line:?}\n{text}"
+    );
 }
 
 fn the_page_is_drawn_with_the_list_and_the_values() {
