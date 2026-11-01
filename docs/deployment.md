@@ -65,13 +65,21 @@ placeholders for future/repeated deployments.
    (`dg tui`) runs on the operator machine and reaches the gateway over
    an SSH tunnel, so nothing but the binary is needed on the host.
 4. Create the data directory, owned by the service user, mode `0700`.
-5. Run `dg init --data-dir <dir>` once as the service user. It prints
+5. Create the backup root, owned by the service user, mode `0700`.
+   This one is not optional: `dg.service` carries the backup root in
+   `ReadWritePaths=` and both backup units run with
+   `WorkingDirectory={{DG_BACKUP_ROOT}}`, so systemd refuses to start the
+   unit when the directory is missing — before the producer's own
+   `mkdir -p` ever runs. The same shape is spelled out for the restore
+   root in `scripts/restore-point.sh` ("an administrator must run:
+   install -d -m 0700 -o dg -g dg $RESTORE_ROOT").
+6. Run `dg init --data-dir <dir>` once as the service user. It prints
    JSON (`{"owner_key":"…"}`): extract the raw 64-hex value into the
    `0600` file (e.g. `umask 077; dg init … | python3 -c 'import json,sys;
    print(json.load(sys.stdin)["owner_key"])' > owner.key; chmod 600 owner.key`).
    Verify the mode with `stat -c '%a %U:%G' owner.key` before use. The CLI
    rejects anything but exactly 64 hex characters client-side.
-6. Copy the template to `/etc/systemd/system/dg.service` with placeholders
+7. Copy the template to `/etc/systemd/system/dg.service` with placeholders
    substituted, `systemctl daemon-reload`, then enable/start explicitly.
 
 ## Placeholder values
@@ -82,7 +90,7 @@ placeholders for future/repeated deployments.
 | `{{DG_BINARY}}` | Absolute path of the `dg` executable | **Unresolved** — target layout decision (e.g. `/usr/local/bin/dg`) |
 | `{{DG_DATA_DIR}}` | Persistent data directory | **Unresolved** — target layout decision (e.g. `/var/lib/dg`) |
 | `{{DG_LISTEN}}` | Listen address; must stay loopback | Default `127.0.0.1:7432`; any change must remain a loopback address or `dg serve` refuses to start |
-| `{{DG_BACKUP_ROOT}}` | Versioned backup-set root the hourly producer publishes into (also `dg-backup.service`/`dg-backup-digest.service` `WorkingDirectory=`) | **Unresolved** — target layout decision (e.g. `/var/lib/dg-backups`) |
+| `{{DG_BACKUP_ROOT}}` | Versioned backup-set root the hourly producer publishes into (also `dg-backup.service`/`dg-backup-digest.service` `WorkingDirectory=`) — must exist before the units start: mode `0700`, owned by the service user | **Unresolved** — target layout decision (e.g. `/var/lib/dg-backups`) |
 | `{{DG_BACKUP_SCRIPT}}` | Absolute path of the installed hourly backup producer (`scripts/micro2-backup.sh` on the reference host) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/micro2-backup.sh`) |
 | `{{DG_RESTORE_DRILL_SCRIPT}}` | Absolute path of the installed weekly bucket restore drill (`scripts/bucket-restore-drill.sh`) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/bucket-restore-drill.sh`) |
 | `{{DG_RESTORE_POINT_SCRIPT}}` | Absolute path of the installed restore-point tool (`scripts/restore-point.sh`), which publishes the window of moments the off-host replica can be restored to (`dg-restore-points.service`) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/restore-point.sh`) |
@@ -196,8 +204,16 @@ failure (`docs/observability-contract.md` §3a-0).
 ## Unresolved target-host values
 
 Beyond the placeholder table: the service username, binary/data paths, log
-retention for the JSON stderr stream, and the backup sidecar unit
-(Litestream — see `docs/backup-compatibility.md`; no unit is provided here).
+retention for the JSON stderr stream, and the backup sidecar unit.
+The sidecar units ARE provided — they are templates in `deploy/`, in the
+same style as the gateway's own: `deploy/dg-litestream.service` (the
+replication sidecar, with its measured `MemoryMax=96M` and its credential
+file `/etc/dg/litestream.env`), and `deploy/dg-litestream-sync.service`
+with `deploy/dg-litestream-sync.timer` (the five-minute re-render that
+keeps a newly created database in the replication config). Install them
+the same way as the backup units — substitute the placeholders, install
+under `/etc/systemd/system/`, `daemon-reload`, enable the timer — and
+see `docs/backup-compatibility.md` for what the sidecar does.
 
 `MemoryMax=` is **set** as of 2026-10-10, revised to the on-host value 2026-10-16 (`deploy/dg.service`: `MemoryMax=64M`, matching the micro2 enforcement of 67108864 recorded in `docs/evidence/m4-micro2-sampling-2026-10-16.log`).
 The value is ~2.7x the SQLite per-connection cache ceiling (12 connections x
