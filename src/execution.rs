@@ -421,6 +421,29 @@ fn strip_leading_comments(mut sql: &str) -> &str {
     }
 }
 
+/// Drop every comment, not just the leading one: SQLite treats a comment as
+/// whitespace, so `REINDEX /*x*/ _dg_replay` is the same statement as
+/// `REINDEX _dg_replay` and `main . _dg_replay` is the same target as
+/// `main._dg_replay`. A screen that reads the text has to see what SQLite
+/// sees.
+fn strip_comments(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len());
+    let mut rest = sql;
+    while let Some(index) = rest.find("--").or_else(|| rest.find("/*")) {
+        let is_line = rest[index..].starts_with("--");
+        out.push_str(&rest[..index]);
+        let after = &rest[index..];
+        let skip = if is_line {
+            after.find('\n').map(|end| end + 1).unwrap_or(after.len())
+        } else {
+            after.find("*/").map(|end| end + 2).unwrap_or(after.len())
+        };
+        rest = &after[skip..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Does this `REINDEX` target name something the gateway reserves?
 ///
 /// Deliberately generous: quotes and a `schema.` qualifier are stripped
@@ -428,11 +451,14 @@ fn strip_leading_comments(mut sql: &str) -> &str {
 /// reserved in part is still refused. Over-refusing a `REINDEX` target is
 /// a cheap mistake; under-refusing rebuilds the wrong table.
 fn reindex_names_reserved(target: &str) -> bool {
-    let token = target
-        .split(|c: char| c.is_whitespace() || c == ';')
-        .next()
-        .unwrap_or("");
-    let unquoted: String = token
+    let cleaned = strip_comments(target);
+    // Whitespace is insignificant between the parts of an object reference,
+    // so `main . _dg_replay` is screened as `main._dg_replay`.
+    let compact: String = cleaned
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != ';')
+        .collect();
+    let unquoted: String = compact
         .chars()
         .filter(|c| !matches!(c, '"' | '\'' | '`' | '[' | ']'))
         .collect();
@@ -914,6 +940,11 @@ mod tests {
             Some("products_by_sku")
         );
         assert_eq!(reindex_target("/* why */ REINDEX t"), Some("t"));
+        // A comment is whitespace to SQLite, so it cannot hide the target.
+        assert_eq!(
+            reindex_target("REINDEX /*c*/ _dg_replay"),
+            Some("/*c*/ _dg_replay")
+        );
 
         // Reserved: the explicit form, the name SQLite synthesises for it,
         // and a qualified or quoted spelling of either.
@@ -924,6 +955,11 @@ mod tests {
             "main._dg_replay",
             "main.\"_dg_replay\"",
             "\"sqlite_autoindex__dg_replay_1\"",
+            "/*c*/ _dg_replay",
+            "/*c*/ main./*c*/_dg_replay",
+            "main . _dg_replay",
+            "-- why\n_dg_replay",
+            "  _dg_replay -- trailing comment",
             "[_dg_replay]",
             "`_dg_replay`",
         ] {
