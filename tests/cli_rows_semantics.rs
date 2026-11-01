@@ -25,6 +25,10 @@ fn rows_against_a_dead_gateway(database: &str) -> (bool, String, String) {
     // refused before the transport was ever tried.
     let key_file = std::env::temp_dir().join(format!("dg-rows-sem-{}", std::process::id()));
     std::fs::write(&key_file, "owner-key-for-the-test").unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&key_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
     let output = Command::new(env!("CARGO_BIN_EXE_dg"))
         .args([
             "--server",
