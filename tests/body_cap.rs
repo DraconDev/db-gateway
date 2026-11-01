@@ -55,20 +55,18 @@ async fn post(address: &str, key: &str, path: &str, body: &Value) -> (u16, Value
 
 /// A body over the 64 KiB cap, built from the named fields the route
 /// needs plus enough padding to cross the line.
-fn oversized(extra: Value) -> Value {
-    let mut body = json!({
-        "left": "left",
-        "right": "right",
-        "parent": "parent",
-        "name": "fork",
-        "pad": "x".repeat(100 * 1024),
-    });
-    if let (Some(target), Some(source)) = (body.as_object_mut(), extra.as_object()) {
-        for (key, value) in source {
-            target.insert(key.clone(), value.clone());
-        }
+///
+/// The padding goes INSIDE a field the route declares: `DiffRequest` and
+/// `ForkBody` both deny unknown fields, so a stray key would be refused
+/// as a schema error before the size ever mattered -- and a schema
+/// refusal would prove nothing about the cap.
+fn oversized(route: &str) -> Value {
+    let pad = "x".repeat(100 * 1024);
+    match route {
+        "/v1/diff" => json!({"left": pad, "right": "right"}),
+        "/v1/branch" => json!({"parent": pad, "name": "fork"}),
+        _ => json!({"sql": pad, "args": []}),
     }
-    body
 }
 
 /// The 64 KiB general cap holds on the routes that are MERGED into the
@@ -87,14 +85,14 @@ async fn the_general_body_cap_holds_on_the_merged_routers() {
     let (address, owner) = serve(&dir).await;
 
     // `/v1/diff` -- merged from the diff router.
-    let (status, body) = post(&address, &owner, "/v1/diff", &oversized(json!({}))).await;
+    let (status, body) = post(&address, &owner, "/v1/diff", &oversized("/v1/diff")).await;
     assert_eq!(
         status, 413,
         "a body over the 64 KiB cap was accepted by /v1/diff: {body}"
     );
 
     // `/v1/branch` -- merged from the branch router.
-    let (status, body) = post(&address, &owner, "/v1/branch", &oversized(json!({}))).await;
+    let (status, body) = post(&address, &owner, "/v1/branch", &oversized("/v1/branch")).await;
     assert_eq!(
         status, 413,
         "a body over the 64 KiB cap was accepted by /v1/branch: {body}"
@@ -115,7 +113,7 @@ async fn the_general_body_cap_holds_on_an_unmerged_route() {
         &address,
         &owner,
         "/v1/databases/x/query",
-        &json!({"sql": "SELECT 1", "args": [], "pad": "x".repeat(100 * 1024)}),
+        &oversized("/v1/databases/x/query"),
     )
     .await;
     assert_eq!(
