@@ -308,3 +308,100 @@ fn a_commit_waits_for_an_in_flight_append_before_it_reads_the_upload_file() {
         "the commit published a database built from a half-written upload"
     );
 }
+
+/// An upload left with unacknowledged bytes on disk is repaired, not
+/// bricked.
+///
+/// The append writes the chunk and only then advances the acknowledged
+/// offset. A write error whose rollback also fails leaves the file longer
+/// than the offset, and the first version of this fix answered that with a
+/// 409 that nothing ever repaired: every later append and every commit
+/// repeated the 409 and the client's only way out was to abort and start
+/// the whole upload again.
+///
+/// The bytes past the acknowledged offset were never acknowledged, and the
+/// transfer's operation lock means no append is running, so trimming them
+/// is exactly the repair -- and unlike the truncation this lock replaced,
+/// it cannot cut bytes another request already acknowledged.
+#[test]
+fn unacknowledged_bytes_are_trimmed_instead_of_bricking_the_upload() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("data");
+    std::fs::create_dir_all(&root).unwrap();
+    let store = Store::open(&root).unwrap();
+    let upload = store.upload_begin().unwrap().id;
+
+    store.upload_append(&upload, 0, b"acknowledged").unwrap();
+    let acknowledged = store.upload_status(&upload).unwrap();
+    assert_eq!(acknowledged, b"acknowledged".len() as u64);
+
+    // Simulate the unrepaired tail of a failed write.
+    let file = upload_file(&root).expect("the upload staging file exists");
+    {
+        use std::io::Write;
+        let mut handle = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&file)
+            .unwrap();
+        handle.write_all(b"never-acknowledged").unwrap();
+    }
+    assert!(
+        std::fs::metadata(&file).unwrap().len() > acknowledged,
+        "the test did not actually leave a tail on disk"
+    );
+
+    // The next chunk at the acknowledged offset is accepted, and the file
+    // ends up holding exactly what was acknowledged -- the tail is gone,
+    // the acknowledged bytes are intact.
+    let received = store
+        .upload_append(&upload, acknowledged, b"-tail")
+        .unwrap();
+    let expected: Vec<u8> = b"acknowledged-tail".to_vec();
+    assert_eq!(received, expected.len() as u64);
+    assert_eq!(store.upload_status(&upload).unwrap(), received);
+    assert_eq!(
+        std::fs::read(&file).unwrap(),
+        expected,
+        "the repaired file does not hold exactly the acknowledged bytes"
+    );
+}
+
+/// A file that holds FEWER bytes than were acknowledged is refused, not
+/// quietly accepted: importing it would publish a database missing chunks
+/// the client was told were received.
+#[test]
+fn a_file_shorter_than_its_acknowledged_offset_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("data");
+    std::fs::create_dir_all(&root).unwrap();
+    let store = Store::open(&root).unwrap();
+    let upload = store.upload_begin().unwrap().id;
+
+    store
+        .upload_append(&upload, 0, b"two-chunks-worth")
+        .unwrap();
+    let file = upload_file(&root).expect("the upload staging file exists");
+    // Lose the tail without losing the acknowledgement.
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&file)
+        .unwrap()
+        .set_len(4)
+        .unwrap();
+
+    let error = store
+        .upload_append(&upload, b"two-chunks-worth".len() as u64, b"x")
+        .unwrap_err();
+    assert_eq!(error.code, "upload_out_of_sync");
+    assert_eq!(
+        std::fs::metadata(&file).unwrap().len(),
+        4,
+        "a refused upload must not be silently rewritten"
+    );
+    let commit = store.upload_commit(&upload, "short.sqlite").unwrap_err();
+    assert_eq!(commit.code, "upload_out_of_sync");
+    assert!(
+        !root.join("short.sqlite").exists(),
+        "an upload missing acknowledged bytes was published"
+    );
+}

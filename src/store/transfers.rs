@@ -101,7 +101,9 @@ fn repair_or_refuse(file: &Path, length: u64, id: &str) -> Result<()> {
     if on_disk < length {
         tracing::warn!(
             upload = id,
-            on_disk, acknowledged = length, "the upload file is shorter than its acknowledged offset"
+            on_disk,
+            acknowledged = length,
+            "the upload file is shorter than its acknowledged offset"
         );
         return Err(upload_out_of_sync());
     }
