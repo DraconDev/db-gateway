@@ -95,14 +95,20 @@ fn an_upload_status_is_answered_while_another_append_is_writing() {
 
     // The status of the OTHER upload needs the same lock. It must be
     // answered promptly.
+    eprintln!("MAIN: asking for the other upload's status");
     let start = Instant::now();
     let status = store.upload_status(&other);
     let elapsed = start.elapsed();
+    eprintln!("MAIN: status took {elapsed:?}");
 
     // Unblock the writer so the test does not leave a thread behind.
     // Opening the FIFO for reading releases the writer's open.
-    if let Ok(file) = std::fs::OpenOptions::new().read(true).open(&file) {
-        drop(file);
+    eprintln!("MAIN: opening the fifo for reading");
+    if let Ok(f) = std::fs::OpenOptions::new().read(true).open(&file) {
+        eprintln!("MAIN: fifo opened for reading");
+        drop(f);
+    } else {
+        eprintln!("MAIN: fifo open failed");
     }
     let _ = writer.join();
 
