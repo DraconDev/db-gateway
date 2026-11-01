@@ -570,7 +570,8 @@ fn database_page(frame: &mut Frame, area: Rect, app: &mut App) {
     const MARKER: usize = 2;
     const COUNT: usize = 5;
     let chrome = MARKER + COUNT + 2;
-    let list_width = ((widest + 4) as u16).clamp(16, area.width.saturating_sub(30).max(16));
+    let list_width =
+        ((widest as usize + chrome) as u16).clamp(16, area.width.saturating_sub(30).max(16));
     let columns =
         Layout::horizontal([Constraint::Length(list_width), Constraint::Min(20)]).split(area);
     // The list: one line per table, with its row count, the selected one
@@ -596,7 +597,10 @@ fn database_page(frame: &mut Frame, area: Rect, app: &mut App) {
             Span::styled(if selected { "▸ " } else { "  " }, style),
             // The name gets exactly the cells the count and the borders
             // leave over, so nothing runs past the pane edge.
-            Span::styled(fit_cell(&table.name, list_width as usize - 3), style),
+            Span::styled(
+                fit_cell(&table.name, (list_width as usize).saturating_sub(chrome)),
+                style,
+            ),
             Span::styled(format!("{:>5}", table.rows), paint_style(ViewStyle::Dim)),
         ]));
     }
