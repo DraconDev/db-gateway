@@ -569,15 +569,30 @@ impl Store {
             (transfer.file.clone(), *received)
         };
         use std::io::Write;
+        // The file must hold exactly the acknowledged bytes: the append
+        // writes at the end of the file, so a file that holds more than
+        // the acknowledged offset would put this chunk at the wrong place
+        // and the acknowledged offset would stop describing the file.
+        let on_disk = std::fs::metadata(&file_path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        if on_disk != prior {
+            tracing::warn!(
+                upload = id,
+                on_disk,
+                acknowledged = prior,
+                "the upload file and its acknowledged offset disagree"
+            );
+            return Err(Error::new(
+                409,
+                "upload_out_of_sync",
+                "the upload file does not match its acknowledged length",
+            ));
+        }
         let write = std::fs::OpenOptions::new()
             .append(true)
             .open(&file_path)
             .and_then(|mut f| {
-                // The file must hold exactly the acknowledged bytes: the
-                // append writes at the end, so a tail that outlived its
-                // acknowledgement would be kept and the file would no
-                // longer match the offset it is asked about.
-                f.set_len(prior)?;
                 f.write_all(bytes).inspect_err(|_error| {
                     // write_all may persist a prefix before returning an I/O
                     // error. Restore the acknowledged offset so retrying appends

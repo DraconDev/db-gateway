@@ -1,4 +1,5 @@
-//! An upload append must not hold the transfer registry lock.
+//! An upload append must not hold the transfer registry lock, and the
+//! uploads' own operations must not run over each other.
 //!
 //! Every transfer operation -- another chunk, a status check, an abort,
 //! a snapshot read -- takes the same registry mutex. When an append
@@ -12,11 +13,22 @@
 //! is replaced with a FIFO, so opening it for append waits for a
 //! reader. While the append is parked there, a status check on the
 //! upload must still be answered -- it needs the same lock.
+//!
+//! Releasing the registry mutex is not the same as releasing the upload:
+//! with nothing serializing one upload's own operations, two appends at
+//! the same offset both passed the offset check and both wrote, and the
+//! loser's "the transfer moved on" branch truncated the file back to the
+//! old offset -- deleting bytes the winner had already acknowledged. The
+//! offset the client was told about then no longer described the file.
+//! Each upload therefore has its own operation lock: the appends, the
+//! commit and the abort of one upload take turns, while every other
+//! transfer keeps running.
 
 use dg::store::Store;
+use std::io::{Read, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Barrier};
 use std::time::{Duration, Instant};
 
 unsafe extern "C" {
@@ -119,5 +131,174 @@ fn an_upload_status_is_answered_while_its_append_is_writing() {
     assert!(
         elapsed < Duration::from_secs(5),
         "the status check waited {elapsed:?} behind the append's write"
+    );
+}
+
+/// The bytes an upload has acknowledged must be exactly the bytes on disk,
+/// even when several appends of the same upload race for the same offset.
+///
+/// Before the fix, two appends at the same offset both passed the offset
+/// check: each read the acknowledged offset under the registry lock,
+/// released it, and wrote. The loser's "the transfer moved on" branch then
+/// truncated the file back to the old offset, deleting bytes the winner had
+/// already acknowledged, and the offset the client was told about stopped
+/// describing the file. A chunked import could lose data with no error
+/// reaching the client.
+///
+/// The upload's own operation lock is what makes the offset and the bytes
+/// belong to the same turn: the appends take turns, so exactly one of them
+/// is acknowledged and the file ends up holding exactly that chunk.
+#[test]
+fn two_appends_at_the_same_offset_leave_the_acknowledged_offset_matching_the_bytes_on_disk() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("data");
+    std::fs::create_dir_all(&root).unwrap();
+    let store = Arc::new(Store::open(&root).unwrap());
+    let upload = store.upload_begin().unwrap().id;
+
+    let chunk = 64 * 1024;
+    // A barrier, so the appends really do race for the same offset.
+    let barrier = Arc::new(Barrier::new(4));
+    let mut threads = Vec::new();
+    for tag in [b'A', b'B', b'C', b'D'] {
+        let store = store.clone();
+        let upload = upload.clone();
+        let barrier = barrier.clone();
+        threads.push(std::thread::spawn(move || {
+            let bytes = vec![tag; chunk];
+            barrier.wait();
+            (tag, store.upload_append(&upload, 0, &bytes))
+        }));
+    }
+
+    let mut acknowledged: Option<(u8, u64)> = None;
+    let mut rejected = 0;
+    for thread in threads {
+        let (tag, outcome) = thread.join().unwrap();
+        match outcome {
+            Ok(offset) => {
+                assert!(
+                    acknowledged.is_none(),
+                    "two appends were acknowledged at the same offset: {acknowledged:?} and {offset}"
+                );
+                acknowledged = Some((tag, offset));
+            }
+            Err(_) => rejected += 1,
+        }
+    }
+    let (tag, offset) = acknowledged.expect("no append was acknowledged");
+    assert_eq!(
+        rejected, 3,
+        "the losing appends must be rejected on their offset, not acknowledged"
+    );
+    assert_eq!(
+        offset, chunk as u64,
+        "the acknowledged offset is not the length of the chunk"
+    );
+
+    // The acknowledged offset must describe the bytes on disk.
+    let file = upload_file(&root).expect("the upload staging file exists");
+    let on_disk = std::fs::read(&file).unwrap();
+    assert_eq!(
+        on_disk.len() as u64,
+        offset,
+        "the file does not hold as many bytes as the acknowledged offset"
+    );
+    assert!(
+        on_disk.iter().all(|byte| *byte == tag),
+        "the file holds bytes that were never acknowledged together"
+    );
+    assert_eq!(
+        store.upload_status(&upload).unwrap(),
+        offset,
+        "the reported status does not match the acknowledged offset"
+    );
+}
+
+/// A commit must not read the upload file while a chunk is still being
+/// written into it.
+///
+/// The commit publishes the uploaded file. Before the fix it did so
+/// without waiting for an in-flight append, so a commit that arrived while
+/// a chunk was being written could publish a half-written database. The
+/// commit now waits for the upload's own append to finish, and it checks
+/// that the file holds exactly the acknowledged bytes before it reads it.
+#[test]
+fn a_commit_waits_for_an_in_flight_append_before_it_reads_the_upload_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("data");
+    std::fs::create_dir_all(&root).unwrap();
+    let store = Arc::new(Store::open(&root).unwrap());
+    let upload = store.upload_begin().unwrap().id;
+
+    // The upload's file becomes a FIFO whose reader never drains it: a
+    // chunk larger than the pipe's buffer blocks in the write, so the
+    // append stays in flight for as long as the test needs it to.
+    let file = upload_file(&root).expect("the upload staging file exists");
+    assert!(
+        make_it_a_fifo(&file),
+        "the upload file could not become a FIFO"
+    );
+    let mut reader = std::fs::OpenOptions::new().read(true).open(&file).unwrap();
+    // A writer as well, so that a commit which reaches the file does not
+    // block on the FIFO's own open.
+    let mut writer = std::fs::OpenOptions::new().write(true).open(&file).unwrap();
+
+    let chunk = vec![b'A'; 1024 * 1024];
+    let append_store = store.clone();
+    let append_id = upload.clone();
+    let append = std::thread::spawn(move || append_store.upload_append(&append_id, 0, &chunk));
+
+    // Let the append reach the blocked write.
+    std::thread::sleep(Duration::from_millis(300));
+
+    let commit_store = store.clone();
+    let commit_id = upload.clone();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let commit = std::thread::spawn(move || {
+        let outcome = commit_store.upload_commit(&commit_id, "raced.sqlite");
+        let _ = sender.send(outcome);
+    });
+
+    std::thread::sleep(Duration::from_millis(500));
+
+    // The commit must not have read the file: the append is still writing.
+    assert!(
+        receiver.try_recv().is_err(),
+        "the commit published the upload while a chunk was still being written"
+    );
+    // A second commit is refused while the first one is publishing.
+    assert!(
+        store.upload_commit(&upload, "probe.sqlite").is_err(),
+        "a second commit ran while the first one was publishing"
+    );
+
+    // Release the blocked append by draining the pipe.
+    let mut drained = 0;
+    let mut buffer = [0u8; 64 * 1024];
+    while drained < chunk.len() {
+        let read = reader.read(&mut buffer).unwrap();
+        assert!(read > 0, "the FIFO reader hit end of file early");
+        drained += read;
+    }
+
+    // The commit reads the FIFO once the append is done; give it a header
+    // it can reject.
+    writer.write_all(&[0u8; 128]).unwrap();
+    writer.flush().unwrap();
+
+    let outcome = receiver
+        .recv_timeout(Duration::from_secs(30))
+        .expect("the commit never returned");
+    let _ = commit.join();
+    let _ = append.join();
+
+    assert!(
+        outcome.is_err(),
+        "the commit published a file that is not a database: {outcome:?}"
+    );
+    assert!(
+        !root.join("raced.sqlite").exists(),
+        "the commit published a database built from a half-written upload"
     );
 }
