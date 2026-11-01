@@ -523,14 +523,16 @@ impl Session<'_> {
                 let state = fresh["state"].as_str().unwrap_or("unknown");
                 table.row(vec![
                     crate::render::Cell::styled(name.clone(), crate::render::Style::Cyan),
-                    crate::render::Cell::styled(
-                        state,
-                        match state {
-                            "fresh" => crate::render::Style::Green,
-                            "stale" => crate::render::Style::Yellow,
-                            _ => crate::render::Style::Red,
-                        },
-                    ),
+                    // The SAME style the one-shot commands draw the state
+                    // with. The shell had its own copy of the mapping,
+                    // and it disagreed: `behind` -- a copy waiting for
+                    // the producer's next publication, which the
+                    // approved cadence says is fine -- was drawn as an
+                    // alarm here and as a quiet line in `dg backup
+                    // status`. The same fact has to look the same in
+                    // both places, or the operator learns to ignore one
+                    // of them.
+                    crate::render::Cell::styled(state, dg::views::backup_state_style(state)),
                     crate::render::Cell::text(
                         fresh["newest_set"]
                             .as_str()
