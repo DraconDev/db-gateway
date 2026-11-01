@@ -87,10 +87,10 @@ TABLES = {
             discontinued_flag INTEGER, notes_from_the_merchandising_team TEXT,
             extract_generated_at_utc TEXT NOT NULL)""",
         "CREATE INDEX IF NOT EXISTS products_by_sku ON products(sku)",
-        "CREATE INDEX IF NOT EXISTS stock_moves_by_product
-           ON stock_moves(product_id)",
-        "CREATE INDEX IF NOT EXISTS product_prices_by_valid_from
-           ON product_prices(valid_from)",
+        "CREATE INDEX IF NOT EXISTS stock_moves_by_product "
+        "ON stock_moves(product_id)",
+        "CREATE INDEX IF NOT EXISTS product_prices_by_valid_from "
+        "ON product_prices(valid_from)",
     ],
     "orders": [
         """CREATE TABLE IF NOT EXISTS customers
