@@ -73,7 +73,21 @@ remote_run() {
 REMOTE_LISTING="$(remote_run sudo -n ls "$REMOTE_ROOT" 2>/dev/null)" || REMOTE_LISTING=""
 SET="$(printf '%s\n' "$REMOTE_LISTING" | grep -E '^[0-9]{8}T[0-9]{6}Z$' | sort | tail -1)"
 [ -n "$SET" ] || fail "no snapshot set found under $REMOTE_ROOT"
+# Prune oldest first, newest $KEEP survive; the tarballs prune with
+# their directories by set name.
+prune() {
+    kept=0
+    while IFS= read -r dir; do
+        [ -n "$dir" ] || continue
+        kept=$((kept + 1))
+        if [ "$kept" -gt "$KEEP" ]; then
+            rm -rf "$dir" "$dir.tar.gz"
+        fi
+    done < <(find "$LOCAL_ROOT" -maxdepth 1 -name '[0-9]*T[0-9]*Z' -type d 2>/dev/null | sort -r)
+}
+
 if [ -f "$LOCAL_ROOT/$SET/.ok" ]; then
+    prune
     echo "[pull-backup] $SET already pulled; nothing to do"
     exit 0
 fi
@@ -149,14 +163,5 @@ date -u +%Y-%m-%dT%H:%M:%SZ >"$LOCAL_ROOT/$SET/.ok"
 rmdir "$STAGE"
 printf '{"ts":"%s","set":"%s","outcome":"ok","bytes":%s,"files":%s}\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SET" "$bytes" "$verified" >>"$LOCAL_ROOT/pulls.jsonl"
-# Prune oldest first, newest $KEEP survive; the tarballs prune with
-# their directories by set name.
-kept=0
-while IFS= read -r dir; do
-    [ -n "$dir" ] || continue
-    kept=$((kept + 1))
-    if [ "$kept" -gt "$KEEP" ]; then
-        rm -rf "$dir" "$dir.tar.gz"
-    fi
-done < <(find "$LOCAL_ROOT" -maxdepth 1 -name '[0-9]*T[0-9]*Z' -type d 2>/dev/null | sort -r)
+prune
 echo "[pull-backup] $SET pulled and verified ($verified files, $bytes bytes)"
