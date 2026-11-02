@@ -195,15 +195,12 @@ fn key(code: ratatui::crossterm::event::KeyCode) -> ratatui::crossterm::event::K
 }
 
 #[test]
-fn enter_on_the_databases_tab_prefills_the_open_action() {
-    // The row grid is palette-driven, and the databases tab is its
-    // doorway: Enter lists the open-table action with the database
-    // under the scroll already typed into its prompt, so the
-    // operator types only the table (and optionally the page).
-    // The test proves the doorway end to end: the action is
-    // selectable from the palette, and choosing it prompts with
-    // the database prefilled and parses to the expected invocation.
-    use dg::tui::actions::{ActionKind, Invocation};
+fn enter_on_the_databases_tab_opens_the_scrolled_to_database() {
+    // The keyboard's doorway to a database is Enter: the database
+    // under the scroll opens as its own page, exactly as a click
+    // on its row does. The open-table action stays in the palette
+    // for the operator who types `:` — Enter itself opens.
+    use dg::tui::actions::Invocation;
     use dg::tui::{App, Mode};
 
     let mut app = App::new("http://127.0.0.1:1".to_string(), "0".repeat(64));
@@ -211,38 +208,58 @@ fn enter_on_the_databases_tab_prefills_the_open_action() {
     // Sorted, the first row is inventory; scroll to the second row.
     app.scroll.databases = 1;
     app.on_key(key(ratatui::crossterm::event::KeyCode::Enter));
-    assert_eq!(app.mode, Mode::Palette, "Enter left the dashboard");
-    let selectable: Vec<ActionKind> = app
-        .filtered_actions()
-        .iter()
-        .map(|action| action.kind)
-        .collect();
-    assert!(
-        selectable.contains(&ActionKind::OpenTable),
-        "the palette does not offer the open-table action: {selectable:?}"
+    assert_eq!(app.mode, Mode::Normal, "Enter left the dashboard");
+    assert_eq!(
+        app.take_pending(),
+        Some(Invocation::OpenDatabase {
+            name: "orders".to_string()
+        }),
+        "Enter did not open the scrolled-to database"
     );
+}
+
+#[test]
+fn enter_on_the_locations_tab_opens_the_scrolled_to_database() {
+    // The locations tab names databases too, and its rows open the
+    // same way: Enter reads the name off the scrolled-to row of the
+    // table the tab drew, so the doorway and the tab cannot disagree
+    // about which database is which.
+    use dg::tui::actions::Invocation;
+    use dg::tui::{App, Focus, Mode};
+
+    let mut app = App::new("http://127.0.0.1:1".to_string(), "0".repeat(64));
+    app.status = Some(json!({"deployment": {"databases": {
+        "orders": {"exists": true, "tombstoned": false,
+                   "file": "/var/lib/dg/orders.sqlite", "size_bytes": 16384},
+        "inventory": {"exists": true, "tombstoned": false,
+                      "file": "/var/lib/dg/inventory.sqlite", "size_bytes": 16384}
+    }}}));
+    app.focus = Focus::Locations;
+    // The rows sort by name, so the second row is orders.
+    app.scroll.locations = 1;
     app.on_key(key(ratatui::crossterm::event::KeyCode::Enter));
-    let Mode::Prompt { kind } = app.mode.clone() else {
-        panic!("choosing did not open the action's prompt: {:?}", app.mode);
-    };
-    assert_eq!(kind, ActionKind::OpenTable, "the prompt is for {kind:?}");
+    assert_eq!(app.mode, Mode::Normal, "Enter left the dashboard");
     assert_eq!(
-        app.input, "orders ",
-        "the prompt is not prefilled with the scrolled-to database: {}",
-        app.input
+        app.take_pending(),
+        Some(Invocation::OpenDatabase {
+            name: "orders".to_string()
+        }),
+        "Enter did not open the scrolled-to database"
     );
-    let invocation = kind
-        .parse(&format!("{}products", app.input))
-        .expect("the prefilled database plus a table parses");
-    assert_eq!(
-        invocation,
-        Invocation::OpenTable {
-            name: "orders".to_string(),
-            table: "products".to_string(),
-            page: 0,
-        },
-        "the doorway does not produce the expected invocation"
-    );
+}
+
+#[test]
+fn enter_on_a_tab_without_databases_opens_nothing() {
+    // Only the tabs whose rows name databases open one: everywhere
+    // else Enter is not a doorway and queues nothing.
+    use dg::tui::{App, Focus, Mode};
+
+    let mut app = App::new("http://127.0.0.1:1".to_string(), "0".repeat(64));
+    app.list = Some(json!({"databases": ["orders", "inventory"]}));
+    app.focus = Focus::Keys;
+    app.on_key(key(ratatui::crossterm::event::KeyCode::Enter));
+    assert_eq!(app.mode, Mode::Normal, "Enter left the dashboard");
+    assert_eq!(app.take_pending(), None, "Enter opened something");
 }
 
 #[test]
