@@ -460,14 +460,6 @@ pub struct App {
     pub highlighted: usize,
     /// The line the operator is typing.
     pub input: String,
-    /// Arguments already typed for the next prompt.
-    ///
-    /// The databases tab's Enter doorway fills this with the database
-    /// under the scroll, so choosing the action drops the operator
-    /// into its prompt with the database already typed. Typing in the
-    /// palette clears it: a filter the operator changed no longer
-    /// promises the action the doorway meant.
-    pub prompt_prefill: String,
     /// The last action's outcome.
     pub outcome: Option<Outcome>,
     /// The database page, when a database is open as its own screen.
@@ -520,7 +512,6 @@ impl App {
             filter: String::new(),
             highlighted: 0,
             input: String::new(),
-            prompt_prefill: String::new(),
             outcome: None,
             page: None,
             browser: None,
@@ -683,8 +674,7 @@ impl App {
             return;
         }
         // Then a row that names a database: clicking a database OPENS
-        // it. The keyboard's doorway to a table's rows is Enter; the
-        // mouse's doorway to the database itself is the click.
+        // it, the same page Enter opens from the keyboard.
         if let Some(name) = self.database_under_pointer(column, row) {
             self.open_database(&name);
             return;
@@ -744,6 +734,33 @@ impl App {
         }
     }
 
+    /// The database the scroll points at, on a tab whose rows name
+    /// databases.
+    ///
+    /// The Enter doorway reads the same names the tab drew: the
+    /// sorted list on the databases tab, the drawn table's own rows
+    /// on locations. A tab that does not name databases -- the keys,
+    /// the queries -- answers None, and so does a scroll past the
+    /// last row: Enter there is not a doorway.
+    fn database_at_scroll(&self) -> Option<String> {
+        match self.focus {
+            Focus::Databases => {
+                let names = self.database_names();
+                let index =
+                    (self.scroll.databases as usize).min(names.len().saturating_sub(1));
+                names.get(index).cloned()
+            }
+            Focus::Locations => {
+                let table = self.locations()?;
+                let index = self.scroll.locations as usize;
+                let name = table.rows().get(index)?.first()?.parts().0.into_owned();
+                (!name.is_empty() && crate::store::validate_name(&name).is_ok())
+                    .then_some(name)
+            }
+            _ => None,
+        }
+    }
+
     /// The database a click landed on, if it landed on one.
     ///
     /// The name is read from the row the operator clicked, in the table
@@ -768,14 +785,14 @@ impl App {
         (!name.is_empty() && crate::store::validate_name(&name).is_ok()).then_some(name)
     }
 
-    /// Open a database: what a click on its row does.
+    /// Open a database: what a click on its row, or Enter under
+    /// the scroll, does.
     ///
     /// Opening a database means reading its contents -- the tables it
-    /// holds, with their row and column counts -- and the last action's
-    /// area is where the answer appears. The gateway is asked for the
-    /// structure, which is the one read that says what a database is
-    /// made of, and the grid that comes back is the one a click on a
-    /// table then opens further.
+    /// holds -- and the database's own page is where the answer
+    /// appears. The gateway is asked for the structure, which is the
+    /// one read that says what a database is made of, and the list
+    /// that comes back is the one whose rows then open further.
     fn open_database(&mut self, name: &str) {
         // Opening a database is a request to see what is in it, and the
         // counts on the databases tab are part of that answer: they are
@@ -855,28 +872,15 @@ impl App {
                 self.filter.clear();
                 self.highlighted = 0;
             }
-            // The row grid is one keystroke from the databases tab:
-            // Enter opens the palette on the open-table action, with
-            // the database under the scroll already typed into the
-            // action's prompt. The filter names the action so the
-            // palette lists it first and selectable; choosing it
-            // drops into the prompt with the database prefilled, so
-            // the operator types only the table (and optionally the
-            // page). Typing anything else clears the prefill first.
-            //
-            // The keyboard's doorway to a table's ROWS; a click is the
-            // mouse's doorway to the database itself.
+            // The database page is one keystroke from the tabs whose
+            // rows name databases: Enter opens the database under
+            // the scroll, the same page a click on its row opens.
+            // The keyboard's doorway and the mouse's are the same
+            // depth now; the open-table action stays in the palette
+            // for the operator who types `:`.
             KeyCode::Enter => {
-                if self.focus == Focus::Databases {
-                    let names = self.database_names();
-                    let index = (self.scroll.databases as usize).min(names.len().saturating_sub(1));
-                    self.prompt_prefill = match names.get(index) {
-                        Some(name) => format!("{name} "),
-                        None => String::new(),
-                    };
-                    self.filter = "open table".to_string();
-                    self.mode = Mode::Palette;
-                    self.highlighted = 0;
+                if let Some(name) = self.database_at_scroll() {
+                    self.open_database(&name);
                 }
             }
             KeyCode::Tab => self.focus_on(self.focus.next()),
@@ -1222,7 +1226,6 @@ impl App {
             KeyCode::Esc => {
                 self.mode = Mode::Normal;
                 self.filter.clear();
-                self.prompt_prefill.clear();
             }
             KeyCode::Up => self.highlighted = self.highlighted.saturating_sub(1),
             KeyCode::Down => {
@@ -1233,12 +1236,10 @@ impl App {
             KeyCode::Backspace => {
                 self.filter.pop();
                 self.highlighted = 0;
-                self.prompt_prefill.clear();
             }
             KeyCode::Char(character) => {
                 self.filter.push(character);
                 self.highlighted = 0;
-                self.prompt_prefill.clear();
             }
             KeyCode::Enter => self.choose(),
             _ => {}
@@ -1366,12 +1367,11 @@ impl App {
         };
         if action.arguments {
             self.mode = Mode::Prompt { kind: action.kind };
-            self.input = std::mem::take(&mut self.prompt_prefill);
+            self.input.clear();
             self.filter.clear();
             return;
         }
         if action.confirmation {
-            self.prompt_prefill.clear();
             // An action whose confirmation is its whole input: the
             // owner key has no arguments, only a word.
             let Ok(invocation) = action.kind.parse("") else {
@@ -1386,7 +1386,6 @@ impl App {
         }
         self.mode = Mode::Normal;
         self.filter.clear();
-        self.prompt_prefill.clear();
         match action.kind {
             ActionKind::Quit => self.quit = true,
             ActionKind::Refresh => self.pending = Some(Invocation::Refresh),
@@ -2065,10 +2064,10 @@ impl App {
 
     /// The sorted database names the databases tab shows.
     ///
-    /// The tab's Enter doorway prefills the palette from this list,
-    /// so the doorway and the tab read the same names in the same
-    /// order: the scrolled-to row and the prefilled name cannot
-    /// disagree about which database is which.
+    /// The tab's Enter doorway opens from this list, so the doorway
+    /// and the tab read the same names in the same order: the
+    /// scrolled-to row and the opened database cannot disagree
+    /// about which database is which.
     pub fn database_names(&self) -> Vec<String> {
         let mut names: Vec<String> = self
             .list
