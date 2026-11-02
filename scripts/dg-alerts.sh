@@ -71,17 +71,21 @@ if [ -d "$DATA_DIR" ]; then
         pct_free=$(( disk_total > 0 ? disk_avail * 100 / disk_total : 0 ))
         inode_pct_free=$(( inode_total > 0 ? inode_avail * 100 / inode_total : 0 ))
         if [ "$disk_avail" -lt "$FLOOR_BYTES" ] || [ "$pct_free" -lt "$FLOOR_PCT" ] || [ "$inode_pct_free" -lt "$INODE_PCT" ]; then
-            emit disk alert "path=$DATA_DIR free_bytes=$disk_avail free_pct=$pct_free inode_free_pct=$inode_pct_free floor_pct=$FLOOR_PCT floor_bytes=$FLOOR_BYTES action='free disk or raise retention limits before writes/imports block'"
+            detail="path=$DATA_DIR free_bytes=$disk_avail free_pct=$pct_free inode_free_pct=$inode_pct_free floor_pct=$FLOOR_PCT floor_bytes=$FLOOR_BYTES action='free disk or raise retention limits before writes/imports block'"
+            emit disk alert "$detail"
+            stage disk "$detail"
             ALERTS=1
         else
             emit disk ok "path=$DATA_DIR free_bytes=$disk_avail free_pct=$pct_free inode_free_pct=$inode_pct_free"
         fi
     else
         emit disk unknown "path=$DATA_DIR reason=df-unavailable"
+        stage disk "path=$DATA_DIR reason=df-unavailable"
         ALERTS=1
     fi
 else
     emit disk unknown "path=$DATA_DIR reason=missing"
+    stage disk "path=$DATA_DIR reason=missing"
     ALERTS=1
 fi
 
@@ -132,11 +136,59 @@ if [ "$biggest_wal" -gt "$WAL_MAX" ]; then
     lag_reasons="${lag_reasons:+$lag_reasons,}wal-oversized-${biggest_wal}b"
 fi
 if [ -n "$lag_reasons" ]; then
-    emit lag alert "reasons=$lag_reasons wal_max_bytes=$WAL_MAX action='check dg-litestream journal and replica coverage; Tier 1 RPO is at risk while lag persists'"
+    detail="reasons=$lag_reasons wal_max_bytes=$WAL_MAX action='check dg-litestream journal and replica coverage; Tier 1 RPO is at risk while lag persists'"
+    emit lag alert "$detail"
+    stage lag "$detail"
     ALERTS=1
 else
     emit lag ok "biggest_wal_bytes=$biggest_wal wal_max_bytes=$WAL_MAX"
 fi
 
-[ "$ALERTS" = "0" ] && echo "[$SELF] all checks ok" >&2
-exit "$ALERTS"
+# --- webhook second sink ---------------------------------------------
+# Journal-only when nothing alerted or no endpoint is configured: the
+# webhook carries alerts, not heartbeats, and an unconfigured run is
+# exactly the old behaviour.
+if [ "$ALERTS" = "0" ]; then
+    echo "[$SELF] all checks ok" >&2
+    exit 0
+fi
+if [ -n "$WEBHOOK_URL_FILE" ]; then
+    if [ -r "$WEBHOOK_URL_FILE" ]; then
+        WEBHOOK_URL="$(head -n 1 "$WEBHOOK_URL_FILE" | tr -d '\r\n[:space:]')"
+    else
+        emit webhook skipped "reason=url-file-unreadable"
+        exit 1
+    fi
+fi
+if [ -z "$WEBHOOK_URL" ]; then
+    emit webhook skipped "reason=unconfigured"
+    exit 1
+fi
+# The same rule as dg::notify::WebhookSink: https, or plain http on a
+# literal loopback address. A notification that silently detoured
+# through a proxy or a redirect would be delivered somewhere nobody
+# reviewed, so curl gets no proxy and no redirects below.
+if ! printf '%s' "$WEBHOOK_URL" | grep -Eq '^https://|^http://127\.[0-9.]+([/:]|$)|^http://\[::1\]([/:]|$)'; then
+    emit webhook refused "reason=scheme-must-be-https-or-loopback-http"
+    exit 1
+fi
+if ! command -v curl >/dev/null 2>&1; then
+    emit webhook skipped "reason=no-curl"
+    exit 1
+fi
+json_escape() { printf '%s' "$1" | tr -d '\000-\010\012-\037' | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+checks_json=""
+while IFS="$(printf '\t')" read -r name detail; do
+    [ -n "$name" ] || continue
+    checks_json="${checks_json:+$checks_json,}{\"check\":\"$(json_escape "$name")\",\"detail\":\"$(json_escape "$detail")\"}"
+done <<<"$ALERT_LINES"
+body="{\"source\":\"dg-alerts\",\"host\":\"$(json_escape "$(hostname 2>/dev/null || echo unknown)")\",\"at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"alerts\":[$checks_json]}"
+# The URL is never printed: it usually carries a token.
+if curl -fsS -m 10 --noproxy '*' --max-redirs 0 -X POST \
+    -H 'Content-Type: application/json' --data-binary "$body" \
+    "$WEBHOOK_URL" >/dev/null 2>&1; then
+    emit webhook sent "alerts=$(printf '%s' "$ALERT_LINES" | grep -c .)"
+else
+    emit webhook failed "curl_exit=$? action='the journal line above is the delivery; fix the endpoint'"
+fi
+exit 1
