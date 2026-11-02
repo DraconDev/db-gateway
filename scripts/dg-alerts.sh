@@ -161,7 +161,8 @@ if [ -n "$WEBHOOK_URL_FILE" ]; then
     fi
 fi
 if [ -z "$WEBHOOK_URL" ]; then
-    emit webhook skipped "reason=unconfigured"
+    # Unconfigured means the old behaviour exactly: the alert lines
+    # above are the whole delivery, with no new line saying so.
     exit 1
 fi
 # The same rule as dg::notify::WebhookSink: https, or plain http on a
