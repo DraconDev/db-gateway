@@ -386,7 +386,7 @@ fn clicking_a_credential_opens_nothing() {
         Mode::Normal,
         "a click on a credential opened something"
     );
-    assert!(app.prompt_prefill.is_empty(), "the prompt was filled");
+    assert_eq!(app.take_pending(), None, "a click on a credential queued an open");
 }
 
 /// Clicking a table in the opened database opens that table.
