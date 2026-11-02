@@ -61,8 +61,9 @@ fn start_server() -> Server {
         .spawn()
         .unwrap();
     let stderr = child.stderr.take().unwrap();
+    let mut lines = BufReader::new(stderr).lines();
     let mut address = None;
-    for line in BufReader::new(stderr).lines() {
+    for line in lines.by_ref() {
         let line = line.unwrap();
         if let Ok(log) = serde_json::from_str::<Value>(&line)
             && let Some(addr) = log["fields"]["address"].as_str()
@@ -71,8 +72,35 @@ fn start_server() -> Server {
             break;
         }
     }
+    // The address is logged at bind time, but bind is not ready: the
+    // router is still being built behind it, and on a loaded box the
+    // first request used to meet a connection refused. Poll the
+    // unauthenticated liveness endpoint instead of assuming the port
+    // answers. The leftover log lines are drained in the background
+    // so a chatty server can never block on a full stderr pipe.
+    let address = address.expect("server logged its listen address");
+    std::thread::spawn(move || {
+        for _ in lines.by_ref() {}
+    });
+    let probe = reqwest::blocking::Client::new();
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let ready = probe
+            .get(format!("http://{address}/health/live"))
+            .timeout(Duration::from_secs(2))
+            .send()
+            .is_ok_and(|response| response.status().is_success());
+        if ready {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "server at {address} never became ready"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
     Server {
-        address: address.expect("server logged its listen address"),
+        address,
         child,
         data_dir,
     }

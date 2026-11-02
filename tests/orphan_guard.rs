@@ -69,6 +69,41 @@ fn wait_gone(pid: u32, within: Duration) -> bool {
     !process_alive(pid)
 }
 
+/// A process's start time in clock ticks since boot, read from
+/// /proc/PID/stat field 22. Two processes never share a pid AND a
+/// start time, so this tells a recycled pid from the process that
+/// held it: without it, a server that died on time and whose pid the
+/// kernel handed to a new process within the watch window reads as a
+/// survivor that ignored its death signal.
+fn start_time(pid: u32) -> Option<u64> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    stat.rsplit_once(") ")?.1.split_whitespace().nth(19)?.parse::<u64>().ok()
+}
+
+/// Whether the process `pid` had at `born` is gone: no such process, a
+/// zombie awaiting reaping, or a pid that now belongs to a different,
+/// later process. A genuinely surviving server keeps its pid and its
+/// start time, so this cannot mistake survival for death.
+fn process_gone(pid: u32, born: u64) -> bool {
+    if !process_alive(pid) {
+        return true;
+    }
+    start_time(pid).is_none_or(|now| now != born)
+}
+
+/// Wait until the process `pid` had at `born` is gone, or the deadline
+/// passes. Returns whether it died.
+fn wait_gone_since(pid: u32, born: u64, within: Duration) -> bool {
+    let deadline = Instant::now() + within;
+    while Instant::now() < deadline {
+        if process_gone(pid, born) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    process_gone(pid, born)
+}
+
 /// Kill on drop, for the paths a panic can still reach.
 struct ReapOnDrop(u32);
 
@@ -291,12 +326,13 @@ fn a_server_started_normally_dies_with_a_sigkilled_launcher() {
         if let Ok(text) = std::fs::read_to_string(&pidfile)
             && let Ok(pid) = text.trim().parse::<u32>()
             && process_alive(pid)
+            && let Some(born) = start_time(pid)
         {
-            server = Some(pid);
+            server = Some((pid, born));
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    let server = server.expect("server never started");
+    let (server, born) = server.expect("server never started");
     let _reap = ReapOnDrop(server);
 
     // The process that must die is the one PR_SET_PDEATHSIG watches: the
@@ -330,7 +366,7 @@ fn a_server_started_normally_dies_with_a_sigkilled_launcher() {
     let _ = child.wait();
 
     assert!(
-        wait_gone(server, Duration::from_secs(10)),
+        wait_gone_since(server, born, Duration::from_secs(10)),
         "a normally-started server must die when its parent is SIGKILLed (server pid {server}, \
          parent pid {parent_pid}, launcher pid {launcher_pid}); \
          this is the whole point of PR_SET_PDEATHSIG"
