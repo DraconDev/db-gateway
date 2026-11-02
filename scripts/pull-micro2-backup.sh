@@ -61,13 +61,16 @@ fail() { echo "[pull-backup] FAIL: $*" >&2; exit 1; }
 exec 9>"$LOCAL_ROOT/.lock"
 flock -n 9 || fail "another pull is already running"
 
+# One SSH shape for every remote call. BatchMode keeps a key problem a
+# fast error, not a prompt that hangs the timer.
+remote_run() {
+    ssh -i "$KEY" -o BatchMode=yes -o ConnectTimeout=20 "$USER@$HOST" "$@"
+}
+
 # The backup root is dg-owned and unreadable to the login user, so both
 # the listing and the pack run under passwordless sudo on the remote
-# side. BatchMode keeps a key problem a fast error, not a prompt that
-# hangs the timer.
-SSH=(ssh -i "$KEY" -o BatchMode=yes -o ConnectTimeout=20 "$USER@$HOST")
-REMOTE_LS="sudo -n ls '$REMOTE_ROOT'"
-REMOTE_LISTING="$("${SSH[@]} "$REMOTE_LS" 2>/dev/null)" || REMOTE_LISTING=""
+# side.
+REMOTE_LISTING="$(remote_run sudo -n ls "$REMOTE_ROOT" 2>/dev/null)" || REMOTE_LISTING=""
 SET="$(printf '%s\n' "$REMOTE_LISTING" | grep -E '^[0-9]{8}T[0-9]{6}Z$' | sort | tail -1)"
 [ -n "$SET" ] || fail "no snapshot set found under $REMOTE_ROOT"
 if [ -f "$LOCAL_ROOT/$SET/.ok" ]; then
@@ -81,15 +84,15 @@ mkdir -p "$STAGE"
 # A failed transfer must not leave a half-written tarball that the next
 # run mistakes for a completed pull: the .ok marker is written only
 # after every checksum below passes.
-"${SSH[@]}" "sudo -n tar -C '$REMOTE_ROOT' -cz '$SET'" >"$STAGE/$SET.tar.gz" \
+remote_run sudo -n tar -C "$REMOTE_ROOT" -cz "$SET" >"$STAGE/$SET.tar.gz" \
     || fail "transfer of $SET failed"
 tar -xzf "$STAGE/$SET.tar.gz" -C "$STAGE" || fail "unpack of $SET failed"
 [ -d "$STAGE/$SET" ] || fail "archive of $SET has no top directory"
 verified=0
 for sidecar in "$STAGE/$SET"/*.sha256; do
     [ -e "$sidecar" ] || continue
-    (cd "$STAGE/$SET" && sha256sum -c "$(basename "$sidecar")") >/dev/null \
-        || fail "checksum mismatch in $SET/$(basename "$sidecar")"
+    (cd "$STAGE/$SET" && sha256sum -c "$sidecar") >/dev/null \
+        || fail "checksum mismatch in $SET"
     verified=$((verified + 1))
 done
 [ "$verified" -gt 0 ] || fail "$SET carries no checksum sidecars"
