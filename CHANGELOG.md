@@ -39,6 +39,14 @@ fixes; 1.0.0 waits for production acceptance.
   `sqlite_autoindex_*` name, so no statement can be told apart by name —
   which reads nothing back and changes nothing. `scripts/seed-demo.py`
   seeds three explicit indexes again as part of its demo schema.
+- **`Enter` in the terminal view opens the database under the scroll.**
+  The keyboard's doorway used to list the open-table action with the
+  database prefilled into its prompt — a different depth than the
+  mouse's click, which opens the database's page. Both gestures now
+  open the same page, on the databases tab and on the locations tab;
+  tabs whose rows do not name databases are unaffected, and the
+  open-table action stays in the actions list for direct use
+  (`tests/tui_tables.rs`).
 
 ### Fixed
 
