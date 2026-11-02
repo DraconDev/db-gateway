@@ -365,6 +365,7 @@ table's structure. Neither quits the view.
 |---|---|
 | `:` | Open the actions |
 | `r` | Read the service again |
+| `enter` | Open the database under the scroll, on the tabs that name databases |
 | `tab` | Move to the next tab |
 | `↑` / `↓` | Scroll the open tab |
 | `page up` / `page down` | Scroll the open tab a screen at a time |
@@ -413,8 +414,8 @@ leaves, so the shell you return to keeps its selection and its wheel.
 |---|---|
 | click a tab's label | Open that tab, exactly as its number key does |
 | move the pointer over a table | Mark the row under it, so a click can be seen before it is taken |
-| click a row that names a database | Open that database: its tables, with their row and column counts, appear in the last action |
-| click a table in that list | Open that table's rows in the browser: the data, a page at a time |
+| click a row that names a database | Open that database's page: its tables down the left, the selected table's values beside them |
+| click a table in that list | Select that table, so its values are the ones on the right |
 | wheel over the body | Scroll the open tab; three lines a notch |
 | click a scrolled body | Back to the top of the open tab |
 
@@ -427,11 +428,13 @@ hidden tab to move. The mark follows the pointer and leaves with it:
 a header is never marked, because a header is not a row, and a table the
 pointer has left keeps no mark behind.
 
-The mouse's doorway and the keyboard's are different depths, and both
-are one gesture. A click opens the **database** and then the **table**:
-what is in it, and what its columns are. Enter opens a table's **rows**,
-with the database already typed into the prompt, so only the table name
-is left to type.
+The mouse's doorway and the keyboard's are the same depth, and both
+are one gesture. A click on a database row and Enter under the scroll
+open the same **page**: what is in the database, with the selected
+table's values beside the list. Enter on the page then opens the
+selected table's **rows** in the browser, where paging, sorting and
+filtering live; the open-table action stays in the actions list for
+the operator who wants to name a table directly.
 
 Mouse support deliberately stops at reading. Nothing in the view can be
 *changed* by a click — the rows that change something are the actions
@@ -448,7 +451,7 @@ open nothing: their rows are not databases.
 | query | `query <database> <sql>` | Runs one statement; the rows appear in the last-action area |
 | tables | `tables <database>` | Lists one database's tables with row counts |
 | schema | `schema <database> [table]` | Reads a table's structure: each column's declared type, its not-null and primary-key flags, the table's indexes and foreign keys, and its `CREATE` statement |
-| open table | `open <database> <table> [page]` | Opens a table in the rows browser: 10 rows a page, sortable and filterable (Enter on the databases tab lists the action with the scrolled-to database already typed into its prompt; clicking the table in an opened database does the same without typing) |
+| open table | `open <database> <table> [page]` | Opens a table in the rows browser: 10 rows a page, sortable and filterable (Enter on a database row opens the database's page instead, whose own Enter opens the selected table) |
 | run sql file | `run <database> <script.sql>` | Runs a SQL file as one atomic batch, statement by statement |
 | run batch file | `batch <database> <batch.json>` | Runs a JSON batch file |
 | create database | `create <name>` | Creates an empty database |
