@@ -121,3 +121,38 @@ Hourly dg-backup.timer fired automatically (systemd OnCalendar *-*-* *:17:00) wh
 /var/lib/dg/billing_dev_pilot.sqlite  ok      0000000000000002  16 kB
 ```
 Hourly dg-backup.timer fired automatically (systemd OnCalendar *-*-* *:17:00) while the agent session was paused. attempts.jsonl trailing 60 entries: 60 outcome ok, 18 with databases=2 (post-launch sets).
+
+## 2026-11-02T21:35Z — retrospective verdict (sampling gap 2026-10-17 → 2026-11-02)
+
+No entries were collected after 2026-10-16T21:17Z. Before re-baselining,
+the live record was audited against the plan's green criteria (hourly
+`dg backup verify ok` sets AND `litestream status ok` with advancing
+txid, 7 consecutive days):
+
+```
+attempts.jsonl: 472 entries, 472 outcome ok, 20261014T133826Z → 20261102T211700Z
+litestream status 2026-11-02: every database ok, billing_dev_pilot txid 0000000000000004 (was 2 on 2026-10-16)
+replica inventory for billing_dev_pilot: 8 files over 2026-10-16/26/27 (compaction merged the rest)
+bucket restore drill 2026-11-01: ok, 7 databases restored from the replicas and verified
+```
+
+Verdict, criterion by criterion:
+
+- Backup half: SATISFIED by complete record — 19 days of hourly
+  outcome-ok, stronger than the 7 days asked.
+- Replication half: satisfied in substance (ok at both endpoints,
+  replica holds the data, drill-proven) but NOT in sampling letter —
+  no per-hour txid samples exist for the gap, and compaction has
+  merged the file-level history, so a mid-window stall-and-recover
+  cannot be excluded from this evidence alone.
+- The deeper finding: the pilot database itself is idle — txid 2 →
+  4 in 17 days. The plan's pilot was a workload ("workload choice +
+  trial-import approval" were owner decisions), and that workload
+  never started. What soaked 19 days green is the infrastructure
+  (timers, backups, replication), not a live pilot.
+
+The soak gate therefore stays open, and re-sampling an idle database
+would not close it honestly. Closes when: the owner workload decision
+lands, the trial import runs, and 7 consecutive days of the plan's
+hourly entries are collected against an ACTIVE pilot. Next entry
+starts that series; nothing above is claimed as part of it.
