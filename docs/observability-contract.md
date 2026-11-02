@@ -229,5 +229,9 @@ choices after the signal semantics and authorization boundary are accepted.
 Alert 4 is the one exception, and it is bounded on purpose: §3a chooses a
 structured-log sink plus an optional HTTPS/loopback webhook for backup health
 only, because the owner's 2026-09-27 decision asked for delivery and the
-project had no alert stack to choose from. Alerts 1, 2, 3, 5 and 6 remain
-unchosen, and no monitor, pager or hosted alerting is implied by §3a.
+project had no alert stack to choose from. The same second-sink shape was
+extended 2026-11-02 to `scripts/dg-alerts.sh` (disk headroom + Litestream
+lag): the journal line is unconditional, and an alert is additionally
+POSTed when `DG_ALERTS_WEBHOOK_URL` (or its `_FILE` form) names an
+endpoint. Alerts 1, 2, 3, 5 and 6 remain otherwise unchosen, and no
+monitor, pager or hosted alerting is implied by §3a.
