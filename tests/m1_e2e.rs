@@ -79,9 +79,7 @@ fn start_server() -> Server {
     // answers. The leftover log lines are drained in the background
     // so a chatty server can never block on a full stderr pipe.
     let address = address.expect("server logged its listen address");
-    std::thread::spawn(move || {
-        for _ in lines.by_ref() {}
-    });
+    std::thread::spawn(move || for _ in lines.by_ref() {});
     let probe = reqwest::blocking::Client::new();
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
     loop {

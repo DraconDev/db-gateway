@@ -65,7 +65,12 @@ fn parent_of(pid: u32) -> Option<u32> {
 /// survivor that ignored its death signal.
 fn start_time(pid: u32) -> Option<u64> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    stat.rsplit_once(") ")?.1.split_whitespace().nth(19)?.parse::<u64>().ok()
+    stat.rsplit_once(") ")?
+        .1
+        .split_whitespace()
+        .nth(19)?
+        .parse::<u64>()
+        .ok()
 }
 
 /// Whether the process `pid` had at `born` is gone: no such process, a
