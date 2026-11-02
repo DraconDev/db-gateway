@@ -66,7 +66,8 @@ flock -n 9 || fail "another pull is already running"
 # side. BatchMode keeps a key problem a fast error, not a prompt that
 # hangs the timer.
 SSH=(ssh -i "$KEY" -o BatchMode=yes -o ConnectTimeout=20 "$USER@$HOST")
-SET="$("${SSH[@]} "sudo -n ls '$REMOTE_ROOT'" 2>/dev/null | grep -E '^[0-9]{8}T[0-9]{6}Z$' | sort | tail -1)" || true
+REMOTE_LISTING="$("${SSH[@]} "sudo -n ls \"$REMOTE_ROOT\"" 2>/dev/null)" || REMOTE_LISTING=""
+SET="$(printf '%s\n' "$REMOTE_LISTING" | grep -E '^[0-9]{8}T[0-9]{6}Z$' | sort | tail -1)"
 [ -n "$SET" ] || fail "no snapshot set found under $REMOTE_ROOT"
 if [ -f "$LOCAL_ROOT/$SET/.ok" ]; then
     echo "[pull-backup] $SET already pulled; nothing to do"
