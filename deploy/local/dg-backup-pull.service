@@ -1,0 +1,22 @@
+# DB Gateway off-host snapshot pull template (non-installing, operator machine).
+#
+# Copy to ~/.config/systemd/user/dg-backup-pull.service on the operator
+# machine, replace every braced placeholder, then
+#   systemctl --user daemon-reload
+# Nothing in this repository installs, enables, or starts this unit.
+#
+# Runs scripts/pull-micro2-backup.sh once per dg-backup-pull.timer
+# fire: the newest verified set is copied from micro2 to the local
+# backup root, every checksum re-verified, old pulls pruned. The pull
+# is idempotent — a run with nothing new exits 0 having changed
+# nothing — so a missed fire costs nothing but a day of second-leg
+# freshness; Litestream's WAL stream covers the intraday either way.
+# The SSH key stays in the operator's ~/.ssh; no secret is passed on
+# the command line or stored in the unit.
+
+[Unit]
+Description=DB Gateway off-host snapshot pull
+
+[Service]
+Type=oneshot
+ExecStart={{DG_PULL_SCRIPT}} --keep {{DG_PULL_KEEP}} --local-root {{DG_PULL_LOCAL_ROOT}}

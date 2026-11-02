@@ -1,0 +1,19 @@
+# DB Gateway off-host snapshot pull timer template (non-installing).
+#
+# Copy to ~/.config/systemd/user/dg-backup-pull.timer on the operator
+# machine alongside dg-backup-pull.service, then
+#   systemctl --user daemon-reload && systemctl --user enable --now dg-backup-pull.timer
+# Fires daily at 07:30 local time. Persistent=true catches up a missed
+# fire after downtime instead of silently skipping a day of second-leg
+# copies. The pull itself keeps the newest {{DG_PULL_KEEP}} sets; the
+# timer only decides how often the newest one is fetched.
+
+[Unit]
+Description=Daily DB Gateway off-host snapshot pull
+
+[Timer]
+OnCalendar=*-*-* 07:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
