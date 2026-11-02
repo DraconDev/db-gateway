@@ -88,23 +88,66 @@ remote_run sudo -n tar -C "$REMOTE_ROOT" -cz "$SET" >"$STAGE/$SET.tar.gz" \
     || fail "transfer of $SET failed"
 tar -xzf "$STAGE/$SET.tar.gz" -C "$STAGE" || fail "unpack of $SET failed"
 [ -d "$STAGE/$SET" ] || fail "archive of $SET has no top directory"
-verified=0
-for sidecar in "$STAGE/$SET"/*.sha256; do
-    [ -e "$sidecar" ] || continue
-    (cd "$STAGE/$SET" && sha256sum -c "$sidecar") >/dev/null \
-        || fail "checksum mismatch in $SET"
-    verified=$((verified + 1))
-done
-[ "$verified" -gt 0 ] || fail "$SET carries no checksum sidecars"
-python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$STAGE/$SET/manifest.json" \
-    || fail "$SET/manifest.json is not valid JSON"
+# Verification mirrors the producer's own pre-publication check
+# (scripts/micro2-backup.sh): every file the manifest names must exist
+# with the recorded size and sha256, every sidecar must agree with the
+# manifest, and every file must open as an intact SQLite database. A
+# pulled set that fails any of this is not a second leg, it is a
+# liability, so nothing is published.
+verified="$(python3 - "$STAGE/$SET" <<'PY' || fail "verification of $SET failed"
+import hashlib
+import json
+import sqlite3
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+with (root / "manifest.json").open(encoding="utf-8") as stream:
+    manifest = json.load(stream)
+
+def digest(path):
+    hasher = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+def check_sqlite(path):
+    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        result, = connection.execute("PRAGMA integrity_check").fetchone()
+        if result != "ok":
+            raise RuntimeError(f"integrity_check failed for {path.name}: {result}")
+    finally:
+        connection.close()
+
+for entry in manifest["databases"]:
+    path = root / entry["file"]
+    sidecar = root / f'{entry["name"]}.sha256'
+    if not path.is_file() or path.stat().st_size != entry["size"]:
+        raise RuntimeError(f"database size mismatch: {path.name}")
+    actual = digest(path)
+    if actual != entry["sha256"] or sidecar.read_text().strip() != actual:
+        raise RuntimeError(f"database checksum mismatch: {path.name}")
+    check_sqlite(path)
+
+registry = manifest["registry"]
+registry_path = root / registry["file"]
+if not registry_path.is_file() or registry_path.stat().st_size != registry["size"]:
+    raise RuntimeError("registry size mismatch")
+if digest(registry_path) != registry["sha256"]:
+    raise RuntimeError("registry checksum mismatch")
+check_sqlite(registry_path)
+print(len(manifest["databases"]) + 1)
+PY
+)"
 bytes="$(stat -c %s "$STAGE/$SET.tar.gz")"
-rm -rf "$LOCAL_ROOT/$SET"
+rm -rf "${LOCAL_ROOT:?}/$SET"
 mv "$STAGE/$SET" "$LOCAL_ROOT/$SET"
 mv "$STAGE/$SET.tar.gz" "$LOCAL_ROOT/$SET.tar.gz"
 date -u +%Y-%m-%dT%H:%M:%SZ >"$LOCAL_ROOT/$SET/.ok"
 rmdir "$STAGE"
-printf '{"ts":"%s","set":"%s","outcome":"ok","bytes":%s,"sidecars":%s}\n' \
+printf '{"ts":"%s","set":"%s","outcome":"ok","bytes":%s,"files":%s}\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SET" "$bytes" "$verified" >>"$LOCAL_ROOT/pulls.jsonl"
 # Prune oldest first, newest $KEEP survive; the tarballs prune with
 # their directories by set name.
@@ -116,4 +159,4 @@ while IFS= read -r dir; do
         rm -rf "$dir" "$dir.tar.gz"
     fi
 done < <(find "$LOCAL_ROOT" -maxdepth 1 -name '[0-9]*T[0-9]*Z' -type d 2>/dev/null | sort -r)
-echo "[pull-backup] $SET pulled and verified ($verified sidecars, $bytes bytes)"
+echo "[pull-backup] $SET pulled and verified ($verified files, $bytes bytes)"
