@@ -57,18 +57,6 @@ fn parent_of(pid: u32) -> Option<u32> {
         .and_then(|value| value.trim().parse::<u32>().ok())
 }
 
-/// Wait until `pid` is gone, or the deadline passes. Returns whether it died.
-fn wait_gone(pid: u32, within: Duration) -> bool {
-    let deadline = Instant::now() + within;
-    while Instant::now() < deadline {
-        if !process_alive(pid) {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    !process_alive(pid)
-}
-
 /// A process's start time in clock ticks since boot, read from
 /// /proc/PID/stat field 22. Two processes never share a pid AND a
 /// start time, so this tells a recycled pid from the process that
