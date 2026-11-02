@@ -746,16 +746,14 @@ impl App {
         match self.focus {
             Focus::Databases => {
                 let names = self.database_names();
-                let index =
-                    (self.scroll.databases as usize).min(names.len().saturating_sub(1));
+                let index = (self.scroll.databases as usize).min(names.len().saturating_sub(1));
                 names.get(index).cloned()
             }
             Focus::Locations => {
                 let table = self.locations()?;
                 let index = self.scroll.locations as usize;
                 let name = table.rows().get(index)?.first()?.parts().0.into_owned();
-                (!name.is_empty() && crate::store::validate_name(&name).is_ok())
-                    .then_some(name)
+                (!name.is_empty() && crate::store::validate_name(&name).is_ok()).then_some(name)
             }
             _ => None,
         }
