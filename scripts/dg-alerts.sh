@@ -3,9 +3,14 @@
 # contract §1/§3 alerts 2 and sidecar freshness). One run evaluates
 # every check, prints one structured line per check to stderr (the
 # journal — the same operator channel as the digest), and exits
-# nonzero if any check alerts. There is no alert stack in this
-# project by design (§3a): a failed oneshot unit + a journal line is
-# the delivery, visible to the same tooling that watches the digest.
+# nonzero if any check alerts. The journal line is the delivery that
+# cannot quietly stop working; when DG_ALERTS_WEBHOOK_URL (or the
+# file DG_ALERTS_WEBHOOK_URL_FILE points at) names an endpoint, the
+# alert is additionally POSTed there as JSON — the §3a second-sink
+# pattern, extended from backup health to these two checks. A webhook
+# that fails is a reported delivery failure, never a silent loss, and
+# it never blocks the journal line. With no webhook configured the
+# run behaves exactly as before: journal only.
 #
 # Checks:
 #   disk    free bytes AND inodes on the data filesystem must stay
@@ -28,7 +33,10 @@
 #      DG_ALERTS_WAL_MAX_BYTES (67108864), DG_ALERTS_SIDECAR_UNIT (dg-litestream;
 #      "skip" disables), DG_ALERTS_SYNC_CHECK (/usr/local/bin/litestream-sync.sh;
 #      "skip" disables), DG_ALERTS_LITESTREAM_BIN (/usr/local/bin/litestream;
-#      "skip" disables the status sub-check).
+#      "skip" disables the status sub-check),
+#      DG_ALERTS_WEBHOOK_URL (unset: journal only),
+#      DG_ALERTS_WEBHOOK_URL_FILE (a mode-0600 file holding the URL;
+#      wins over DG_ALERTS_WEBHOOK_URL when both are set).
 
 set -uo pipefail
 SELF="dg-alerts"
@@ -40,9 +48,20 @@ WAL_MAX="${DG_ALERTS_WAL_MAX_BYTES:-67108864}"
 SIDECAR="${DG_ALERTS_SIDECAR_UNIT:-dg-litestream}"
 SYNC_CHECK="${DG_ALERTS_SYNC_CHECK:-/usr/local/bin/litestream-sync.sh}"
 LS_BIN="${DG_ALERTS_LITESTREAM_BIN:-/usr/local/bin/litestream}"
+WEBHOOK_URL="${DG_ALERTS_WEBHOOK_URL:-}"
+WEBHOOK_URL_FILE="${DG_ALERTS_WEBHOOK_URL_FILE:-}"
 ALERTS=0
+# The alerting checks, one "name<tab>detail" line each, for the webhook
+# body. Checks that pass are journal-only: the webhook carries alerts,
+# not heartbeats.
+ALERT_LINES=""
 
 emit() { echo "dg-alert check=$1 state=$2 $3" >&2; }
+
+# Remember an alert for the webhook body. The journal line is emitted
+# by the caller as before; this only stages the second sink.
+stage() { ALERT_LINES="${ALERT_LINES:+$ALERT_LINES
+}$1	$2"; }
 
 # --- disk -------------------------------------------------------------
 if [ -d "$DATA_DIR" ]; then
