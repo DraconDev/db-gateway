@@ -39,6 +39,21 @@ fixes; 1.0.0 waits for production acceptance.
   `sqlite_autoindex_*` name, so no statement can be told apart by name —
   which reads nothing back and changes nothing. `scripts/seed-demo.py`
   seeds three explicit indexes again as part of its demo schema.
+- **`dg-alerts.sh` can POST alerts to a webhook.** The journal line stays
+  unconditional; when `DG_ALERTS_WEBHOOK_URL` (or the file
+  `DG_ALERTS_WEBHOOK_URL_FILE` points at) names an endpoint, disk and
+  replication-lag alerts are additionally delivered there as JSON — the
+  §3a second-sink pattern, extended from backup health. Same URL rule
+  as `--backup-notify-webhook` (HTTPS, or HTTP on a literal loopback
+  address), no proxy, no redirects; a failed delivery is reported, and
+  unconfigured runs behave exactly as before.
+- **Snapshot sets now have an automated off-host second leg.**
+  `scripts/pull-micro2-backup.sh` pulls the newest verified set from
+  micro2, re-verifies every manifest hash, sidecar and SQLite integrity
+  check the producer performed, and prunes old pulls;
+  `deploy/local/dg-backup-pull.timer` runs it daily on the operator
+  machine. Litestream's WAL stream remains the continuous replica;
+  this is the file-level copy a rebuild starts from.
 - **`Enter` in the terminal view opens the database under the scroll.**
   The keyboard's doorway used to list the open-table action with the
   database prefilled into its prompt — a different depth than the
