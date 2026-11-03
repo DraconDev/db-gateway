@@ -189,6 +189,9 @@ meaning.
 | `requests.wait_samples` | How many waits the percentile sample holds. The sample is a bounded ring of the most recent waits, so it speaks about a recent past, not about the whole uptime. |
 | `databases.<db>.queue_wait_p95_us` | The same percentile, but for **that database's own** recent waits. The service-wide percentile mixes every database, so one contended database can hide inside it; this is the figure that names the slow one. `null` when that database has never waited. |
 | `databases.<db>.queue_wait_max_us` | The longest single wait that database has ever seen, in microseconds. A different fact from the p95: the p95 says how bad the queue usually is, the max says how bad it ever got. |
+| `requests.query_p50_us` / `.query_p95_us` | The median and 95th percentile of recent **statement execution times**, in microseconds — across the whole service. The wait percentiles say how long requests queued; these say how long they ran once admitted. `null` when no statement has completed yet. |
+| `requests.query_samples` | How many executions the percentile sample holds. The sample is a bounded ring of the most recent executions, so it speaks about a recent past, not about the whole uptime. |
+| `databases.<db>.query_p95_us` | The same percentile, but for **that database's own** recent executions. The service-wide percentile mixes every database, so one slow database can hide inside it; this is the figure that names the slow one. `null` when that database has run nothing yet. |
 | `databases.<db>.queue_waits` / `.queue_wait_ms` / `.queue_timeouts` | Admission attempts for that database, the total time spent waiting, and how many attempts hit the 500 ms bound (`429 capacity_exceeded`). `queue_timeouts` growing under a read flood on one database is the starvation signal. |
 | `databases.<db>.last_write` | When the database was last written, as unix seconds, or `null` if it never has been. |
 

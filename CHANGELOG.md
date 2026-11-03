@@ -47,6 +47,19 @@ fixes; 1.0.0 waits for production acceptance.
   including the owner's, stay visible in `dg inspect`, migrate open
   for existing databases, and leave management reads (inspect,
   schema, export) available (`tests/cli_traffic_blocks.rs`).
+- **Latency percentiles and an hourly traffic series
+  (Analytics-lite).** `GET /v1/status` now reports service-wide
+  `query_p50_us` / `query_p95_us` execution percentiles with
+  `query_samples`, plus a per-database `query_p95_us` that names the
+  slow database instead of averaging it away — all bounded rings
+  over the recent past, `null` until the first execution
+  (`src/store/metrics.rs`, `src/store/admission.rs`,
+  `tests/cli_json_contract.rs`). `scripts/traffic-sample.sh` with the
+  `deploy/dg-traffic-sample.{service,timer}` units (hourly, :50)
+  appends one JSON sample of totals, per-database rows, and those
+  percentiles to `traffic-samples.jsonl`, so a climbing p95 in one
+  database is visible as a trend rather than a moment
+  (`docs/observability-contract.md` signal "Traffic trend").
 - **`dg-alerts.sh` can POST alerts to a webhook.** The journal line stays
   unconditional; when `DG_ALERTS_WEBHOOK_URL` (or the file
   `DG_ALERTS_WEBHOOK_URL_FILE` points at) names an endpoint, disk and
