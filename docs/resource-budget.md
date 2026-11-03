@@ -226,6 +226,25 @@ live change and needs owner approval; until the series exists the
 verdict stays "steady-state composed, trend unproven" — an honest
 statement, not a fit claim.
 
+**Verdict attempt 2026-11-03 (series 2026-10-19 → 2026-11-03, 61
+samples, 14.7 days): three of four criteria pass.** Sidecar max
+50.0 MiB (ceiling 64), MemAvailable min 302 MiB (floor 128), and
+the growth slope +38.9 MiB/day projects to 16.2% of free disk over
+90 days (limit 50%) — the journal dominates the slope (27.8 →
+512.3 MiB total; data + backups stay under 17 MiB). The gateway
+criterion fails on one sample: 60 of 61 under 32 MiB (peaks ≤27.3
+MiB, no leak trajectory), but the final sample reads 55.0 MiB with
+no error in any log and a normal 2-second backup in the same
+second. A post-upgrade backup-time experiment moves gateway memory
+21.2 → 26.6 MiB only, so the spike is not a reproducible
+backup artifact. The spiking process is gone (binary upgraded and
+service restarted 2026-11-03T10:37Z); the gate stays open pending
+clean samples under the new binary. Note for the next attempt:
+the 6-hourly sampler fires at :17, the same minute as the hourly
+backup, so every sample is backup-loaded — pessimistic, hence
+conservative for this gate, but noisy; do not retime it until the
+verdict is recorded, or the regimes stop being comparable.
+
 ## Assumptions and required target-host checks
 
 - Assumes the target runs the release binary behind loopback-only serving (or
