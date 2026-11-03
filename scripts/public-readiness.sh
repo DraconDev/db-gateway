@@ -201,23 +201,153 @@ else
 fi
 
 if [ "$TREE_ONLY" -eq 0 ]; then
-    # The same matcher, over every commit. A secret that was added and
-    # later removed is still in every clone of the repo, so the tree scan
-    # alone would report a clean repo that has already leaked.
-    TMPHIST="$(mktemp -t public-readiness-hist.XXXXXX)"
-    trap 'rm -f "$TMPHIST"' EXIT
-    if git log -p --all > "$TMPHIST" 2>/dev/null; then
-        if ! HIST_OUT="$("$REPO/scripts/secret-scan.sh" "$TMPHIST" 2>&1)"; then
-            block "credential-shaped material in the history (see below)"
-            printf '%s\n' "$HIST_OUT" | sed 's/^/         /'
-            printf '       The line numbers are into the concatenated diff, not a file.\n'
-            printf '       Locate the commit with: git log -p --all | grep -n "<pattern>"\n'
-        else
-            ok "history is clean of credential-shaped material"
-        fi
+    # Encrypted secret material, checked before the generic scan because
+    # it needs a different message. The .gitignore documents the
+    # dracon-warden policy -- age-encrypted secrets are "intentionally
+    # tracked in git for team collaboration" -- and that policy is sound
+    # for a PRIVATE repo and stops being sound the moment the repo is
+    # public. The ciphertext is safe against anyone without the age
+    # identity, but publishing it puts the payload and the recipient key
+    # in every clone forever: the owner's private key is the only thing
+    # standing between the internet and those values, and a key that
+    # leaks in 2029 decrypts a commit published in 2026.
+    WARDEN_COMMITS="$(git log --all --format='%H' -S'DRACON_SECRET' 2>/dev/null || true)"
+    WARDEN_COUNT="$(git log --all -p 2>/dev/null \
+        | grep -oE 'DRACON_SECRET:[A-Za-z0-9+/=]+' | sort -u | wc -l | tr -d ' ')"
+    if [ -n "$WARDEN_COMMITS" ]; then
+        block "$WARDEN_COUNT age-encrypted secret value(s) were committed in $(printf '%s\n' "$WARDEN_COMMITS" | wc -l | tr -d ' ') commit(s)"
+        printf '       This is the dracon-warden scheme the managed .gitignore describes as\n'
+        printf '       "intentionally tracked in git for team collaboration". That reasoning\n'
+        printf '       holds because the repo is private; it does not survive publication.\n'
+        printf '       Decide explicitly: rewrite them out of history, or publish them\n'
+        printf '       knowing the age identity is the only remaining protection.\n'
+        printf '       Commits:\n'
+        git log --all --format='         %h %ad %s' --date=short -S'DRACON_SECRET' 2>/dev/null \
+            | cut -c1-150 | sed 's/$//'
     else
-        printf 'ADVICE could not read the history; the history checks were skipped\n'
-        ADVISORIES=$((ADVISORIES + 1))
+        ok "no age-encrypted secret material in the history"
+    fi
+fi
+
+if [ "$TREE_ONLY" -eq 0 ]; then
+    # The same matcher as the tree scan, over every commit. A secret that
+    # was added and later removed is still in every clone, so the tree
+    # scan alone would call a repo clean that has already leaked.
+    #
+    # The matcher lives in scripts/secret-scan.sh and stays there: it has
+    # its own tests, and a second copy here would drift. What this block
+    # adds is provenance. Scanning a concatenated diff gives a line
+    # number into the diff, which tells an operator nothing; writing each
+    # commit's added lines to its own file lets the untouched scanner
+    # report a file, and this block maps that file back to a commit and a
+    # path. The line number is into the lines that commit ADDED, which is
+    # the honest thing to say rather than pretending it is a file line.
+    HIST_DIR="$(mktemp -d -t public-readiness-hist.XXXXXX)"
+    trap 'rm -rf "$HIST_DIR"' EXIT
+
+    if ! MANIFEST="$(python3 - "$HIST_DIR" <<'PY'
+import subprocess
+import sys
+from pathlib import Path
+
+out = Path(sys.argv[1])
+diff = subprocess.run(
+    ["git", "log", "--all", "-p", "--no-color", "--format=commit %H"],
+    capture_output=True, text=True, check=False,
+).stdout
+
+commit = ""
+path = ""
+frag = None
+index = 0
+added = 0
+
+
+def flush():
+    global frag, index, added
+    if frag is not None and added:
+        index += 1
+        name = f"{index:05d}"
+        (out / name).write_text("".join(frag), encoding="utf-8")
+        print(f"{name}\t{commit}\t{path}")
+    frag = None
+    added = 0
+
+
+for line in diff.splitlines(keepends=True):
+    if line.startswith("commit "):
+        flush()
+        commit = line[len("commit "):].strip()
+        path = ""
+        continue
+    if line.startswith("+++ "):
+        flush()
+        name = line[4:].strip()
+        path = "" if name == "/dev/null" else name[2:] if name[:2] in ("b/", "a/") else name
+        frag = []
+        added = 0
+        continue
+    if line.startswith("@@"):
+        flush()
+        frag = []
+        added = 0
+        continue
+    if line.startswith("+") and frag is not None:
+        frag.append(line[1:])
+        added += 1
+
+flush()
+PY
+)"; then
+        advise "could not read the history; the history scan was skipped"
+    elif [ -z "$MANIFEST" ]; then
+        ok "history is clean of credential-shaped material"
+    else
+        mapfile -t FRAGS < <(printf '%s\n' "$MANIFEST" | cut -f1)
+        if [ "${#FRAGS[@]}" -eq 0 ]; then
+            ok "history is clean of credential-shaped material"
+        else
+            # Absolute paths so the scanner does not fall back to the repo.
+            FRAG_PATHS=()
+            for f in "${FRAGS[@]}"; do
+                FRAG_PATHS+=("$HIST_DIR/$f")
+            done
+            SCAN_HIST="$("$REPO/scripts/secret-scan.sh" "${FRAG_PATHS[@]}" 2>&1 || true)"
+            printf '%s\n' "$SCAN_HIST" > "$HIST_DIR/.scan"
+
+            FINDINGS="$(python3 - "$HIST_DIR/.scan" <<'PY'
+import re
+import sys
+
+seen = []
+for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
+    m = re.match(r"^\s+(\S+?):(\d+):\s+(\S+)$", line.rstrip())
+    if m:
+        seen.append((m.group(1), m.group(2), m.group(3)))
+for frag, lineno, kind in seen:
+    print(f"{frag}\t{lineno}\t{kind}")
+PY
+)"
+
+            if [ -z "$FINDINGS" ]; then
+                ok "history is clean of credential-shaped material"
+            else
+                COUNT="$(printf '%s\n' "$FINDINGS" | wc -l | tr -d ' ')"
+                block "credential-shaped material in the history: $COUNT hit(s)"
+                while IFS=$'\t' read -r frag lineno kind; do
+                    [ -n "$frag" ] || continue
+                    base="$(basename "$frag")"
+                    info="$(printf '%s\n' "$MANIFEST" | awk -F'\t' -v k="$base" '$1 == k {print $2"\t"$3}')"
+                    csha="$(printf '%s\n' "$info" | cut -f1 | cut -c1-12)"
+                    cpath="$(printf '%s\n' "$info" | cut -f2)"
+                    printf '       %s %s  (%s; line %s of the lines that commit added)\n' \
+                        "$csha" "$cpath" "$kind" "$lineno"
+                done <<< "$FINDINGS"
+                printf '       Inspect one with: git show <sha>:<path>\n'
+                printf '       Values are withheld on purpose. A leaked credential must be rotated even\n'
+                printf '       if the commit is later rewritten out of the history.\n'
+            fi
+        fi
     fi
 fi
 
