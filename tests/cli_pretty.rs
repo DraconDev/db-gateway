@@ -151,6 +151,9 @@ fn piped_output_stays_json_and_identical_to_the_json_flag() {
             "wait_p50_us",
             "wait_p95_us",
             "wait_samples",
+            "query_p50_us",
+            "query_p95_us",
+            "query_samples",
             "recent_span_secs",
             // The per-second request window is a live measurement of
             // the last minute, and the request the first call made

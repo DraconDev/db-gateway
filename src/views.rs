@@ -1750,6 +1750,8 @@ pub struct ActivityFacts {
     /// was never made.
     pub wait_p95_us: Option<u64>,
     pub wait_max_us: Option<u64>,
+    /// `None` when no statement has run against it.
+    pub query_p95_us: Option<u64>,
     /// `None` when it has never been written.
     pub last_write: Option<u64>,
 }
@@ -1766,6 +1768,7 @@ impl ActivityFacts {
             queue_waits: count("queue_waits"),
             wait_p95_us: entry.get("queue_wait_p95_us").and_then(Value::as_u64),
             wait_max_us: entry.get("queue_wait_max_us").and_then(Value::as_u64),
+            query_p95_us: entry.get("query_p95_us").and_then(Value::as_u64),
             last_write: entry.get("last_write").and_then(Value::as_u64),
         }
     }
@@ -1779,6 +1782,7 @@ impl ActivityFacts {
             "queue_waits": self.queue_waits,
             "queue_wait_p95_us": self.wait_p95_us,
             "queue_wait_max_us": self.wait_max_us,
+            "query_p95_us": self.query_p95_us,
             "last_write": self.last_write,
         })
     }
@@ -1817,6 +1821,13 @@ pub fn activity_section(entry: &Value) -> Section {
         match facts.wait_max_us {
             Some(micros) => Cell::text(human_micros(micros)),
             None => Cell::text("no waits recorded"),
+        },
+    );
+    activity.field(
+        "query p95",
+        match facts.query_p95_us {
+            Some(micros) => Cell::text(human_micros(micros)),
+            None => Cell::text("no queries recorded"),
         },
     );
     activity.field(

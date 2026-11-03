@@ -203,6 +203,7 @@ fn a_database_the_gateway_has_never_touched_reports_its_zeroes() {
     // absence as "no waits recorded" / "never".
     assert_eq!(activity["queue_wait_p95_us"], Value::Null, "{document}");
     assert_eq!(activity["queue_wait_max_us"], Value::Null, "{document}");
+    assert_eq!(activity["query_p95_us"], Value::Null, "{document}");
     assert_eq!(activity["last_write"], Value::Null, "{document}");
     // The fields exist, so a script reads a path and gets an answer
     // rather than a key error.
@@ -212,6 +213,7 @@ fn a_database_the_gateway_has_never_touched_reports_its_zeroes() {
         "queue_waits",
         "queue_wait_p95_us",
         "queue_wait_max_us",
+        "query_p95_us",
         "last_write",
     ] {
         assert!(
