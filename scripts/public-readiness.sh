@@ -349,10 +349,36 @@ import sys
 from pathlib import Path
 
 out = Path(sys.argv[1])
-diff = subprocess.run(
+
+# The history read has to be trusted before its output is. `git log -p`
+# runs the repository's clean/smudge filters for every blob it renders,
+# and a filter that refuses a path can end the stream early. A truncated
+# log reads as a clean one, which is the one failure mode this gate must
+# never have -- so the exit status is checked and the commit count is
+# cross-checked against `git rev-list --count --all` before a single
+# fragment is trusted. A mismatch is reported as UNKNOWN, never as clean.
+log = subprocess.run(
     ["git", "log", "--all", "-p", "--no-color", "--format=commit %H"],
     capture_output=True, text=True, check=False,
-).stdout
+)
+if log.returncode != 0:
+    print(f"git log --all failed with status {log.returncode}", file=sys.stderr)
+    sys.exit(3)
+diff = log.stdout
+
+count = subprocess.run(
+    ["git", "rev-list", "--count", "--all"],
+    capture_output=True, text=True, check=False,
+)
+expected = int(count.stdout.strip() or 0) if count.returncode == 0 else -1
+seen_commits = diff.count("\ncommit ") + (1 if diff.startswith("commit ") else 0)
+if expected >= 0 and seen_commits != expected:
+    print(
+        f"history read is incomplete: git log rendered {seen_commits} of "
+        f"{expected} commits",
+        file=sys.stderr,
+    )
+    sys.exit(4)
 
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
@@ -414,7 +440,14 @@ flush()
                                  encoding="utf-8")
 PY
     then
-        advise "could not rebuild the history; the history scan was skipped"
+        # Not an advisory. Every other outcome below can say something
+        # about the history; this one cannot say anything, and "I could
+        # not read it" must never render as "it is fine".
+        block "the history could not be read completely; the history is UNKNOWN, not clean"
+        printf '       `git log -p` failed or was truncated (see the reason above). Check that\n'
+        printf '       the repository reads cleanly before trusting any of this:\n'
+        printf '         git log --all --oneline | wc -l   # should equal git rev-list --count --all\n'
+        printf '         git rev-list --count --all\n'
     else
         FRAG_COUNT="$(wc -l < "$HIST_DIR/.manifest" | tr -d ' ')"
         if [ "$FRAG_COUNT" -eq 0 ]; then

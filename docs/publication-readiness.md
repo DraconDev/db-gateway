@@ -99,13 +99,18 @@ perform them.
 
 ### Encrypted secrets in history
 
-`dracon-warden` encrypts secret-ish values in place and leaves them in
-the repo as `[DRACON_SECRET:<age-ciphertext>]`. Two different things got
-that treatment:
+Measured, not estimated: **101 distinct `age` ciphertexts, carried by
+34 commits, in three files.**
+
+| File | Encrypted values | What they are |
+|---|---|---|
+| `tests/operations_scripts.rs` | 84 | Test fixtures |
+| `scripts/s3-rehearsal-endpoint.sh` | 13 | Sandbox rehearsal credentials |
+| `tests/secret_scan.rs` | 4 | Test fixtures |
 
 - **Rehearsal/sandbox credentials.** In `scripts/s3-rehearsal-endpoint.sh`
-  the encrypted default belongs to `DG_REHEARSAL_KEY_ID`, and its sibling
-  `DG_REHEARSAL_SECRET` defaults to the literal string
+  the encrypted default belongs to `DG_REHEARSAL_KEY_ID`, and its
+  sibling `DG_REHEARSAL_SECRET` defaults to the literal string
   `rehearsal-secret-not-a-real-credential`. That is sandbox material.
 - **Test fixtures.** `tests/secret_scan.rs` and
   `tests/operations_scripts.rs` hold credential-shaped strings **on
@@ -114,6 +119,10 @@ that treatment:
 
 Not found: production credentials. Nothing in the encrypted set is named
 for production, and the plaintext fixtures around them are keyboard-mash.
+
+`dracon-warden` does this in place and leaves
+`[DRACON_…SECRET:<age-ciphertext>]` in the repo, which is why a value
+that was never meant to leave the box is now in the history.
 
 The decision is still the owner's, because the ciphertext is not free:
 publishing it puts the payload and the age recipient in every clone
@@ -195,6 +204,22 @@ A shaped hit can still be a fixture — `tests/secret_scan.rs` is the
 scanner's own fixture suite, so a hit there is expected. Read the hit
 before treating it as a leak. The gate cannot tell a fixture from a
 credential, and a gate that claimed to would be lying.
+
+## A history read that fails must never look clean
+
+This checkout has a `clean`/`smudge` filter configured (`dracon-warden`),
+and it refuses the session-transcript paths. That is harmless on its own,
+but it exposed a failure mode worth writing down: `git log -p` runs a
+filter for every blob it renders, and a filter that refuses a path can end
+the stream early. A truncated log is indistinguishable from a clean one to
+a reader that only looks at what came back.
+
+The gate therefore checks `git log`'s exit status **and** cross-checks the
+commit count it parsed against `git rev-list --count --all` before it
+trusts a single hunk. A mismatch is reported as `UNKNOWN`, and `UNKNOWN`
+is a blocker. An intermediate version of this gate did the opposite — it
+scanned a truncated stream and printed `history is clean` — which is why
+the check exists and why the wording is this direct.
 
 ## Before the visibility button
 
