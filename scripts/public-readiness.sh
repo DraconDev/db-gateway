@@ -275,9 +275,20 @@ if [ "$TREE_ONLY" -eq 0 ]; then
     # commit containing an encrypted secret. Only an actual ciphertext is.
     WARDEN_MARK="DRACON""_SECRET"
     WARDEN_PAYLOAD="${WARDEN_MARK}:[A-Za-z0-9+/=]{40,}"
-    WARDEN_COMMITS="$(git log --all --format='%H' -G"$WARDEN_PAYLOAD" 2>/dev/null || true)"
     WARDEN_COUNT="$(git log --all -p 2>/dev/null \
         | grep -oE "$WARDEN_PAYLOAD" | sort -u | wc -l | tr -d ' ')"
+    # Commits that ADDED a payload, not commits whose diff merely shows one
+    # nearby: `git log -G` matches context lines too, which counted 35
+    # commits for 5 that introduced anything. --unified=0 removes context
+    # from the output so the only lines this sees are changed ones, and
+    # the awk keeps the ones that are additions.
+    WARDEN_COMMITS="$(git log --all -p --unified=0 --format='C %h %ad %s' --date=short 2>/dev/null \
+        | awk -v pat="$WARDEN_PAYLOAD" '
+            /^C / { cur = $0; sub(/^C /, "", cur); next }
+            /^\+/ && $0 ~ pat {
+                if (!(cur in seen)) { seen[cur] = 1; print cur }
+            }
+        ')"
     if [ -n "$WARDEN_COMMITS" ]; then
         block "$WARDEN_COUNT age-encrypted secret value(s) were committed in $(printf '%s\n' "$WARDEN_COMMITS" | wc -l | tr -d ' ') commit(s)"
         printf '       This is the dracon-warden scheme the managed .gitignore describes as\n'
@@ -286,8 +297,7 @@ if [ "$TREE_ONLY" -eq 0 ]; then
         printf '       Decide explicitly: rewrite them out of history, or publish them\n'
         printf '       knowing the age identity is the only remaining protection.\n'
         printf '       Commits:\n'
-        git log --all --format='         %h %ad %s' --date=short -G"$WARDEN_PAYLOAD" 2>/dev/null \
-            | cut -c1-140
+        printf '%s\n' "$WARDEN_COMMITS" | cut -c1-140 | sed 's/^/         /'
     else
         ok "no age-encrypted secret material in the history"
     fi
