@@ -48,7 +48,7 @@ status="$("$DG_BIN" --json --server "$SERVER" --key-file "$KEY_FILE" status 2>/d
 if [ -z "$status" ]; then
     line="{\"ts\":\"$ts\",\"epoch\":$epoch,\"status\":\"unreachable\"}"
 else
-    line="$(printf '%s' "$status" | DG_TS="$ts" DG_EPOCH="$epoch" python3 - <<'PY'
+    line="$(printf '%s' "$status" | DG_TS="$ts" DG_EPOCH="$epoch" python3 /dev/fd/3 3<<'PY'
 import json, os, sys
 try:
     d = json.load(sys.stdin)
