@@ -63,22 +63,54 @@
 
 set -uo pipefail
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$REPO" || exit 2
+# Two different directories, and conflating them is a bug: SELFDIR holds
+# the scanner this gate delegates to, ROOT is the repository being
+# audited. They are the same in the normal case (`./scripts/
+public-readiness.sh` from the repo root) and different when the gate is
+# run against a fixture, an unpacked release bundle, or another checkout
+# -- which is what the contract test in tests/public_readiness.rs does.
+#
+# The positional root follows the same convention as
+# scripts/check-doc-caps.py and scripts/check-doc-index.py, so every gate
+# in this repo can be pointed at a fixture tree.
+SELFDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 TREE_ONLY=0
-case "${1:-}" in
-    "") ;;
-    --tree) TREE_ONLY=1 ;;
-    *)
-        echo "public-readiness: unknown argument '${1}'" >&2
-        echo "usage: scripts/public-readiness.sh [--tree]" >&2
-        exit 2
-        ;;
-esac
+ROOT=""
+for arg in "$@"; do
+    case "$arg" in
+        --tree) TREE_ONLY=1 ;;
+        -h|--help)
+            sed -n '3,80p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+        -*)
+            echo "public-readiness: unknown option '$arg'" >&2
+            echo "usage: scripts/public-readiness.sh [--tree] [repo-root]" >&2
+            exit 2
+            ;;
+        *)
+            if [ -n "$ROOT" ]; then
+                echo "public-readiness: more than one repo root given" >&2
+                exit 2
+            fi
+            ROOT="$arg"
+            ;;
+    esac
+done
+
+if [ -z "$ROOT" ]; then
+    ROOT="$SELFDIR"
+fi
+if [ ! -d "$ROOT" ]; then
+    echo "public-readiness: no such directory: $ROOT" >&2
+    exit 2
+fi
+cd "$ROOT" || exit 2
+ROOT="$(pwd)"
 
 if ! git rev-parse --git-dir >/dev/null 2>&1; then
-    echo "public-readiness: not a git checkout -- run from the repo" >&2
+    echo "public-readiness: $ROOT is not a git checkout" >&2
     exit 2
 fi
 
@@ -193,8 +225,21 @@ fi
 # ------------------------------------------------------ credential shapes
 section "credential-shaped material"
 
-if ! SCAN_OUT="$("$REPO/scripts/secret-scan.sh" 2>&1)"; then
+# The tracked paths are passed explicitly rather than letting the scanner
+# list its own repository: this gate can be pointed at a fixture tree or
+# another checkout, and a scanner that silently read the wrong repository
+# would report that one clean. TRACKED holds absolute paths so a lookup
+# cannot fall back to the caller's directory.
+#
+# Exit status is 0 clean, 1 findings, 2 could not run. Only 2 means "no
+# answer", and it must not be reported as clean.
+SCAN_OUT="$("$SELFDIR/scripts/secret-scan.sh" "${TRACKED_ABS[@]}" 2>&1)"
+SCAN_RC=$?
+if [ "$SCAN_RC" -eq 1 ]; then
     block "credential-shaped material in the tracked tree (see below)"
+    printf '%s\n' "$SCAN_OUT" | sed 's/^/         /'
+elif [ "$SCAN_RC" -ne 0 ]; then
+    block "the tree credential scan could not run; the tree is UNKNOWN, not clean"
     printf '%s\n' "$SCAN_OUT" | sed 's/^/         /'
 else
     ok "$SCAN_OUT"
@@ -348,7 +393,7 @@ PY
             # 2 = could not run. Only 2 means "no answer"; treating 1 as a
             # failure would turn every real finding into "scan broken".
             scan_batch() {
-                "$REPO/scripts/secret-scan.sh" "$@" >> "$HIST_DIR/.scan" 2>&1
+                "$SELFDIR/scripts/secret-scan.sh" "$@" >> "$HIST_DIR/.scan" 2>&1
                 rc=$?
                 if [ "$rc" -ne 0 ] && [ "$rc" -ne 1 ]; then
                     SCAN_RAN=0
