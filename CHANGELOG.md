@@ -68,6 +68,13 @@ fixes; 1.0.0 waits for production acceptance.
   statement omits the field, old trail lines still read, and
   `dg audit` shows the cost in a human `elapsed` column
   (`tests/audit.rs`).
+- **Tombstone listing (gap 8 closed).** `GET /v1/tombstones`
+  (owner-only) lists every tombstoned database with its retention
+  deadline, oldest purge first, and `dg list --tombstoned` is its
+  CLI — the index between delete and undelete, so an operator who
+  knows something is missing but not what it was called can find
+  it. The live list stays live-only, and scoped keys are refused
+  (`tests/cli_delete_protect.rs`).
 - **`dg-alerts.sh` can POST alerts to a webhook.** The journal line stays
   unconditional; when `DG_ALERTS_WEBHOOK_URL` (or the file
   `DG_ALERTS_WEBHOOK_URL_FILE` points at) names an endpoint, disk and

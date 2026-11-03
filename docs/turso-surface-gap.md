@@ -133,7 +133,7 @@ Console tabs: **Overview**, **Branches**, **Analytics**, **Top Queries**,
 | Sidebar → Create Database | `dg create <name>` | have | Both create an empty database the credential can then reach; `dg` takes the name on the command line rather than opening a dialog, and offers no size/group/location options (§4). | Console (2026-10-29). | not worth doing — already at parity. |
 | Sidebar → Create Group | — | not-applicable | A group is a placement-and-replication container that databases are created into. `dg` has no groups, regions or replicas (§4); every database is one local file, so there is no group to create. | Console (2026-10-29). | not worth doing — structurally inapplicable; a group is a placement-and-replication container and `dg` has neither. |
 | Databases list (rows read/written, bytes synced, storage, group, status) | `dg list`, `dg contents`, TUI databases tab | partial | `dg` has rows read/written, storage, and contents from the files. Groups are a cloud construct (§4); "bytes synced" is replication accounting and provider-imposed write-block status is inapplicable. The storage/counter views are present-tense only; See gap 2 for missing trends. | Console (2026-10-29). | already-gap (2) for trends — carried there as *not worth doing yet*; the present-tense columns are at parity. |
-| Databases list → Restore deleted databases | `dg undelete <name>` | partial | A tombstone can be restored by name inside the retention window. The console offers a list you click; `dg` requires you to know the name: `dg status` reports how many databases are tombstoned but not which, `dg list` shows live names only, and `dg inspect <name>` reports the state of a name you already hold. See gap 8. | Console (2026-10-29); `dg` 0.10.0. | already-gap (8). |
+| Databases list → Restore deleted databases | `dg list --tombstoned` + `dg undelete <name>` | have | A tombstone can be listed and restored by name inside the retention window. The console offers a list you click; `dg` now offers the same enumeration: `dg list --tombstoned` (owner-only) names every tombstone with its purge deadline. Gap 8 CLOSED 2026-11-03. | Console (2026-10-29); `dg` post-0.10.0. | not worth doing — closed by gap 8; at parity 2026-11-03. |
 | Analytics (org): quota cards | — | not-applicable | No quotas to meter against. | Console (2026-10-29). | not worth doing — structurally inapplicable; no quotas to meter. |
 | Analytics (org): Latency / Rows Read / Rows Written / Inbound / Outbound / Syncs / Storage 30-day charts | — | missing | See gap 2. | Console (2026-10-29). | already-gap (2) — carried there as *not worth doing yet*: this is the measured trend gap itself. |
 | Analytics (org): Top Databases ranked by rows read | TUI databases tab, `dg status` | partial | Present-tense ranking only; no trend. See gap 2. | Console (2026-10-29). | already-gap (2) — carried there as *not worth doing yet*: ranking exists; only the trend is missing. |
@@ -557,7 +557,7 @@ Recorded so parity is not overstated. Evidence:
 `docs/evidence/turso-cli-help-2026-10-29.txt`, `dg export --help`,
 `dg import --help`.
 
-### Gap 8 — Nothing lists which databases are tombstoned (low, newly noticed)
+### Gap 8 — Nothing lists which databases are tombstoned (CLOSED 2026-11-03)
 
 The 2026-10-29 console capture shows a **"Restore deleted databases"** entry in
 the sidebar: a list of deleted databases you pick from to bring one back.
@@ -578,8 +578,12 @@ them, which is why it gets its own number rather than reopening a closed one.
 point of tombstone retention is that a mistaken delete is recoverable, and the
 recovery is only reachable if the operator can name the database they deleted.
 It is also bounded — the registry already stores the tombstone rows, so this is
-a read (`deleted_at IS NOT NULL`) rather than new state. Since this pass is
-documentation-only, it is recorded here and no feature was added.
+a read (`deleted_at IS NOT NULL`) rather than new state.
+
+**Closed 2026-11-03:** `GET /v1/tombstones` (owner-only) lists every
+tombstoned name with its retention deadline, oldest purge first, and
+`dg list --tombstoned` is its CLI — the live list stays live-only
+(`tests/cli_delete_protect.rs`).
 
 **Correction made in this pass:** the matrix previously credited
 `dg locations` with listing tombstones. It does not — `dg locations` is not a
