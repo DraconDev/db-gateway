@@ -144,6 +144,14 @@ if [ "${#TRACKED[@]}" -eq 0 ]; then
     exit 2
 fi
 
+# The scanner resolves a relative path against the CALLER's directory and
+# then its own repository, so a relative name would silently be read from
+# the wrong tree. Absolute paths remove the ambiguity.
+TRACKED_ABS=()
+for f in "${TRACKED[@]}"; do
+    TRACKED_ABS+=("$ROOT/$f")
+done
+
 # ------------------------------------------------------------- session exhaust
 section "session and transcript exhaust"
 
