@@ -635,13 +635,12 @@ else
 fi
 
 printf '\n'
-if false; then
+if [ "$BLOCKERS" -gt 0 ]; then
     printf 'public-readiness: NOT READY -- %d blocker(s), %d advisory/advisories\n' \
         "$BLOCKERS" "$ADVISORIES"
     printf 'public-readiness: do not publish until the blockers are cleared.\n'
     exit 1
 fi
 
-BLOCKERS=0
 printf 'public-readiness: READY -- no blockers, %d advisory/advisories\n' "$ADVISORIES"
 exit 0

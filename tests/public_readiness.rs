@@ -155,7 +155,10 @@ fn a_tracked_session_transcript_fails() {
     ]);
 
     let (ok, out) = gate_on(dir.path());
-    assert!(!ok, "the gate passed a tree with a tracked transcript:\n{out}");
+    assert!(
+        !ok,
+        "the gate passed a tree with a tracked transcript:\n{out}"
+    );
     assert!(
         out.contains("pi-session-2026-10-22T20-39-53-378Z_01a16557.md"),
         "the refusal must name the offending path:\n{out}"
@@ -178,7 +181,10 @@ fn a_tracked_private_key_file_fails() {
     ]);
 
     let (ok, out) = gate_on(dir.path());
-    assert!(!ok, "the gate passed a tree with a tracked key file:\n{out}");
+    assert!(
+        !ok,
+        "the gate passed a tree with a tracked key file:\n{out}"
+    );
     assert!(
         out.contains("keys/owner.age"),
         "the refusal must name the offending path:\n{out}"
@@ -205,7 +211,10 @@ fn tracked_build_output_fails() {
     ]);
 
     let (ok, out) = gate_on(dir.path());
-    assert!(!ok, "the gate passed a tree with tracked build output:\n{out}");
+    assert!(
+        !ok,
+        "the gate passed a tree with tracked build output:\n{out}"
+    );
     assert!(
         out.contains("target/debug/dg"),
         "the refusal must name the offending path:\n{out}"
@@ -251,7 +260,10 @@ fn identity_disclosure_advises_but_does_not_block() {
     // publication.
     let dir = repo_with(&[
         ("README.md", "# fixture\n"),
-        ("docs/notes.md", "built in /home/someone/Dev on 203.0.113.7\n"),
+        (
+            "docs/notes.md",
+            "built in /home/someone/Dev on 203.0.113.7\n",
+        ),
     ]);
 
     let (ok, out) = gate_on(dir.path());
