@@ -84,10 +84,8 @@ fi
 
 BLOCKERS=0
 ADVISORIES=0
-SECTION=""
 
 section() {
-    SECTION="$1"
     printf '\n== %s ==\n' "$1"
 }
 
