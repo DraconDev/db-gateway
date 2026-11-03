@@ -145,6 +145,9 @@ megaplan register, which names its path; it does not move.
   `verification/full-suite-eeed1a4-summary.txt`,
   `verification/full-suite-c13bf7f.log`,
   `verification/full-suite-c13bf7f-summary.txt`.
+- **C-dev migration pilot (2026-11-02 … 2026-11-03)** —
+  `migration-cdev-pilot-2026-11-02.log`,
+  `turso-gateway-comparison-2026-11-03.log`.
 
 ## Rules
 
