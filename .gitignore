@@ -135,8 +135,30 @@ web/games/wip/football-forever/docs/audit/
 /.cargo/target/
 /.cargo/target*/
 # Session exhaust, never project source.
-pi-session-*.html
+#
+# The managed block above un-ignores these names (!pi-session-*.html,
+# !conversation-*.html, !rollout-*.json, !trajectory-*.html) because it
+# manages one house style across every repo on this box. For a repo that
+# is published, that un-ignore is a leak path and not a style: these are
+# decoded transcripts of a working session -- verbatim prompts, tool
+# output, file paths, and whatever the operator had on screen. One
+# tracked session log (the .md twin of a file the 2026-09-21 audit had
+# already untracked) shipped this operator's email address and home
+# directory path to every clone. The rules below come after the managed
+# block, so they win, and they cover every format rather than the one
+# extension a previous audit happened to notice.
+pi-session-*
+conversation-*
+rollout-*
+trajectory-*
 # Credential material: key files and env files must never be committed.
 *.key
 .env*
 *.pem
+# age secrets. The managed block un-ignores .dracon/data/ so the owner
+# PUBLIC key can be tracked, and that re-includes everything else under
+# it: an encrypted age private key (.age) or a plaintext age identity
+# (.agekey) dropped in .dracon/data/keys/ was committable, and a
+# committable private key is a published private key.
+*.age
+*.agekey
