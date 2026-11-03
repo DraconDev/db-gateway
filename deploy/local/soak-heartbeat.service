@@ -1,0 +1,19 @@
+# Pilot soak heartbeat template (non-installing, operator machine).
+#
+# Copy to ~/.config/systemd/user/soak-heartbeat.service on the operator
+# machine, replace every braced placeholder, then
+#   systemctl --user daemon-reload
+# Nothing in this repository installs, enables, or starts this unit.
+#
+# Runs scripts/soak-heartbeat.sh once per soak-heartbeat.timer fire:
+# one write plus read-back through the pilot's scoped key, proving
+# the write path, the read path, and replication liveness every hour.
+# Uses the scoped pilot key only; the owner key never appears here.
+
+[Unit]
+Description=Pilot soak heartbeat
+
+[Service]
+Type=oneshot
+Environment=DG_BIN={{DG_BINARY}}
+ExecStart={{DG_HEARTBEAT_SCRIPT}} --server {{DG_SERVER}} --key-file {{DG_PILOT_KEY_FILE}} --database {{DG_PILOT_DATABASE}}
