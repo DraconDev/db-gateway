@@ -1,0 +1,28 @@
+# Hourly traffic sampler (non-installing template).
+#
+# Copy to /etc/systemd/system/dg-traffic-sample.service on the target
+# host, replace every braced placeholder, then
+#   systemctl daemon-reload
+# Nothing in this repository installs, enables, or starts this unit.
+#
+# Appends one JSON sample (service totals, per-database rows, latency
+# percentiles) to the samples file on every timer fire. The multi-day
+# series — not any single sample — is the Analytics-lite trend: which
+# database got slow, and when. Read-only against the gateway: one
+# status read through the owner key. Runs as the dg user; the samples
+# file lives in the dg-owned data dir, so no new writable path is
+# introduced.
+
+[Unit]
+Description=DB Gateway hourly traffic sample
+After=dg.service
+
+[Service]
+Type=oneshot
+User={{DG_USER}}
+Group={{DG_USER}}
+Environment="DG_TRAFFIC_SERVER=http://{{DG_LISTEN}}"
+Environment="DG_TRAFFIC_KEY_FILE={{DG_OWNER_KEY_FILE}}"
+Environment="DG_BIN={{DG_BINARY}}"
+ExecStart={{DG_TRAFFIC_SAMPLE_SCRIPT}} --out {{DG_DATA_DIR}}/traffic-samples.jsonl
+NoNewPrivileges=true

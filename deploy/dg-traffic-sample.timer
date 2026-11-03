@@ -1,0 +1,20 @@
+# Hourly traffic sampler timer (non-installing template).
+#
+# Copy to /etc/systemd/system/dg-traffic-sample.timer on the target
+# host alongside dg-traffic-sample.service, then
+#   systemctl daemon-reload && systemctl enable --now dg-traffic-sample.timer
+# Fires hourly at :50, clear of the :17 backup slot, the quarter-hour
+# alerts, and the half-hour marks other samplers use, so one sample
+# never contends with another periodic job for the gateway's
+# attention. Persistent=true backfills one sample after downtime, so
+# a reboot does not silently gap the series.
+
+[Unit]
+Description=Hourly DB Gateway traffic sampling
+
+[Timer]
+OnCalendar=*-*-* *:50:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

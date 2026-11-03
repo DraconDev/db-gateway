@@ -44,7 +44,7 @@ done
 
 ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 epoch="$(date -u +%s)"
-status="$("$DG_BIN" --server "$SERVER" --key-file "$KEY_FILE" status --json 2>/dev/null)" || status=""
+status="$("$DG_BIN" --json --server "$SERVER" --key-file "$KEY_FILE" status 2>/dev/null)" || status=""
 if [ -z "$status" ]; then
     line="{\"ts\":\"$ts\",\"epoch\":$epoch,\"status\":\"unreachable\"}"
 else
