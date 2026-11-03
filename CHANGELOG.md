@@ -39,6 +39,14 @@ fixes; 1.0.0 waits for production acceptance.
   `sqlite_autoindex_*` name, so no statement can be told apart by name —
   which reads nothing back and changes nothing. `scripts/seed-demo.py`
   seeds three explicit indexes again as part of its demo schema.
+- **Per-database traffic blocks.** `dg block-writes <db>` /
+  `dg block-reads <db>` (each with `--off`) set durable,
+  owner-only kill switches enforced at the query path with stable
+  `403 writes_blocked` / `reads_blocked` codes — the enforcement half
+  of a cutover writer-freeze. The flags bind every credential
+  including the owner's, stay visible in `dg inspect`, migrate open
+  for existing databases, and leave management reads (inspect,
+  schema, export) available (`tests/cli_traffic_blocks.rs`).
 - **`dg-alerts.sh` can POST alerts to a webhook.** The journal line stays
   unconditional; when `DG_ALERTS_WEBHOOK_URL` (or the file
   `DG_ALERTS_WEBHOOK_URL_FILE` points at) names an endpoint, disk and

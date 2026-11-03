@@ -114,7 +114,7 @@ dg mcp                 # speaks JSON-RPC on stdin/stdout
 | --- | --- | --- | --- |
 | `GET /health/live` | none | — | `{"status":"ok"}` |
 | `POST /v1/databases` | owner | `{"name":"game_a"}` | `{"name":"game_a"}` |
-| `GET /v1/databases/{name}` | owner | — | `{"name":"…","tombstoned":false,"protected":bool,"size_bytes":n,"created_at":epoch,"tables":[{"name":"…","rows":n},…]}` (tombstoned names report `{"name":"…","tombstoned":true,"protected":bool,"purge_after":epoch,"size_bytes":n}` instead; unknown names are `404 database_not_found`) |
+| `GET /v1/databases/{name}` | owner | — | `{"name":"…","tombstoned":false,"protected":bool,"writes_blocked":bool,"reads_blocked":bool,"size_bytes":n,"created_at":epoch,"tables":[{"name":"…","rows":n},…]}` (tombstoned names report `{"name":"…","tombstoned":true,"protected":bool,"writes_blocked":bool,"reads_blocked":bool,"purge_after":epoch,"size_bytes":n}` instead; unknown names are `404 database_not_found`) |
 | `GET /v1/contents` | owner | — | `{"databases":{"db":{"tables":n,"rows":n}}} ` — how many tables each live database holds and how many rows, read from each file; `null` counts when a file could not be read (the path is `/v1/contents`, not `/v1/databases/contents`, because `contents` is a legal database name and a route under that prefix would shadow it) |
 | `GET /v1/databases/{name}/schema` | owner | — | `{"database":"…","tombstoned":false,"created_at":epoch,"tables":[{"name":"…","rows":n,"columns":[{"name":"…","type":"INTEGER","not_null":bool,"primary_key":bool,"default":null|"…"}],"indexes":[{"name":"…","unique":bool,"columns":["…"]}],"foreign_keys":[{"table":"…","from":"…","to":"…","on_update":"…","on_delete":"…"}],"sql":"CREATE TABLE …"}]}` (`?table=<name>` narrows the answer to one table; the same document is returned either way) |
 | `GET /v1/databases` | any key | — | `{"databases":["game_a", …]}` (owner: all live databases; app key: only its authorized live databases) |
@@ -124,6 +124,10 @@ dg mcp                 # speaks JSON-RPC on stdin/stdout
 | `DELETE /v1/database-keys/{name}` | owner | — | `{"database":"…","revoked":["key_a",…],"owner_key_excluded":true}` (removes every application credential scoped to this database in one transaction; owner key is never revoked) |
 | `PUT /v1/databases/{name}/protection` | owner | — | `{"protected":true}` |
 | `DELETE /v1/databases/{name}/protection` | owner | — | `{"protected":false}` |
+| `PUT /v1/databases/{name}/block-writes` | owner | — | `{"writes_blocked":true}` (mutations to this database refuse with `403 writes_blocked`, owner included, until cleared; reads unaffected) |
+| `DELETE /v1/databases/{name}/block-writes` | owner | — | `{"writes_blocked":false}` |
+| `PUT /v1/databases/{name}/block-reads` | owner | — | `{"reads_blocked":true}` (queries against this database refuse with `403 reads_blocked`; inspect/schema/export stay available) |
+| `DELETE /v1/databases/{name}/block-reads` | owner | — | `{"reads_blocked":false}` |
 | `POST /v1/databases/{name}/undelete` | owner | — | `{"undeleted":true}` (only while the tombstone's retention deadline is open and the database file is present) |
 | `POST /v1/keys/owner/rotate` | owner | — | `{"key":"<64 hex>"}` |
 | `POST /v1/databases/{name}/query` | scoped key | `{"sql":"INSERT … VALUES (?)","args":[…]}` | `{"columns":[…],"rows":[[…]],"rows_affected":n}` |
@@ -378,6 +382,8 @@ Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1
 | `invalid_credential` | 401 | Missing/unknown/revoked key |
 | `forbidden` | 403 | App key on a management route |
 | `database_forbidden` | 403 | Key not scoped to this database |
+| `writes_blocked` | 403 | Mutation to a database whose writes the owner blocked (`dg block-writes`); clear with `dg block-writes --off` |
+| `reads_blocked` | 403 | Query against a database whose reads the owner blocked (`dg block-reads`); clear with `dg block-reads --off` |
 | `sql_forbidden` | 403 | Read-only write attempt, or SQL touching protected `_dg_*` objects / disallowed features (attach, pragmas, `ALTER`, triggers/views, temp objects, virtual tables, load_extension, user transactions) |
 | `database_not_found` | 404 | No such database (never silently created); `dg undelete` uses it for a name never registered, while a purged name returns `database_purged` |
 | `key_not_found` | 404 | Revoking a credential name that does not exist; nothing was revoked |
