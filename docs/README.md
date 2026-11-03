@@ -43,6 +43,7 @@ canonical list below. For "what did we actually measure", go to
 | `no-turso-contact-2026-10-31.txt` | The trace behind the comparison's Turso-contact disclosure: commands by date, their reported results, and the limits of what the credential check establishes. |
 | `observability-contract.md` | The observability contract: signals, alerts, the 3 a.m. rules (register member). |
 | `ovh-sandbox-runbook.md` | Runbook for the sandbox S3 rehearsal packet. |
+| `publication-readiness.md` | What it takes to take this repository public: `scripts/public-readiness.sh`, what the gate checks, the leaks it found and fixed, and the history decisions that are the owner's. |
 | `recovery-contract.md` | Recovery contract: restore guarantees and drills (register member). |
 | `recovery-decisions.md` | Recovery decision record (register member). |
 | `recovery-policy.md` | Recovery policy the deploy units and drill scripts implement. |

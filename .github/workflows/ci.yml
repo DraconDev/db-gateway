@@ -128,6 +128,18 @@ jobs:
       # must never be committed, so this is the gate that keeps that
       # property true without depending on anyone's memory.
       - run: ./scripts/secret-scan.sh
+      # The tracked tree is publishable: no credential files, no session
+      # transcripts, no build/runtime output, no oversized blobs. The
+      # credential shapes are covered by the step above; this adds the
+      # classes that check cannot see, because a tracked `.pem` or a
+      # decoded session log contains no credential-shaped string at all.
+      #
+      # --tree, not the full gate: the tracked tree is what every commit
+      # changes, so it is the part a CI gate can keep green. The history
+      # checks in the full run are a pre-publication decision aid, and
+      # they fail on history that a CI job must not rewrite. See
+      # docs/publication-readiness.md.
+      - run: ./scripts/public-readiness.sh --tree
       - run: npm ci --prefix client
       # Vulnerability gate for the client dependency tree. --audit-level
       # high means moderate/low findings in dev-only tooling (typescript)
