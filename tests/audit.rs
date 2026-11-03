@@ -190,6 +190,52 @@ fn a_statement_is_recorded_by_its_shape_and_never_by_its_values() {
     );
 }
 
+/// A recorded statement carries how long it took: the audit trail is
+/// the owner's answer to "which credential ran the slow query".
+#[test]
+fn a_recorded_statement_carries_its_execution_time() {
+    let gateway = Gateway::start();
+    let app = gateway.principal(&gateway.app);
+
+    dg::audit::record_statement(
+        &gateway.store,
+        &app,
+        "query",
+        Some("shop"),
+        "SELECT * FROM shop WHERE token = ?",
+        12_345,
+    );
+
+    let (status, body) = get(&gateway, Some(&gateway.owner));
+    assert_eq!(status, 200);
+    assert!(
+        body.contains("\"elapsed_us\":12345"),
+        "the statement's execution time is in the log: {body}"
+    );
+}
+
+/// Anything that is not a statement carries no execution time: a
+/// `create` did not run, so there is nothing to time.
+#[test]
+fn actions_that_are_not_statements_carry_no_execution_time() {
+    let gateway = Gateway::start();
+    let owner = gateway.principal(&gateway.owner);
+    dg::audit::record(
+        &gateway.store,
+        &owner,
+        "create",
+        Some("shop"),
+        None,
+    );
+
+    let (status, body) = get(&gateway, Some(&gateway.owner));
+    assert_eq!(status, 200);
+    assert!(
+        !body.contains("elapsed_us"),
+        "a non-statement entry carries no execution time: {body}"
+    );
+}
+
 /// The end-to-end version of the same promise: a statement that really
 /// ran through the gateway leaves no trace of its values.
 #[test]
