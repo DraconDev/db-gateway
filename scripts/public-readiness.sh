@@ -65,10 +65,10 @@ set -uo pipefail
 
 # Two different directories, and conflating them is a bug: SELFDIR holds
 # the scanner this gate delegates to, ROOT is the repository being
-# audited. They are the same in the normal case (`./scripts/
-public-readiness.sh` from the repo root) and different when the gate is
-# run against a fixture, an unpacked release bundle, or another checkout
-# -- which is what the contract test in tests/public_readiness.rs does.
+# audited. They are the same in the normal case (running the script from
+# the repo root) and different when the gate is run against a fixture, an
+# unpacked release bundle, or another checkout -- which is what the
+# contract test in tests/public_readiness.rs does.
 #
 # The positional root follows the same convention as
 # scripts/check-doc-caps.py and scripts/check-doc-index.py, so every gate
