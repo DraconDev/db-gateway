@@ -48,34 +48,36 @@ status="$("$DG_BIN" --json --server "$SERVER" --key-file "$KEY_FILE" status 2>/d
 if [ -z "$status" ]; then
     line="{\"ts\":\"$ts\",\"epoch\":$epoch,\"status\":\"unreachable\"}"
 else
-    line="$(printf '%s' "$status" | DG_TS="$ts" DG_EPOCH="$epoch" python3 -c "
+    line="$(printf '%s' "$status" | DG_TS="$ts" DG_EPOCH="$epoch" python3 - <<'PY'
 import json, os, sys
 try:
-    d = json.loads(sys.stdin.read())
+    d = json.load(sys.stdin)
 except Exception:
-    print(json.dumps({'ts': os.environ['DG_TS'], 'epoch': int(os.environ['DG_EPOCH']), 'status': 'unparseable'}))
+    print(json.dumps({"ts": os.environ["DG_TS"], "epoch": int(os.environ["DG_EPOCH"]), "status": "unparseable"}))
     raise SystemExit
-r = d.get('requests', {})
+r = d.get("requests", {})
 dbs = {}
-for name, e in (d.get('databases') or {}).items():
+for name, e in (d.get("databases") or {}).items():
     dbs[name] = {
-        'rows_read': e.get('rows_read'),
-        'rows_written': e.get('rows_written'),
-        'query_p95_us': e.get('query_p95_us'),
-        'queue_waits': e.get('queue_waits'),
+        "rows_read": e.get("rows_read"),
+        "rows_written": e.get("rows_written"),
+        "query_p95_us": e.get("query_p95_us"),
+        "queue_waits": e.get("queue_waits"),
     }
 print(json.dumps({
-    'ts': os.environ['DG_TS'],
-    'epoch': int(os.environ['DG_EPOCH']),
-    'total': r.get('total'),
-    'query_p50_us': r.get('query_p50_us'),
-    'query_p95_us': r.get('query_p95_us'),
-    'query_samples': r.get('query_samples'),
-    'wait_p95_us': r.get('wait_p95_us'),
-    'capacity_exceeded': r.get('capacity_exceeded'),
-    'databases': dbs,
-}))"
-    fi
+    "ts": os.environ["DG_TS"],
+    "epoch": int(os.environ["DG_EPOCH"]),
+    "total": r.get("total"),
+    "query_p50_us": r.get("query_p50_us"),
+    "query_p95_us": r.get("query_p95_us"),
+    "query_samples": r.get("query_samples"),
+    "wait_p95_us": r.get("wait_p95_us"),
+    "capacity_exceeded": r.get("capacity_exceeded"),
+    "databases": dbs,
+}))
+PY
+)"
+fi
 
 if [ -n "$OUT" ]; then
     mkdir -p "$(dirname "$OUT")"
