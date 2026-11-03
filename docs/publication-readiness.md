@@ -140,6 +140,18 @@ Removing the `.md` from the index does not remove it from history either.
 Same options as above, and the same reason the gate will not do it
 unattended.
 
+### A broken gate commit in history
+
+Worth recording because it is the kind of thing a rewrite should know
+about. This work was done on a checkout where a background sync commits
+every change, so the intermediate states are in history — including the
+revision used to prove the contract tests were not vacuous, in which
+`scripts/public-readiness.sh` forced `READY`. The tests caught it (six of
+eleven failed) and the next commit reverted it, but the broken revision
+is still a commit. Anyone reading the history will find a gate that
+always passed; that is why it is written down here rather than left to
+look like an unexplained spike.
+
 ### Identity disclosure
 
 Reported as advisories, not blockers. `scripts/public-readiness.sh` splits

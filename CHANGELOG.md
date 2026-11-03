@@ -101,6 +101,45 @@ fixes; 1.0.0 waits for production acceptance.
 
 ### Fixed
 
+- **The repository can be published without leaking what private-ness was
+  hiding.** Two real leaks were sitting in the tracked tree, and neither
+  carried a credential-shaped string, so `scripts/secret-scan.sh` reported
+  the tree clean with both of them in it. A decoded session transcript
+  (`pi-session-2026-10-22T..._01a16557-....md`) held this operator's email
+  address, their home directory path, a public server address and
+  production database names; the 2026-09-21 audit had untracked the
+  **`.html`** export of that session and swept the one extension it had
+  seen, so the `.md` twin added later walked past it. Separately, the
+  managed `.gitignore` block un-ignores `.dracon/data/` so the owner
+  **public** key can be tracked, which re-included everything under it —
+  an age private key (`.age`) or a plaintext age identity (`.agekey`)
+  dropped in `.dracon/data/keys/` was committable, and nothing in the tree
+  was one only because nobody had put one there. `.gitignore` now ignores
+  `pi-session-*`, `conversation-*`, `rollout-*` and `trajectory-*` (every
+  format, not the one a previous audit happened to notice) and `*.age` /
+  `*.agekey` **below** the managed block, so it wins over the block's
+  blanket un-ignores; the tracked public key still tracks.
+
+- **Publication is a gate, not a habit.** `scripts/public-readiness.sh`
+  runs every pre-publication check in one command and fails loudly:
+  session exhaust and credential files in the index, build/runtime output,
+  tracked blobs over 256 KiB, credential-shaped material in the tree, and
+  — in the full run — session exhaust, `age`-encrypted secret material and
+  credential-**formed** material anywhere in the history, with the commit
+  and path for each. Identity disclosure (home directory paths, personal
+  addresses, host IPs, a cloud account id) is reported as an advisory
+  split into live docs, which can be scrubbed, and frozen records, which
+  cannot. CI runs the `--tree` half on every push; the history half runs
+  before publication, because history cannot be un-published and a rewrite
+  is an owner decision. The matcher stays in `scripts/secret-scan.sh`:
+  shaped hits block and name-based heuristic hits only advise, since the
+  fixtures in `tests/secret_scan.rs` exist to contain those shapes.
+  `tests/public_readiness.rs` pins the verdicts (11 contract tests, each
+  fixture a throwaway git repo), and `docs/publication-readiness.md` is
+  the runbook plus the record of what the gate found. The `.html` session
+  export and the `age`-encrypted values are still in history; those
+  decisions, and the reasoning behind each, are recorded there.
+
 - **One upload's chunks can no longer overwrite each other.** An
   append read the acknowledged offset under the transfer registry lock,
   released it, and wrote the file — so two chunks submitted at the same
