@@ -148,7 +148,8 @@ now) and **frozen records** (`docs/evidence/`, `docs/verification/` —
 never edited after the fact per `docs/README.md`, so publishing them is
 the decision):
 
-- `/home/dracon` paths in 5 live docs and 10 frozen records.
+- The operator's home directory path (a `/home` prefix followed by a
+  username) in 5 live docs and 10 frozen records.
 - The deployment host's public IP in 2 live docs and 4 frozen records.
 - A cloud account id in 1 live doc.
 
@@ -165,9 +166,9 @@ is public.
 The scanner's `generic-secret-assignment` pattern is a heuristic: a
 secret-ish *name* assigned a long value. On one file it earns its keep.
 Across 2500 commits it also matches
-
-- constants whose **value** is an environment-variable name rather than a
-  secret (`SECRET_PREFIX = "LITESTREAM_S3_SECRET_ACCESS_KEY="`), and
+- constants whose **value** happens to be an environment-variable name
+  rather than a secret (a variable holding the literal name of an S3
+  access-key setting, rather than its value), and
 - the fixtures in `tests/secret_scan.rs` and
   `tests/operations_scripts.rs`, which contain credential shapes because
   testing a credential scanner requires them.
