@@ -265,17 +265,19 @@ if [ "$TREE_ONLY" -eq 0 ]; then
     # still standing between the internet and those values, and a key
     # that leaks in 2029 decrypts a commit published in 2026.
     #
-    # The needle is assembled from two halves on purpose. Written out, the
-    # literal would occur in this file, and `git log -S` would then find
-    # THIS script in the history and report itself as a leak -- which is
-    # exactly what happened on the first run. The gate's own path is
-    # excluded as well, so a future edit that reintroduces the literal
-    # cannot make the gate flag itself.
+    # The needle is assembled from two halves on purpose: written out, the
+    # literal would occur in this file and `git log` would then find THIS
+    # script in the history and report it as a leak -- which is what
+    # happened on the first run. For the same reason the search is `-G`
+    # with a payload shape (the marker followed by a real base64 body)
+    # rather than `-S` on the bare marker: a document that NAMES the
+    # scheme, or this script that describes it, must not be counted as a
+    # commit containing an encrypted secret. Only an actual ciphertext is.
     WARDEN_MARK="DRACON""_SECRET"
-    WARDEN_COMMITS="$(git log --all --format='%H' -S"$WARDEN_MARK" \
-        -- . ':(exclude)scripts/public-readiness.sh' 2>/dev/null || true)"
-    WARDEN_COUNT="$(git log --all -p -- . ':(exclude)scripts/public-readiness.sh' 2>/dev/null \
-        | grep -oE "${WARDEN_MARK}:[A-Za-z0-9+/=]+" | sort -u | wc -l | tr -d ' ')"
+    WARDEN_PAYLOAD="${WARDEN_MARK}:[A-Za-z0-9+/=]{40,}"
+    WARDEN_COMMITS="$(git log --all --format='%H' -G"$WARDEN_PAYLOAD" 2>/dev/null || true)"
+    WARDEN_COUNT="$(git log --all -p 2>/dev/null \
+        | grep -oE "$WARDEN_PAYLOAD" | sort -u | wc -l | tr -d ' ')"
     if [ -n "$WARDEN_COMMITS" ]; then
         block "$WARDEN_COUNT age-encrypted secret value(s) were committed in $(printf '%s\n' "$WARDEN_COMMITS" | wc -l | tr -d ' ') commit(s)"
         printf '       This is the dracon-warden scheme the managed .gitignore describes as\n'
@@ -284,8 +286,8 @@ if [ "$TREE_ONLY" -eq 0 ]; then
         printf '       Decide explicitly: rewrite them out of history, or publish them\n'
         printf '       knowing the age identity is the only remaining protection.\n'
         printf '       Commits:\n'
-        git log --all --format='         %h %ad %s' --date=short -S"$WARDEN_MARK" \
-            -- . ':(exclude)scripts/public-readiness.sh' 2>/dev/null | cut -c1-140
+        git log --all --format='         %h %ad %s' --date=short -G"$WARDEN_PAYLOAD" 2>/dev/null \
+            | cut -c1-140
     else
         ok "no age-encrypted secret material in the history"
     fi
@@ -531,9 +533,12 @@ IP = re.compile(r"\b(?:(?:25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})\.){3}"
                 r"(?:25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})\b")
 ACCOUNT = re.compile(r"\baccount\s+\d{9,12}\b")
 
-# Documented examples: naming them teaches nothing about the operator.
+# Reserveds: the documented examples, plus TEST-NET-1/2/3 (RFC 5737),
+# which exist precisely so documentation and fixtures can name an address
+# that belongs to nobody. Naming one teaches nothing about the operator.
 IP_ALLOW = {"0.0.0.0", "127.0.0.1", "127.0.0.2", "10.0.0.1",
-            "10.66.0.1", "192.0.2.1", "255.255.255.255"}
+            "10.66.0.1", "255.255.255.255"}
+IP_ALLOW_PREFIX = ("192.0.2.", "198.51.100.", "203.0.113.")
 # Role mailboxes and forge system addresses, not a person's address.
 EMAIL_ALLOW_DOMAIN = {"github.com", "gitlab.com", "noreply.github.com",
                      # RFC 2606 reserved example domains, used in fixtures.
@@ -581,8 +586,11 @@ for rel in files:
             continue
         note("personal-email", value)
     for m in IP.finditer(text):
-        if m.group(0) not in IP_ALLOW:
-            note("public-ip", m.group(0))
+        if m.group(0) in IP_ALLOW:
+            continue
+        if m.group(0).startswith(IP_ALLOW_PREFIX):
+            continue
+        note("public-ip", m.group(0))
     for _ in ACCOUNT.finditer(text):
         note("cloud-account", "")
 
