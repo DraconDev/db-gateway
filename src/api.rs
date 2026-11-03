@@ -59,6 +59,17 @@ pub fn router(store: Arc<Store>, deployment: Deployment) -> Router {
             "/v1/databases/{name}/protection",
             put(set_protection).delete(clear_protection),
         )
+        // The traffic blocks, set and cleared by the operator. Writes
+        // and reads block independently: a cutover freezes writers
+        // while every reader keeps working.
+        .route(
+            "/v1/databases/{name}/block-writes",
+            put(set_writes_block).delete(clear_writes_block),
+        )
+        .route(
+            "/v1/databases/{name}/block-reads",
+            put(set_reads_block).delete(clear_reads_block),
+        )
         .route("/v1/databases/{name}/schema", get(table_schema))
         .route("/v1/databases/{name}/clone", post(clone_route))
         .route("/v1/databases/{name}/export", post(export))
@@ -746,6 +757,68 @@ async fn clear_protection(
     .await
 }
 
+/// Block writes to one database. Owner-only like every other guard:
+/// the switch that freezes traffic cannot itself be reachable from
+/// the traffic it freezes.
+async fn set_writes_block(
+    State(store): State<Arc<Store>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    work(store, headers, move |s, p| {
+        p.owner()?;
+        s.set_writes_blocked(&name, true)?;
+        crate::audit::record(s, &p, "block_writes", Some(&name), None);
+        Ok(Json(json!({"writes_blocked":true})))
+    })
+    .await
+}
+
+/// Unblock writes to one database.
+async fn clear_writes_block(
+    State(store): State<Arc<Store>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    work(store, headers, move |s, p| {
+        p.owner()?;
+        s.set_writes_blocked(&name, false)?;
+        crate::audit::record(s, &p, "unblock_writes", Some(&name), None);
+        Ok(Json(json!({"writes_blocked":false})))
+    })
+    .await
+}
+
+/// Block reads from one database.
+async fn set_reads_block(
+    State(store): State<Arc<Store>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    work(store, headers, move |s, p| {
+        p.owner()?;
+        s.set_reads_blocked(&name, true)?;
+        crate::audit::record(s, &p, "block_reads", Some(&name), None);
+        Ok(Json(json!({"reads_blocked":true})))
+    })
+    .await
+}
+
+/// Unblock reads from one database.
+async fn clear_reads_block(
+    State(store): State<Arc<Store>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    work(store, headers, move |s, p| {
+        p.owner()?;
+        s.set_reads_blocked(&name, false)?;
+        crate::audit::record(s, &p, "unblock_reads", Some(&name), None);
+        Ok(Json(json!({"reads_blocked":false})))
+    })
+    .await
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CloneRequest {
@@ -1036,6 +1109,29 @@ async fn execute(
     work_in(store, headers, read, move |s, p| {
         s.authorize(&p, &name)?;
         let path = s.path(&name)?;
+        // The traffic blocks are checked after identity and existence
+        // and before the queue: a tombstone still reports as a
+        // tombstone, and a refused request never takes a queue slot.
+        // The block binds every credential including the owner's — a
+        // freeze with an exception is a freeze the cutover cannot
+        // trust — and it binds only this path: inspect, schema,
+        // export, clone, and backup stay owner-operated so the
+        // operator can always see the flags and read the data out.
+        if read {
+            if s.reads_blocked(&name)?.unwrap_or(false) {
+                return Err(Error::new(
+                    403,
+                    "reads_blocked",
+                    "reads are blocked for this database",
+                ));
+            }
+        } else if s.writes_blocked(&name)?.unwrap_or(false) {
+            return Err(Error::new(
+                403,
+                "writes_blocked",
+                "writes are blocked for this database",
+            ));
+        }
         let _guard = s.acquire_queue(&name, !read)?;
         let previous_write = if read { None } else { s.last_write(&name) };
         if !read {

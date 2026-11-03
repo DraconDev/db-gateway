@@ -493,6 +493,30 @@ enum Command {
         #[arg(long)]
         off: bool,
     },
+    /// Block writes to a database, or clear that block.
+    ///
+    /// A writes-blocked database refuses mutations at the query path
+    /// with `writes_blocked`, owner included, while reads keep
+    /// working. This is the enforcement half of a cutover freeze.
+    BlockWrites {
+        /// Database to block.
+        name: String,
+        /// Clear the block instead of setting it.
+        #[arg(long)]
+        off: bool,
+    },
+    /// Block reads from a database, or clear that block.
+    ///
+    /// A reads-blocked database refuses queries at the query path
+    /// with `reads_blocked`. Management reads (inspect, schema,
+    /// export) stay available so the flags stay visible.
+    BlockReads {
+        /// Database to block.
+        name: String,
+        /// Clear the block instead of setting it.
+        #[arg(long)]
+        off: bool,
+    },
     /// Interactive SQL session over the HTTP API (piped stdin works too).
     /// An optional database name preselects it, like `turso db shell <name>`;
     /// `use <db>` inside still switches.
@@ -1167,6 +1191,12 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         }
         Command::Protect { name, off } => {
             cmd_lifecycle::protect(&server, json, &key_path, name, off).await?
+        }
+        Command::BlockWrites { name, off } => {
+            cmd_lifecycle::block_writes(&server, json, &key_path, name, off).await?
+        }
+        Command::BlockReads { name, off } => {
+            cmd_lifecycle::block_reads(&server, json, &key_path, name, off).await?
         }
         Command::Query {
             name,

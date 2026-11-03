@@ -29,6 +29,12 @@ pub(super) fn migrate_metadata(conn: &mut Connection, root: &Path) -> Result<()>
         // to survive restarts: a guard that reset on reboot would guard
         // nothing. Nullable addition, so an existing registry migrates.
         ("protected", "INTEGER"),
+        // The traffic blocks are the same shape: nullable operator
+        // intent, NULL meaning open, so existing rows migrate
+        // unblocked and no backfill can accidentally freeze a
+        // database that was reachable before the upgrade.
+        ("writes_blocked", "INTEGER"),
+        ("reads_blocked", "INTEGER"),
         // Existing registries need a nullable migration step because SQLite
         // cannot add a NOT NULL column to a table that already has rows.
         ("generation", "TEXT"),
@@ -270,6 +276,8 @@ impl Store {
             return Err(Error::new(404, "database_not_found", "database not found"));
         };
         let protected = self.is_protected(name)?.unwrap_or(false);
+        let writes_blocked = self.writes_blocked(name)?.unwrap_or(false);
+        let reads_blocked = self.reads_blocked(name)?.unwrap_or(false);
         let path = self.root.join(format!("{name}.sqlite"));
         let size_bytes = database_size_bytes(&path);
         if deleted_at.is_some() {
@@ -277,6 +285,8 @@ impl Store {
                 "name": name,
                 "tombstoned": true,
                 "protected": protected,
+                "writes_blocked": writes_blocked,
+                "reads_blocked": reads_blocked,
                 "purge_after": purge_after,
                 "size_bytes": size_bytes,
             }));
@@ -302,6 +312,8 @@ impl Store {
             "name": name,
             "tombstoned": false,
             "protected": protected,
+            "writes_blocked": writes_blocked,
+            "reads_blocked": reads_blocked,
             "size_bytes": size_bytes,
             "created_at": created_at,
             "tables": detail,
@@ -519,6 +531,70 @@ impl Store {
         let value: Option<Option<i64>> = conn
             .query_row(
                 "SELECT protected FROM databases WHERE name=?",
+                [name],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(value.map(|v| v == Some(1)))
+    }
+
+    /// Block or unblock writes to one database. Owner intent, durable
+    /// like protection: a freeze that thawed on reboot would freeze
+    /// nothing. Setting it on a tombstoned database is allowed (the
+    /// tombstone already refuses traffic, so the flag is inert there);
+    /// an unknown name is a 404.
+    pub fn set_writes_blocked(&self, name: &str, blocked: bool) -> Result<()> {
+        validate_name(name)?;
+        let conn = self.meta()?;
+        let changed = conn.execute(
+            "UPDATE databases SET writes_blocked=?2 WHERE name=?1",
+            params![name, i64::from(blocked)],
+        )?;
+        if changed == 0 {
+            return Err(Error::new(404, "database_not_found", "database not found"));
+        }
+        Ok(())
+    }
+
+    /// Whether a database refuses writes. `None` when it is not
+    /// registered; NULL reads as open, so pre-migration rows stay
+    /// reachable.
+    pub fn writes_blocked(&self, name: &str) -> Result<Option<bool>> {
+        validate_name(name)?;
+        let conn = self.meta()?;
+        let value: Option<Option<i64>> = conn
+            .query_row(
+                "SELECT writes_blocked FROM databases WHERE name=?",
+                [name],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(value.map(|v| v == Some(1)))
+    }
+
+    /// Block or unblock reads from one database. Same durability and
+    /// tombstone semantics as the writes block.
+    pub fn set_reads_blocked(&self, name: &str, blocked: bool) -> Result<()> {
+        validate_name(name)?;
+        let conn = self.meta()?;
+        let changed = conn.execute(
+            "UPDATE databases SET reads_blocked=?2 WHERE name=?1",
+            params![name, i64::from(blocked)],
+        )?;
+        if changed == 0 {
+            return Err(Error::new(404, "database_not_found", "database not found"));
+        }
+        Ok(())
+    }
+
+    /// Whether a database refuses reads. `None` when it is not
+    /// registered; NULL reads as open.
+    pub fn reads_blocked(&self, name: &str) -> Result<Option<bool>> {
+        validate_name(name)?;
+        let conn = self.meta()?;
+        let value: Option<Option<i64>> = conn
+            .query_row(
+                "SELECT reads_blocked FROM databases WHERE name=?",
                 [name],
                 |r| r.get(0),
             )

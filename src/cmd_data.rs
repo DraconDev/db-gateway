@@ -234,6 +234,8 @@ impl Inspected {
             "size_bytes": self.info["size_bytes"],
             "tombstoned": self.tombstoned(),
             "protected": self.info["protected"].as_bool().unwrap_or(false),
+            "writes_blocked": self.info["writes_blocked"].as_bool().unwrap_or(false),
+            "reads_blocked": self.info["reads_blocked"].as_bool().unwrap_or(false),
             "purge_after": self.info["purge_after"],
             "tables": tables,
             "activity": dg::views::activity_document(&self.activity_entry(name)),
@@ -275,6 +277,22 @@ impl Inspected {
                 "protected"
             } else {
                 "off"
+            }),
+        );
+        facts.field(
+            "writes",
+            Cell::text(if self.info["writes_blocked"].as_bool() == Some(true) {
+                "blocked"
+            } else {
+                "open"
+            }),
+        );
+        facts.field(
+            "reads",
+            Cell::text(if self.info["reads_blocked"].as_bool() == Some(true) {
+                "blocked"
+            } else {
+                "open"
             }),
         );
         if self.tombstoned() {

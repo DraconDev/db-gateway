@@ -232,6 +232,84 @@ pub async fn undelete(
     )))
 }
 
+/// Set or clear a database's traffic blocks. The two directions share
+/// one shape: PUT blocks, DELETE unblocks, and the human rendering
+/// names the refusal the operator will see until it is cleared.
+async fn block(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
+    name: String,
+    off: bool,
+    direction: &str,
+) -> Result<Option<Request>, dg::ServerError> {
+    dg::store::validate_name(&name).map_err(Application)?;
+    let view_name = name.clone();
+    let flag = format!("{direction}_blocked");
+    let method = if off { Method::DELETE } else { Method::PUT };
+    let send_method = method.clone();
+    let path = format!("/v1/databases/{name}/block-{direction}");
+    if human_result(
+        super::Call {
+            server,
+            json,
+            key_path,
+            method,
+            path: path.clone(),
+            body: None,
+            idempotency: None,
+            semantics: dg::client::Semantics::Write,
+        },
+        Box::new(move |_result| {
+            if off {
+                dg::render::Outcome::done(format!("{view_name} {direction} unblocked"))
+            } else {
+                dg::render::Outcome::with_facts(
+                    format!("{view_name} {direction} blocked"),
+                    vec![(
+                        "effect".to_string(),
+                        format!("queries will refuse with {flag} until the block is cleared"),
+                    )],
+                )
+            }
+        }),
+    )
+    .await?
+    .is_some()
+    {
+        return Ok(None);
+    }
+    Ok(Some((
+        send_method,
+        path,
+        None,
+        None,
+        dg::client::Semantics::Write,
+    )))
+}
+
+/// Block or unblock writes to a database.
+pub async fn block_writes(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
+    name: String,
+    off: bool,
+) -> Result<Option<Request>, dg::ServerError> {
+    block(server, json, key_path, name, off, "writes").await
+}
+
+/// Block or unblock reads from a database.
+pub async fn block_reads(
+    server: &str,
+    json: bool,
+    key_path: &Option<PathBuf>,
+    name: String,
+    off: bool,
+) -> Result<Option<Request>, dg::ServerError> {
+    block(server, json, key_path, name, off, "reads").await
+}
+
 /// Set or clear a database's delete protection.
 pub async fn protect(
     server: &str,
