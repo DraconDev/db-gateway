@@ -245,7 +245,13 @@ if [ "$TREE_ONLY" -eq 0 ]; then
     HIST_DIR="$(mktemp -d -t public-readiness-hist.XXXXXX)"
     trap 'rm -rf "$HIST_DIR"' EXIT
 
-    if ! MANIFEST="$(python3 - "$HIST_DIR" <<'PY'
+    # The manifest goes in a FILE, not a shell variable: it carries one
+    # line per hunk of 2500 commits, and passing that back as argv is how
+    # the first cut of this script hit "Argument list too long" and then
+    # reported the history CLEAN because the scan had not run at all. A
+    # safety gate whose failure mode is a false clean is worse than no
+    # gate, so the scan's own output is what decides "clean" below.
+    if ! python3 - "$HIST_DIR" <<'PY'
 import re
 import subprocess
 import sys
@@ -261,8 +267,9 @@ HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
 commit = ""
 path = ""
-frag = None          # list of (new_file_lineno, text) for the current hunk
+frag = None          # list of (new-file line number, text) for one hunk
 index = 0
+manifest = []
 
 
 def flush():
@@ -270,12 +277,11 @@ def flush():
     if frag:
         index += 1
         name = f"{index:05d}"
-        # One added line per line, so the scanner's line number is an
-        # index into this fragment. The manifest records the fragment's
-        # starting line in the real file, so the true line is recoverable.
+        # One added line per line: the scanner's line number is then an
+        # offset into this fragment, and the manifest's `first` turns it
+        # back into a line number of the real file at that commit.
         (out / name).write_text("".join(t for _, t in frag), encoding="utf-8")
-        first = frag[0][0]
-        print(f"{name}\t{commit}\t{path}\t{first}")
+        manifest.append(f"{name}\t{commit}\t{path}\t{frag[0][0]}")
     frag = None
 
 
@@ -290,7 +296,7 @@ for line in diff.splitlines(keepends=True):
         name = line[4:].strip()
         path = "" if name == "/dev/null" else (name[2:] if name[:2] in ("b/", "a/") else name)
         continue
-    if line.startswith("--- "):
+    if line.startswith("--- ") or line.startswith("diff "):
         continue
     m = HUNK.match(line)
     if m:
@@ -303,85 +309,115 @@ for line in diff.splitlines(keepends=True):
     if line.startswith("+"):
         frag.append((newno, line[1:]))
         newno += 1
-    elif line.startswith(" ") or line.startswith("\\"):
-        # Context advances the new-file counter; the line is not scanned.
-        if line.startswith(" "):
-            newno += 1
+    elif line.startswith(" "):
+        newno += 1
+    elif line.startswith("\\"):
+        pass
     elif line.startswith("-"):
         pass
     else:
         flush()
 
 flush()
+(out / ".manifest").write_text("\n".join(manifest) + ("\n" if manifest else ""),
+                                 encoding="utf-8")
 PY
-)"; then
-        advise "could not read the history; the history scan was skipped"
-    elif [ -z "$MANIFEST" ]; then
-        ok "history is clean of credential-shaped material"
+    then
+        advise "could not rebuild the history; the history scan was skipped"
     else
-        mapfile -t FRAGS < <(printf '%s\n' "$MANIFEST" | cut -f1)
-        if [ "${#FRAGS[@]}" -eq 0 ]; then
-            ok "history is clean of credential-shaped material"
+        FRAG_COUNT="$(wc -l < "$HIST_DIR/.manifest" | tr -d ' ')"
+        if [ "$FRAG_COUNT" -eq 0 ]; then
+            ok "history is clean of credential-shaped material (no text to scan)"
         else
-            # Absolute paths so the scanner does not fall back to the repo.
-            FRAG_PATHS=()
-            for f in "${FRAGS[@]}"; do
-                FRAG_PATHS+=("$HIST_DIR/$f")
-            done
-            SCAN_HIST="$("$REPO/scripts/secret-scan.sh" "${FRAG_PATHS[@]}" 2>&1 || true)"
-            printf '%s\n' "$SCAN_HIST" > "$HIST_DIR/.scan"
+            # Batched: 800 absolute paths per invocation keeps argv well
+            # under the limit on every platform, and the scanner is run
+            # once per batch rather than once per fragment.
+            : > "$HIST_DIR/.scan"
+            SCAN_RAN=1
 
-            FINDINGS="$(python3 - "$HIST_DIR/.scan" "$MANIFEST" <<'PY'
+            # The scanner's contract is 0 = clean, 1 = findings found,
+            # 2 = could not run. Only 2 means "no answer"; treating 1 as a
+            # failure would turn every real finding into "scan broken".
+            scan_batch() {
+                "$REPO/scripts/secret-scan.sh" "$@" >> "$HIST_DIR/.scan" 2>&1
+                rc=$?
+                if [ "$rc" -ne 0 ] && [ "$rc" -ne 1 ]; then
+                    SCAN_RAN=0
+                fi
+            }
+
+            BATCH=()
+            while IFS= read -r frag; do
+                BATCH+=("$HIST_DIR/$frag")
+                if [ "${#BATCH[@]}" -ge 800 ]; then
+                    scan_batch "${BATCH[@]}"
+                    BATCH=()
+                fi
+            done < <(cut -f1 "$HIST_DIR/.manifest")
+            if [ "${#BATCH[@]}" -gt 0 ]; then
+                scan_batch "${BATCH[@]}"
+            fi
+
+            if [ "$SCAN_RAN" -eq 0 ]; then
+                block "the history credential scan could not run; the history is UNKNOWN, not clean"
+                printf '       The scanner failed on at least one batch. Re-run it by hand to find\n'
+                printf '       out why before publishing:\n'
+                printf '         scripts/secret-scan.sh $(git rev-parse --show-toplevel)/src/main.rs\n'
+            else
+                FINDINGS="$(python3 - "$HIST_DIR/.scan" "$HIST_DIR/.manifest" <<'PY'
 import re
 import sys
 
-scan_path, manifest = sys.argv[1], sys.argv[2]
+scan_path, manifest_path = sys.argv[1], sys.argv[2]
 
 # fragment index -> (commit, path, first real line number)
 origin = {}
-for line in open(manifest, encoding="utf-8"):
+for line in open(manifest_path, encoding="utf-8"):
     parts = line.rstrip("\n").split("\t")
     if len(parts) == 4:
         origin[parts[0]] = (parts[1], parts[2], int(parts[3]))
 
-# (commit, path, kind) -> sorted unique real line numbers
+# (commit, path, kind) -> set of real line numbers
 groups = {}
+unmapped = 0
 for line in open(scan_path, encoding="utf-8", errors="replace"):
-    m = re.match(r"^\s+(\S+?):(\d+):\s+(\S+)$", line.rstrip())
+    m = re.match(r"^\s+(\S+?):(\d+):\s+(\S+)\s*$", line.rstrip())
     if not m:
         continue
     frag, offset, kind = m.group(1), int(m.group(2)), m.group(3)
     entry = origin.get(frag.rsplit("/", 1)[-1])
     if entry is None:
+        unmapped += 1
         continue
     commit, path, first = entry
-    real = first + offset - 1
-    key = (commit, path, kind)
-    groups.setdefault(key, set()).add(real)
+    groups.setdefault((commit, path, kind), set()).add(first + offset - 1)
 
-for (commit, path, kind), lines in sorted(groups.items(), key=lambda kv: kv[0]):
+for (commit, path, kind), lines in sorted(groups.items()):
     shown = ", ".join(str(n) for n in sorted(lines)[:5])
     if len(lines) > 5:
         shown += f", +{len(lines) - 5} more"
     print(f"{commit[:12]}\t{path}\t{kind}\t{shown}")
+if unmapped:
+    print(f"?\t(unknown)\tunmapped-findings\tenance {unmapped} finding(s) had no fragment")
 PY
 )"
 
-            if [ -z "$FINDINGS" ]; then
-                ok "history is clean of credential-shaped material"
-            else
-                COUNT="$(printf '%s\n' "$FINDINGS" | wc -l | tr -d ' ')"
-                block "credential-shaped material in the history: $COUNT commit/path group(s)"
-                while IFS=$'\t' read -r csha cpath kind lines; do
-                    [ -n "$csha" ] || continue
-                    printf '       %s %s:%s  (%s)\n' "$csha" "$cpath" "$lines" "$kind"
-                done <<< "$FINDINGS"
-                printf '       Inspect one with: git show <sha>:<path>\n'
-                printf '       Values are withheld on purpose. A leaked credential must be rotated even\n'
-                printf '       if the commit is later rewritten out of the history.\n'
-                printf '       Note: this repo tests its own secret scanner, so a fixture-bearing\n'
-                printf '       test file is the likeliest explanation for a hit here -- check before\n'
-                printf '       treating one as a real leak.\n'
+                if [ -z "$FINDINGS" ]; then
+                    ok "history is clean of credential-shaped material"
+                else
+                    COUNT="$(printf '%s\n' "$FINDINGS" | wc -l | tr -d ' ')"
+                    block "credential-shaped material in the history: $COUNT commit/path group(s)"
+                    while IFS=$'\t' read -r csha cpath kind lines; do
+                        [ -n "$csha" ] || continue
+                        printf '       %s %s:%s  (%s)\n' "$csha" "$cpath" "$lines" "$kind"
+                    done <<< "$FINDINGS"
+                    printf '       Inspect one with: git show <sha>:<path>\n'
+                    printf '       Values are withheld on purpose. A leaked credential must be rotated\n'
+                    printf '       even if the commit is later rewritten out of the history.\n'
+                    printf '       Note: this repo tests its own secret scanner, so a fixture-bearing\n'
+                    printf '       test file is the likeliest innocent explanation for a hit here --\n'
+                    printf '       check before treating one as a real leak.\n'
+                fi
             fi
         fi
     fi
