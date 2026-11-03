@@ -34,7 +34,13 @@ pub struct Metrics {
     /// A ring rather than a growing list: the percentile of the last
     /// few thousand waits is what an operator can act on, and the memory
     /// is fixed. Only the contended path writes here.
-    waits: Mutex<WaitSamples>,
+    waits: Mutex<Samples>,
+    /// The most recent statement-execution durations, for percentiles.
+    ///
+    /// Waits answer "how contended is it"; this answers "how slow is
+    /// it". Same ring, same bound, written once per executed statement
+    /// next to the per-shape cost log.
+    latency: Mutex<Samples>,
 }
 
 /// How many seconds of history the request window keeps.
@@ -75,36 +81,41 @@ pub struct DbUsage {
 #[derive(Debug)]
 struct DbQueueLive {
     queue: DbQueue,
-    samples: WaitSamples,
+    samples: Samples,
+    latency: Samples,
 }
 
 impl Default for DbQueueLive {
     fn default() -> Self {
         Self {
             queue: DbQueue::default(),
-            samples: WaitSamples::with_capacity(DB_WAIT_SAMPLES),
+            samples: Samples::with_capacity(DB_WAIT_SAMPLES),
+            latency: Samples::with_capacity(DB_WAIT_SAMPLES),
         }
     }
 }
 
 impl DbQueueLive {
     /// The served snapshot: the counters, plus this database's own
-    /// percentile of its own recent waits.
+    /// percentile of its own recent waits and executions.
     fn snapshot(&self) -> DbQueue {
         DbQueue {
             wait_p95_us: self.samples.percentile(95.0),
+            query_p95_us: self.latency.percentile(95.0),
             ..self.queue
         }
     }
 }
 
-/// A bounded ring of recent wait durations, in MICROSECONDS.
+/// A bounded ring of recent durations, in MICROSECONDS.
 ///
 /// The percentile of the recent past is what an operator acts on ("p95
 /// wait is 40ms"); the average over the whole uptime is not, because one
-/// bad hour would define it forever.
+/// bad hour would define it forever. One ring shape serves both uses —
+/// admission waits and statement latencies — because both are "how long
+/// did the recent ones take" over a bounded recent past.
 #[derive(Debug)]
-struct WaitSamples {
+struct Samples {
     values: Vec<u64>,
     next: usize,
     /// How many samples the ring keeps. The service-wide ring and each
@@ -113,13 +124,13 @@ struct WaitSamples {
     capacity: usize,
 }
 
-impl Default for WaitSamples {
+impl Default for Samples {
     fn default() -> Self {
         Self::with_capacity(WAIT_SAMPLES)
     }
 }
 
-impl WaitSamples {
+impl Samples {
     /// A ring that keeps at most `capacity` samples.
     fn with_capacity(capacity: usize) -> Self {
         Self {
@@ -129,7 +140,7 @@ impl WaitSamples {
         }
     }
 
-    /// Record a wait, keeping the ring bounded.
+    /// Record a duration, keeping the ring bounded.
     fn push(&mut self, micros: u64) {
         if self.values.len() < self.capacity {
             self.values.push(micros);
@@ -139,11 +150,11 @@ impl WaitSamples {
         self.next = (self.next + 1) % self.capacity;
     }
 
-    /// The p-th percentile of the recorded waits, in microseconds.
+    /// The p-th percentile of the recorded durations, in microseconds.
     ///
-    /// `None` when no wait has been recorded: a percentile of nothing is
-    /// nothing, and reporting zero would claim the queue never
-    /// contended.
+    /// `None` when nothing has been recorded: a percentile of nothing
+    /// is nothing, and reporting zero would claim the queue never
+    /// contended or no statement ever ran.
     fn percentile(&self, p: f64) -> Option<u64> {
         if self.values.is_empty() {
             return None;
