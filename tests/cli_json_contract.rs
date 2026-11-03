@@ -62,6 +62,44 @@ fn the_list_shape_the_scripts_read_is_unchanged() {
 }
 
 #[test]
+fn status_reports_query_latency_once_statements_run() {
+    // The latency percentile sample: service-wide p50/p95 plus the
+    // per-db p95, all absent (null) until a statement runs, then
+    // numbers. Scripts read these the way they read the wait
+    // percentiles.
+    let fleet = Fleet::boot();
+    fleet.cli.ok("create", &["create", "lat_db"]);
+    let fresh = fleet.cli.ok("status", &["status"]);
+    assert!(
+        fresh["requests"]["query_p50_us"].is_null(),
+        "no statements ran yet: {fresh}"
+    );
+    fleet
+        .cli
+        .q("seed", "lat_db", "CREATE TABLE t (id INTEGER)");
+    fleet
+        .cli
+        .q("insert", "lat_db", "INSERT INTO t (id) VALUES (1)");
+    let result = fleet.cli.ok("status", &["status"]);
+    assert!(
+        result["requests"]["query_p50_us"].is_number(),
+        "the p50 is there: {result}"
+    );
+    assert!(
+        result["requests"]["query_p95_us"].is_number(),
+        "the p95 is there: {result}"
+    );
+    assert!(
+        result["requests"]["query_samples"].as_u64().unwrap_or(0) >= 2,
+        "both statements were sampled: {result}"
+    );
+    assert!(
+        result["databases"]["lat_db"]["query_p95_us"].is_number(),
+        "the per-database p95 is there: {result}"
+    );
+}
+
+#[test]
 fn the_status_shape_the_scripts_read_is_unchanged() {
     // scripts/sandbox-packet.sh reads the failure counters under
     // `requests`.
