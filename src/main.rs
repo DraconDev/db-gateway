@@ -378,7 +378,15 @@ enum Command {
     /// compares two moments.
     Watch,
     /// List database names visible to the credential (owner sees all).
-    List,
+    ///
+    /// `--tombstoned` lists the tombstoned names with their retention
+    /// deadlines instead: the owner's answer to "what did I delete".
+    /// Owner-only, like undelete; the live list stays live-only.
+    List {
+        /// List tombstoned databases instead of live ones.
+        #[arg(long)]
+        tombstoned: bool,
+    },
     /// How much data each database holds: its tables and its rows.
     ///
     /// `dg list` says which databases exist and the traffic counters
@@ -1155,7 +1163,9 @@ async fn run(cli: Cli) -> Result<(), dg::ServerError> {
         Command::Queries { database } => {
             cmd_queries::list(&server, json, &key_path, database.as_deref()).await?
         }
-        Command::List => cmd_data::list(&server, json, &key_path).await?,
+        Command::List { tombstoned } => {
+            cmd_data::list(&server, json, &key_path, tombstoned).await?
+        }
         Command::Contents => cmd_data::contents(&server, json, &key_path).await?,
         Command::Rows {
             name,

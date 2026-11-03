@@ -28,9 +28,15 @@ pub async fn list(
     server: &str,
     json: bool,
     key_path: &Option<PathBuf>,
+    tombstoned: bool,
 ) -> Result<Option<Request>, dg::ServerError> {
     // Interactive terminals get a table; piped output and --json stay
     // machine-readable JSON.
+    let path = if tombstoned {
+        "/v1/tombstones"
+    } else {
+        "/v1/databases"
+    };
     if !json && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
         let key = dg::client::read_key(key_path.as_deref().ok_or(Application(Error::new(
             400,
@@ -38,7 +44,7 @@ pub async fn list(
             "--key-file required",
         )))?)
         .map_err(Application)?;
-        let result = dg::client::request(server, &key, Method::GET, "/v1/databases", None, None)
+        let result = dg::client::request(server, &key, Method::GET, path, None, None)
             .await
             .map_err(Application)?;
         if api_failed(&result) {
@@ -46,7 +52,11 @@ pub async fn list(
                 .map_err(Application)?;
             return Err(Application(api_error()));
         }
-        let table = dg::views::database_names(&result);
+        let table = if tombstoned {
+            dg::views::tombstone_names(&result)
+        } else {
+            dg::views::database_names(&result)
+        };
         let mut out = std::io::stdout();
         table
             .write(&mut out, &terminal_theme())
@@ -55,7 +65,7 @@ pub async fn list(
     }
     Ok(Some((
         Method::GET,
-        "/v1/databases".into(),
+        path.into(),
         None,
         None,
         dg::client::Semantics::Read,

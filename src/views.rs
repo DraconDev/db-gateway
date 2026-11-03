@@ -1373,6 +1373,46 @@ pub fn database_names(databases: &Value) -> Table {
     table
 }
 
+/// The tombstoned database names with their retention deadlines.
+///
+/// The sibling of [`database_names`] for `GET /v1/tombstones`: the
+/// same one-name-per-row shape, plus when each tombstone purges, as a
+/// person reads it. Oldest purge first, as the route orders them.
+pub fn tombstone_names(tombstones: &Value) -> Table {
+    let stones: Vec<(String, Option<i64>)> = tombstones["tombstones"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|stone| {
+            (
+                stone["name"].as_str().unwrap_or("").to_string(),
+                stone["purge_after"].as_i64(),
+            )
+        })
+        .collect();
+    let mut table = Table::new();
+    table.column("database", Align::Left);
+    table.column("purges", Align::Left);
+    for (name, purge_after) in &stones {
+        table.row(vec![
+            Cell::styled(name.clone(), Style::Cyan),
+            Cell::styled(
+                purge_after
+                    .map(crate::render::human_epoch)
+                    .unwrap_or_default(),
+                Style::Dim,
+            ),
+        ]);
+    }
+    table.footer(if stones.len() == 1 {
+        "1 tombstone".to_string()
+    } else {
+        format!("{} tombstones", stones.len())
+    });
+    table
+}
+
 /// One database's tables with their row counts, from a
 /// `GET /v1/databases/{name}` answer.
 ///
