@@ -116,31 +116,31 @@ fn blocks_are_opt_in_and_owner_only() {
     // A scoped key may read and write the data, but the switch itself is
     // the owner's: an application credential must never freeze its own
     // database, accidentally or otherwise.
-    let key = fleet.cli.ok(
+    let app = fleet.cli.ok(
         "key",
         &[
             "key",
             "create",
+            "app",
             "--role",
             "database_read_write",
             "--database",
             "shop",
-            "app",
         ],
     );
-    let key_path = fleet.dir.path().join("app.key");
-    std::fs::write(&key_path, key["key"].as_str().unwrap()).unwrap();
-    let key_arg = key_path.to_str().unwrap().to_string();
-    let (ok, stdout, stderr) = fleet.cli.run(&[
-        "block-writes",
-        "--key-file",
-        &key_arg,
-        "shop",
-    ]);
-    assert!(
-        !ok,
-        "a scoped key toggled the block: stdout={stdout} stderr={stderr}"
-    );
+    let dir = tempfile::tempdir().unwrap();
+    let app_file = dir.path().join("app.key");
+    std::fs::write(&app_file, app["key"].as_str().unwrap()).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&app_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let scoped = common::Cli {
+        server: fleet.cli.server.clone(),
+        key_file: app_file,
+    };
+    scoped.err("scoped block", &["block-writes", "shop"], "forbidden");
 }
 
 #[test]
