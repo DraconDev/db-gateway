@@ -144,8 +144,9 @@ pub fn record_statement(
     action: &str,
     database: Option<&str>,
     sql: &str,
+    elapsed_us: Option<u64>,
 ) {
     store
         .audit
-        .record_statement(principal, action, database, sql);
+        .record_statement(principal, action, database, sql, elapsed_us);
 }

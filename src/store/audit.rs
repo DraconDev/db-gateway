@@ -74,6 +74,14 @@ pub struct AuditEntry {
     /// For a statement this is the statement's shape, never its values.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// How long the statement took, in microseconds, when the entry is
+    /// for a statement that ran.
+    ///
+    /// Anything that is not a statement carries no time: a `create` did
+    /// not run, so there is nothing to time. Absent (`None`) also reads
+    /// the trail lines written before the field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elapsed_us: Option<u64>,
 }
 
 impl AuditEntry {
@@ -95,6 +103,7 @@ impl AuditEntry {
             action: action.to_string(),
             database: database.map(str::to_string),
             detail,
+            elapsed_us: None,
         }
     }
 }
@@ -307,15 +316,20 @@ impl AuditLog {
     ///
     /// The shape is the SQL with every literal replaced by a
     /// placeholder, so the log says which statement ran without
-    /// becoming a second copy of the data that went through it.
+    /// becoming a second copy of the data that went through it. The
+    /// elapsed time is the measured cost of that run, or `None` when
+    /// the caller has no measurement to offer.
     pub fn record_statement(
         &self,
         principal: &Principal,
         action: &str,
         database: Option<&str>,
         sql: &str,
+        elapsed_us: Option<u64>,
     ) {
-        self.record_action(principal, action, database, Some(normalise(sql)));
+        let mut entry = AuditEntry::new(principal, action, database, Some(normalise(sql)));
+        entry.elapsed_us = elapsed_us;
+        self.record(entry);
     }
 
     /// Every recorded action, oldest first.

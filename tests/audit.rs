@@ -176,6 +176,7 @@ fn a_statement_is_recorded_by_its_shape_and_never_by_its_values() {
         "query",
         Some("shop"),
         &format!("SELECT * FROM shop WHERE token = '{LITERAL}'"),
+        None,
     );
 
     let (status, body) = get(&gateway, Some(&gateway.owner));
@@ -203,7 +204,7 @@ fn a_recorded_statement_carries_its_execution_time() {
         "query",
         Some("shop"),
         "SELECT * FROM shop WHERE token = ?",
-        12_345,
+        Some(12_345),
     );
 
     let (status, body) = get(&gateway, Some(&gateway.owner));
@@ -263,6 +264,26 @@ fn a_statement_that_ran_through_the_gateway_leaves_no_values_behind() {
     assert!(
         !body.contains(LITERAL),
         "the statement's values are not in the log: {body}"
+    );
+}
+
+/// A statement that really ran leaves its execution time behind: the
+/// query path passes the measured microseconds to the audit log.
+#[test]
+fn a_statement_that_ran_carries_its_measured_execution_time() {
+    let gateway = Gateway::start();
+    let created = reqwest::blocking::Client::new()
+        .post(format!("{}/v1/databases/shop/query", gateway.origin()))
+        .bearer_auth(&gateway.owner)
+        .json(&serde_json::json!({ "sql": "CREATE TABLE t (a INTEGER)" }))
+        .send()
+        .expect("the create goes through");
+    assert_eq!(created.status().as_u16(), 200);
+
+    let (_, body) = get(&gateway, Some(&gateway.owner));
+    assert!(
+        body.contains("\"elapsed_us\":"),
+        "the statement that ran carries a measured time: {body}"
     );
 }
 
@@ -518,6 +539,7 @@ fn the_trail_on_disk_holds_no_values_and_no_secrets() {
         "query",
         Some("shop"),
         &format!("SELECT * FROM shop WHERE token = '{LITERAL}'"),
+        None,
     );
 
     let text = std::fs::read_to_string(dir.path().join("audit.jsonl")).expect("the trail is read");

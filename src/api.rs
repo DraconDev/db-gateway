@@ -1249,7 +1249,14 @@ fn record_statements(
     // data is not what the audit log is for.
     let action = if batch { "batch" } else { "query" };
     for run in &runs {
-        crate::audit::record_statement(store, principal, action, Some(name), &run.sql);
+        crate::audit::record_statement(
+            store,
+            principal,
+            action,
+            Some(name),
+            &run.sql,
+            Some(run.micros),
+        );
     }
 }
 
