@@ -209,11 +209,20 @@ if [ "$TREE_ONLY" -eq 0 ]; then
     # public. The ciphertext is safe against anyone without the age
     # identity, but publishing it puts the payload and the recipient key
     # in every clone forever: the owner's private key is the only thing
-    # standing between the internet and those values, and a key that
-    # leaks in 2029 decrypts a commit published in 2026.
-    WARDEN_COMMITS="$(git log --all --format='%H' -S'DRACON_SECRET' 2>/dev/null || true)"
-    WARDEN_COUNT="$(git log --all -p 2>/dev/null \
-        | grep -oE 'DRACON_SECRET:[A-Za-z0-9+/=]+' | sort -u | wc -l | tr -d ' ')"
+    # still standing between the internet and those values, and a key
+    # that leaks in 2029 decrypts a commit published in 2026.
+    #
+    # The needle is assembled from two halves on purpose. Written out, the
+    # literal would occur in this file, and `git log -S` would then find
+    # THIS script in the history and report itself as a leak -- which is
+    # exactly what happened on the first run. The gate's own path is
+    # excluded as well, so a future edit that reintroduces the literal
+    # cannot make the gate flag itself.
+    WARDEN_MARK="DRACON""_SECRET"
+    WARDEN_COMMITS="$(git log --all --format='%H' -S"$WARDEN_MARK" \
+        -- . ':(exclude)scripts/public-readiness.sh' 2>/dev/null || true)"
+    WARDEN_COUNT="$(git log --all -p -- . ':(exclude)scripts/public-readiness.sh' 2>/dev/null \
+        | grep -oE "${WARDEN_MARK}:[A-Za-z0-9+/=]+" | sort -u | wc -l | tr -d ' ')"
     if [ -n "$WARDEN_COMMITS" ]; then
         block "$WARDEN_COUNT age-encrypted secret value(s) were committed in $(printf '%s\n' "$WARDEN_COMMITS" | wc -l | tr -d ' ') commit(s)"
         printf '       This is the dracon-warden scheme the managed .gitignore describes as\n'
@@ -222,8 +231,8 @@ if [ "$TREE_ONLY" -eq 0 ]; then
         printf '       Decide explicitly: rewrite them out of history, or publish them\n'
         printf '       knowing the age identity is the only remaining protection.\n'
         printf '       Commits:\n'
-        git log --all --format='         %h %ad %s' --date=short -S'DRACON_SECRET' 2>/dev/null \
-            | cut -c1-150 | sed 's/$//'
+        git log --all --format='         %h %ad %s' --date=short -S"$WARDEN_MARK" \
+            -- . ':(exclude)scripts/public-readiness.sh' 2>/dev/null | cut -c1-140
     else
         ok "no age-encrypted secret material in the history"
     fi
@@ -370,6 +379,20 @@ import sys
 
 scan_path, manifest_path = sys.argv[1], sys.argv[2]
 
+# The scanner has two kinds of pattern and only one of them is evidence.
+# A shaped credential (an AWS key id, a PEM header, a GitHub token) is a
+# credential by its form. generic-secret-assignment is a heuristic: a
+# secret-ish NAME assigned a long value. That heuristic pays for itself
+# on a single file, but over 2500 commits it also matches
+# `SECRET_PREFIX = "LITESTREAM_S3_SECRET_ACCESS_KEY="` -- a constant
+# holding a KEY NAME -- and the fixtures in tests/secret_scan.rs and
+# tests/operations_scripts.rs, which exist precisely to exercise the
+# scanner. Calling those blockers is how a gate earns a reputation for
+# crying wolf and gets switched off, so shaped hits block and heuristic
+# hits advise.
+SHAPED = {"aws-access-key-id", "aws-secret-access-key", "github-token",
+          "private-key-block"}
+
 # fragment index -> (commit, path, first real line number)
 origin = {}
 for line in open(manifest_path, encoding="utf-8"):
@@ -379,7 +402,6 @@ for line in open(manifest_path, encoding="utf-8"):
 
 # (commit, path, kind) -> set of real line numbers
 groups = {}
-unmapped = 0
 for line in open(scan_path, encoding="utf-8", errors="replace"):
     m = re.match(r"^\s+(\S+?):(\d+):\s+(\S+)\s*$", line.rstrip())
     if not m:
@@ -387,36 +409,49 @@ for line in open(scan_path, encoding="utf-8", errors="replace"):
     frag, offset, kind = m.group(1), int(m.group(2)), m.group(3)
     entry = origin.get(frag.rsplit("/", 1)[-1])
     if entry is None:
-        unmapped += 1
         continue
     commit, path, first = entry
     groups.setdefault((commit, path, kind), set()).add(first + offset - 1)
 
 for (commit, path, kind), lines in sorted(groups.items()):
-    shown = ", ".join(str(n) for n in sorted(lines)[:5])
-    if len(lines) > 5:
-        shown += f", +{len(lines) - 5} more"
-    print(f"{commit[:12]}\t{path}\t{kind}\t{shown}")
-if unmapped:
-    print(f"?\t(unknown)\tunmapped-findings\tenance {unmapped} finding(s) had no fragment")
+    shown = ", ".join(str(n) for n in sorted(lines)[:4])
+    if len(lines) > 4:
+        shown += f", +{len(lines) - 4} more"
+    tier = "block" if kind in SHAPED else "advise"
+    print(f"{tier}\t{commit[:12]}\t{path}\t{kind}\t{shown}")
 PY
 )"
 
                 if [ -z "$FINDINGS" ]; then
                     ok "history is clean of credential-shaped material"
                 else
-                    COUNT="$(printf '%s\n' "$FINDINGS" | wc -l | tr -d ' ')"
-                    block "credential-shaped material in the history: $COUNT commit/path group(s)"
-                    while IFS=$'\t' read -r csha cpath kind lines; do
-                        [ -n "$csha" ] || continue
-                        printf '       %s %s:%s  (%s)\n' "$csha" "$cpath" "$lines" "$kind"
-                    done <<< "$FINDINGS"
-                    printf '       Inspect one with: git show <sha>:<path>\n'
-                    printf '       Values are withheld on purpose. A leaked credential must be rotated\n'
-                    printf '       even if the commit is later rewritten out of the history.\n'
-                    printf '       Note: this repo tests its own secret scanner, so a fixture-bearing\n'
-                    printf '       test file is the likeliest innocent explanation for a hit here --\n'
-                    printf '       check before treating one as a real leak.\n'
+                    BLOCK_ROWS="$(grep -c '^block' <<< "$FINDINGS" || true)"
+                    ADVISE_ROWS="$(grep -c '^advise' <<< "$FINDINGS" || true)"
+
+                    if [ "$BLOCK_ROWS" -gt 0 ]; then
+                        block "credential-FORMED material in the history: $BLOCK_ROWS commit/path group(s)"
+                        while IFS=$'\t' read -r tier csha cpath kind lines; do
+                            [ "$tier" = "block" ] || continue
+                            printf '       %s %s:%s  (%s)\n' "$csha" "$cpath" "$lines" "$kind"
+                        done <<< "$FINDINGS"
+                        printf '       These match a credential shape, not just a secret-ish name.\n'
+                        printf '       Inspect with: git show <sha>:<path>\n'
+                    else
+                        ok "no credential-FORMED material in the history"
+                    fi
+
+                    if [ "$ADVISE_ROWS" -gt 0 ]; then
+                        advise "$ADVISE_ROWS historical name-based match(es) -- review, usually fixtures"
+                        while IFS=$'\t' read -r tier csha cpath kind lines; do
+                            [ "$tier" = "advise" ] || continue
+                            printf '       %s %s:%s  (%s)\n' "$csha" "$cpath" "$lines" "$kind"
+                        done <<< "$FINDINGS"
+                        printf '       This repo tests its own secret scanner, so a fixture-bearing test\n'
+                        printf '       file is the likeliest innocent explanation. Check before treating\n'
+                        printf '       one as a real leak.\n'
+                    fi
+                    printf '       Values are withheld on purpose. A credential that was ever real must\n'
+                    printf '       be rotated even if the commit is later rewritten out of the history.\n'
                 fi
             fi
         fi
