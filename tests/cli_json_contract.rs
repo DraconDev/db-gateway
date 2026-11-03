@@ -74,9 +74,7 @@ fn status_reports_query_latency_once_statements_run() {
         fresh["requests"]["query_p50_us"].is_null(),
         "no statements ran yet: {fresh}"
     );
-    fleet
-        .cli
-        .q("seed", "lat_db", "CREATE TABLE t (id INTEGER)");
+    fleet.cli.q("seed", "lat_db", "CREATE TABLE t (id INTEGER)");
     fleet
         .cli
         .q("insert", "lat_db", "INSERT INTO t (id) VALUES (1)");

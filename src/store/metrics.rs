@@ -245,7 +245,11 @@ impl Metrics {
     /// database never spent.
     pub fn record_latency(&self, name: &str, micros: u64) {
         if let Ok(mut queue) = self.queue.lock() {
-            queue.entry(name.to_string()).or_default().latency.push(micros);
+            queue
+                .entry(name.to_string())
+                .or_default()
+                .latency
+                .push(micros);
         }
         if let Ok(mut samples) = self.latency.lock() {
             samples.push(micros);

@@ -130,7 +130,7 @@ fn encode(value: &str) -> String {
     out
 }
 
-/// The recorded actions as a table: when, who, what.
+/// The recorded actions as a table: when, who, what, how long.
 ///
 /// The times are the ones a person reads, not the epoch seconds the
 /// API carries.
@@ -140,6 +140,7 @@ pub fn table(payload: &serde_json::Value) -> Table {
     table.column("credential", Align::Left);
     table.column("role", Align::Left);
     table.column("action", Align::Left);
+    table.column("elapsed", Align::Left);
     table.column("database", Align::Left);
     table.column("detail", Align::Left);
     let entries = payload["entries"].as_array().cloned().unwrap_or_default();
@@ -149,6 +150,7 @@ pub fn table(payload: &serde_json::Value) -> Table {
             Cell::styled(field(entry, "principal"), Style::Cyan),
             Cell::text(field(entry, "role")),
             Cell::text(field(entry, "action")),
+            Cell::text(human_elapsed(entry)),
             Cell::text(field(entry, "database")),
             Cell::text(field(entry, "detail")),
         ]);
@@ -164,6 +166,19 @@ fn human_time(entry: &serde_json::Value) -> String {
         .and_then(|value| value.as_u64())
         .unwrap_or_default();
     dg::render::human_epoch(i64::try_from(at).unwrap_or(i64::MAX))
+}
+
+/// How long the entry's statement took, as a person reads it.
+///
+/// An entry that is not a statement has no time, and a trail line
+/// from before the field existed has none either: both render empty
+/// rather than a word, like any other missing field.
+fn human_elapsed(entry: &serde_json::Value) -> String {
+    entry
+        .get("elapsed_us")
+        .and_then(|value| value.as_u64())
+        .map(dg::render::human_micros)
+        .unwrap_or_default()
 }
 
 /// One field of an entry, as text.

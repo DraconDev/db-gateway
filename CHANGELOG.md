@@ -60,6 +60,14 @@ fixes; 1.0.0 waits for production acceptance.
   percentiles to `traffic-samples.jsonl`, so a climbing p95 in one
   database is visible as a trend rather than a moment
   (`docs/observability-contract.md` signal "Traffic trend").
+- **Audit entries for statements carry their execution time.** Every
+  `query` / `batch` entry in `GET /v1/audit` now reports the measured
+  `elapsed_us`, so the trail answers "which credential ran the slow
+  query" — the per-action half of top-queries-lite, next to the
+  per-shape costs in `GET /v1/queries`. Anything that is not a
+  statement omits the field, old trail lines still read, and
+  `dg audit` shows the cost in a human `elapsed` column
+  (`tests/audit.rs`).
 - **`dg-alerts.sh` can POST alerts to a webhook.** The journal line stays
   unconditional; when `DG_ALERTS_WEBHOOK_URL` (or the file
   `DG_ALERTS_WEBHOOK_URL_FILE` points at) names an endpoint, disk and

@@ -257,20 +257,20 @@ async fn status(
                 (
                     name,
                     json!({
-                        "rows_read": rows.rows_read,
-                        "rows_written": rows.rows_written,
-                        "queue_waits": waits.waits,
-                        "queue_wait_ms": waits.wait_ms,
-                        "queue_wait_max_us": waits.max_wait_us,
-                        // This database's OWN p95 of its own recent
-                        // admission waits. The service-wide p95 lives
-                        // under `requests` and covers every database,
-                        // so a single contended database can hide in it.
-                        "queue_wait_p95_us": waits.wait_p95_us,
-                "query_p95_us": waits.query_p95_us,
-                        "queue_timeouts": waits.timeouts,
-                        "last_write": last_write,
-                    }),
+                            "rows_read": rows.rows_read,
+                            "rows_written": rows.rows_written,
+                            "queue_waits": waits.waits,
+                            "queue_wait_ms": waits.wait_ms,
+                            "queue_wait_max_us": waits.max_wait_us,
+                            // This database's OWN p95 of its own recent
+                            // admission waits. The service-wide p95 lives
+                            // under `requests` and covers every database,
+                            // so a single contended database can hide in it.
+                            "queue_wait_p95_us": waits.wait_p95_us,
+                    "query_p95_us": waits.query_p95_us,
+                            "queue_timeouts": waits.timeouts,
+                            "last_write": last_write,
+                        }),
                 )
             })
             .collect::<serde_json::Map<String, Value>>();

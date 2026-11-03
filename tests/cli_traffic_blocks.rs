@@ -34,17 +34,12 @@ fn blocked_writes_refuse_mutations_and_keep_reads() {
     seed(&fleet);
     fleet.cli.ok("block", &["block-writes", "shop"]);
     let blocked = fleet.cli.ok("inspect", &["inspect", "--json", "shop"]);
-    assert_eq!(
-        blocked["writes_blocked"].as_bool(),
-        Some(true),
-        "{blocked}"
-    );
+    assert_eq!(blocked["writes_blocked"].as_bool(), Some(true), "{blocked}");
 
-    let (ok, stdout, stderr) = fleet.cli.run(&[
-        "query",
-        "shop",
-        "INSERT INTO products (id) VALUES (2)",
-    ]);
+    let (ok, stdout, stderr) =
+        fleet
+            .cli
+            .run(&["query", "shop", "INSERT INTO products (id) VALUES (2)"]);
     assert!(
         !ok,
         "a writes-blocked database accepted a mutation: stdout={stdout} stderr={stderr}"
@@ -77,7 +72,9 @@ fn blocked_reads_refuse_queries() {
     seed(&fleet);
     fleet.cli.ok("block", &["block-reads", "shop"]);
 
-    let (ok, stdout, stderr) = fleet.cli.run(&["query", "shop", "SELECT count(*) FROM products"]);
+    let (ok, stdout, stderr) = fleet
+        .cli
+        .run(&["query", "shop", "SELECT count(*) FROM products"]);
     assert!(
         !ok,
         "a reads-blocked database answered a query: stdout={stdout} stderr={stderr}"
@@ -177,6 +174,8 @@ fn blocks_survive_against_a_fresh_read() {
         .filter_map(Value::as_str)
         .collect();
     assert!(names.contains(&"shop"), "{names:?}");
-    let (ok, _, _) = fleet.cli.run(&["query", "shop", "INSERT INTO products (id) VALUES (9)"]);
+    let (ok, _, _) = fleet
+        .cli
+        .run(&["query", "shop", "INSERT INTO products (id) VALUES (9)"]);
     assert!(!ok, "the block did not survive a later command");
 }

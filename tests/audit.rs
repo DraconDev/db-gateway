@@ -221,13 +221,7 @@ fn a_recorded_statement_carries_its_execution_time() {
 fn actions_that_are_not_statements_carry_no_execution_time() {
     let gateway = Gateway::start();
     let owner = gateway.principal(&gateway.owner);
-    dg::audit::record(
-        &gateway.store,
-        &owner,
-        "create",
-        Some("shop"),
-        None,
-    );
+    dg::audit::record(&gateway.store, &owner, "create", Some("shop"), None);
 
     let (status, body) = get(&gateway, Some(&gateway.owner));
     assert_eq!(status, 200);
@@ -470,6 +464,36 @@ fn the_human_table_says_when_in_a_form_a_person_reads() {
     assert!(
         !text.contains(&epoch.to_string()),
         "the raw epoch is not printed: {text}"
+    );
+}
+
+/// The human table says how long, in a form a person reads: a timed
+/// statement shows its cost, an untimed action shows nothing.
+#[test]
+fn the_human_table_says_how_long_a_statement_took() {
+    let gateway = Gateway::start();
+    let app = gateway.principal(&gateway.app);
+    dg::audit::record_statement(
+        &gateway.store,
+        &app,
+        "query",
+        Some("shop"),
+        "SELECT 1",
+        Some(12_345),
+    );
+    dg::audit::record(&gateway.store, &app, "create", Some("shop"), None);
+    let (_, body) = get(&gateway, Some(&gateway.owner));
+    let document: Value = serde_json::from_str(&body).expect("the body is JSON");
+
+    let table = cmd_audit::table(&document);
+    let mut out = Vec::new();
+    table
+        .write(&mut out, &dg::render::Theme::fixed(false, false))
+        .expect("the table is drawn");
+    let text = String::from_utf8(out).expect("the table is text");
+    assert!(
+        text.contains("12 ms"),
+        "the statement's cost is readable: {text}"
     );
 }
 
