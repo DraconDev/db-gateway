@@ -189,6 +189,12 @@ pub struct MetricsSnapshot {
     pub wait_p95_us: Option<u64>,
     /// How many waits the percentile sample holds.
     pub wait_samples: usize,
+    /// The median and 95th percentile of recent statement-execution
+    /// times, in MICROSECONDS. `None` when no statement has run.
+    pub query_p50_us: Option<u64>,
+    pub query_p95_us: Option<u64>,
+    /// How many executions the percentile sample holds.
+    pub query_samples: usize,
 }
 
 impl Metrics {
@@ -205,7 +211,8 @@ impl Metrics {
                 .map(|_| AtomicU64::new(WINDOW_EMPTY))
                 .collect::<Vec<_>>()
                 .into_boxed_slice(),
-            waits: Mutex::new(WaitSamples::default()),
+            waits: Mutex::new(Samples::default()),
+            latency: Mutex::new(Samples::default()),
             queries: QueryLog::new(),
         }
     }
@@ -228,6 +235,19 @@ impl Metrics {
         // Only the contended path reaches here, so the ring's lock is
         // not on the request hot path.
         if let Ok(mut samples) = self.waits.lock() {
+            samples.push(micros);
+        }
+    }
+    /// Record one statement's execution time, service-wide and for its
+    /// own database. Called next to the per-shape cost log, for
+    /// executed statements only: a refused or timed-out statement has
+    /// no execution time, and recording one would invent latency the
+    /// database never spent.
+    pub fn record_latency(&self, name: &str, micros: u64) {
+        if let Ok(mut queue) = self.queue.lock() {
+            queue.entry(name.to_string()).or_default().latency.push(micros);
+        }
+        if let Ok(mut samples) = self.latency.lock() {
             samples.push(micros);
         }
     }
@@ -371,6 +391,14 @@ impl Metrics {
             ),
             Err(_) => (None, None, 0),
         };
+        let (query_p50_us, query_p95_us, query_samples) = match self.latency.lock() {
+            Ok(samples) => (
+                samples.percentile(50.0),
+                samples.percentile(95.0),
+                samples.values.len(),
+            ),
+            Err(_) => (None, None, 0),
+        };
         MetricsSnapshot {
             uptime_secs,
             total: self.total.load(load),
@@ -382,6 +410,9 @@ impl Metrics {
             wait_p50_us,
             wait_p95_us,
             wait_samples,
+            query_p50_us,
+            query_p95_us,
+            query_samples,
         }
     }
 }
