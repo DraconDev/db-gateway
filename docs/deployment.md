@@ -98,6 +98,7 @@ placeholders for future/repeated deployments.
 | `{{DG_OWNER_KEY_FILE}}` | Absolute path of the mode-0600 owner credential file the hourly producer and the restore drill read (never its contents) | **Unresolved** — target layout decision (e.g. `/etc/dg/owner.key`) |
 | `{{DG_RESOURCE_SAMPLE_SCRIPT}}` | Absolute path of the installed composed resource sampler (`scripts/resource-sample.sh`) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/resource-sample.sh`) |
 | `{{DG_ALERTS_SCRIPT}}` | Absolute path of the installed disk/lag alert checker (`scripts/dg-alerts.sh`) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/dg-alerts.sh`) |
+| `{{DG_TRAFFIC_SAMPLE_SCRIPT}}` | Absolute path of the installed hourly traffic sampler (`scripts/traffic-sample.sh`), which appends the Analytics-lite series (`docs/observability-contract.md` signal "Traffic trend") | **Unresolved** — target layout decision (e.g. `/usr/local/bin/traffic-sample.sh`) |
 | `{{DG_MESH_LISTEN}}` | WireGuard interface `address:port` the mesh-edge socket binds (`deploy/dg-mesh-proxy.socket`) | **Owner decision at edge install** — must be the host's mesh address (e.g. `10.66.0.1:7432`); never a wildcard/LAN/WAN address (`docs/access-edge.md`) |
 
 The backup units (`deploy/dg-backup.{service,timer}` hourly producer,
