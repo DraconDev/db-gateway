@@ -279,16 +279,33 @@ if [ "$TREE_ONLY" -eq 0 ]; then
         | grep -oE "$WARDEN_PAYLOAD" | sort -u | wc -l | tr -d ' ')"
     # Commits that ADDED a payload, not commits whose diff merely shows one
     # nearby: `git log -G` matches context lines too, which counted 35
-    # commits for 5 that introduced anything. --unified=0 removes context
-    # from the output so the only lines this sees are changed ones, and
-    # the awk keeps the ones that are additions.
+    # commits for the 34 that introduced anything. --unified=0 removes
+    # context so only changed lines appear, and this keeps the additions.
+    #
+    # Python, not awk: the payload shape needs an interval (`{40,}`), and
+    # mawk -- the default `awk` on Debian and Ubuntu, so the default on a
+    # CI runner -- does not enable interval expressions. An awk version of
+    # this line silently matched nothing there and reported the history
+    # CLEAN. That is the same false-clean failure this gate already hit
+    # once; a check whose language quietly changes meaning by platform is
+    # not a check.
     WARDEN_COMMITS="$(git log --all -p --unified=0 --format='C %h %ad %s' --date=short 2>/dev/null \
-        | awk -v pat="$WARDEN_PAYLOAD" '
-            /^C / { cur = $0; sub(/^C /, "", cur); next }
-            /^\+/ && $0 ~ pat {
-                if (!(cur in seen)) { seen[cur] = 1; print cur }
-            }
-        ')"
+        | python3 -c '
+import re
+import sys
+
+pat = re.compile(sys.argv[1])
+cur = None
+seen = []
+for line in sys.stdin:
+    if line.startswith("C "):
+        cur = line[2:].rstrip("\n")
+    elif line.startswith("+") and cur and pat.search(line):
+        if cur not in seen:
+            seen.append(cur)
+for commit in seen:
+    print(commit)
+' "$WARDEN_PAYLOAD")"
     if [ -n "$WARDEN_COMMITS" ]; then
         block "$WARDEN_COUNT age-encrypted secret value(s) were committed in $(printf '%s\n' "$WARDEN_COMMITS" | wc -l | tr -d ' ') commit(s)"
         printf '       This is the dracon-warden scheme the managed .gitignore describes as\n'
