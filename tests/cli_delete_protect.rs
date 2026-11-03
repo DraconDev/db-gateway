@@ -259,3 +259,99 @@ fn protection_survives_against_a_fresh_read() {
     let (ok, _, _) = fleet.cli.run(&["delete", "shop", "--confirm", "shop"]);
     assert!(!ok, "protection did not survive a later command");
 }
+
+/// A deleted database is listed for undelete: the operator who knows
+/// something is missing but not what it was called can enumerate the
+/// tombstones to find it. The live list stays live-only.
+#[test]
+fn deleted_databases_are_listed_for_undelete() {
+    let fleet = Fleet::boot();
+    seed(&fleet);
+    fleet.cli.ok("create", &["create", "other"]);
+    fleet
+        .cli
+        .ok("delete", &["delete", "shop", "--confirm", "shop"]);
+
+    let live: Value = fleet.cli.ok("list", &["list"]);
+    let live_names: Vec<&str> = live["databases"]
+        .as_array()
+        .expect("databases")
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert!(
+        !live_names.contains(&"shop"),
+        "the live list names a tombstone: {live_names:?}"
+    );
+
+    let dead: Value = fleet.cli.ok("list-tombstoned", &["list", "--tombstoned"]);
+    let stones = dead["tombstones"].as_array().expect("tombstones");
+    assert_eq!(stones.len(), 1, "one tombstone listed: {dead}");
+    assert_eq!(stones[0]["name"].as_str(), Some("shop"), "{dead}");
+    assert!(
+        stones[0]["purge_after"].as_u64().is_some(),
+        "the tombstone carries its deadline: {dead}"
+    );
+}
+
+/// Undelete removes the name from the tombstone list: the list answers
+/// "what did I delete", not "what did I ever delete".
+#[test]
+fn undelete_removes_the_name_from_the_tombstone_list() {
+    let fleet = Fleet::boot();
+    seed(&fleet);
+    fleet
+        .cli
+        .ok("delete", &["delete", "shop", "--confirm", "shop"]);
+    fleet.cli.ok("undelete", &["undelete", "shop"]);
+
+    let dead: Value = fleet.cli.ok("list-tombstoned", &["list", "--tombstoned"]);
+    assert_eq!(
+        dead["tombstones"].as_array().map(Vec::len),
+        Some(0),
+        "the restored name is still listed: {dead}"
+    );
+}
+
+/// Tombstones are the owner's delete history: a scoped key that could
+/// never undelete must not enumerate them either.
+#[test]
+fn a_scoped_key_is_refused_the_tombstone_list() {
+    let fleet = Fleet::boot();
+    seed(&fleet);
+    let writer = fleet.cli.ok(
+        "key create writer",
+        &[
+            "key",
+            "create",
+            "writer",
+            "--role",
+            "database_read_write",
+            "--database",
+            "shop",
+        ],
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let scoped_file = dir.path().join("writer.key");
+    std::fs::write(&scoped_file, writer["key"].as_str().unwrap()).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&scoped_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let scoped = common::Cli {
+        server: fleet.cli.server.clone(),
+        key_file: scoped_file,
+    };
+    fleet
+        .cli
+        .ok("delete", &["delete", "shop", "--confirm", "shop"]);
+
+    let (ok, stdout, stderr) = scoped.run(&["list", "--tombstoned"]);
+    assert!(!ok, "a scoped key listed tombstones: {stdout}{stderr}");
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        combined.contains("forbidden"),
+        "the refusal did not name forbidden: {combined}"
+    );
+}
