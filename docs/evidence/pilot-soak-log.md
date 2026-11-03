@@ -175,3 +175,18 @@ soak_heartbeat rows: 2 (manual + timer-test runs)
 
 Next: one probe entry per day minimum (counts + txid + backup age),
 7 consecutive green days to close the gate.
+
+## 2026-11-03T11:05Z — day 1 probe: green (binary upgraded mid-day)
+
+Gateway binary upgraded 10:37Z (cf47a23c → 255a426a, telemetry
+build); old binary kept at /usr/local/bin/dg.prev-indexfix.
+Fingerprints match across the restart except soak_heartbeat 12→13
+(the hourly writer). The :35 heartbeat (scoped key pilot_soak) kept
+firing through the upgrade.
+
+```
+attempts.jsonl latest: {"databases": 8, "outcome": "ok", "set": "20261103T110101Z"}
+litestream status: all 9 entries ok; billing_pilot txid 0000000000000018 (was ...02 at day 0)
+soak_heartbeat rows: 13
+billing_pilot rows: 3989 (22 tables); all other DBs at fingerprinted counts
+```
