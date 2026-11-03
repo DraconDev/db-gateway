@@ -48,6 +48,7 @@ pub struct Deployment {
 pub fn router(store: Arc<Store>, deployment: Deployment) -> Router {
     Router::new()
         .route("/v1/databases", get(list).post(create))
+        .route("/v1/tombstones", get(list_tombstones))
         .route("/v1/contents", get(contents))
         .route("/v1/databases/{name}", get(info).delete(remove))
         // Undo half of delete: clears a tombstone inside its retention
@@ -519,6 +520,28 @@ async fn list(State(store): State<Arc<Store>>, headers: HeaderMap) -> Result<Jso
     // excluded). Unknown/revoked credentials are still 401.
     work_read(store, headers, |s, p| {
         Ok(Json(json!({"databases":s.list(&p)?})))
+    })
+    .await
+}
+
+/// The tombstoned databases with their retention deadlines, oldest
+/// purge first.
+///
+/// Owner-only: a scoped key can never undelete, so the delete history
+/// is not its business. The live list stays live-only; this is the
+/// index between delete and undelete.
+async fn list_tombstones(
+    State(store): State<Arc<Store>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    work_read(store, headers, |s, p| {
+        p.owner()?;
+        let stones: Vec<Value> = s
+            .list_tombstoned()?
+            .into_iter()
+            .map(|(name, purge_after)| json!({"name": name, "purge_after": purge_after}))
+            .collect();
+        Ok(Json(json!({"tombstones": stones})))
     })
     .await
 }

@@ -264,6 +264,29 @@ impl Store {
         Ok(names)
     }
 
+    /// Every tombstoned database with its retention deadline, oldest
+    /// purge first: the owner's answer to "what did I delete".
+    ///
+    /// Owner-only at the route: a scoped key can never undelete, so it
+    /// must not enumerate the delete history either. The deadline is
+    /// the purge epoch `info` reports for the same name, so the two
+    /// surfaces cannot disagree about when a tombstone goes away.
+    pub fn list_tombstoned(&self) -> Result<Vec<(String, Option<i64>)>> {
+        let conn = self.meta()?;
+        if !table_exists(&conn, "databases")? {
+            return Ok(Vec::new());
+        }
+        let mut stmt = conn.prepare(
+            "SELECT name, purge_after FROM databases WHERE deleted_at IS NOT NULL ORDER BY purge_after",
+        )?;
+        let stones = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(stones)
+    }
+
     /// Owner-visible database facts: size, user tables with row counts,
     /// creation time, and tombstone state. Tombstoned names report their
     /// retention deadline instead of table detail; unknown names are 404.
