@@ -245,6 +245,7 @@ async fn block(
 ) -> Result<Option<Request>, dg::ServerError> {
     dg::store::validate_name(&name).map_err(Application)?;
     let view_name = name.clone();
+    let direction = direction.to_string();
     let flag = format!("{direction}_blocked");
     let method = if off { Method::DELETE } else { Method::PUT };
     let send_method = method.clone();
