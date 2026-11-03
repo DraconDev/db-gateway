@@ -383,13 +383,12 @@ scan_path, manifest_path = sys.argv[1], sys.argv[2]
 # A shaped credential (an AWS key id, a PEM header, a GitHub token) is a
 # credential by its form. generic-secret-assignment is a heuristic: a
 # secret-ish NAME assigned a long value. That heuristic pays for itself
-# on a single file, but over 2500 commits it also matches
-# `SECRET_PREFIX = "LITESTREAM_S3_SECRET_ACCESS_KEY="` -- a constant
-# holding a KEY NAME -- and the fixtures in tests/secret_scan.rs and
-# tests/operations_scripts.rs, which exist precisely to exercise the
-# scanner. Calling those blockers is how a gate earns a reputation for
-# crying wolf and gets switched off, so shaped hits block and heuristic
-# hits advise.
+# on a single file, but over 2500 commits it also matches a constant
+# whose VALUE is an environment-variable name rather than a secret, and
+# the fixtures in tests/secret_scan.rs and tests/operations_scripts.rs,
+# which exist precisely to exercise the scanner. Calling those blockers
+# is how a gate earns a reputation for crying wolf and gets switched
+# off, so shaped hits block and heuristic hits advise.
 SHAPED = {"aws-access-key-id", "aws-secret-access-key", "github-token",
           "private-key-block"}
 
