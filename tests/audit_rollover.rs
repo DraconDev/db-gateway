@@ -27,6 +27,7 @@ fn entry_with_marker(marker: &str) -> AuditEntry {
         action: "query".to_string(),
         database: Some("demo".to_string()),
         detail: Some(marker.to_string()),
+        elapsed_us: None,
     }
 }
 
