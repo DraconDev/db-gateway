@@ -248,6 +248,10 @@ pub struct DbQueue {
     /// percentile of nothing is nothing, and reporting zero would claim
     /// the queue never contended.
     pub wait_p95_us: Option<u64>,
+    /// The 95th percentile of this database's own recent statement
+    /// executions, in microseconds. `None` when no statement has run
+    /// against it.
+    pub query_p95_us: Option<u64>,
 }
 
 impl Store {

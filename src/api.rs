@@ -267,6 +267,7 @@ async fn status(
                         // under `requests` and covers every database,
                         // so a single contended database can hide in it.
                         "queue_wait_p95_us": waits.wait_p95_us,
+                "query_p95_us": waits.query_p95_us,
                         "queue_timeouts": waits.timeouts,
                         "last_write": last_write,
                     }),
@@ -327,6 +328,9 @@ async fn status(
                 "wait_p50_us": m.wait_p50_us,
                 "wait_p95_us": m.wait_p95_us,
                 "wait_samples": m.wait_samples,
+                "query_p50_us": m.query_p50_us,
+                "query_p95_us": m.query_p95_us,
+                "query_samples": m.query_samples,
             },
             "databases": databases,
             "database_counts": {
@@ -1234,6 +1238,12 @@ fn record_statements(
         })
         .collect();
     store.metrics.queries.record(name, &principal.name, &runs);
+    // The percentile rings take the same per-statement costs: the shape
+    // log answers "which one is expensive", the rings answer "how slow
+    // are we right now".
+    for run in &runs {
+        store.metrics.record_latency(name, run.micros);
+    }
     // The audit log names the same statements, and names them the same
     // way: by their shape. A statement's values are the data, and the
     // data is not what the audit log is for.

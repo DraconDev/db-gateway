@@ -76,6 +76,39 @@ fn the_wait_sample_ring_is_bounded() {
 }
 
 #[test]
+fn latency_percentiles_are_exact_and_absent_when_nothing_ran() {
+    let metrics = Metrics::new();
+    // No statements yet: a percentile of nothing is nothing. Reporting
+    // zero would claim every query was instant.
+    let snapshot = metrics.snapshot();
+    assert_eq!(snapshot.query_p50_us, None);
+    assert_eq!(snapshot.query_p95_us, None);
+    assert_eq!(snapshot.query_samples, 0);
+
+    // Ten executions of 1ms..10ms. The nearest-rank p50 is the 5th
+    // value (5ms) and the p95 is the 10th (10ms).
+    for millis in 1..=10u64 {
+        metrics.record_latency("demo", millis * 1000);
+    }
+    let snapshot = metrics.snapshot();
+    assert_eq!(snapshot.query_p50_us, Some(5_000));
+    assert_eq!(snapshot.query_p95_us, Some(10_000));
+    assert_eq!(snapshot.query_samples, 10);
+}
+
+#[test]
+fn each_database_gets_its_own_latency_percentile() {
+    let metrics = Metrics::new();
+    metrics.record_latency("slow", 100_000);
+    metrics.record_latency("fast", 100);
+    let queue = metrics.queue_snapshot();
+    assert_eq!(queue["slow"].query_p95_us, Some(100_000));
+    assert_eq!(queue["fast"].query_p95_us, Some(100));
+    // The service-wide percentile covers both samples.
+    assert_eq!(metrics.snapshot().query_samples, 2);
+}
+
+#[test]
 fn per_database_waits_and_waits_are_counted_separately() {
     let metrics = Metrics::new();
     metrics.record_usage("alpha", 10, 5);
