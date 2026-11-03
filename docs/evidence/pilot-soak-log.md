@@ -156,3 +156,22 @@ would not close it honestly. Closes when: the owner workload decision
 lands, the trial import runs, and 7 consecutive days of the plan's
 hourly entries are collected against an ACTIVE pilot. Next entry
 starts that series; nothing above is claimed as part of it.
+
+## 2026-11-03T00:15Z — day 0: C-dev pilot live, soak clock starts
+
+Owner approved the C-dev pilot launch (D1+D2): dracon-billing-dev
+trial-imported as billing_pilot (20/20 counts, 12/12 indexes;
+full transcript in docs/evidence/migration-cdev-pilot-2026-11-02.log).
+The pilot is ACTIVE from here: hourly heartbeat writes through the
+scoped key drive the txid, hourly backups cover it, replication was
+auto-added. The 7-day series the verdict above asked for starts NOW —
+this entry is hour 0, not a backfill.
+
+```
+attempts.jsonl latest: {"databases": 8, "outcome": "ok", "set": "20261103T001452Z"}
+litestream status: billing_pilot ok, txid 0000000000000002 (all 9 entries ok)
+soak_heartbeat rows: 2 (manual + timer-test runs)
+```
+
+Next: one probe entry per day minimum (counts + txid + backup age),
+7 consecutive green days to close the gate.
