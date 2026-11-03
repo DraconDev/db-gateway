@@ -232,58 +232,89 @@ ADVISORY_OUT="$(python3 - <<'PY'
 import re
 import subprocess
 
-files = subprocess.run(["git", "ls-files"], capture_output=True, text=True,
-                       check=False).stdout.split()
+raw = subprocess.run(["git", "ls-files", "-z"], capture_output=True,
+                     check=False).stdout
+files = [f.decode("utf-8", "replace") for f in raw.split(b"\0") if f]
 
-PATTERNS = [
-    ("home-path", re.compile(r"/home/[A-Za-z0-9._-]+")),
-    ("personal-email", re.compile(r"\b[A-Za-z0-9._%+-]+@(?!example\.|invalid\.|turso\.tech|"
-                                  r"tty1\.service|1000\.service)[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")),
-    ("public-ip", re.compile(r"\b(?:(?:25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})\.){3}"
-                             r"(?:25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})\b")),
-    ("cloud-account", re.compile(r"\baccount\s+\d{9,12}\b")),
-]
+HOME = re.compile(r"/home/[A-Za-z0-9._-]+")
+EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+IP = re.compile(r"\b(?:(?:25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})\.){3}"
+                r"(?:25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})\b")
+ACCOUNT = re.compile(r"\baccount\s+\d{9,12}\b")
 
-# These hosts are the documented examples; naming them teaches nothing.
-PUBLIC_IP_ALLOW = {"0.0.0.0", "127.0.0.1", "127.0.0.2", "10.0.0.1",
-                   "10.66.0.1", "192.0.2.1", "255.255.255.255"}
+# Documented examples: naming them teaches nothing about the operator.
+IP_ALLOW = {"0.0.0.0", "127.0.0.1", "127.0.0.2", "10.0.0.1",
+            "10.66.0.1", "192.0.2.1", "255.255.255.255"}
+# Role mailboxes and forge system addresses, not a person's address.
+EMAIL_ALLOW_DOMAIN = {"github.com", "gitlab.com", "noreply.github.com",
+                     # RFC 2606 reserved example domains, used in fixtures.
+                     "example.com", "example.net", "example.org"}
+EMAIL_ALLOW_LOCAL = {"git", "noreply", "support", "info", "admin",
+                     "postmaster", "hostmaster", "webmaster", "security",
+                     "users", "example", "test", "nobody"}
+# RFC 2606 / systemd-style reserved domains carry no identity.
+EMAIL_ALLOW_TLD = {".invalid", ".example", ".test", ".service", ".local"}
+
+# Frozen records are never edited after the fact (docs/README.md), so a
+# hit there is a publication decision, not a doc to fix. Everything else
+# is a live document, where the fix is to remove the path.
+FROZEN = ("docs/evidence/", "docs/verification/")
 
 hits = {}
 for rel in files:
     try:
         with open(rel, "rb") as fh:
-            raw = fh.read()
+            blob = fh.read()
     except OSError:
         continue
-    if b"\0" in raw[:4096]:
-        continue
+    if b"\0" in blob[:4096]:
+        continue  # binary
     try:
-        text = raw.decode("utf-8")
+        text = blob.decode("utf-8")
     except UnicodeDecodeError:
         continue
-    for kind, pattern in PATTERNS:
-        for m in pattern.finditer(text):
-            value = m.group(0)
-            if kind == "public-ip" and value in PUBLIC_IP_ALLOW:
-                continue
-            if kind == "home-path" and not re.match(r"/home/[A-Za-z0-9._-]+", value):
-                continue
-            hits.setdefault(kind, {}).setdefault(rel, 0)
-            hits[kind][rel] += 1
+    bucket = "frozen" if rel.startswith(FROZEN) else "live"
+
+    def note(kind, value):
+        hits.setdefault(kind, {}).setdefault(bucket, {}).setdefault(rel, 0)
+        hits[kind][bucket][rel] += 1
+
+    for m in HOME.finditer(text):
+        note("home-path", m.group(0))
+    for m in EMAIL.finditer(text):
+        value = m.group(0)
+        local, _, domain = value.rpartition("@")
+        if domain.lower() in EMAIL_ALLOW_DOMAIN:
+            continue
+        if local.lower() in EMAIL_ALLOW_LOCAL:
+            continue
+        if any(domain.lower().endswith(tld) for tld in EMAIL_ALLOW_TLD):
+            continue
+        note("personal-email", value)
+    for m in IP.finditer(text):
+        if m.group(0) not in IP_ALLOW:
+            note("public-ip", m.group(0))
+    for _ in ACCOUNT.finditer(text):
+        note("cloud-account", "")
 
 for kind in ("home-path", "personal-email", "public-ip", "cloud-account"):
-    files_hit = hits.get(kind, {})
-    if not files_hit:
-        continue
-    total = sum(files_hit.values())
-    print(f"{kind}\t{total}\t{len(files_hit)}")
+    for bucket in ("live", "frozen"):
+        files_hit = hits.get(kind, {}).get(bucket, {})
+        if not files_hit:
+            continue
+        total = sum(files_hit.values())
+        print(f"{kind}\t{bucket}\t{total}\t{len(files_hit)}")
 PY
 )"
 
 if [ -n "$ADVISORY_OUT" ]; then
-    while IFS=$'\t' read -r kind total files_hit; do
+    while IFS=$'\t' read -r kind bucket total files_hit; do
         [ -n "$kind" ] || continue
-        advise "$kind appears in $total place(s) across $files_hit tracked file(s)"
+        if [ "$bucket" = "live" ]; then
+            advise "$kind appears in $total place(s) across $files_hit live doc(s) -- editable, so this one is a choice"
+        else
+            advise "$kind appears in $total place(s) across $files_hit frozen record(s) -- never edited after the fact, so publishing it is the decision"
+        fi
     done <<< "$ADVISORY_OUT"
 else
     ok "no identity disclosure found in the tracked tree"
