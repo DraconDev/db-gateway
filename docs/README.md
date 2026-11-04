@@ -10,31 +10,30 @@ one of:
 - **Superseded** — a plan, proposal, or audit whose successor exists.
   Kept for the decision trail; do not execute from it.
 
-**Start here:** [`personal-turso-megaplan.md`](personal-turso-megaplan.md)
-is the canonical roadmap and source-of-truth register (the root
-`TASKS.md` is its live checklist; the root `README.md` is the project
-front door). For operations, the living contracts and runbooks are the
-canonical list below.
+**Start here:** [`../README.md`](../README.md) is the project front door
+and [`deployment.md`](deployment.md) is the generic deploy procedure.
+This gateway is in pre-production development; it is not ready for
+production use or production data.
 
 ## Canonical
 
 | File | What it is |
 |---|---|
-| `personal-turso-megaplan.md` | The canonical roadmap + source-of-truth register. CI-checked. |
+| `personal-turso-megaplan.md` | Generic project overview (pre-production). |
 | `audit-2026-10-19.md` | The current audit register (the A-series); living until the next audit supersedes it. |
 | `architecture.md` | Target architecture and decision register (register member). |
 | `api.md` | HTTP/CLI API contract: routes, value encoding, errors, retry semantics (register member). |
 | `access-edge.md` | Access/edge design: mesh/app proxies, socket activation, local rules. |
 | `backup-compatibility.md` | Backup-format compatibility assessment against public implementations. |
-| `cli-turso-mapping.md` | How the `dg` CLI maps to the Turso/libSQL surface it replaces. |
-| `turso-surface-gap.md` | The Turso-vs-`dg` surface comparison: the ranked gaps, each one's disposition, and where the Turso side is marked unverified. |
+| `cli-turso-mapping.md` | Generic CLI setup note. |
+| `turso-surface-gap.md` | Generic surface note (pre-production). |
 | `tui.md` | The terminal operator view (`dg tui`): the tabs, the keys, the actions, and the rules it holds. |
 | `deployment.md` | The deploy guide. `scripts/validate-deploy.sh` checks units against it. |
 | `deployment-readiness.md` | deployment-host deployment acceptance checklist. |
-| `later-capabilities.md` | Deferred-capability decisions: what was postponed and why. |
+| `later-capabilities.md` | Generic capabilities note. |
 | `measurement-runbook.md` | How host measurements (verifications, sampling) are run on deployment-host. |
-| `migration-cutover.md` | Migration cutover plan (register member). |
-| `migration-inventory.md` | Migration source/target inventory and per-item status. |
+| `migration-cutover.md` | Generic migration note (no production migration). |
+| `migration-inventory.md` | Generic migration note (no production migration). |
 | `no-turso-contact-2026-10-31.txt` | The trace behind the comparison's Turso-contact disclosure: commands by date, their reported results, and the limits of what the credential check establishes. |
 | `observability-contract.md` | The observability contract: signals, alerts, the 3 a.m. rules (register member). |
 | `sandbox-runbook.md` | Runbook for the sandbox rehearsal packet. |
@@ -59,6 +58,5 @@ canonical list below.
 1. A canonical doc is edited in place; if it stops being true, it is
    demoted here (marked superseded with its successor named), not
    silently left to compete.
-2. The plan register (`personal-turso-megaplan.md` +
-   `check_plan_consistency.py`) is changed deliberately and in one
+2. The plan register (`check_plan_consistency.py`) is changed deliberately and in one
    place; register members do not move.

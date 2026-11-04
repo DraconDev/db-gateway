@@ -1,4 +1,4 @@
-//! Focused contract tests for the canonical roadmap checker.
+//! Focused contract tests for the generic docs consistency checker.
 
 use std::{fs, process::Command};
 
@@ -10,8 +10,8 @@ fn run_checker(master: &str) -> std::process::Output {
 }
 
 #[test]
-fn canonical_plan_passes() {
-    let output = run_checker("docs/personal-turso-megaplan.md");
+fn generic_overview_passes() {
+    let output = run_checker("docs/README.md");
     assert!(
         output.status.success(),
         "checker failed: {}",
@@ -20,12 +20,12 @@ fn canonical_plan_passes() {
 }
 
 #[test]
-fn checker_rejects_missing_phase_rollback() {
+fn checker_rejects_missing_pre_production_warning() {
     let dir = tempfile::tempdir().unwrap();
-    let source = fs::read_to_string("docs/personal-turso-megaplan.md").unwrap();
+    let source = fs::read_to_string("docs/README.md").unwrap();
     let broken = source.replacen(
-        "Rollback / stop rule:\n\n- no runtime mutation occurs in this phase;",
-        "Notes:\n\n- no runtime mutation occurs in this phase;",
+        "pre-production development; it is not ready for\nproduction use or production data.",
+        "production ready.",
         1,
     );
     let path = dir.path().join("broken.md");
@@ -34,7 +34,7 @@ fn checker_rejects_missing_phase_rollback() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("phase-rollback"),
+        stderr.contains("pre-production"),
         "unexpected checker output: {stderr}"
     );
 }

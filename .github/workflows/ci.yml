@@ -174,7 +174,7 @@ jobs:
         env:
           DG_ORPHAN_MIN_AGE_SECS: "0"
         run: ./scripts/check-orphans.sh
-      - run: python3 scripts/check_plan_consistency.py docs/personal-turso-megaplan.md
+      - run: python3 scripts/check_plan_consistency.py docs/README.md
   audit:
     runs-on: ubuntu-latest
     timeout-minutes: 10

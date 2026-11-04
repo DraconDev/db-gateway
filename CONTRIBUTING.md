@@ -55,7 +55,7 @@ cargo deny check                           # licenses / advisories / bans / sour
 npm audit --prefix client --audit-level=high
 npm test                                   # root script: the client suite (real dg serve)
 ./scripts/lint-scripts.sh                  # every tracked script, shellcheck-warning clean
-python3 scripts/check_plan_consistency.py docs/personal-turso-megaplan.md
+python3 scripts/check_plan_consistency.py docs/README.md
 ./scripts/validate-deploy.sh               # when deploy/ templates change
 ```
 
