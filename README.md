@@ -1,9 +1,6 @@
 # DB Gateway
 
-**Canonical roadmap:** [`docs/personal-turso-megaplan.md`](docs/personal-turso-megaplan.md)
-**Current implementation checklist:** [`TASKS.md`](TASKS.md)
-**Documentation index:** [`docs/README.md`](docs/README.md) — canonical vs historical-evidence vs superseded, for the whole docs tree.
-**How we work:** [`CONTRIBUTING.md`](CONTRIBUTING.md) — the item loop, the gates, release flow, and the lines we don't cross.
+This repository contains the Rust gateway, CLI, TypeScript client, API and architecture docs, and deployment templates. It is pre-production (0.x); interfaces and formats may change.
 
 **`dg`** is a single-owner SQLite service: one Rust gateway, many independent databases, an HTTP API and CLI, and off-host backups.
 
@@ -58,7 +55,6 @@ Prefer an uninstalled debug build instead: `cargo build --locked` plus `export P
 
 - **API reference** (routes, value encoding, error codes, write/retry semantics): [docs/api.md](docs/api.md)
 - **Architecture and decision register**: [docs/architecture.md](docs/architecture.md)
-- **Task list / milestones**: [TASKS.md](TASKS.md)
 - **The terminal view** (bare `dg`, or `dg tui`: the service, its databases, their backups and its credentials on one live screen, and the actions that change them): [docs/tui.md](docs/tui.md)
 
 ## TypeScript client
