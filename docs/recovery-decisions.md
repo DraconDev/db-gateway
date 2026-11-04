@@ -1,9 +1,9 @@
 # Recovery decisions (M3 input, not acceptance)
 
-**Document role:** Historical/current research brief; the canonical roadmap is
-[`personal-turso-megaplan.md`](personal-turso-megaplan.md). **Tier
+**Document role:** Historical/current research brief; the overview is
+[`docs/README.md`](README.md). **Tier
 selection is superseded by [`recovery-policy.md`](recovery-policy.md)
-(2026-10-19)**: continuous replication sidecar WAL shipping to object storage provider is Tier 1
+(2026-10-19)**: continuous replication sidecar WAL shipping to object storage is Tier 1
 (host loss) and per-database consistent verified snapshots are Tier 2
 (local rollback), both live on deployment-host. This brief's Profile C analysis
 and measurements remain the evidence base for the objectives the
