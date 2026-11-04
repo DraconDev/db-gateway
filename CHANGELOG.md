@@ -93,11 +93,10 @@ fixes; 1.0.0 waits for production acceptance.
   address), no proxy, no redirects; a failed delivery is reported, and
   unconfigured runs behave exactly as before.
 - **Snapshot sets now have an automated off-host second leg.**
-  `scripts/pull-micro2-backup.sh` pulls the newest verified set from
-  micro2, re-verifies every manifest hash, sidecar and SQLite integrity
-  check the producer performed, and prunes old pulls;
-  `deploy/local/dg-backup-pull.timer` runs it daily on the operator
-  machine. Litestream's WAL stream remains the continuous replica;
+  The backup-pull tooling copies the newest verified set to an operator
+  machine, re-verifies every manifest hash, sidecar and SQLite integrity
+  check the producer performed, and prunes old pulls; the scheduled pull
+  runs daily. The continuous replica remains the live replication path;
   this is the file-level copy a rebuild starts from.
 - **`Enter` in the terminal view opens the database under the scroll.**
   The keyboard's doorway used to list the open-table action with the
@@ -460,25 +459,23 @@ fixes; 1.0.0 waits for production acceptance.
   twenty-one files spanning six hours.
 
   Every moment inside the real window was therefore reported as *"no —
-  the window opens later"*, including moments litestream itself restores
+  the window opens later"*, including moments the replica restores
   without complaint. The window now reaches back across every level the
-  bucket holds, and on micro2 it runs from **2026-10-15 14:16 to now**
-  instead of from the 16th.
+  bucket holds, so the published window spans the full replicated history
+  instead of the newest segment.
 
 - **The window's end is now the moment the replica is current to, not the
   last time it happened to write a file.** A database that has not
   changed since its snapshot can still be restored to any later moment:
-  litestream restores the snapshot, and the bytes are the same ones the
+  the replica restores the snapshot, and the bytes are the same ones the
   replica holds now. When the sidecar is not running the state is frozen
   at the newest file, so that is the end. This changes what the published
   facts mean, which is why it is a minor release rather than a patch.
 
-Proven against litestream's own answers, moment by moment: the plan now
-says *yes* for the moments litestream restores and *no* for the one it
-refuses (`inventory` at 12:00 on the 25th, before the database existed),
-and a real restore to a mid-window moment
-(`billing_dev_pilot` at 2026-10-16T12:00:00Z) produced a copy with the
-same tables as the live database.
+Proven against the replica's own answers, moment by moment: the plan
+now says *yes* for the moments the replica restores and *no* for the one
+it refuses, and a real restore to a mid-window moment produced a copy
+with the same tables as the live database.
 
 ## [0.7.0] — 2026-10-25
 
@@ -926,13 +923,10 @@ same tables as the live database.
 
 ### Changed
 
-- **micro2 now runs the 0.3.0 line.** The gateway on micro2 was upgraded
-  from 0.2.0 to this tree's 0.3.0 on 2026-10-24 under
-  `docs/upgrade-rollback.md`: a per-database export snapshot into
-  `/var/lib/dg-pre-upgrade-0.3.0/` (the export checksums are identical to
-  the 0.2.0 upgrade's, so the data had not moved), a byte-exact copy of
-  the stopped data directory at `/var/lib/dg.pre-0.3.0`, and the previous
-  binary kept as `dg.prev-0.2.0`. The upgrade was verified by comparing
+- **The gateway now runs the 0.3.0 line.** The gateway was upgraded
+  under `docs/upgrade-rollback.md`: a per-database export snapshot, a
+  byte-exact copy of the stopped data directory, and the previous binary
+  kept for rollback. The upgrade was verified by comparing
   the user-table content of every database before and after: identical.
   The deployed binary now reports `0.3.0`, which is the tag `v0.3.0`, so
   the deployed bundle traces to exactly one tagged state again.
@@ -965,13 +959,12 @@ same tables as the live database.
   word for it: the reference that decides when an unrepresented change
   deserves an operator's attention, not an age at which a set expires.
   The API field is unchanged.
-- **micro2 now runs the 0.2.0 line.** The gateway on micro2 was upgraded
-  from 0.1.0 to this tree's 0.2.0 on 2026-10-24 under
-  `docs/upgrade-rollback.md` (per-database export snapshot plus a
-  byte-exact copy of the stopped data directory, previous binary kept as
-  `dg.prev-0.1.0`), and the host's `litestream-sync.sh` and
-  `bucket-restore-drill.sh` were replaced with the versions that publish
-  the replica status and the drill verdict. The upgrade was verified by
+- **The gateway now runs the 0.2.0 line.** The gateway was upgraded from
+  0.1.0 to this tree's 0.2.0 under `docs/upgrade-rollback.md`
+  (per-database export snapshot plus a byte-exact copy of the stopped
+  data directory, previous binary kept for rollback), and the host
+  replication and restore-drill scripts were replaced with the versions
+  that publish replica status and drill verdicts. The upgrade was verified by
   comparing the user-table content of every database before and after:
   identical. The deployed binary still reports `0.2.0`, which is now
   behind the `v0.2.0` tag; the next version bump is what restores
@@ -1184,8 +1177,8 @@ same tables as the live database.
 ## [0.2.0] — 2026-10-19
 
 The first release-identified state: the feature set that has been
-running as a supervised non-production deployment on micro2, plus the
-2026-10-19 audit hardening. Production is **not** accepted; see
+running as a supervised non-production deployment, plus the 2026-10-19
+audit hardening. Production is **not** accepted; see
 `README.md` for the live status.
 
 ### Added
@@ -1195,11 +1188,11 @@ running as a supervised non-production deployment on micro2, plus the
   shell, JSON CLI, and a workstation web console.
 - Database lifecycle: clone, export/import (validated, atomic), and
   tombstone delete with a typed-name confirmation gate.
-- Backups: hourly verified snapshot sets, continuous Litestream
-  replication to OVH S3, backup-health status/digest, and restore
-  drills wired to systemd timers.
-- Access edge: loopback-only service reached via SSH tunnel or the
-  WireGuard mesh with socket-activated proxies; public binds refused.
+- Backups: hourly verified snapshot sets, continuous replication to
+  object storage, backup-health status/digest, and restore drills wired
+  to systemd timers.
+- Access edge: private-network service reached through an authenticated
+  private path; public binds refused.
 - Observability: request-pressure counters, backup-freshness signals,
   and alert notices under `docs/observability-contract.md`.
 - Release identity: this changelog, the `vX.Y.Z` tag practice, and
@@ -1209,7 +1202,7 @@ running as a supervised non-production deployment on micro2, plus the
 
 ### Changed
 
-- The deployed micro2 binary still reports `dg 0.1.0` until the next
+- The deployed binary still reports `dg 0.1.0` until the next
   upgrade window; 0.2.0 is the repository state that window will
   deploy.
 - **The CLI now draws its terminal output through one shared renderer**
@@ -1226,6 +1219,6 @@ running as a supervised non-production deployment on micro2, plus the
 
 ## [0.1.0] — 2026-09-18
 
-First supervised deployment to micro2 (retroactive entry, recorded
+First supervised deployment (retroactive entry, recorded
 2026-10-19 when this changelog was adopted): the authenticated gateway
 and CLI from milestones M1–M3, before the audit hardening above.
