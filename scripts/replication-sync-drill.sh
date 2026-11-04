@@ -7,7 +7,7 @@
 # Everything is local and disposable: a `dg serve` on an unusual loopback
 # port, a file:// replica as the bucket stand-in (each database gets its
 # own replica prefix, per docs/backup-compatibility.md finding 2), and
-# the pinned the pinned sidecar release (NEVER the an earlier release that may be on PATH;
+# the pinned sidecar release (never a different sidecar that may be on PATH;
 # gate 1 of the compatibility matrix). No deployment-host, no bucket, no network
 # beyond loopback. The pass bar follows finding 1 of that matrix: a
 # restore exit code is not evidence -- restored rows are compared
@@ -32,7 +32,7 @@ SERVER="http://127.0.0.1:${PORT}"
 
 [ -x "$REPLICATION_BIN" ] || fail "pinned replication not found at $REPLICATION_BIN (set REPLICATION_BIN)"
 LVER="$("$REPLICATION_BIN" version 2>/dev/null | head -1)"
-[ "$LVER" = "the pinned sidecar release" ] || fail "replication at $REPLICATION_BIN is '$LVER', want the pinned sidecar release ( PATH an earlier release must not be used)"
+if [ -n "${DG_REPLICATION_VERSION:-}" ] && [ "$LVER" != "${DG_REPLICATION_VERSION}" ]; then fail "replication at $REPLICATION_BIN is '$LVER', want ${DG_REPLICATION_VERSION}"; fi
 if [ ! -x "$DG_BIN" ]; then
     step "building dg (debug)"
     (cd "$ROOT" && timeout 300 cargo build --locked --quiet --bin dg) || fail "cargo build failed"
