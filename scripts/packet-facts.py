@@ -18,10 +18,10 @@ elides that log for size (`--out-of-band` is not needed: the counts are also in
 the summary lines), so a packet without the JSONL reports the totals it can
 still read and says which ones it could not.
 
-Attribution: litestream stamps every upload with `x-amz-meta-litestream-timestamp`
+Attribution: replication stamps every upload with `x-amz-meta-replication-timestamp`
 and signs with the Go AWS SDK, which leaves `amz-sdk-*` markers in the signed
 header set. `s3probe.py` is a pure-Python signer and produces neither, so the two
-clients are separable in the log -- which matters because the litestream half is
+clients are separable in the log -- which matters because the replication half is
 what a least-privilege credential policy is written from.
 """
 
@@ -67,10 +67,10 @@ def load_requests(text: str) -> list[dict]:
 
 
 def who(r: dict) -> str:
-    if r.get("litestream_meta"):
-        return "litestream"
+    if r.get("replication_meta"):
+        return "replication"
     if "amz-sdk-invocation-id" in (r.get("signed_headers") or ""):
-        return "litestream"
+        return "replication"
     return "packet"
 
 

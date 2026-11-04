@@ -15,14 +15,14 @@
 
 [Unit]
 Description=DB Gateway composed resource sample (audit A7)
-After=dg.service dg-litestream.service
+After=dg.service dg-replication.service
 
 [Service]
 Type=oneshot
 User={{DG_USER}}
 Group={{DG_USER}}
 SupplementaryGroups=systemd-journal
-Environment="DG_SAMPLE_UNITS=dg.service dg-litestream.service"
+Environment="DG_SAMPLE_UNITS=dg.service dg-replication.service"
 Environment="DG_SAMPLE_PATHS=data={{DG_DATA_DIR}} backups={{DG_BACKUP_ROOT}}"
 ExecStart={{DG_RESOURCE_SAMPLE_SCRIPT}} --out {{DG_DATA_DIR}}/resource-samples.jsonl
 NoNewPrivileges=true

@@ -7,7 +7,7 @@
 #   systemctl daemon-reload && systemctl enable --now dg-app-proxy.socket
 # Nothing in this repository installs, enables, or starts this unit.
 #
-# Binds the app host's own loopback only, so applications keep using
+# Binds the app host's own local-only, so applications keep using
 # http://127.0.0.1:7432 origins (the client origin rule is unchanged
 # by the mesh edge — docs/access-edge.md). The port matches the
 # gateway's loopback default; if the app also runs something on

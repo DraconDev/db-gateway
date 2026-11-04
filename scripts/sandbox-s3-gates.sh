@@ -12,14 +12,14 @@
 # endpoint, and it is rehearsed end to end against a local one.
 #
 # WHAT IT IS DELIBERATELY NOT. Running against a local endpoint does not make a
-# gate §6 evidence. §6 wants the OVH test region and class specifically, because
+# gate §6 evidence. §6 wants the object storage provider test region and class specifically, because
 # what needs proving is that *that service* accepts these operations, at that
 # price, with those lifecycle rules. So every gate here records, in its own
 # output, which endpoint it actually ran against, and the packet marks a
 # rehearsal run as a rehearsal. A gate that cannot distinguish the two is the
 # exact failure mode this file exists to prevent.
 #
-# CREDENTIALS. Litestream 0.5.17 does NOT read S3 credentials from the
+# CREDENTIALS. Replication 0.5.17 does NOT read S3 credentials from the
 # LITESTREAM_CREDENTIALS file -- that was measured on 2026-09-28, by a run that
 # had that file in place and still ended in the AWS chain at the EC2 metadata
 # service. S3 signing comes from the standard AWS environment variables. So the
@@ -39,7 +39,7 @@ PIN_VERSION="0.5.17"
 # sandbox; without that, this script looks for the pin inside the sandbox home
 # and reports it missing, which is what the first rehearsal run did.
 if [ -z "${DG_SANDBOX_PIN_ROOT:-}" ]; then
-    PIN_ROOT="${DG_REAL_HOME:-$HOME}/.local/dg-sandbox/litestream-${PIN_VERSION}"
+    PIN_ROOT="${DG_REAL_HOME:-$HOME}/.local/dg-sandbox/replication-${PIN_VERSION}"
 else
     PIN_ROOT="$DG_SANDBOX_PIN_ROOT"
 fi
@@ -56,7 +56,7 @@ usage: scripts/sandbox-s3-gates.sh --out FILE --from-s3
                  packet summary from the gate lines already in the file
 
   DG_SANDBOX_BUCKET          required; the test bucket
-  DG_SANDBOX_ENDPOINT        required; e.g. s3.gra.io.cloud.ovh.net (host[:port])
+  DG_SANDBOX_ENDPOINT        required; e.g. s3.example.invalid (host[:port])
   DG_SANDBOX_SCHEME          the scheme of the ENDPOINT (https default). The recording
                             proxy's own listen scheme is derived separately: TLS only
                             when DG_SANDBOX_TLS_CERT is set, else plain HTTP on
@@ -90,14 +90,14 @@ done
 # attempt against a real bucket is the expensive kind.
 PRE_MISSING=()
 [ -n "${DG_SANDBOX_BUCKET:-}" ] || PRE_MISSING+=("DG_SANDBOX_BUCKET        the disposable test bucket; nothing else lives in it")
-[ -n "${DG_SANDBOX_ENDPOINT:-}" ] || PRE_MISSING+=("DG_SANDBOX_ENDPOINT      the S3 host with NO scheme, e.g. s3.gra.io.cloud.ovh.net")
+[ -n "${DG_SANDBOX_ENDPOINT:-}" ] || PRE_MISSING+=("DG_SANDBOX_ENDPOINT      the S3 host with NO scheme, e.g. s3.example.invalid")
 [ -n "${DG_SANDBOX_ACCESS_KEY_ID:-}" ] || PRE_MISSING+=("DG_SANDBOX_ACCESS_KEY_ID  a key scoped to that bucket only")
 [ -n "${DG_SANDBOX_SECRET_KEY:-}" ] || PRE_MISSING+=("DG_SANDBOX_SECRET_KEY   the matching secret")
 if [ "${#PRE_MISSING[@]}" -gt 0 ]; then
     echo "refusing to run the S3 gates; the owner's inputs are incomplete:" >&2
     printf '  missing  %s\n' "${PRE_MISSING[@]}" >&2
     echo >&2
-    echo "  docs/ovh-sandbox-runbook.md section 0a has the full command and" >&2
+    echo "  docs/object storage provider-sandbox-runbook.md section 0a has the full command and" >&2
     echo "  section 0 has the 0600 env file these come from. Secrets stay in" >&2
     echo "  that file: nothing here echoes a value, and the packet reads only" >&2
     echo "  the two variables the operator exported." >&2
@@ -112,7 +112,7 @@ case "$DG_SANDBOX_ENDPOINT" in
         echo "  The replica URL is built as s3://<bucket>/<prefix>?endpoint=\$SCHEME://<host>," >&2
         echo "  so a scheme here yields 'https://https://host'. The packet prepends" >&2
         echo "  the scheme; the variable takes the bare host. This is measured, not" >&2
-        echo "  stylistic: litestream 0.5.17 silently speaks PLAINTEXT when the scheme" >&2
+        echo "  stylistic: replication 0.5.17 silently speaks PLAINTEXT when the scheme" >&2
         echo "  is missing, and a doubled one is a URL it cannot parse at all." >&2
         exit 2;;
 esac
@@ -134,7 +134,7 @@ UPSTREAM_SCHEME="${DG_SANDBOX_SCHEME:-https}"
 # them made gate 3 unreachable against a real endpoint: the proxy only
 # serves TLS when a certificate is configured (a rehearsal), so against a
 # public-CA endpoint it listens plain HTTP while the canonical URL was
-# built with the endpoint's https -- litestream then failed a TLS handshake
+# built with the endpoint's https -- replication then failed a TLS handshake
 # against a plain-HTTP listener, wrote 0 objects, and logged nothing naming
 # the cause. Measured directly: the no-scheme variant wrote real .ltx
 # segments into the bucket in the same run.
@@ -154,19 +154,19 @@ case "$BUCKET" in
     *prod*|*live*) echo "refusing: bucket name '$BUCKET' looks like a production bucket" >&2; exit 2;;
 esac
 
-LITESTREAM="$PIN_ROOT/litestream"
-[ -x "$LITESTREAM" ] || { echo "litestream ${PIN_VERSION} is not installed at $LITESTREAM" >&2; exit 2; }
+LITESTREAM="$PIN_ROOT/replication"
+[ -x "$LITESTREAM" ] || { echo "replication ${PIN_VERSION} is not installed at $LITESTREAM" >&2; exit 2; }
 [ -x "$DG_BIN" ] || echo "warning: dg binary not built at $DG_BIN; gateway-dependent gates will report BLOCKED" >&2
 
 # TLS trust. A real S3 endpoint presents a publicly valid certificate, so a
 # rehearsal against a self-signed one has to be told to trust it. NOT via
-# AWS_CA_BUNDLE: measured on 2026-09-28, litestream 0.5.17 aborts its replica
+# AWS_CA_BUNDLE: measured on 2026-09-28, replication 0.5.17 aborts its replica
 # client with "cannot load aws config: unable to add custom RootCAs HTTPClient,
 # has no WithTransportOptions" -- the documented AWS variable is unusable with
 # this version, and the failure is total, not a fallback. SSL_CERT_FILE is read
 # by Go's crypto/x509, so the whole trust decision stays in the Go process and
-# the replica URL the packet reports as minimal stays exactly what OVH needs --
-# no skip-verify, no litestream-specific option, verification still ON.
+# the replica URL the packet reports as minimal stays exactly what object storage provider needs --
+# no skip-verify, no replication-specific option, verification still ON.
 CA_ARGS=()
 CA_NOTE="system trust store (the endpoint's certificate chains to a public CA)"
 if [ -n "${DG_SANDBOX_CA_BUNDLE:-}" ]; then
@@ -177,12 +177,12 @@ if [ -n "${DG_SANDBOX_CA_BUNDLE:-}" ]; then
     export SSL_CERT_FILE="$DG_SANDBOX_CA_BUNDLE"
     unset AWS_CA_BUNDLE || true
     CA_ARGS=(--ca-bundle "$DG_SANDBOX_CA_BUNDLE")
-    CA_NOTE="SSL_CERT_FILE=$DG_SANDBOX_CA_BUNDLE (system roots + the rehearsal endpoint's self-signed CA); verification stays ON, and AWS_CA_BUNDLE is deliberately NOT set because litestream 0.5.17 aborts on it"
+    CA_NOTE="SSL_CERT_FILE=$DG_SANDBOX_CA_BUNDLE (system roots + the rehearsal endpoint's self-signed CA); verification stays ON, and AWS_CA_BUNDLE is deliberately NOT set because replication 0.5.17 aborts on it"
 fi
 
 # --------------------------------------------------------------------------
 # Credential and discovery isolation. The AWS chain is the only mechanism
-# litestream 0.5.17 actually uses for S3, so this is the load-bearing part of
+# replication 0.5.17 actually uses for S3, so this is the load-bearing part of
 # the isolation, not a belt-and-braces extra.
 # --------------------------------------------------------------------------
 SANDBOX="${DG_SANDBOX_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/dg-sandbox-s3-XXXXXX")}"
@@ -207,9 +207,9 @@ else
     SANDBOX_OWNER_TEXT="created by sandbox-packet.sh, which removes it on its own exit; this script does not"
 fi
 # Every daemon this script backgrounds is registered here. The proxies were and
-# the litestream/gateway daemons were NOT, so a run that died between gates --
+# the replication/gateway daemons were NOT, so a run that died between gates --
 # an interrupt, a `set -e` abort, a bash re-reading a file that was edited under
-# it -- left litestream replicating into a bucket and a `dg serve` holding a
+# it -- left replication replicating into a bucket and a `dg serve` holding a
 # data directory, both pointing at a temp tree that the trap then deleted. Four
 # such daemons and two whole endpoints were found alive after their runs had
 # finished, all with config files under temp trees that no longer existed, and
@@ -350,7 +350,7 @@ if [ ! -s "$OUT" ]; then
         echo
         echo "date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
         echo "host: $(uname -srm)"
-        echo "litestream pinned: ${PIN_VERSION} (${PIN_ROOT})"
+        echo "replication pinned: ${PIN_VERSION} (${PIN_ROOT})"
         echo "bucket: $BUCKET"
         echo "endpoint: $ENDPOINT"
         echo "region: $REGION"
@@ -371,24 +371,24 @@ fi
     echo "service behind it: ${DG_SANDBOX_ENDPOINT_IMPL:-the S3 service itself (no local stand-in configured)}"
     if [ -n "${DG_SANDBOX_ENDPOINT_IMPL:-}" ]; then
         echo
-        echo "The line above names a LOCAL STAND-IN, not the OVH service. Its"
+        echo "The line above names a LOCAL STAND-IN, not the object storage provider service. Its"
         echo "answers are evidence about this packet's execution path and about"
-        echo "nothing else -- not about OVH's storage classes, lifecycle rules,"
+        echo "nothing else -- not about object storage provider's storage classes, lifecycle rules,"
         echo "quota behaviour, encryption or cost."
     fi
-    if [ "$ENDPOINT" != "${DG_SANDBOX_OVH_ENDPOINT:-__none__}" ] && [[ "$ENDPOINT" != *.io.cloud.ovh.net ]]; then
+    if [ "$ENDPOINT" != "${DG_SANDBOX_PROVIDER_ENDPOINT:-__none__}" ] && [[ "$ENDPOINT" != *.example.invalid ]]; then
         echo
-        echo "This is NOT the OVH endpoint named in §6 gate 3. Gates run here prove"
+        echo "This is NOT the object storage provider endpoint named in §6 gate 3. Gates run here prove"
         echo "the harness drives correct requests and handles the answers; they do not"
-        echo "prove the OVH test region and class accept them. Re-run unchanged with"
-        echo "DG_SANDBOX_ENDPOINT set to the OVH endpoint to turn them into §6 evidence."
+        echo "prove the object storage provider test region and class accept them. Re-run unchanged with"
+        echo "DG_SANDBOX_ENDPOINT set to the object storage provider endpoint to turn them into §6 evidence."
     fi
 } >> "$OUT"
 
 # --------------------------------------------------------------------------
 # Gate 3: explicit endpoint and region configuration, and what the minimal
 # working replica URL is. The rehearsal proved the failure this gate is for:
-# litestream accepts configuration it does not act on, silently. So this gate
+# replication accepts configuration it does not act on, silently. So this gate
 # does not record "it started"; it records the operation matrix the start
 # produced, and compares a known-good URL against deliberately wrong ones.
 # --------------------------------------------------------------------------
@@ -416,11 +416,11 @@ probe_variant() {
     fi
     pport="${pport#*:}"
     # {{EP}} is the recording proxy, NOT the configured endpoint. Pointing
-    # litestream at the endpoint and expecting the proxy to record is the bug
+    # replication at the endpoint and expecting the proxy to record is the bug
     # this line exists to prevent: the proxy saw zero requests and every variant
     # reported "0 objects written" while replication was in fact succeeding
     # against the endpoint behind it. A variant that deliberately omits the
-    # endpoint leaves {{EP}} out and goes wherever litestream goes by default.
+    # endpoint leaves {{EP}} out and goes wherever replication goes by default.
     url="${url//\{\{EP\}\}/$PROXY_PORT}"
     local cfg="$SANDBOX/gate3-$label.yml"
     cat > "$cfg" <<EOF
@@ -461,10 +461,10 @@ PY
 
 # The scheme is part of the endpoint, not an assumption. Measured on
 # 2026-09-28 against this pin: `endpoint=<host>:<port>` with no scheme makes
-# litestream 0.5.17 fall back to PLAINTEXT http, so its SigV4-signed requests
+# replication 0.5.17 fall back to PLAINTEXT http, so its SigV4-signed requests
 # arrive as cleartext HTTP on an https port and the TLS server rejects them
 # before the signature is ever checked -- zero objects written, and nothing in
-# litestream's own log that names the cause. `endpoint=https://<host>:<port>`
+# replication's own log that names the cause. `endpoint=https://<host>:<port>`
 # works. §6's endpoint is https, so the scheme is mandatory there and the
 # minimal URL is not the one the docs suggest.
 WORKING_URL="$REPLICA_BASE/gate3?endpoint=$SCHEME://{{EP}}&region=$REGION"
@@ -497,11 +497,11 @@ fi
 
 # force-path-style and skip-verify are the two §6 explicitly names. On the
 # rehearsal they were accepted silently and did nothing, so the packet records
-# what each did rather than whether litestream started.
+# what each did rather than whether replication started.
 {
     printf 'variants tried (each: objects written / requests rejected):\n'
     for d in "${GATE3_DETAIL[@]}"; do printf '  %s\n' "$d"; done
-    printf '\nforce-path-style: litestream 0.5.17 has no such replica option. It was\n'
+    printf '\nforce-path-style: replication 0.5.17 has no such replica option. It was\n'
     printf '  accepted as a replica URL query parameter in the 2026-09-28 file\n'
     printf '  rehearsal with no error and no observable effect, so it is recorded as\n'
     printf '  NOT SUPPORTED rather than tested. Addressing is decided by the URL host:\n'
@@ -511,7 +511,7 @@ fi
     printf '  with no scheme makes 0.5.17 speak PLAINTEXT http, so against an %s\n' "$SCHEME"
     printf '  proxy the request is rejected as a TLS error before the signature is\n'
     printf '  checked: 0 objects written, no rejected request, and nothing in\n'
-    printf '  litestream'"'"'s log naming the cause. Every SigV4-signed request in that\n'
+    printf '  replication'"'"'s log naming the cause. Every SigV4-signed request in that\n'
     printf '  mode would also have carried the request signature in cleartext.\n'
     printf 'skip-verify (TLS): NOT USED, and the packet now proves why it does not\n'
     printf '  need to be. 0.5.17 has a skip-verify replica option, and a rehearsal\n'
@@ -545,12 +545,12 @@ fi
 # --------------------------------------------------------------------------
 # Gate 4: required-operation coverage, MEASURED. The proxy in front of the
 # endpoint records every request, and the matrix is read back out of the log
-# after a full replication cycle, so the answer is what litestream actually
+# after a full replication cycle, so the answer is what replication actually
 # issued rather than what its documentation implies.
 # --------------------------------------------------------------------------
 G4_ROOT="$SANDBOX/gate4"
 mkdir -p "$G4_ROOT"
-G4_SOCK="$G4_ROOT/litestream.sock"
+G4_SOCK="$G4_ROOT/replication.sock"
 G4_LOG="$G4_ROOT/requests.jsonl"
 G4_FAULTS="$G4_ROOT/faults"
 : > "$G4_FAULTS"
@@ -569,7 +569,7 @@ G4_ENDPOINT="$G4_PROXY_PORT"
 # one root the two databases' segments interleave and a restore returns the
 # other database's file with exit status 0, which was measured on 2026-09-28.
 : > "$G4_ROOT/alice.sqlite"; : > "$G4_ROOT/bob.sqlite"
-cat > "$G4_ROOT/litestream.yml" <<EOF
+cat > "$G4_ROOT/replication.yml" <<EOF
 logging:
   level: info
   type: text
@@ -584,7 +584,7 @@ dbs:
     replica:
       url: s3://$BUCKET/sbx/bob?endpoint=$SCHEME://$G4_ENDPOINT&region=$REGION
 EOF
-"$LITESTREAM" replicate -config "$G4_ROOT/litestream.yml" > "$G4_ROOT/litestream.log" 2>&1 &
+"$LITESTREAM" replicate -config "$G4_ROOT/replication.yml" > "$G4_ROOT/replication.log" 2>&1 &
 G4_PID=$!
 track_daemon G4_PID
 sleep 4
@@ -697,12 +697,12 @@ G4_LISTPREFIX="$(printf '%s\n' "$G4_STATS" | sed -n 's/.*distinct_list_prefixes=
     echo
     printf '%s\n' "$G4_STATS"
     echo
-    echo "operations litestream 0.5.17 issued, as a credential policy is written:"
+    echo "operations replication 0.5.17 issued, as a credential policy is written:"
     echo "  required: s3:GetObject, s3:PutObject, s3:ListBucket"
     echo "            scoped to the per-database prefix, e.g. ${BUCKET}/sbx/*"
     echo "  NOT required, and NOT observed on this run:"
     echo "    multipart upload (LTX segments are single PUTs)"
-    echo "    any object delete -- litestream never deletes, so retention is"
+    echo "    any object delete -- replication never deletes, so retention is"
     echo "      entirely the bucket's lifecycle job (see gate 6)"
     echo "    any version read, lifecycle read or SSE header"
     echo "  the restore side adds s3:GetObject only."
@@ -712,7 +712,7 @@ G4_LISTPREFIX="$(printf '%s\n' "$G4_STATS" | sed -n 's/.*distinct_list_prefixes=
 } >> "$OUT"
 
 if [ "$G4_ALICE_ROWS" = "200" ] && [ "$G4_BOB_ROWS" = "150" ] && [ "$G4_REJECTED" = "0" ]; then
-    record 4 PASS "every S3 operation litestream 0.5.17 issued succeeded, and both databases restored from the bucket with exact row counts" \
+    record 4 PASS "every S3 operation replication 0.5.17 issued succeeded, and both databases restored from the bucket with exact row counts" \
         "requests: $G4_TOTAL, non-2xx: $G4_REJECTED, distinct ListObjectsV2 prefixes: $G4_LISTPREFIX" \
         "operations: $G4_OPS" \
         "restored alice=$G4_ALICE_ROWS/200 bob=$G4_BOB_ROWS/150"
@@ -722,7 +722,7 @@ else
         "operations: $G4_OPS" \
         "restored alice=$G4_ALICE_ROWS/200 bob=$G4_BOB_ROWS/150" \
         "log tail:" \
-        "$(tail -5 "$G4_ROOT/litestream.log" 2>/dev/null | sed 's/^/  /')"
+        "$(tail -5 "$G4_ROOT/replication.log" 2>/dev/null | sed 's/^/  /')"
 fi
 
 # The matrix itself goes into the packet verbatim: it is the artefact the
@@ -756,7 +756,7 @@ G5_ROOT="$SANDBOX/gate5"
 mkdir -p "$G5_ROOT"
 G5_SRC="$G5_ROOT/drill.sqlite"
 G5_PREFIX="sbx/g5"
-G5_SOCK="$G5_ROOT/litestream.sock"
+G5_SOCK="$G5_ROOT/replication.sock"
 # g5_digest <sqlite file> -- "count|sum|distinct", or "unreadable:<why>".
 # Printed as one field so a comparison never has to re-parse prose.
 g5_digest() {
@@ -780,7 +780,7 @@ c = sqlite3.connect(sys.argv[1]); c.execute("PRAGMA journal_mode=WAL")
 c.execute("CREATE TABLE ledger(id INTEGER PRIMARY KEY, note TEXT)")
 c.commit()
 PY
-cat > "$G5_ROOT/litestream.yml" <<EOF
+cat > "$G5_ROOT/replication.yml" <<EOF
 logging:
   level: info
   type: text
@@ -817,7 +817,7 @@ EOF
     echo "$rc"
 }
 
-"$LITESTREAM" replicate -config "$G5_ROOT/litestream.yml" > "$G5_ROOT/litestream.log" 2>&1 &
+"$LITESTREAM" replicate -config "$G5_ROOT/replication.yml" > "$G5_ROOT/replication.log" 2>&1 &
 G5_PID=$!
 track_daemon G5_PID
 sleep 4
@@ -853,17 +853,17 @@ sleep 2
 kill "$G5_PID" 2>/dev/null || true
 wait "$G5_PID" 2>/dev/null || true
 
-# WHICH POINT IS "MID-HISTORY". `litestream ltx` prints
+# WHICH POINT IS "MID-HISTORY". `replication ltx` prints
 #   level  min_txid  max_txid  size  created
 # and the FIRST data row is the base snapshot, whose max_txid is the very
 # beginning of the database's history. Selecting that as the mid-history point
-# is selecting the empty database, and litestream answers it correctly: the
+# is selecting the empty database, and replication answers it correctly: the
 # restore succeeds and returns 0 rows. So the packet read "0 rows restored"
 # as a broken mid-history drill on a replica where -txid 0000000000000002
 # restores the full first batch. This took the SECOND row instead -- a
 # committed position after the first batch and strictly before the last, which
 # is the point an operator would have asked for at the time.
-G5_LTX_ALL="$("$LITESTREAM" ltx -config "$G5_ROOT/litestream.yml" "$G5_SRC" 2>/dev/null || true)"
+G5_LTX_ALL="$("$LITESTREAM" ltx -config "$G5_ROOT/replication.yml" "$G5_SRC" 2>/dev/null || true)"
 g5_ltx_field() { # <2=min_txid 3=max_txid 5=created> <row index, 1-based over data rows>
     printf '%s\n' "$G5_LTX_ALL" \
         | awk -v col="$1" -v want="$2" \
@@ -1066,7 +1066,7 @@ PY
             ;;
         stale)
             # EVERY artifact except the newest, one byte flipped in each. This
-            # is the case the "litestream rebuilds from whatever is still
+            # is the case the "replication rebuilds from whatever is still
             # decodable" claim is actually about, and it is the only one of the
             # four that can distinguish a checksum-verified reader from one
             # that silently rebuilds. The other three damage the newest
@@ -1154,7 +1154,7 @@ G5_REJECTED_N="$(printf '%s\n%s\n%s\n%s\n' "$G5_FLIP" "$G5_TRUNC" "$G5_DESTROY" 
     | grep -cE '^rejected' || true)"
 G5_CORRECT_N="$(printf '%s\n%s\n%s\n%s\n' "$G5_FLIP" "$G5_TRUNC" "$G5_DESTROY" "$G5_STALE" \
     | grep -cE '^correct' || true)"
-# The sentence that used to be hardcoded here asserted that litestream "has no
+# The sentence that used to be hardcoded here asserted that replication "has no
 # per-artifact check that rejects damage to a REDUNDANT artifact -- it rebuilds
 # from whatever else is still decodable and returns the right bytes", while the
 # three lines directly above it said all three cases were REJECTED. A reader
@@ -1186,7 +1186,7 @@ fi
     echo "     same wrong earlier point, and only the captured digest rules that out."
     echo "     selectors-agree: $G5_SELECTORS_AGREE (1 = the two restores agree)."
     echo "     the point is the SECOND segment, not the first. The first row of"
-    echo "     \`litestream ltx\` is the base snapshot, whose max_txid is the very start"
+    echo "     \`replication ltx\` is the base snapshot, whose max_txid is the very start"
     echo "     of history: -txid against it restores an EMPTY database (0 rows) with"
     echo "     exit 0. That is a correct restore of the wrong point, and reading it as"
     echo "     a broken drill is what a first pass here did."
@@ -1215,7 +1215,7 @@ fi
     echo "     restore that exited 0 with a database that is not the source."
     echo
     echo "     THE OPERATIONAL CONSEQUENCE, which is why this is a gate and not a note:"
-    echo "     a restore's success cannot be read off litestream's exit status, in either"
+    echo "     a restore's success cannot be read off replication's exit status, in either"
     echo "     direction. It has to be read off the CONTENT of the restored file, which is"
     echo "     what (rows, sum, distinct) plus PRAGMA integrity_check is for -- and this"
     echo "     gate runs both, on the source and on every restored file, instead of"
@@ -1263,7 +1263,7 @@ else
         "latest exact: $G5_LATEST_OK   mid-history: $G5_MID_OK ($G5_MID_DIGEST, exit $G5_MID_RC)" \
         "point-in-time: $G5_PIT_OK ($G5_PIT_DIGEST, exit $G5_PIT_RC, target ${G5_PIT_TARGET:-none})" \
         "selectors agree: $G5_SELECTORS_AGREE   segments: $G5_SEGMENTS" \
-        "mid-history txid reported by litestream: ${G5_LTX_MID:-none}" \
+        "mid-history txid reported by replication: ${G5_LTX_MID:-none}" \
         "restore log tails:" "$(cat "$G5_ROOT"/restore-*.log 2>/dev/null | tail -8 | sed 's/^/  /')"
 fi
 
@@ -1333,7 +1333,7 @@ G6_VERSION_ERR="$(printf '%s' "$G6_VERSIONS" | jfield error.code)"
 # objects and on the service's own clock. So the ages are read off the
 # service's ?versions answer, the policy's arithmetic is applied to them here,
 # and the result is stated as arithmetic. Whether the service PERFORMS the
-# expiry is still its own answer to give -- and only OVH can give it.
+# expiry is still its own answer to give -- and only object storage provider can give it.
 #
 # The same measurement, applied twice, is the honest test of the arithmetic:
 # once as-is, and once with every object's age shifted 31 days into the past.
@@ -1498,7 +1498,7 @@ if [ "${G6_STORED:-0}" -ge 2 ] 2>/dev/null; then
             "object versions under the test prefix: ${G6_VERSION_COUNT:-unknown}, ages ${G6_NEWEST}-${G6_OLDEST} days" \
             "projection: $G6_PROJECTION" \
             "restore after retention: $G6_AFTER_DIGEST (exit $G6_AFTER_RC) vs source $G5_SRC_DIGEST" \
-            "STILL OVH'S TO ANSWER: whether the service EXECUTES the expiry on its own schedule, and against whose clock. Storing a rule and doing arithmetic about it is not the same observation as watching a week-old object disappear."
+            "STILL object storage provider'S TO ANSWER: whether the service EXECUTES the expiry on its own schedule, and against whose clock. Storing a rule and doing arithmetic about it is not the same observation as watching a week-old object disappear."
     else
         record 6 BLOCKED "the policy was stored and read back matching, but the post-retention restore did not verify ($G6_AFTER_DIGEST, exit $G6_AFTER_RC), so 'retention without breaking restore' is not established" \
             "stored: $G6_STORED of 2 rules matched" \
@@ -1517,14 +1517,14 @@ elif printf '%s' "$G6_PUT" | jfield error.code | grep -qE '.' \
         "$G6_CAPABILITY_NOTE" \
         "list-versions (the other half of retention): $G6_VERSION_COUNT version(s) enumerated${G6_VERSION_ERR:+, error $G6_VERSION_ERR}" \
         "NOT A PASS and not a failure of the packet: the rehearsal endpoint cannot" \
-        "answer this question. Run unchanged against the OVH test bucket, which does" \
+        "answer this question. Run unchanged against the object storage provider test bucket, which does" \
         "implement PutBucketLifecycleConfiguration."
 elif [ -n "$G6_VERSION_ERR" ]; then
     record 6 BLOCKED "this endpoint does not implement the bucket APIs retention needs" \
         "get-lifecycle / list-versions answered: $G6_VERSION_ERR" \
         "put-lifecycle: $G6_PUT" \
         "NOT A PASS and not a failure of the packet: the rehearsal endpoint cannot" \
-        "answer this question. Run unchanged against the OVH test bucket."
+        "answer this question. Run unchanged against the object storage provider test bucket."
 else
     record 6 FAIL "the lifecycle policy was not stored" \
         "put-lifecycle: $G6_PUT" \
@@ -1564,7 +1564,7 @@ else
     G8_HAVE_DG=0
 fi
 
-G8_SOCK="$G8_ROOT/litestream.sock"
+G8_SOCK="$G8_ROOT/replication.sock"
 G8_REQLOG="$G8_ROOT/requests.jsonl"
 G8_FAULTS="$G8_ROOT/faults"
 : > "$G8_FAULTS"
@@ -1572,7 +1572,7 @@ start_proxy "gate8" "$G8_REQLOG" "$G8_FAULTS"
 G8_PORT_P="$PROXY_PORT"
 G8_SRC=""
 if [ "$G8_HAVE_DG" = "1" ]; then
-    # The database litestream replicates must be the gateway's LIVE one. The
+    # The database replication replicates must be the gateway's LIVE one. The
     # previous version of this gate replicated a sibling file in the sandbox
     # while measuring writes through the gateway, so it proved that two
     # unrelated databases each did their own thing.
@@ -1587,7 +1587,7 @@ c.executemany("INSERT INTO ledger(note) VALUES (?)", [(f"pre-{i}",) for i in ran
 c.commit()
 PY
 fi
-cat > "$G8_ROOT/litestream.yml" <<EOF
+cat > "$G8_ROOT/replication.yml" <<EOF
 logging:
   level: info
   type: text
@@ -1599,7 +1599,7 @@ dbs:
     replica:
       url: s3://$BUCKET/sbx/g8?endpoint=$SCHEME://$G8_PORT_P&region=$REGION
 EOF
-"$LITESTREAM" replicate -config "$G8_ROOT/litestream.yml" > "$G8_ROOT/litestream.log" 2>&1 &
+"$LITESTREAM" replicate -config "$G8_ROOT/replication.yml" > "$G8_ROOT/replication.log" 2>&1 &
 G8_LS_PID=$!
 track_daemon G8_LS_PID
 sleep 4
@@ -1663,12 +1663,12 @@ except Exception:
 # measurement below is a DELTA over the lines this phase added, and a healthy
 # phase is a control that must produce NO new signal, so the signal is proven
 # to be a signal rather than a standing error line.
-g8_log_lines() { wc -l < "$G8_ROOT/litestream.log" 2>/dev/null | tr -d ' ' || echo 0; }
+g8_log_lines() { wc -l < "$G8_ROOT/replication.log" 2>/dev/null | tr -d ' ' || echo 0; }
 
 # Wait for the daemon to log a signal for THIS phase, bounded by the daemon's
 # OWN RETRY POLICY rather than by a fixed patience. The daemon raises the error
 # while serving the sync the gate triggers, so on the first fault the line
-# appears within a second or two; but litestream backs off exponentially on
+# appears within a second or two; but replication backs off exponentially on
 # consecutive errors (it logs `consecutive_errors=N backoff=2^(N-1)s`), so by
 # the third injected fault the daemon may be 16-32 s away from its next
 # attempt. The bound used to be a flat 5 s, which is a RACE against the daemon's
@@ -1678,7 +1678,7 @@ g8_log_lines() { wc -l < "$G8_ROOT/litestream.log" 2>/dev/null | tr -d ' ' || ec
 # visible" because it did not wait as long as the product's own retry interval
 # is measuring the wrong thing.
 #
-# So the wait covers the longest backoff litestream 0.5.17 uses, and it exits
+# So the wait covers the longest backoff replication 0.5.17 uses, and it exits
 # the moment the line appears, so the common case (signal in ~1 s) is not made
 # slower. What the elapsed time now means is worth having in the packet: it is
 # how long a stalled backup stays SILENT, which is the substance of owner
@@ -1689,7 +1689,7 @@ G8_SIGNAL_TRIES=$(( G8_SIGNAL_BOUND_S * 2 ))
 g8_wait_for_signal() {
     local before="$1" i out
     for i in $(seq 1 "$G8_SIGNAL_TRIES"); do
-        out="$(tail -n "+$((before + 1))" "$G8_ROOT/litestream.log" 2>/dev/null \
+        out="$(tail -n "+$((before + 1))" "$G8_ROOT/replication.log" 2>/dev/null \
                | grep -iE 'level=(ERROR|WARN)' || true)"
         if [ -n "$out" ]; then
             printf '%s\n' "$out"
@@ -1711,9 +1711,9 @@ g8_wait_for_signal() {
 # FOUR SURFACES PER PHASE, because §6 gate 8 asks how each failure SURFACES
 # rather than demanding one particular surface carry it:
 #   daemon-log   the replicate daemon's own log (measured as a DELTA)
-#   sync-cli     `litestream sync -wait`, i.e. the operator forcing a sync
-#   status-cli   `litestream status -json`, i.e. the operator asking "is it fresh"
-#   restore-cli  `litestream restore`, i.e. a restore that would not return the
+#   sync-cli     `replication sync -wait`, i.e. the operator forcing a sync
+#   status-cli   `replication status -json`, i.e. the operator asking "is it fresh"
+#   restore-cli  `replication restore`, i.e. a restore that would not return the
 #                row that was just written
 # The first three are PROACTIVE: something tells the operator without them
 # having to go looking for a missing backup. The fourth is REACTIVE. A stall
@@ -1734,7 +1734,7 @@ g8_write_and_serve() {
     before="$(g8_count)"
     g8_write "$label"
     after="$(g8_count)"
-    # -wait is load-bearing. Without it `litestream sync` returns as soon as the
+    # -wait is load-bearing. Without it `replication sync` returns as soon as the
     # sync is REQUESTED, so the daemon's upload has not been attempted yet and
     # every surface is sampled before the failure happens. The previous version
     # of this gate did exactly that and then reported that two of the three
@@ -1746,14 +1746,14 @@ g8_write_and_serve() {
     printf '%s' "$sync_out" | grep -qiE 'error|denied|403|forbidden|expired|signature|no such host|connection|timeout|rejected|unavailable' && sync_said="yes"
     # The status surface, read the way an operator reads it: from the same
     # config file the daemon was started with, after the failed sync.
-    status_out="$("$LITESTREAM" status -json -config "$G8_ROOT/litestream.yml" 2>&1 | head -c 300 || true)"
+    status_out="$("$LITESTREAM" status -json -config "$G8_ROOT/replication.yml" 2>&1 | head -c 300 || true)"
     status_said="no"
     printf '%s' "$status_out" | grep -qiE 'error|denied|403|forbidden|expired|signature|"error"' && status_said="yes"
     local signal
     # What backoff the daemon declared is read from the lines this phase added,
     # because "silent for N seconds" only means something next to the retry
     # interval the daemon was actually honouring.
-    G8_SIGNAL_BACKOFF="$(tail -n "+$((log_before + 1))" "$G8_ROOT/litestream.log" 2>/dev/null \
+    G8_SIGNAL_BACKOFF="$(tail -n "+$((log_before + 1))" "$G8_ROOT/replication.log" 2>/dev/null \
         | grep -oE 'backoff=[0-9]+s' | tail -1 || true)"
     signal="$(g8_wait_for_signal "$log_before")" && daemon_said="yes" || daemon_said="no"
     # The wait runs in a subshell (its output is captured), so it cannot set a
@@ -1782,7 +1782,7 @@ g8_write_and_serve() {
     G8_SURFACES+=("$label -> $surfaces")
     G8_RESULTS+=("$label: live $before -> $after, in-bucket $restored, surfaces that carried it: $surfaces (proactive: $proactive, restore-only: $reactive), daemon signal after ${G8_SIGNAL_SURFACED_S}s [daemon's own backoff when it logged: ${G8_SIGNAL_BACKOFF:-n/a}, wait bound ${G8_SIGNAL_BOUND_S}s]")
     # Keep the last sync output visible. The greps above are what makes the
-    # gate pass/fail, but the wording varies by litestream version and the
+    # gate pass/fail, but the wording varies by replication version and the
     # packet is the only durable place to look when the gate's count says no.
     printf '%s\n' "$sync_out" | head -2 >> "$G8_ROOT/sync-tail.txt"
     [ "${after:-0}" -gt "${before:-0}" ] && G8_SERVED+=("served") || G8_SERVED+=("STALLED")
@@ -1833,7 +1833,7 @@ g8_write_and_serve healthy no no
 # work, so the absence of the faulted write can be measured.
 printf 'method=PUT status=403 code=AccessDenied message=injected revoked-credential fault\n' > "$G8_FAULTS"
 g8_write_and_serve revoked-credentials yes yes
-G8_A="$(grep -c 'revoked-credential fault' "$G8_ROOT/litestream.log" 2>/dev/null || true)"
+G8_A="$(grep -c 'revoked-credential fault' "$G8_ROOT/replication.log" 2>/dev/null || true)"
 
 # (b) blocked egress: PUTs are refused, but GETs are NOT, so the restore path
 # remains readable. A real one-way outage (upstream write path broken) has
@@ -1861,8 +1861,8 @@ g8_write_and_serve near-quota yes no
 # worse than no count: it looks like it confirms the measurement and does not.
 # Counted here, once, after the last faulted phase, over the whole log.
 G8_A="$(grep -cE 'StatusCode: 403.*injected .*fault|injected (quota|revoked-credential) fault' \
-    "$G8_ROOT/litestream.log" 2>/dev/null || true)"
-G8_A_PHASE1="$(grep -c 'revoked-credential fault' "$G8_ROOT/litestream.log" 2>/dev/null || true)"
+    "$G8_ROOT/replication.log" 2>/dev/null || true)"
+G8_A_PHASE1="$(grep -c 'revoked-credential fault' "$G8_ROOT/replication.log" 2>/dev/null || true)"
 
 # Recovery: clear the fault, restart the daemon so its exponential backoff
 # (built up while the faults were active) does not mask a working recovery,
@@ -1872,7 +1872,7 @@ G8_A_PHASE1="$(grep -c 'revoked-credential fault' "$G8_ROOT/litestream.log" 2>/d
 # reassuring line in a log.
 : > "$G8_FAULTS"
 kill "$G8_LS_PID" 2>/dev/null || true; wait "$G8_LS_PID" 2>/dev/null || true
-"$LITESTREAM" replicate -config "$G8_ROOT/litestream.yml" > "$G8_ROOT/litestream.log" 2>&1 &
+"$LITESTREAM" replicate -config "$G8_ROOT/replication.yml" > "$G8_ROOT/replication.log" 2>&1 &
 G8_LS_PID=$!
 track_daemon G8_LS_PID
 # Give the new daemon a moment to list objects, then write.
@@ -1964,7 +1964,7 @@ fi
     echo
     echo "how long a stalled backup stays SILENT is the 'daemon signal after Ns' figure"
     echo "in each phase above, read next to the daemon's own declared backoff."
-    echo "litestream backs off exponentially on consecutive errors, so that number"
+    echo "replication backs off exponentially on consecutive errors, so that number"
     echo "GROWS with each successive failure, and it is measured against a wait bound"
     echo "of ${G8_SIGNAL_BOUND_S}s -- which is what makes a surface count as invisible."
     echo "A surface that is silent for 30 s and one that is silent forever are"
@@ -1979,20 +1979,20 @@ fi
     echo
     if [ "$G8_N_DAEMON" -lt "$G8_N_FAULTED" ] || [ "$G8_N_REACTIVE_ONLY" -gt 0 ]; then
         echo "FINDING, NOT A GATE FAILURE -- and the most important paragraph in"
-        echo "this gate. litestream 0.5.17 does not raise level=ERROR/WARN in the"
+        echo "this gate. replication 0.5.17 does not raise level=ERROR/WARN in the"
         echo "replicate daemon's log for every way the destination can break. What"
         echo "did surface it here: $G8_SURFACE_MAP."
         echo
         if [ "$G8_N_REACTIVE_ONLY" -gt 0 ]; then
             echo "For $G8_REACTIVE_LIST NOTHING proactive said so: no daemon log"
-            echo "line, no failing sync command, no error in \`litestream status\`."
+            echo "line, no failing sync command, no error in \`replication status\`."
             echo "A backup that has stopped is only discovered by attempting the"
             echo "restore you needed -- which means there is no alert, and a"
             echo "stall can sit unnoticed for the whole 7/30-day retention window"
             echo "and only surface as a missing point at recovery time. Adoption"
             echo "therefore requires an EXTERNAL freshness check (a scheduled"
             echo "restore-and-count, or comparing the gateway's own last-backup"
-            echo "timestamp against now) and does not get one from litestream."
+            echo "timestamp against now) and does not get one from replication."
         fi
         echo "This is the substance behind owner decision 6, not a passing gate."
     fi
@@ -2001,7 +2001,7 @@ fi
 # The gate fails on a SILENT stall, not on a missing log line. §6 asks how each
 # failure surfaces; it does not name a surface, and demanding the daemon log
 # specifically would have turned this product fact into a defect in the packet
-# and, worse, into a gate whose PASS depended on litestream's log wording.
+# and, worse, into a gate whose PASS depended on replication's log wording.
 if [ "$G8_N_SERVED" -eq "$G8_TOTAL" ] && [ "$G8_N_STALE_OK" -eq "$G8_N_STALE_MEASURABLE" ] \
    && [ "$G8_N_SILENT" -eq 0 ] && [ "$G8_N_FALSE_ALARM" -eq 0 ] && [ "$G8_RECOVERED" = "1" ]; then
     record 8 PASS "each of the three injected failures kept the gateway serving writes and kept the faulted write out of the bucket, every one of them surfaced on at least one operator-visible surface, the healthy control phase raised nothing false, and after the fault cleared the missing writes were in the bucket again" \
@@ -2021,7 +2021,7 @@ else
         "new daemon error/warn per faulted phase: $G8_N_DAEMON/$G8_N_FAULTED" \
         "false alarms while healthy: $G8_N_FALSE_ALARM" \
         "recovered: $G8_RECOVERED (restore returned ${G8_RECOVERED_ROWS:-?}, live is ${G8_LIVE_AFTER:-?})" \
-        "log tail:" "$(tail -6 "$G8_ROOT/litestream.log" 2>/dev/null | sed 's/^/  /')"
+        "log tail:" "$(tail -6 "$G8_ROOT/replication.log" 2>/dev/null | sed 's/^/  /')"
 fi
 
 # --------------------------------------------------------------------------
@@ -2252,7 +2252,7 @@ G9_DBSIZE="$(stat -c%s "$G9_SRC")"
 G9_REPLICA="$G9_ROOT/replica"
 mkdir -p "$G9_REPLICA"
 
-G9_CFG="$G9_ROOT/litestream.yml"
+G9_CFG="$G9_ROOT/replication.yml"
 cat > "$G9_CFG" <<EOF
 logging:
   level: info
@@ -2318,7 +2318,7 @@ G9_RESTORE_RAW=""
 # The constrained prefix travels to the wrapper as JSON, because a cgroup path
 # or a --unit name is exactly the kind of value that gets word-split and turned
 # into two arguments. An empty prefix (unconstrained run) is a valid prefix:
-# the wrapper then runs litestream directly.
+# the wrapper then runs replication directly.
 G9_PREFIX_JSON="$(printf '%s\n' "${G9_PREFIX[@]-}" | python3 -c 'import json,sys; print(json.dumps([l for l in sys.stdin.read().splitlines() if l.strip()]))')"
 G9_RESTORE_RAW="$(G9_LITESTREAM="$LITESTREAM" G9_ARGV="$G9_PREFIX_JSON" \
     python3 - "$G9_SRC" "$G9_OUT" "$G9_CFG" <<'PY'
@@ -2374,7 +2374,7 @@ G9_STATUS="$G9_MECH_DESC"
     if [ "$G9_CGROUP_RAN" != "1" ]; then
         echo "  systemd scope: ${G9_PROBE_A_ERR:-no session bus or systemd-run missing}"
         echo "  direct cgroup: ${G9_PROBE_B_ERR:-no child cgroup with a writable memory.max}"
-        echo "  what the probe asks: allocate several times the cap (512 MiB under a 64 MiB cap) and require the child to DIE. A mechanism that lets it complete is rejected, because memory.max that the kernel does not OOM-enforce is a property, not a constraint. The OVH 1 GB VPS is where this gate is meant to run; the dev host is where this probe says it cannot."
+        echo "  what the probe asks: allocate several times the cap (512 MiB under a 64 MiB cap) and require the child to DIE. A mechanism that lets it complete is rejected, because memory.max that the kernel does not OOM-enforce is a property, not a constraint. The object storage provider 1 GB VPS is where this gate is meant to run; the dev host is where this probe says it cannot."
     fi
     echo
     printf 'steady replication  peak RSS %s KiB (%s%% of budget, kernel high-water mark)\n' "$G9_MAX_RSS" "$G9_REPL_PCT"
@@ -2432,11 +2432,11 @@ fi
 #
 # WHAT IS ASSERTED, AND WHY IT IS NOT "THE KEY WAS IGNORED". The first version
 # of this gate wrote `sse-customer-key` into the config, watched the daemon
-# start without an error, and concluded that litestream 0.5.17 ignores the key
+# start without an error, and concluded that replication 0.5.17 ignores the key
 # and replicates in the clear. The conclusion was published as the headline
 # decision-3 fact. The run's OWN request log refuted it: all three PUTs of that
 # phase carried x-amz-server-side-encryption-customer-algorithm, -key and
-# -key-md5, all three inside the signature. litestream sends SSE-C on every
+# -key-md5, all three inside the signature. replication sends SSE-C on every
 # upload; the stand-in simply neither enforces nor echoes it. Those are
 # different facts with opposite consequences for the owner -- one says the
 # client-side lever does not exist, the other says it does and the service is
@@ -2446,7 +2446,7 @@ fi
 # It also reads the SSE-C ECHO. A service that correctly applies SSE-C answers
 # a HEAD with x-amz-server-side-encryption-customer-algorithm, and reading only
 # x-amz-server-side-encryption would report that service as storing plaintext
-# -- a false negative that would have reached OVH, where the check matters.
+# -- a false negative that would have reached object storage provider, where the check matters.
 #
 # Separately, and independently of all of the above, the restore half proves
 # the restore path cannot reach a credential it was not handed.
@@ -2474,12 +2474,12 @@ start_proxy "gate10" "$G10_REQLOG" "$G10_FAULTS"
 # PROXY_PORT is "host:port" -- the proxy writes that whole string to its port
 # file, and the comment on start_proxy says so. Prefixing another host here
 # produced the replica URL `https://127.0.0.1:127.0.0.1:<port>`, which
-# litestream took literally, and gate 10's restore then failed on "lookup
+# replication took literally, and gate 10's restore then failed on "lookup
 # 127.0.0.1:127.0.0.1: no such host" -- a configuration defect in the gate,
 # reported as a data-loss failure because the restore returning 0 rows is a
 # FAIL verdict. Composed the way every other gate composes it.
 G10_PROXY_PORT="$PROXY_PORT"
-cat > "$G10_ROOT/litestream.yml" <<EOF
+cat > "$G10_ROOT/replication.yml" <<EOF
 logging:
   level: info
   type: text
@@ -2489,7 +2489,7 @@ dbs:
       url: s3://$BUCKET/$G10_PREFIX?endpoint=$SCHEME://$G10_PROXY_PORT&region=$REGION
 EOF
 # The setting §6 asks to be exercised, written in exactly the form an operator
-# would try first. Writing it and watching litestream start is exactly the
+# would try first. Writing it and watching replication start is exactly the
 # mistake the rehearsal found, so it is tried here and the result recorded.
 #
 # ITS OWN PREFIX, and that is load-bearing rather than tidy. This config
@@ -2527,12 +2527,12 @@ G10_SSE_C_SENT="$(printf '%s' "${G10_SSE_C_SENT:-0}" | tr -cd '0-9')"
 if [ "$G10_SSE_C_SENT" = "0" ] && [ "$G10_SSE_C_PUTS" -gt 0 ]; then
     G10_SSE_C_VERDICT="the daemon uploaded $G10_SSE_C_PUTS object(s) and NOT ONE carried an SSE-C header -- the key in the config did not reach the wire"
 elif [ "$G10_SSE_C_SENT" -gt 0 ]; then
-    G10_SSE_C_VERDICT="the daemon uploaded $G10_SSE_C_PUTS object(s) and $G10_SSE_C_SENT of them carried x-amz-server-side-encryption-customer-algorithm/-key/-key-md5 inside the signature: litestream 0.5.17 SENDS SSE-C. Whether the stored bytes are encrypted is the SERVICE's answer, not litestream's"
+    G10_SSE_C_VERDICT="the daemon uploaded $G10_SSE_C_PUTS object(s) and $G10_SSE_C_SENT of them carried x-amz-server-side-encryption-customer-algorithm/-key/-key-md5 inside the signature: replication 0.5.17 SENDS SSE-C. Whether the stored bytes are encrypted is the SERVICE's answer, not replication's"
 else
     G10_SSE_C_VERDICT="the customer-key run made no uploads at all, so nothing can be said about what it would have sent"
 fi
 
-"$LITESTREAM" replicate -config "$G10_ROOT/litestream.yml" > "$G10_ROOT/replicate.log" 2>&1 &
+"$LITESTREAM" replicate -config "$G10_ROOT/replication.yml" > "$G10_ROOT/replicate.log" 2>&1 &
 G10_PID=$!
 track_daemon G10_PID
 sleep 6
@@ -2573,11 +2573,11 @@ if [ -z "$G10_HEAD_ANY" ]; then
 fi
 
 # The restore half, with the environment stripped to nothing a restore could
-# borrow. AWS_* are exported by this script for litestream, so the restore runs
+# borrow. AWS_* are exported by this script for replication, so the restore runs
 # with them set only to the sandbox key and every discovery file pointed at
 # nothing: the point is that the restore needs the key it was handed and no
 # profile on the machine. SSL_CERT_FILE has to be passed through too, or
-# litestream rejects the rehearsal endpoint's self-signed certificate
+# replication rejects the rehearsal endpoint's self-signed certificate
 # before the signature check -- a true negative that has nothing to do with
 # "no ambient credentials".
 G10_OUT="$G10_ROOT/restored.sqlite"
@@ -2589,7 +2589,7 @@ env -i PATH="$CLEAN_PATH" HOME="$SANDBOX/home" \
     AWS_SHARED_CREDENTIALS_FILE="$SANDBOX/home/.aws-empty" \
     AWS_EC2_METADATA_DISABLED=true AWS_REGION="$REGION" \
     SSL_CERT_FILE="${SSL_CERT_FILE:-}" \
-    "${TIMEOUT_ARGV[@]}" "$LITESTREAM" restore -config "$G10_ROOT/litestream.yml" -o "$G10_OUT" "$G10_SRC" \
+    "${TIMEOUT_ARGV[@]}" "$LITESTREAM" restore -config "$G10_ROOT/replication.yml" -o "$G10_OUT" "$G10_SRC" \
     > "$G10_ROOT/restore.log" 2>&1 || true
 G10_ROWS="$(python3 - "$G10_OUT" <<'PY'
 import sqlite3, sys
@@ -2621,7 +2621,7 @@ env -i PATH="$CLEAN_PATH" HOME="$SANDBOX/home" \
     SSL_CERT_FILE="${SSL_CERT_FILE:-}" \
     DG_SANDBOX_WITHDRAW=1 \
     "${TIMEOUT_ARGV[@]}" env AWS_ACCESS_KEY_ID= AWS_SECRET_ACCESS_KEY= \
-    "$LITESTREAM" restore -config "$G10_ROOT/litestream.yml" -o "$G10_NOKEY_OUT" "$G10_SRC" \
+    "$LITESTREAM" restore -config "$G10_ROOT/replication.yml" -o "$G10_NOKEY_OUT" "$G10_SRC" \
     > "$G10_ROOT/restore-nokey.log" 2>&1 || true
 G10_NOKEY_RC=$?
 G10_NOKEY_MSG="$(grep -m1 -iE 'Error|error=' "$G10_ROOT/restore-nokey.log" 2>/dev/null | cut -c1-200 || true)"
@@ -2644,7 +2644,7 @@ G10_CANARY_VERDICT="$(printf '%s' "$G10_CANARY" | jfield verdict)"
 {
     echo "1. The configuration an operator reaches for first:"
     echo "   replica.sse-customer-key: <random 32 bytes>"
-    echo "   litestream started: $([ -n "${G10_KEY_ERROR:-}" ] && echo "no -- $G10_KEY_ERROR" || echo "YES, with no error")"
+    echo "   replication started: $([ -n "${G10_KEY_ERROR:-}" ] && echo "no -- $G10_KEY_ERROR" || echo "YES, with no error")"
     echo "   and on the wire, from the proxy that signed and forwarded its requests:"
     echo "     $G10_SSE_C_VERDICT"
     echo
@@ -2655,7 +2655,7 @@ G10_CANARY_VERDICT="$(printf '%s' "$G10_CANARY" | jfield verdict)"
     echo "   -> these two are different observations. A service that applies SSE-C"
     echo "      echoes the customer-algorithm and may report no sse at all; reading"
     echo "      only \`sse\` would call that service plaintext, which is the one way"
-    echo "      this check could produce a false negative on OVH. Both are read here."
+    echo "      this check could produce a false negative on object storage provider. Both are read here."
     echo "   AND NEITHER IS PROOF. A header is the service's claim about itself:"
     echo "   the rehearsal store echoes the SSE-C algorithm while storing the object"
     echo "   body in plaintext. The observation that separates the two is below."
@@ -2686,9 +2686,9 @@ G10_CANARY_VERDICT="$(printf '%s' "$G10_CANARY" | jfield verdict)"
 #
 #   half A -- is the stored data encrypted? Only the SERVICE can answer that,
 #             by reporting x-amz-server-side-encryption on what it holds. A
-#             local stand-in has no SSE to report, so half A is OVH's.
+#             local stand-in has no SSE to report, so half A is object storage provider's.
 #   half B -- can a restore reach a credential it was not handed? That is a
-#             property of litestream plus the packet's own environment, and it
+#             property of replication plus the packet's own environment, and it
 #             is fully measurable HERE.
 #
 # Two rehearsal runs reported half B as blocked by "TLS to the self-signed
@@ -2715,7 +2715,7 @@ if [ "$G10_ROWS" = "100" ]; then
             "proof, not assertion: $G10_CANARY" \
             "reported headers, for the record: sse='${G10_SSE:-}' sse-c-algorithm='${G10_SSE_C_ECHO:-}'" \
             "restore with the sandbox key only: $G10_ROWS/100 rows" \
-            "withdrawn-credential restore (litestream-level): exit $G10_NOKEY_RC, ${G10_NOKEY_MSG:-(silent)}"
+            "withdrawn-credential restore (replication-level): exit $G10_NOKEY_RC, ${G10_NOKEY_MSG:-(silent)}"
     elif [ "${G10_CANARY_VERDICT:-}" = "NOT-ENCRYPTED" ]; then
         # The dangerous case, and the one this gate exists to catch: the service
         # advertises encryption and hands the plaintext back anyway. Reading the
@@ -2730,12 +2730,12 @@ if [ "$G10_ROWS" = "100" ]; then
         # harness can tell an echo from an enforcement. Against the OWNER's
         # bucket the identical observation is a real defect and stays a FAIL.
         if [ "${DG_SANDBOX_REHEARSAL:-0}" = "1" ]; then
-            record 10 BLOCKED "the rehearsal endpoint advertises SSE-C on its objects and stores the body in plaintext -- the canary reads it back with no key. That is a property of the local stand-in, which implements neither encryption mode, and it is reported rather than passed: the point of measuring it here is that the harness can tell an echo from an enforcement. OVH's bucket is the service that has to be proven" \
+            record 10 BLOCKED "the rehearsal endpoint advertises SSE-C on its objects and stores the body in plaintext -- the canary reads it back with no key. That is a property of the local stand-in, which implements neither encryption mode, and it is reported rather than passed: the point of measuring it here is that the harness can tell an echo from an enforcement. object storage provider's bucket is the service that has to be proven" \
                 "canary test (the proof, refused as a claim): $G10_CANARY" \
                 "reported headers, shown for the record: sse='${G10_SSE:-}' sse-c-algorithm='${G10_SSE_C_ECHO:-}'" \
                 "if the same answer came back from the owner's bucket this line is a FAIL, not a blocker, and the run would say so" \
                 "the restore half WAS measured here and is clean: $G10_ROWS/100 rows with the environment stripped, withdrawn-credential restore exit $G10_NOKEY_RC" \
-                "WHAT OVH MUST PROVE: the same canary reading back REFUSED without the customer key (SSE-C), or the bucket's own default-encryption documentation for SSE-S3/OMK -- a transparent decrypt cannot be observed from outside"
+                "WHAT object storage provider MUST PROVE: the same canary reading back REFUSED without the customer key (SSE-C), or the bucket's own default-encryption documentation for SSE-S3/OMK -- a transparent decrypt cannot be observed from outside"
         else
             record 10 FAIL "the service reported an SSE-C algorithm on its objects AND returned the canary in the clear when read back with no key: it advertises encryption it is not applying" \
                 "canary test: $G10_CANARY" \
@@ -2747,18 +2747,18 @@ if [ "$G10_ROWS" = "100" ]; then
         # The service claims encryption and the proof is unavailable -- because
         # the mode decrypts transparently (SSE-S3/OMK) or the canary could not
         # be read back. The claim is recorded as a claim.
-        record 10 BLOCKED "the service reports an encryption header ($G10_HEAD_ANY) but that is its own claim about itself, and this mode cannot be proven from the client: a keyless read-back is meaningless where the service decrypts transparently. OVH must answer whether the stored data is encrypted" \
+        record 10 BLOCKED "the service reports an encryption header ($G10_HEAD_ANY) but that is its own claim about itself, and this mode cannot be proven from the client: a keyless read-back is meaningless where the service decrypts transparently. object storage provider must answer whether the stored data is encrypted" \
             "headers reported: sse='${G10_SSE:-}' sse-c-algorithm='${G10_SSE_C_ECHO:-}'" \
             "canary test (SSE-C only): ${G10_CANARY_VERDICT:-(no verdict)} -- $G10_CANARY" \
-            "WHAT WOULD PROVE IT ON OVH: for SSE-C, the keyless read-back above; for SSE-S3/OMK, the bucket's own documentation of default encryption plus an operator who has accepted that a transparent decrypt cannot be observed from outside" \
+            "WHAT WOULD PROVE IT ON object storage provider: for SSE-C, the keyless read-back above; for SSE-S3/OMK, the bucket's own documentation of default encryption plus an operator who has accepted that a transparent decrypt cannot be observed from outside" \
             "restore half was measured and clean: $G10_ROWS/100 rows, withdrawn-credential restore exit $G10_NOKEY_RC"
     else
         record 10 BLOCKED "the service reported neither x-amz-server-side-encryption nor an SSE-C echo on any object, so whether the stored data is encrypted cannot be answered here; the other half, restore with no ambient credential, was measured and returned all 100 rows" \
-            "objects under the prefix report: sse='${G10_SSE:-}' sse-c-algorithm='${G10_SSE_C_ECHO:-}' ($G10_HEAD_ANY). A local stand-in implements neither mode; OVH will answer one of them" \
+            "objects under the prefix report: sse='${G10_SSE:-}' sse-c-algorithm='${G10_SSE_C_ECHO:-}' ($G10_HEAD_ANY). A local stand-in implements neither mode; object storage provider will answer one of them" \
             "sse-customer-key, measured on the wire: $G10_SSE_C_VERDICT" \
             "restore with the environment stripped to nothing but the sandbox key, empty AWS config files, EC2 metadata disabled: $G10_ROWS/100 rows -- MEASURED, not blocked" \
-            "withdrawn-credential restore (litestream-level): exit $G10_NOKEY_RC, ${G10_NOKEY_MSG:-(silent)}" \
-            "WHAT OVH MUST CONFIRM: the encryption header on the objects OVH stored under the chosen mode (sse, or the SSE-C customer-algorithm echo), and a restore that returns the same rows with a key that is not present anywhere in the environment"
+            "withdrawn-credential restore (replication-level): exit $G10_NOKEY_RC, ${G10_NOKEY_MSG:-(silent)}" \
+            "WHAT object storage provider MUST CONFIRM: the encryption header on the objects object storage provider stored under the chosen mode (sse, or the SSE-C customer-algorithm echo), and a restore that returns the same rows with a key that is not present anywhere in the environment"
     fi
 elif [ -n "${G10_TRANSPORT_ERR:-}" ]; then
     # The gate could not do its job. Named as a harness defect, not a failure
@@ -2789,7 +2789,7 @@ fi
 # metadata.sqlite out of the rehearsal bucket and reauthenticating against the
 # result "adds the same TLS + region friction gate 10 hit". That reasoning does
 # not hold, and holding it cost a real gate. The gateway never speaks S3: the
-# bucket is read by litestream, and what the gateway is then handed is two
+# bucket is read by replication, and what the gateway is then handed is two
 # ordinary files in a data directory. Nothing in that path touches the
 # endpoint, its certificate, or its region. The rehearsal proved the opposite
 # of a blocker here -- the TLS friction belonged to gate 10, and even there it
@@ -2803,7 +2803,7 @@ G11_ROOT="$SANDBOX/gate11"
 mkdir -p "$G11_ROOT"
 G11_SRC="$G11_ROOT/live"
 G11_RCV="$G11_ROOT/recovered"
-G11_LS_SOCK="$G11_ROOT/litestream.sock"
+G11_LS_SOCK="$G11_ROOT/replication.sock"
 # g11_rc: set by the gate's own measurements below; every sub-case is reported
 # whatever happens, because a gate that reports one number for six questions
 # is the failure mode this whole file exists to prevent.
@@ -2854,7 +2854,7 @@ else
     kill "$G11_SERVE_PID" 2>/dev/null || true
     wait "$G11_SERVE_PID" 2>/dev/null || true
 
-    cat > "$G11_ROOT/litestream.yml" <<EOF
+    cat > "$G11_ROOT/replication.yml" <<EOF
 logging:
   level: info
   type: text
@@ -2869,7 +2869,7 @@ dbs:
     replica:
       url: s3://$BUCKET/sbx/g11/ledger_app?endpoint=$UPSTREAM_SCHEME://$ENDPOINT&region=$REGION
 EOF
-    "$LITESTREAM" replicate -config "$G11_ROOT/litestream.yml" > "$G11_ROOT/replicate.log" 2>&1 &
+    "$LITESTREAM" replicate -config "$G11_ROOT/replication.yml" > "$G11_ROOT/replicate.log" 2>&1 &
     G11_LS_PID=$!
     track_daemon G11_LS_PID
     sleep 6
@@ -2957,7 +2957,7 @@ except Exception:
 fi
 record 11 "$G11_VERDICT" "$G11_WHY" \
     "${G11_EVIDENCE[@]}" \
-    "what remains OVH's: whether the OVH test bucket stores and returns these same two files byte-for-byte, and whether its lifecycle rules would expire the registry before the data files it describes"
+    "what remains object storage provider's: whether the object storage provider test bucket stores and returns these same two files byte-for-byte, and whether its lifecycle rules would expire the registry before the data files it describes"
 # --------------------------------------------------------------------------
 # Gate 12: cleanup, and the residue check that makes it a gate. Deleting the
 # objects and saying so is not the same as proving nothing is left, so this
@@ -3014,7 +3014,7 @@ print("yes" if st in (404, "404") else ("unknown" if st is None else f"no (HTTP 
         echo
         echo "local residue:"
         echo "  sandbox tree: $SANDBOX (${SANDBOX_OWNER_TEXT})"
-        echo "  litestream config, keys and logs all lived inside it"
+        echo "  replication config, keys and logs all lived inside it"
         echo "  no credential was written outside $SANDBOX"
     } >> "$OUT"
     if [ "${G12_REMAIN:-1}" = "0" ] && { [ "$G12_ABSENT" = "yes" ] || [[ $G12_BUCKET_GONE == yes* ]]; }; then
@@ -3033,7 +3033,7 @@ print("yes" if st in (404, "404") else ("unknown" if st is None else f"no (HTTP 
         # endpoint script now runs a backend that does not, so reaching this
         # branch means something NEW about the target, and it is reported as a
         # finding for the owner rather than as a cleanup failure.
-        record 12 BLOCKED "every test object and version under the packet's prefixes was deleted and BOTH enumerations now list nothing (${G12_DELETED:-?} deleted, 0 remaining), but delete-bucket still answered ${G12_BUCKET_GONE}, so the bucket is still there. The service is counting something S3 does not model -- on the rehearsal store that was empty directories left for deleted keys containing '/', which is why the stand-in now runs a backend that does not do this. If OVH answers BucketNotEmpty with zero objects listed, that is a finding about OVH and it must be reported, not worked around. Local cleanup of the sandbox, keys, and litestream config IS complete" \
+        record 12 BLOCKED "every test object and version under the packet's prefixes was deleted and BOTH enumerations now list nothing (${G12_DELETED:-?} deleted, 0 remaining), but delete-bucket still answered ${G12_BUCKET_GONE}, so the bucket is still there. The service is counting something S3 does not model -- on the rehearsal store that was empty directories left for deleted keys containing '/', which is why the stand-in now runs a backend that does not do this. If object storage provider answers BucketNotEmpty with zero objects listed, that is a finding about object storage provider and it must be reported, not worked around. Local cleanup of the sandbox, keys, and replication config IS complete" \
             "delete: $G12_DEL" \
             "delete-bucket: $G12_BUCKET_DEL" \
             "independent re-check -- does the bucket still answer: $G12_ABSENT" \

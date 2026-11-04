@@ -6,7 +6,7 @@ INSERT INTO messages(id, room_id, author, body, sent_at) VALUES
  (1, 1, 'ana', 'Morning all', '2026-03-01T08:00:00'),
  (2, 1, 'ben', 'Morning', '2026-03-01T08:01:00'),
  (3, 1, 'ana', 'Deploy at noon?', '2026-03-01T08:05:00'),
- (4, 2, 'dan', 'Soak passed', '2026-03-01T09:00:00'),
+ (4, 2, 'dan', 'Steady passed', '2026-03-01T09:00:00'),
  (5, 2, 'cara', 'Nice, cutting over?', '2026-03-01T09:02:00'),
  (6, 2, 'dan', 'Not yet, one more drill', '2026-03-01T09:03:00'),
  (7, 2, 'cara', 'Drill green too', '2026-03-01T09:10:00'),

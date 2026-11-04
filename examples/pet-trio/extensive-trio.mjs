@@ -17,7 +17,7 @@ import { Gateway, GatewayError } from '../../client/dist/index.js';
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..', '..');
 const binary = join(root, '.cargo', 'target', 'debug', 'dg');
-const backupScript = join(root, 'scripts', 'micro2-backup.sh');
+const backupScript = join(root, 'scripts', 'backup.sh');
 
 const say = (k, v) => console.log(`[${k}] ${typeof v === 'string' ? v : JSON.stringify(v)}`);
 const failures = [];

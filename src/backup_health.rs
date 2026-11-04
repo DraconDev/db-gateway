@@ -87,7 +87,7 @@ impl DatabaseHealth {
 }
 
 /// One record from `$BACKUP_ROOT/attempts.jsonl`, appended by the producer
-/// (`scripts/micro2-backup.sh`) on every run. This is the only durable
+/// (`scripts/backup.sh`) on every run. This is the only durable
 /// evidence of an attempt that FAILED: a failed run publishes no set, so
 /// "no new set" cannot distinguish a failure from a job that never ran, and
 /// "immediate notice on failure" needs the attempt record to say so.
@@ -153,7 +153,7 @@ pub struct Coverage {
 ///
 /// The gateway does not know where the bucket is: the sidecar's config is
 /// the host's business, and the host already publishes what it rendered
-/// (`scripts/litestream-sync.sh` writes this file into the backup root).
+/// (`scripts/replication-sync.sh` writes this file into the backup root).
 /// The gateway reads it the same way it reads the attempt log, so an
 /// operator sees one answer wherever it is asked for.
 ///

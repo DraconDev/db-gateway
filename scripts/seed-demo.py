@@ -4,7 +4,7 @@
 Usage: seed-demo.py [--server URL] [--key-file PATH] [--dg PATH]
 
 Fills the seven live databases (inventory, orders, ledger, sessions,
-notes, billing_dev_pilot, verify_probe) with small readable demo
+notes, billing_dev_demo, verify_probe) with small readable demo
 schemas and rows: the kind of data that makes the TUI, the query log,
 and the audit trail worth reading. It is idempotent: tables are
 created with IF NOT EXISTS and rows are inserted only into tables
@@ -163,7 +163,7 @@ TABLES = {
         """CREATE TABLE IF NOT EXISTS tags
            (id INTEGER PRIMARY KEY, note_id INTEGER, tag TEXT)""",
     ],
-    "billing_dev_pilot": [
+    "billing_dev_demo": [
         """CREATE TABLE IF NOT EXISTS invoices
            (id INTEGER PRIMARY KEY, customer TEXT, amount_cents INTEGER,
             status TEXT, issued_at TEXT)""",
@@ -491,13 +491,13 @@ GENERATORS = {
     ("sessions", "events"): gen_events,
     ("notes", "notes"): gen_notes,
     ("notes", "tags"): gen_tags,
-    ("billing_dev_pilot", "invoices"): lambda: [
+    ("billing_dev_demo", "invoices"): lambda: [
         "(1,'Ada Meyer',7400,'paid','2026-10-20')",
         "(2,'Marta Vidal',3200,'paid','2026-10-21')",
         "(3,'Jonasz Pelo',5800,'open','2026-10-22')",
         "(4,'Tomas Berg',9000,'open','2026-10-24')",
     ],
-    ("billing_dev_pilot", "payments"): lambda: [
+    ("billing_dev_demo", "payments"): lambda: [
         "(1,1,7400,'2026-10-20')",
         "(2,2,3200,'2026-10-21')",
     ],

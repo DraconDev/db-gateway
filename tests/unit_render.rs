@@ -38,7 +38,7 @@ fn producer_default(producer: &str, name: &str) -> String {
         .lines()
         .find_map(|line| line.strip_prefix(&prefix))
         .map(|value| value.trim().trim_matches('"').to_string())
-        .unwrap_or_else(|| panic!("scripts/micro2-backup.sh must define {name}"))
+        .unwrap_or_else(|| panic!("scripts/backup.sh must define {name}"))
 }
 
 #[test]
@@ -146,10 +146,10 @@ fn the_drift_gate_renders_every_unit_it_compares() {
 #[test]
 fn the_rendered_backup_unit_carries_the_producers_reference_layout() {
     // The producer's compiled-in defaults are the reference layout
-    // (docs/evidence/first-deploy-micro2.md records them for the
+    // (docs/evidence/first-deploy-deployment-host.md records them for the
     // deployed host), so the unit the drift gate compares must be
     // rendered with exactly them.
-    let producer = std::fs::read_to_string("scripts/micro2-backup.sh").unwrap();
+    let producer = std::fs::read_to_string("scripts/backup.sh").unwrap();
     let server = producer_default(&producer, "SERVER");
     let listen = match server.split_once("://") {
         Some((_, host)) => host.to_string(),
@@ -168,7 +168,7 @@ fn the_rendered_backup_unit_carries_the_producers_reference_layout() {
             format!("DG_OWNER_KEY_FILE={key_file}"),
             format!("DG_DATA_DIR={data_dir}"),
             format!("DG_BACKUP_ROOT={backup_root}"),
-            "DG_BACKUP_SCRIPT=/usr/local/bin/micro2-backup.sh".to_string(),
+            "DG_BACKUP_SCRIPT=/usr/local/bin/backup.sh".to_string(),
         ],
     );
 
@@ -202,7 +202,7 @@ fn a_unit_that_gains_a_placeholder_fails_the_drift_gate() {
     for file in [
         "scripts/host-audit.sh",
         "scripts/unit-render.sh",
-        "scripts/micro2-backup.sh",
+        "scripts/backup.sh",
         "deploy/dg-backup.service",
         "deploy/dg-backup.timer",
         "deploy/dg-backup-digest.service",

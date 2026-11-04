@@ -501,7 +501,7 @@ fn a_table_row_is_clickable_at_a_real_terminal_size() {
     let mut app = app();
     // Seven databases, as a seeded gateway has.
     app.list = Some(json!({"databases": [
-        "billing_dev_pilot", "inventory", "ledger", "notes", "orders", "sessions", "verify_probe"
+        "billing_dev_demo", "inventory", "ledger", "notes", "orders", "sessions", "verify_probe"
     ]}));
     // The contents of a database that was just opened.
     let document = json!({

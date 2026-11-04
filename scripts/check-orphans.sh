@@ -33,7 +33,7 @@ RESIDUE_GLOBS=(
   "/tmp/dg-*"
   "/tmp/dgaudit*"
   "/tmp/aud2*"
-  "/tmp/soak-*"
+  "/tmp/steady-*"
 )
 
 usage() {

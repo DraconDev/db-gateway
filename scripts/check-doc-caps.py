@@ -46,7 +46,7 @@ BARE = re.compile(r"([0-9]+)\s*(MiB|MB)\b")
 UNIT_MENTION = re.compile(r"dg\.service")
 # How close a bare figure has to sit to the unit's name to be read as
 # its cap. The sentence this check exists for read
-# "`deploy/dg.service` (96 MiB), with the supervised micro2 run ...".
+# "`deploy/dg.service` (96 MiB), with the supervised deployment-host run ...".
 WINDOW = 40
 
 

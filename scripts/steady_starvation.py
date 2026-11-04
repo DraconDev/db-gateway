@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writer-starvation soak: does a continuous read flood delay writers?
+"""Writer-starvation steady: does a continuous read flood delay writers?
 
 This is the measurement `Store::acquire_queue` explicitly defers. Its own
 comment (src/store.rs) says the poll-based acquire "is not FIFO-fair like the
@@ -7,7 +7,7 @@ async global permits, and a continuous read flood could delay a writer", and
 that "a writer-preferring bound gets added only if that measurement shows
 starvation (scale proposal Phase 2)".
 
-Why scripts/soak.py cannot answer it: that harness round-robins across four
+Why scripts/steady.py cannot answer it: that harness round-robins across four
 databases, and `acquire_queue` takes a PER-DATABASE guard. Spreading load
 across databases means the per-database lock is never contended, so queue
 waits and timeouts stay at zero no matter how busy the server is. Its 2h run
@@ -49,8 +49,8 @@ writer is ever lane-shed, so writer 429s must equal the queue timeouts.
 The summary prints both so a reviewer can see the identity held.
 
 Usage:
-  soak_starvation.py --seconds 300 --out /tmp/starvation.log
-  soak_starvation.py --seconds 300 --flood-seconds 300 --out ...
+  steady_starvation.py --seconds 300 --out /tmp/starvation.log
+  steady_starvation.py --seconds 300 --flood-seconds 300 --out ...
 
 Exit codes: 0 NO_STARVATION, 1 STARVED or MARGINAL (a real answer -- "yes,
 build the writer-preferring bound"), 2 harness failure.
@@ -131,7 +131,7 @@ def loadavg1():
 
 class Latency:
     """Bounded millisecond histogram. Raw sample lists grow without limit
-    (soak.py accumulated 1.28M requests worth), which both costs memory and
+    (steady.py accumulated 1.28M requests worth), which both costs memory and
     makes the per-sample append lock a measurable part of the harness."""
 
     def __init__(self):
@@ -509,7 +509,7 @@ def decide(control, flood, args):
 def wait_for_quiet(args):
     """Block until the machine has been quiet for --load-patience samples.
 
-    A latency soak on a contended box measures the neighbours, not the
+    A latency steady on a contended box measures the neighbours, not the
     gateway, so the gate is a precondition rather than a nicety. It prints
     its progress so the evidence log shows when the run was allowed to start
     and what the load was at that moment.
@@ -536,7 +536,7 @@ def wait_for_quiet(args):
                     f"load never stayed <= {args.max_load1} for "
                     f"{args.load_patience} samples within {args.load_timeout}s "
                     f"(load1={current:.2f}); refusing to report a latency "
-                    f"soak measured under contention")
+                    f"steady measured under contention")
             time.sleep(args.load_poll)
     print(f"# load gate open after {time.monotonic() - began:.0f}s "
           f"(load1={loadavg1():.2f} <= {args.max_load1} for "
@@ -623,12 +623,12 @@ def main():
         ap.error("each block must be >= 30 seconds")
 
     readiness_timeout = float(os.environ.get(
-        "SOAK_READINESS_TIMEOUT", str(READINESS_TIMEOUT)))
+        "STEADY_READINESS_TIMEOUT", str(READINESS_TIMEOUT)))
     if readiness_timeout <= 0:
         ap.error("readiness timeout must be positive")
 
     tmp = tempfile.mkdtemp(prefix="starve-")
-    # A soak holds a complete data dir (registry + every database it created).
+    # A steady holds a complete data dir (registry + every database it created).
     # Leaving it in /tmp after every run -- including a PASS -- fills the same
     # small disk the evidence log lives on. atexit covers the clean exit and
     # any assertion/transport failure alike, as in wipe_restore.py.

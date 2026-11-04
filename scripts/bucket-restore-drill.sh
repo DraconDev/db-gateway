@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Weekly on-host restore drill against the OFF-HOST copies
 # (docs/recovery-policy.md): restore every live database plus the
-# registry from its litestream replica into a separate scratch target,
+# registry from its replication replica into a separate scratch target,
 # then verify integrity and exact per-table row counts against what the
 # live gateway is serving. A drill that compares counts has compared
 # only counts -- but counts per table, on both sides, plus
-# integrity_check, is the same bar scripts/litestream-restore.sh uses,
+# integrity_check, is the same bar scripts/replication-restore.sh uses,
 # and a mismatch or a failed restore is exactly the signal that the
 # bucket copy cannot be trusted BEFORE a host loss asks for it.
 #
@@ -24,9 +24,9 @@
 # Usage: scripts/bucket-restore-drill.sh
 # Env: DG_BIN (/usr/local/bin/dg), DG_SERVER, DG_KEY_FILE
 #      (/etc/dg/owner.key), DG_DATA_DIR (/var/lib/dg),
-#      LITESTREAM_BIN (/usr/local/bin/litestream),
-#      LITESTREAM_CONFIG (/etc/litestream.yml),
-#      LITESTREAM_ENV_FILE (/etc/dg/litestream.env; sourced if readable,
+#      LITESTREAM_BIN (/usr/local/bin/replication),
+#      LITESTREAM_CONFIG (/etc/replication.yml),
+#      LITESTREAM_ENV_FILE (/etc/dg/replication.env; sourced if readable,
 #      needed so S3 restores get credentials the same way the sidecar
 #      does; values are never echoed),
 #      DG_DRILL_SCRATCH_PARENT (/var/tmp), KEEP=1 keeps the scratch dir.
@@ -43,9 +43,9 @@ log() { echo "[$SELF] $*" >&2; }
 DG_BIN="${DG_BIN:-/usr/local/bin/dg}"
 DG_KEY_FILE="${DG_KEY_FILE:-/etc/dg/owner.key}"
 DG_DATA_DIR="${DG_DATA_DIR:-/var/lib/dg}"
-LITESTREAM_BIN="${LITESTREAM_BIN:-/usr/local/bin/litestream}"
-LITESTREAM_CONFIG="${LITESTREAM_CONFIG:-/etc/litestream.yml}"
-ENV_FILE="${LITESTREAM_ENV_FILE:-/etc/dg/litestream.env}"
+LITESTREAM_BIN="${LITESTREAM_BIN:-/usr/local/bin/replication}"
+LITESTREAM_CONFIG="${LITESTREAM_CONFIG:-/etc/replication.yml}"
+ENV_FILE="${LITESTREAM_ENV_FILE:-/etc/dg/replication.env}"
 SCRATCH_PARENT="${DG_DRILL_SCRATCH_PARENT:-/var/tmp}"
 BACKUP_ROOT="${DG_BACKUP_ROOT:-/var/lib/dg-backups}"
 
@@ -84,10 +84,10 @@ PY
 }
 
 [ -x "$DG_BIN" ] || fail "dg binary not executable: $DG_BIN"
-[ -x "$LITESTREAM_BIN" ] || fail "litestream binary not executable: $LITESTREAM_BIN"
-[ -r "$LITESTREAM_CONFIG" ] || fail "litestream config not readable: $LITESTREAM_CONFIG"
+[ -x "$LITESTREAM_BIN" ] || fail "replication binary not executable: $LITESTREAM_BIN"
+[ -r "$LITESTREAM_CONFIG" ] || fail "replication config not readable: $LITESTREAM_CONFIG"
 # ENV_FILE is an operator-nominated path by design (default
-# /etc/dg/litestream.env); there is no constant source to follow.
+# /etc/dg/replication.env); there is no constant source to follow.
 # shellcheck disable=SC1090
 if [ -r "$ENV_FILE" ]; then set -a; . "$ENV_FILE"; set +a; fi
 

@@ -5,12 +5,12 @@
 #   systemctl --user daemon-reload
 # Nothing in this repository installs, enables, or starts this unit.
 #
-# Runs scripts/pull-micro2-backup.sh once per dg-backup-pull.timer
-# fire: the newest verified set is copied from micro2 to the local
+# Runs scripts/pull-backup.sh once per dg-backup-pull.timer
+# fire: the newest verified set is copied from deployment-host to the local
 # backup root, every checksum re-verified, old pulls pruned. The pull
 # is idempotent — a run with nothing new exits 0 having changed
 # nothing — so a missed fire costs nothing but a day of second-leg
-# freshness; Litestream's WAL stream covers the intraday either way.
+# freshness; Replication's WAL stream covers the intraday either way.
 # The SSH key stays in the operator's ~/.ssh; no secret is passed on
 # the command line or stored in the unit.
 

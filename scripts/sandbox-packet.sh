@@ -4,7 +4,7 @@
 # Run: scripts/sandbox-packet.sh --out docs/sandbox-packet-YYYY-MM-DD.log
 #
 # WHAT THIS IS. The §6 list is a program, not a single test, and every gate
-# that matters needs a real OVH test bucket. The owner has not supplied one,
+# that matters needs a real object storage provider test bucket. The owner has not supplied one,
 # so this runner does two things and refuses to fake a third:
 #
 #   1. Runs every gate that needs no bucket, for real: the version pin (gate
@@ -18,7 +18,7 @@
 #      run this against a dedicated test bucket on the owner's authorization
 #      and no production database, credential or subscription.
 #
-# WHY IT ISOLATES CREDENTIALS. Litestream discovers AWS credentials from the
+# WHY IT ISOLATES CREDENTIALS. Replication discovers AWS credentials from the
 # ambient environment, including ~/.aws. On a shared machine that silently
 # signs sandbox traffic with whatever profile the operator happens to have,
 # which is both a leak and a false result: a gate that passes with the wrong
@@ -34,7 +34,7 @@
 set -euo pipefail
 
 PIN_VERSION="0.5.17"
-PIN_ROOT="${DG_SANDBOX_PIN_ROOT:-$HOME/.local/dg-sandbox/litestream-${PIN_VERSION}}"
+PIN_ROOT="${DG_SANDBOX_PIN_ROOT:-$HOME/.local/dg-sandbox/replication-${PIN_VERSION}}"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT=""
 GO_AHEAD=0
@@ -52,7 +52,7 @@ usage: scripts/sandbox-packet.sh --out FILE [--i-have-owner-go-ahead | --rehears
                             Refuses if DG_SANDBOX_ENDPOINT is not loopback, and
                             its result is a rehearsal, never §6 evidence.
   DG_SANDBOX_BUCKET         test bucket name; unset marks S3 gates BLOCKED
-  DG_SANDBOX_ENDPOINT       e.g. s3.gra.io.cloud.ovh.net
+  DG_SANDBOX_ENDPOINT       e.g. s3.example.invalid
   DG_SANDBOX_REGION         e.g. gra
   DG_SANDBOX_ACCESS_KEY_ID  test-bucket key, written into the sandbox only
   DG_SANDBOX_SECRET_KEY     test-bucket secret, written into the sandbox only
@@ -148,7 +148,7 @@ SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/dg-sandbox-XXXXXX")"
 # `trap ... EXIT` is not additive -- so a daemon registered with the first trap
 # stops being cleaned up by the second one. Registering into one array that
 # `cleanup` itself drains is the only arrangement that survives that, and it is
-# the reason litestream daemons outlived their runs: this trap is what removed
+# the reason replication daemons outlived their runs: this trap is what removed
 # the temp tree they were replicating into, leaving a live daemon pointed at a
 # directory that no longer existed.
 DAEMON_PIDS=()
@@ -167,10 +167,10 @@ trap cleanup EXIT
 
 export HOME="$SANDBOX/home"
 mkdir -p "$HOME"
-# The litestream pin lives in the operator's real home, but HOME now points
+# The replication pin lives in the operator's real home, but HOME now points
 # inside the sandbox. Anything resolved against $HOME after this line looks for
 # the pin in a directory that never had it, which is how the first rehearsal run
-# died with "litestream 0.5.17 is not installed" four gates in. Pin the path
+# died with "replication 0.5.17 is not installed" four gates in. Pin the path
 # once, against the real home, and hand it to the child.
 export DG_SANDBOX_PIN_ROOT="$PIN_ROOT"
 : > "$HOME/.aws-credentials"
@@ -179,7 +179,7 @@ export AWS_SHARED_CREDENTIALS_FILE="$HOME/.aws-credentials"
 export AWS_PROFILE=""
 export AWS_REGION="${DG_SANDBOX_REGION:-us-east-1}"
 export AWS_EC2_METADATA_DISABLED=true
-export LITESTREAM_CREDENTIALS="$HOME/litestream.yml"
+export LITESTREAM_CREDENTIALS="$HOME/replication.yml"
 export DG_SANDBOX_DIR="$SANDBOX"
 
 # The owner's test-bucket keys land in the sandbox only, mode 0600, and only
@@ -222,7 +222,7 @@ record() {
     echo
     echo "date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "host: $(uname -srm)"
-    echo "litestream pinned: ${PIN_VERSION} (${PIN_ROOT})"
+    echo "replication pinned: ${PIN_VERSION} (${PIN_ROOT})"
     echo "bucket: ${DG_SANDBOX_BUCKET:-<unset>}"
     echo "endpoint: ${DG_SANDBOX_ENDPOINT:-<unset>}"
     echo "region: ${DG_SANDBOX_REGION:-<unset>}"
@@ -239,9 +239,9 @@ record() {
         echo
         echo "THIS IS A REHEARSAL. It proves the packet drives correct S3 requests,"
         echo "reads the answers, restores the right database and cleans up after"
-        echo "itself. It proves nothing about the OVH test region, class, pricing,"
+        echo "itself. It proves nothing about the object storage provider test region, class, pricing,"
         echo "lifecycle implementation or TLS. Re-run the same script with"
-        echo "--i-have-owner-go-ahead and DG_SANDBOX_ENDPOINT pointing at the OVH"
+        echo "--i-have-owner-go-ahead and DG_SANDBOX_ENDPOINT pointing at the object storage provider"
         echo "endpoint to produce §6 evidence."
     fi
 } > "$OUT"
@@ -250,33 +250,33 @@ record() {
 # Gate 1: pin and record. No bucket needed, so it is the one gate that can be
 # genuinely satisfied before the owner supplies anything.
 # --------------------------------------------------------------------------
-LITESTREAM="$PIN_ROOT/litestream"
+LITESTREAM="$PIN_ROOT/replication"
 if [ ! -x "$LITESTREAM" ]; then
-    record 1 FAIL "litestream ${PIN_VERSION} is not installed at ${LITESTREAM}" \
+    record 1 FAIL "replication ${PIN_VERSION} is not installed at ${LITESTREAM}" \
         "Install it with the checksum from the release's checksums.txt, then re-run." \
         "scripts/sandbox-packet.sh exits nonzero while this gate is not PASS."
 else
     VERSION_OUT="$("$LITESTREAM" version 2>&1 | head -1)"
     SHA_OUT="$(sha256sum "$LITESTREAM" | cut -d' ' -f1)"
-    TARBALL="$PIN_ROOT/litestream-${PIN_VERSION}-linux-x86_64.tar.gz"
+    TARBALL="$PIN_ROOT/replication-${PIN_VERSION}-linux-x86_64.tar.gz"
     PUBLISHED_SHA=""
     [ -f "$PIN_ROOT/checksums.txt" ] && \
-        PUBLISHED_SHA="$(awk -v n="litestream-${PIN_VERSION}-linux-x86_64.tar.gz" '$2==n {print $1}' "$PIN_ROOT/checksums.txt")"
+        PUBLISHED_SHA="$(awk -v n="replication-${PIN_VERSION}-linux-x86_64.tar.gz" '$2==n {print $1}' "$PIN_ROOT/checksums.txt")"
     ACTUAL_TARBALL_SHA=""
     [ -f "$TARBALL" ] && ACTUAL_TARBALL_SHA="$(sha256sum "$TARBALL" | cut -d' ' -f1)"
     if [ "$VERSION_OUT" = "$PIN_VERSION" ] && \
        [ -n "$PUBLISHED_SHA" ] && [ "$PUBLISHED_SHA" = "$ACTUAL_TARBALL_SHA" ]; then
-        record 1 PASS "litestream ${VERSION_OUT}, release tarball checksum matches the published checksums.txt" \
-            "\$ litestream version" "$VERSION_OUT" \
+        record 1 PASS "replication ${VERSION_OUT}, release tarball checksum matches the published checksums.txt" \
+            "\$ replication version" "$VERSION_OUT" \
             "tarball sha256 (published): $PUBLISHED_SHA" \
             "tarball sha256 (on disk)  : $ACTUAL_TARBALL_SHA" \
             "binary sha256: $SHA_OUT" \
-            "config reference: etc/litestream.yml shipped in the ${PIN_VERSION} tarball, read on $(date -u +%Y-%m-%d)" \
-            "NOTE: the litestream on PATH is $(litestream version 2>&1 | head -1), which is NOT the pinned" \
+            "config reference: etc/replication.yml shipped in the ${PIN_VERSION} tarball, read on $(date -u +%Y-%m-%d)" \
+            "NOTE: the replication on PATH is $(replication version 2>&1 | head -1), which is NOT the pinned" \
             "version. This packet used the pinned binary; the PATH one must not be used for §6."
     else
         record 1 FAIL "version or checksum did not verify" \
-            "\$ litestream version -> ${VERSION_OUT} (expected ${PIN_VERSION})" \
+            "\$ replication version -> ${VERSION_OUT} (expected ${PIN_VERSION})" \
             "published sha256: ${PUBLISHED_SHA:-<none recorded>}" \
             "on-disk sha256:   ${ACTUAL_TARBALL_SHA:-<no tarball>}"
     fi
@@ -361,8 +361,8 @@ ROWS_BEFORE="$(row_count rehearsal ledger)"
 # own prefix for the same reason, and the first version of this rehearsal
 # sharing one directory restored a database with no `ledger` table at all.
 mkdir -p "$replica_dir/rehearsal" "$replica_dir/rehearsal_two"
-LITESTREAM_CFG="$rehearsal_root/litestream.yml"
-CONTROL_SOCK="$rehearsal_root/litestream.sock"
+LITESTREAM_CFG="$rehearsal_root/replication.yml"
+CONTROL_SOCK="$rehearsal_root/replication.sock"
 cat > "$LITESTREAM_CFG" <<EOF
 logging:
   level: info
@@ -376,7 +376,7 @@ dbs:
       path: $replica_dir/rehearsal
 EOF
 "$LITESTREAM" replicate -config "$LITESTREAM_CFG" \
-    > "$rehearsal_root/litestream.log" 2>&1 &
+    > "$rehearsal_root/replication.log" 2>&1 &
 LITESTREAM_PID=$!
 track_daemon "$LITESTREAM_PID"
 sleep 2
@@ -409,17 +409,17 @@ if [ "$READ_Err" -eq 0 ] && [ "$REPLICA_FRESH" -eq 1 ]; then
         "rows before live writes: $ROWS_BEFORE" \
         "capacity_exceeded+query_deadline_exceeded+internal_error after 60 live writes: $READ_Err" \
         "replica advanced (new .ltx segment): yes" \
-        "NOT §6 GATE 2: file replica, not OVH; no 1 GB-shaped sandbox; no p50/p99 comparison yet."
+        "NOT §6 GATE 2: file replica, not object storage provider; no 1 GB-shaped sandbox; no p50/p99 comparison yet."
 else
     record 2 FAIL "rehearsal: replication did not advance cleanly (capacity/deadline/internal=$READ_Err replica_advanced=$REPLICA_FRESH)" \
         "replica dir: $replica_dir" \
-        "litestream log tail:" \
-        "$(tail -5 "$rehearsal_root/litestream.log" 2>/dev/null | sed 's/^/  /')"
+        "replication log tail:" \
+        "$(tail -5 "$rehearsal_root/replication.log" 2>/dev/null | sed 's/^/  /')"
 fi
 
 # --------------------------------------------------------------------------
 # Gate 7 rehearsal: live reconfiguration. Add a second database to the config
-# while litestream runs and record whether replication picks it up without a
+# while replication runs and record whether replication picks it up without a
 # restart, which is the signal §6 asks to be recorded.
 # --------------------------------------------------------------------------
 "${DG[@]}" create rehearsal_two >/dev/null
@@ -428,11 +428,11 @@ fi
 # Gate 7 asks a yes/no question and wants the exact command recorded, so this
 # measures both documented routes instead of assuming one:
 #
-#   (a) edit the config, then `litestream start` over the control socket. The
+#   (a) edit the config, then `replication start` over the control socket. The
 #       running daemon holds its config in memory, so a database added to the
 #       FILE is invisible to it: `start` answers "database not found". That is
 #       the finding, not a failure of this script.
-#   (b) `litestream register -replica <url>` over the same socket, which
+#   (b) `replication register -replica <url>` over the same socket, which
 #       registers a database with the running daemon without a restart and
 #       without editing the config.
 #
@@ -446,8 +446,8 @@ EOF
 CONFIG_EDIT_START="(not attempted)"
 "$LITESTREAM" start -socket "$CONTROL_SOCK" "$data_dir/rehearsal_two.sqlite" \
     > "$rehearsal_root/start-after-config-edit.log" 2>&1 \
-    && CONFIG_EDIT_START="config edit + litestream start: WORKED" \
-    || CONFIG_EDIT_START="config edit + litestream start: FAILED -- $(head -1 "$rehearsal_root/start-after-config-edit.log" 2>/dev/null)"
+    && CONFIG_EDIT_START="config edit + replication start: WORKED" \
+    || CONFIG_EDIT_START="config edit + replication start: FAILED -- $(head -1 "$rehearsal_root/start-after-config-edit.log" 2>/dev/null)"
 
 # -replica must be a URL with a scheme (file:// for a directory), not a bare
 # path; the daemon rejects a scheme-less value outright.
@@ -459,8 +459,8 @@ CONFIG_EDIT_START="(not attempted)"
 # evidence that matters is the daemon making progress for THIS database, and a
 # database with no writes can look idle rather than broken.
 "${DG[@]}" query rehearsal_two "INSERT INTO t VALUES (2)" >/dev/null 2>&1 || true
-# The signal is the daemon's own log for that database. `litestream status`
-# and `litestream ltx` both refuse a database that is registered but absent
+# The signal is the daemon's own log for that database. `replication status`
+# and `replication ltx` both refuse a database that is registered but absent
 # from the config file, so neither can be used as a liveness probe here --
 # which is itself part of the answer.
 ADDED=0
@@ -471,7 +471,7 @@ SIGNAL_LINES=""
 for _ in $(seq 1 120); do
     # `|| true`: an empty grep is the normal state on the first polls, and
     # under `set -e` an assignment that fails would kill the whole packet.
-    SIGNAL_LINES="$(grep -F 'rehearsal_two.sqlite' "$rehearsal_root/litestream.log" 2>/dev/null \
+    SIGNAL_LINES="$(grep -F 'rehearsal_two.sqlite' "$rehearsal_root/replication.log" 2>/dev/null \
         | grep -E 'fetched latest L0|snapshot complete|replicating to|compaction complete' | head -4 || true)"
     if [ -n "$SIGNAL_LINES" ] || find "$replica_dir/rehearsal_two" -name '*.ltx' 2>/dev/null | grep -q .; then
         [ -n "$SIGNAL_LINES" ] || SIGNAL_LINES="(no log line; replica root $replica_dir/rehearsal_two now holds .ltx segments for it)"
@@ -487,19 +487,19 @@ UNREGISTER_RESULT="(not attempted)"
 if [ "$ADDED" -eq 1 ]; then
     "$LITESTREAM" unregister -socket "$CONTROL_SOCK" "$data_dir/rehearsal_two.sqlite" \
         > "$rehearsal_root/unregister.log" 2>&1 \
-        && UNREGISTER_RESULT="litestream unregister: WORKED" \
-        || UNREGISTER_RESULT="litestream unregister: FAILED -- $(head -1 "$rehearsal_root/unregister.log" 2>/dev/null)"
+        && UNREGISTER_RESULT="replication unregister: WORKED" \
+        || UNREGISTER_RESULT="replication unregister: FAILED -- $(head -1 "$rehearsal_root/unregister.log" 2>/dev/null)"
 fi
 
 if [ "$ADDED" -eq 1 ]; then
-    record 7 PASS "rehearsal: a new database was replicated WITHOUT restarting litestream, via the control socket" \
+    record 7 PASS "rehearsal: a new database was replicated WITHOUT restarting replication, via the control socket" \
         "route (a) $CONFIG_EDIT_START" \
         "route (b) register over the control socket: $REGISTER_RESULT" \
         "remove side: $UNREGISTER_RESULT" \
         "signal observed in the daemon log:" \
         "$(printf '%s\n' "$SIGNAL_LINES" | sed 's/^/  /')" \
         "ANSWER for §6: the config FILE is read at startup only. Adding a database" \
-        "to a running daemon means 'litestream register -replica <url> <db-path>'" \
+        "to a running daemon means 'replication register -replica <url> <db-path>'" \
         "over the control socket (or a restart). SIGHUP is not a reload signal:" \
         "it terminates the process." \
         "NOT §6 GATE 7: file replica. The sandbox must repeat this against the" \
@@ -508,8 +508,8 @@ else
     record 7 FAIL "rehearsal: no documented route started replication for a new database without a restart" \
         "route (a) $CONFIG_EDIT_START" \
         "route (b) register over the control socket: $REGISTER_RESULT" \
-        "litestream log tail:" \
-        "$(tail -5 "$rehearsal_root/litestream.log" 2>/dev/null | sed 's/^/  /')"
+        "replication log tail:" \
+        "$(tail -5 "$rehearsal_root/replication.log" 2>/dev/null | sed 's/^/  /')"
 fi
 
 kill "$LITESTREAM_PID" 2>/dev/null || true
@@ -561,7 +561,7 @@ PY
             "rows in restored copy: ${ROWS_RESTORED:-?}"
     fi
 else
-    record 5 FAIL "rehearsal: litestream restore produced no database" \
+    record 5 FAIL "rehearsal: replication restore produced no database" \
         "restore target: $restore_dir/rehearsal.sqlite" \
         "restore log tail:" \
         "$(tail -5 "$rehearsal_root/restore.log" 2>/dev/null | sed 's/^/  /')"
@@ -573,7 +573,7 @@ fi
 # --------------------------------------------------------------------------
 if [ -n "${DG_SANDBOX_BUCKET:-}" ] && [ -n "${DG_SANDBOX_ENDPOINT:-}" ]; then
     # The bucket-free half has nothing left to do. Its gateway and its
-    # litestream are still running at this point -- they are only killed by the
+    # replication are still running at this point -- they are only killed by the
     # EXIT trap -- so they would be replicating to a file replica for the whole
     # S3 half, inflating the process count the resource gate measures and
     # making "nothing survived this run" impossible to read. Stop them here.
@@ -582,7 +582,7 @@ if [ -n "${DG_SANDBOX_BUCKET:-}" ] && [ -n "${DG_SANDBOX_ENDPOINT:-}" ]; then
     wait "${LITESTREAM_PID:-0}" 2>/dev/null || true
     echo "bucket configured; handing off to scripts/sandbox-s3-gates.sh" >&2
     # A child, not an exec: `exec` replaces this process, the EXIT trap never
-    # runs, and the sandbox holding the owner's test key, the litestream config
+    # runs, and the sandbox holding the owner's test key, the replication config
     # and every log survives the run. The child deliberately does not delete
     # DG_SANDBOX_DIR -- this process owns it and this trap is what removes it.
     # The child's exit status is this packet's exit status.
@@ -597,11 +597,11 @@ fi
 BLOCKED_DETAIL="needs DG_SANDBOX_BUCKET + DG_SANDBOX_ENDPOINT (+ DG_SANDBOX_REGION, DG_SANDBOX_ACCESS_KEY_ID, DG_SANDBOX_SECRET_KEY) and a bucket the owner confirms is disposable"
 for gate in 3 4 6 8 9 10 11 12; do
     case "$gate" in
-        3)  what="explicit OVH endpoint/region config, path-style and skip-verify variants" ;;
-        4)  what="every S3 operation litestream 0.5.17 issues succeeds against the test region/class" ;;
+        3)  what="explicit object storage provider endpoint/region config, path-style and skip-verify variants" ;;
+        4)  what="every S3 operation replication 0.5.17 issues succeeds against the test region/class" ;;
         6)  what="retention/lifecycle drill, 7/30-day version counts" ;;
         8)  what="failure visibility: revoked credentials, blocked egress, destination near quota" ;;
-        9)  what="resource headroom for gateway + litestream on a 1 GB-shaped sandbox" ;;
+        9)  what="resource headroom for gateway + replication on a 1 GB-shaped sandbox" ;;
         10) what="encryption mode exercised end-to-end, including restore without ambient credentials" ;;
         11) what="metadata.sqlite backed up and restored, scoped keys resolve after recovery" ;;
         12) what="deletion of every test bucket/key/config, with no residue" ;;
@@ -617,7 +617,7 @@ done
 # is cheaper to learn now than after a bucket exists.
 # --------------------------------------------------------------------------
 {
-    printf '\n## config surface of the pinned litestream, measured\n\n'
+    printf '\n## config surface of the pinned replication, measured\n\n'
     printf 'endpoint and region are accepted as replica URL query parameters and are\n'
     printf 'honoured: the log line then reads type=s3 region=<r> endpoint=https://<e>.\n\n'
     printf 'Unknown replica keys are SILENTLY IGNORED. A config carrying\n'
@@ -625,28 +625,28 @@ done
     printf 'an encryption setting that this version does not implement would read as\n'
     printf 'working. Decision 3 (encryption) must therefore be settled at the bucket or\n'
     printf 'by an explicitly verified mechanism, never by writing a key into the config\n'
-    printf 'and observing that litestream starts.\n\n'
+    printf 'and observing that replication starts.\n\n'
     printf 'The same applies to `force-path-style` as a query parameter: accepted\n'
     printf 'silently, no effect observed. §6 gate 3 must record the minimal WORKING\n'
     printf 'config, which is the only way to tell a working setting from an ignored one.\n\n'
-    printf '`litestream restore` can EXIT 0 AND PRODUCE A DATABASE WITH NONE OF THE\n'
+    printf '`replication restore` can EXIT 0 AND PRODUCE A DATABASE WITH NONE OF THE\n'
     printf 'SOURCE TABLES. Restoring from a bare replica directory ("file://<dir>")\n'
     printf 'succeeded and wrote a 16 KiB file whose tables were all absent. A gate that\n'
     printf 'checked only the exit code would record that as a passing restore. Every\n'
     printf 'restore in §6 gate 5 must compare rows, not statuses.\n\n'
-    printf '`litestream status` and `litestream ltx` require the database to be present in\n'
+    printf '`replication status` and `replication ltx` require the database to be present in\n'
     printf 'the CONFIG FILE, so neither can probe a database that was added with\n'
-    printf '`litestream register`. For a database added at runtime the daemon log is the\n'
+    printf '`replication register`. For a database added at runtime the daemon log is the\n'
     printf 'only signal available.\n\n'
     printf 'A REPLICA ROOT IS NOT NAMESPACED PER DATABASE. Two databases sharing one\n'
-    printf 'replica path interleave their LTX segments, and `litestream restore` for one\n'
+    printf 'replica path interleave their LTX segments, and `replication restore` for one\n'
     printf 'then returns the OTHER database snapshot: exit status 0, wrong file. Every\n'
     printf 'S3 config must therefore give each database its own prefix, e.g.\n'
     printf 's3://<bucket>/<db-name>. The gateway holds N databases, so this is not\n'
     printf 'optional bookkeeping; it is what makes gate 5 restore the right database.\n\n'
     printf 'A config file is read at STARTUP. Adding a database to the file while the\n'
-    printf 'daemon runs does nothing; `litestream start` then answers "database not\n'
-    printf 'found". Adding one at runtime requires `litestream register -socket <sock>\n'
+    printf 'daemon runs does nothing; `replication start` then answers "database not\n'
+    printf 'found". Adding one at runtime requires `replication register -socket <sock>\n'
     printf '-replica <url> <db-path>`. SIGHUP is not a reload signal: it terminates the\n'
     printf 'process.\n'
 } >> "$OUT"

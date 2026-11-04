@@ -7,7 +7,7 @@
 # to GitHub and GitLab. They were contained -- the repo is private and the
 # values appear in no other repo -- but "contained by hand" is not a
 # property any tool enforces, and db-gateway itself is pushed to both
-# remotes and holds the OVH/Litestream/owner-key material that must never
+# remotes and holds the object storage provider/Replication/owner-key material that must never
 # be committed. This gate is the maintainable form of the fix: a
 # credential-shaped value cannot enter the tracked tree without the
 # commit being flagged, so the class of leak stops depending on

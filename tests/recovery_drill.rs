@@ -2,7 +2,7 @@
 //!
 //! Run: `timeout 120 cargo test --locked --test recovery_drill`
 //!
-//! This is a manual-snapshot drill only, not OVH or continuous-backup
+//! This is a manual-snapshot drill only, not object storage provider or continuous-backup
 //! evidence (see docs/recovery-contract.md §6).
 
 use dg::{execution, store::Store};

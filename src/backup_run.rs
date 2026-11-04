@@ -1,6 +1,6 @@
 //! On-demand backup sets: the gateway writes one NOW.
 //!
-//! The host runs an hourly producer (`scripts/micro2-backup.sh`) that
+//! The host runs an hourly producer (`scripts/backup.sh`) that
 //! publishes versioned backup sets into the backup root. That producer
 //! owns the schedule, the retention and the attempt ledger. This module
 //! is the other half: the same set, written on demand, from inside the

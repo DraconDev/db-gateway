@@ -43,18 +43,18 @@ ReadWritePaths={{DG_DATA_DIR}} {{DG_BACKUP_ROOT}}
 # pinned to PRAGMA cache_size=-2048 = 2 MiB, ceiling 12 * 2 MiB = 24 MiB)
 # plus the three metadata connections (cache_size=-1024 = 1 MiB each,
 # ceiling 3 MiB, not on the request hot path), not the process base RSS
-# (micro2 steady 6696 KiB across repeated samples; release burst peak
+# (deployment-host steady 6696 KiB across repeated samples; release burst peak
 # 11192 KiB under a 1 GiB-enforced 50-way concurrent INSERT harness).
 # MemoryMax is set ~2.7x above the query-connection ceiling and ~6x above
 # the measured burst peak, so the burst the budget exists to absorb does
-# not become an OOM kill. This value matches what the micro2 host already
+# not become an OOM kill. This value matches what the deployment-host host already
 # enforces (MemoryMax=67108864, recorded in
-# `docs/evidence/m4-micro2-sampling-2026-10-16.log`); an earlier revision shipped
+# `docs/evidence/m4-deployment-host-sampling-2026-10-16.log`); an earlier revision shipped
 # 96M in this template while the host ran 64M, and this edit resolves that
-# drift toward the host fact. The sidecar (litestream) runs in its own
+# drift toward the host fact. The sidecar (replication) runs in its own
 # unit with its own MemoryMax (96M on-host); the 1 GiB host budget is the
 # sum of this cap (64 MiB) plus the sidecar cap plus the OS, all of which
-# fits. Evidence: `docs/evidence/m4-micro2-sampling-2026-10-16.log` (on-target
+# fits. Evidence: `docs/evidence/m4-deployment-host-sampling-2026-10-16.log` (on-target
 # steady-state + restore; the one-off sampler that produced it was
 # retired 2026-10-19 in A12 and is preserved in git history),
 # `docs/evidence/resource-report-release-1G-scope-2026-10-15.json` (1 GiB-enforced

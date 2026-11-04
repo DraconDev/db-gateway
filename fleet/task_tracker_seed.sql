@@ -6,7 +6,7 @@ INSERT INTO tasks(id, project_id, title, status, priority, assignee) VALUES
  (4, 1, 'Write launch post', 'open', 3, 'ana'),
  (5, 2, 'Define JSON API', 'done', 1, 'cara'),
  (6, 2, 'Keyed replay drill', 'in_progress', 1, 'dan'),
- (7, 2, 'Soak the bridge', 'open', 2, 'dan'),
+ (7, 2, 'Steady the bridge', 'open', 2, 'dan'),
  (8, 2, 'Write cutover notes', 'open', 3, 'cara'),
  (9, 3, 'Archive meeting notes', 'done', 5, NULL),
  (10, 3, 'Export wiki pages', 'open', 4, NULL),
@@ -20,4 +20,4 @@ INSERT INTO comments(id, task_id, author, body) VALUES
  (5, 6, 'dan', 'Restart drill passed too'),
  (7, 4, 'ana', 'Outline is ready for review'),
  (8, 11, 'ben', 'Saved 400KB with no visible loss'),
- (9, 7, 'dan', 'Soak plan drafted');
+ (9, 7, 'dan', 'Steady plan drafted');

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Read-only audit of a deployed micro2 host (or a local repo-only pass).
+# Read-only audit of a deployed deployment-host host (or a local repo-only pass).
 #
 # Usage: scripts/host-audit.sh
 #
@@ -54,29 +54,29 @@ MAX_SET_AGE_HOURS="${DG_AUDIT_MAX_SET_AGE_HOURS:-26}"
 # `printf '%s' "$HEAD_BACKUP_SCRIPT"` would strip that trailing byte and
 # produce a sha that no deployed file ever has, which would false-fail
 # every live run.
-HEAD_BACKUP_SCRIPT="$(git -C "$ROOT" show HEAD:scripts/micro2-backup.sh)"
+HEAD_BACKUP_SCRIPT="$(git -C "$ROOT" show HEAD:scripts/backup.sh)"
 HEAD_BACKUP_SHA256="$(printf '%s\n' "$HEAD_BACKUP_SCRIPT" | sha256sum | awk '{print $1}')"
-[ -n "$HEAD_BACKUP_SCRIPT" ] || fail "git show HEAD:scripts/micro2-backup.sh returned empty"
+[ -n "$HEAD_BACKUP_SCRIPT" ] || fail "git show HEAD:scripts/backup.sh returned empty"
 
 PROBE_BACKUP_ROOT="$(printf '%s\n' "$HEAD_BACKUP_SCRIPT" | sed -n 's/^BACKUP_ROOT=//p' | head -1 | tr -d '"'"'")"
 PROBE_KEY_FILE="$(printf '%s\n' "$HEAD_BACKUP_SCRIPT" | sed -n 's/^KEY_FILE=//p' | head -1 | tr -d '"'"'")"
 PROBE_DATA_DIR="$(printf '%s\n' "$HEAD_BACKUP_SCRIPT" | sed -n 's/^DATA_DIR=//p' | head -1 | tr -d '"'"'")"
 PROBE_SERVER="$(printf '%s\n' "$HEAD_BACKUP_SCRIPT" | sed -n 's/^SERVER=//p' | head -1 | tr -d '"'"'")"
-[ -n "$PROBE_BACKUP_ROOT" ] || fail "could not scrape BACKUP_ROOT from scripts/micro2-backup.sh"
-[ -n "$PROBE_KEY_FILE" ]    || fail "could not scrape KEY_FILE from scripts/micro2-backup.sh"
-[ -n "$PROBE_DATA_DIR" ]    || fail "could not scrape DATA_DIR from scripts/micro2-backup.sh"
-[ -n "$PROBE_SERVER" ]      || fail "could not scrape SERVER from scripts/micro2-backup.sh"
+[ -n "$PROBE_BACKUP_ROOT" ] || fail "could not scrape BACKUP_ROOT from scripts/backup.sh"
+[ -n "$PROBE_KEY_FILE" ]    || fail "could not scrape KEY_FILE from scripts/backup.sh"
+[ -n "$PROBE_DATA_DIR" ]    || fail "could not scrape DATA_DIR from scripts/backup.sh"
+[ -n "$PROBE_SERVER" ]      || fail "could not scrape SERVER from scripts/backup.sh"
 # The unit templates spell the endpoint as http://{{DG_LISTEN}}, so the
 # placeholder carries the host:port without the scheme.
 PROBE_LISTEN="${PROBE_SERVER#*://}"
-[ -n "$PROBE_LISTEN" ] || fail "SERVER in scripts/micro2-backup.sh has no host:port"
+[ -n "$PROBE_LISTEN" ] || fail "SERVER in scripts/backup.sh has no host:port"
 
 # --- expected installed-unit hashes (repo templates vs host units) ---
 # The backup/digest units on the host were installed by hand-substituting
 # deploy/*.service templates; nothing compared them to the repo after
 # that, so a host-side hand edit (or a template edit never deployed)
 # would drift silently -- the same failure class as an uncompared
-# micro2-backup.sh. Expected = HEAD template rendered with the
+# backup.sh. Expected = HEAD template rendered with the
 # reference-host values, normalized by dropping comment and blank lines
 # (installed units carry no template header comments; comments are not
 # behaviour). The probe reports the same normalization of the installed
@@ -85,7 +85,7 @@ normalize_unit() { sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d'; }
 # The reference-host values the templates are rendered with before they
 # are compared against the host's installed units: the producer's
 # compiled-in defaults (the reference layout
-# docs/evidence/first-deploy-micro2.md records) plus the fixed install
+# docs/evidence/first-deploy-deployment-host.md records) plus the fixed install
 # paths. The expected hash is then the unit a correctly rendered
 # reference host actually has.
 #
@@ -105,7 +105,7 @@ reference_unit_values() {
         "DG_OWNER_KEY_FILE=$PROBE_KEY_FILE" \
         "DG_DATA_DIR=$PROBE_DATA_DIR" \
         "DG_BACKUP_ROOT=$PROBE_BACKUP_ROOT" \
-        "DG_BACKUP_SCRIPT=/usr/local/bin/micro2-backup.sh"
+        "DG_BACKUP_SCRIPT=/usr/local/bin/backup.sh"
 }
 mapfile -t UNIT_VALUES < <(reference_unit_values)
 expected_unit_sha() {
@@ -245,31 +245,31 @@ if [ -f /etc/systemd/system/dg-backup.timer ]; then
 fi
 add "\"dg_backup_timer\":$dg_timer"
 
-# 3b) dg-litestream.service -- the off-host replication sidecar. The
+# 3b) dg-replication.service -- the off-host replication sidecar. The
 # objective's "monitor it" clause: the sidecar joins this audit, so a
 # dead or mis-configured replicator is a verdict=fail here instead of
 # silent backup staleness. Also asserts the two unit properties the
 # verification contract names explicitly: Restart=on-failure and User=dg.
-dg_litestream='{"status":"skipped"}'
-if [ -f /etc/systemd/system/dg-litestream.service ]; then
-    s="$(systemctl show dg-litestream.service --value --property=ActiveState 2>/dev/null || echo unknown)"
-    u="$(systemctl show dg-litestream.service --value --property=User 2>/dev/null || echo unknown)"
-    r="$(systemctl show dg-litestream.service --value --property=Restart 2>/dev/null || echo unknown)"
+dg_replication='{"status":"skipped"}'
+if [ -f /etc/systemd/system/dg-replication.service ]; then
+    s="$(systemctl show dg-replication.service --value --property=ActiveState 2>/dev/null || echo unknown)"
+    u="$(systemctl show dg-replication.service --value --property=User 2>/dev/null || echo unknown)"
+    r="$(systemctl show dg-replication.service --value --property=Restart 2>/dev/null || echo unknown)"
     if [ "$s" = "active" ] && [ "$u" = "dg" ] && [ "$r" = "on-failure" ]; then
-        dg_litestream="$(printf '{"status":"pass","active_state":"%s","user":"%s","restart":"%s"}' "$s" "$u" "$r")"
+        dg_replication="$(printf '{"status":"pass","active_state":"%s","user":"%s","restart":"%s"}' "$s" "$u" "$r")"
     else
-        dg_litestream="$(printf '{"status":"fail","active_state":"%s","user":"%s","restart":"%s"}' "$s" "$u" "$r")"
+        dg_replication="$(printf '{"status":"fail","active_state":"%s","user":"%s","restart":"%s"}' "$s" "$u" "$r")"
     fi
 fi
-add "\"dg_litestream_service\":$dg_litestream"
+add "\"dg_replication_service\":$dg_replication"
 
-# 4) /usr/local/bin/micro2-backup.sh sha256
+# 4) /usr/local/bin/backup.sh sha256
 backup_script='{"status":"skipped"}'
-if [ -e /usr/local/bin/micro2-backup.sh ]; then
-    actual="$(sha256sum /usr/local/bin/micro2-backup.sh | awk '{print $1}')"
+if [ -e /usr/local/bin/backup.sh ]; then
+    actual="$(sha256sum /usr/local/bin/backup.sh | awk '{print $1}')"
     backup_script="$(printf '{"status":"pass","expected":null,"actual":"%s"}' "$actual")"
 fi
-add "\"micro2_backup_script_sha256\":$backup_script"
+add "\"deployment_host_backup_script_sha256\":$backup_script"
 
 # 5) stale staging dirs
 staging='{"status":"skipped"}'
@@ -360,64 +360,64 @@ if sudo -n -u dg test -e "$kf"; then
 fi
 add "\"owner_key_mode\":$owner_key"
 
-# 9) litestream_replication_status -- `litestream status` must report
+# 9) replication_replication_status -- `replication status` must report
 # status=ok for every replicated database. This is the replication-lag
-# half of G4: the dg-litestream.service check (3b) proves the sidecar is
+# half of G4: the dg-replication.service check (3b) proves the sidecar is
 # running with the right user/restart policy, but a running sidecar with
-# a wedged replica would still pass it. `litestream status` reads the
+# a wedged replica would still pass it. `replication status` reads the
 # local replication state; every non-header line must carry status ok.
 # Missing binary -> skipped (not a fail on hosts without the sidecar).
-litestream_rep='{"status":"skipped","reason":"no litestream binary"}'
-if [ -x /usr/local/bin/litestream ]; then
-    if lit_out="$(sudo -n -u dg /usr/local/bin/litestream status 2>/dev/null)"; then
+replication_rep='{"status":"skipped","reason":"no replication binary"}'
+if [ -x /usr/local/bin/replication ]; then
+    if lit_out="$(sudo -n -u dg /usr/local/bin/replication status 2>/dev/null)"; then
         # Drop the header line; every remaining non-empty line must
         # contain the ok status token.
         bad="$(printf '%s\n' "$lit_out" | tail -n +2 | grep -v '^[[:space:]]*$' | grep -vc '[[:space:]]ok[[:space:]]' || true)"
         nlines="$(printf '%s\n' "$lit_out" | tail -n +2 | grep -vc '^[[:space:]]*$' || true)"
         if [ "$nlines" = "0" ]; then
-            litestream_rep='{"status":"fail","reason":"no databases in litestream status"}'
+            replication_rep='{"status":"fail","reason":"no databases in replication status"}'
         elif [ "$bad" = "0" ]; then
-            litestream_rep="$(printf '{"status":"pass","databases":%s}' "$nlines")"
+            replication_rep="$(printf '{"status":"pass","databases":%s}' "$nlines")"
         else
-            litestream_rep="$(printf '{"status":"fail","databases":%s,"not_ok":%s}' "$nlines" "$bad")"
+            replication_rep="$(printf '{"status":"fail","databases":%s,"not_ok":%s}' "$nlines" "$bad")"
         fi
     else
-        litestream_rep='{"status":"fail","reason":"litestream status exited non-zero"}'
+        replication_rep='{"status":"fail","reason":"replication status exited non-zero"}'
     fi
 fi
-add "\"litestream_replication_status\":$litestream_rep"
+add "\"replication_replication_status\":$replication_rep"
 
-# 9b) litestream_coverage -- every live database (`dg list`, as dg)
-# must have a path entry in /etc/litestream.yml. Check 9 proves the
+# 9b) replication_coverage -- every live database (`dg list`, as dg)
+# must have a path entry in /etc/replication.yml. Check 9 proves the
 # configured replicas report ok; it cannot see a database that was
 # never configured at all, which is exactly the A2 gap (a database
 # created after install was silently unreplicated). The sync timer
-# (dg-litestream-sync) should make this permanently green; a fail here
+# (dg-replication-sync) should make this permanently green; a fail here
 # means a live database has no off-host replication right now. The
 # config is 0600 dg:dg, so it is read as dg. No config -> skipped.
-litestream_cov='{"status":"skipped","reason":"no litestream config"}'
-if [ -f /etc/litestream.yml ] && [ -x /usr/local/bin/dg ]; then
-    cfg_names="$(sudo -n -u dg sed -n 's/^[[:space:]]*- path:[[:space:]]*//p' /etc/litestream.yml 2>/dev/null | sed -n 's|.*/\([^/]*\)\.sqlite$|\1|p' | LC_ALL=C sort -u || true)"
+replication_cov='{"status":"skipped","reason":"no replication config"}'
+if [ -f /etc/replication.yml ] && [ -x /usr/local/bin/dg ]; then
+    cfg_names="$(sudo -n -u dg sed -n 's/^[[:space:]]*- path:[[:space:]]*//p' /etc/replication.yml 2>/dev/null | sed -n 's|.*/\([^/]*\)\.sqlite$|\1|p' | LC_ALL=C sort -u || true)"
     live_json="$(sudo -n -u dg /usr/local/bin/dg --key-file "$kf" list 2>/dev/null || true)"
     # The registry (metadata) is a required config entry too -- without
     # it the bucket cannot rebuild credentials (recovery-policy).
     live_names="$(printf '%s' "$live_json" | sed -n 's/.*"databases":\[\(.*\)\].*/\1/p' | tr -d '" ' | tr ',' '\n' | grep -v '^$' | LC_ALL=C sort -u || true)"
     live_names="$(printf '%s\nmetadata\n' "$live_names" | LC_ALL=C sort -u)"
     if [ -z "$live_names" ]; then
-        litestream_cov='{"status":"fail","reason":"dg list returned no databases"}'
+        replication_cov='{"status":"fail","reason":"dg list returned no databases"}'
     else
         missing="$(comm -23 <(printf '%s\n' "$live_names") <(printf '%s\n' "$cfg_names") | paste -sd, -)"
         nlive="$(printf '%s\n' "$live_names" | grep -c . || true)"
         if [ -z "$missing" ]; then
-            litestream_cov="$(printf '{"status":"pass","covered":%s}' "$nlive")"
+            replication_cov="$(printf '{"status":"pass","covered":%s}' "$nlive")"
         else
             # Database names are gateway-validated to a JSON-safe charset.
             miss_json="$(printf '%s' "$missing" | sed 's/,/","/g')"
-            litestream_cov="$(printf '{"status":"fail","live":%s,"missing":["%s"]}' "$nlive" "$miss_json")"
+            replication_cov="$(printf '{"status":"fail","live":%s,"missing":["%s"]}' "$nlive" "$miss_json")"
         fi
     fi
 fi
-add "\"litestream_coverage\":$litestream_cov"
+add "\"replication_coverage\":$replication_cov"
 
 # 10) api_auth_enforced -- the gateway must answer unauthenticated
 # GET /v1/databases with 401 (server up, auth enforced). 401 proves
@@ -484,10 +484,10 @@ try:
 except Exception:
     raise SystemExit(2)
 required = ["dg_binary_sha256","dg_service","dg_backup_timer",
-            "dg_litestream_service",
-            "micro2_backup_script_sha256","stale_staging_dirs",
+            "dg_replication_service",
+            "deployment_host_backup_script_sha256","stale_staging_dirs",
             "latest_set","backup_verify","owner_key_mode",
-            "litestream_replication_status","litestream_coverage",
+            "replication_replication_status","replication_coverage",
             "api_auth_enforced","installed_units"]
 missing = [k for k in required if k not in obj]
 if missing:
@@ -500,7 +500,7 @@ PY
             HOST_STATUS="error"
             HOST_FAIL="probe JSON could not be parsed (exit $PARSE_RC); raw: $(head -c 200 "$PROBE_OUT_FILE")"
         else
-            # Compare dg binary sha and micro2-backup.sh sha against expected
+            # Compare dg binary sha and backup.sh sha against expected
             # Always stamp the expected value when the bundle is nominated,
             # so the auditor can see what was expected even on a passing check.
             if [ -n "$EXPECTED_DG_SHA256" ]; then
@@ -518,9 +518,9 @@ print(json.dumps(o))
             PARSED="$(printf '%s' "$PARSED" | EXPECTED="$HEAD_BACKUP_SHA256" python3 -c '
 import json, os, sys
 o = json.loads(sys.stdin.read())
-o["micro2_backup_script_sha256"]["expected"] = os.environ["EXPECTED"]
-if o["micro2_backup_script_sha256"].get("actual","") and o["micro2_backup_script_sha256"]["actual"] != os.environ["EXPECTED"]:
-    o["micro2_backup_script_sha256"]["status"] = "fail"
+o["deployment_host_backup_script_sha256"]["expected"] = os.environ["EXPECTED"]
+if o["deployment_host_backup_script_sha256"].get("actual","") and o["deployment_host_backup_script_sha256"]["actual"] != os.environ["EXPECTED"]:
+    o["deployment_host_backup_script_sha256"]["status"] = "fail"
 print(json.dumps(o))
 ')"
             # Stamp expected unit hashes and fail on mismatch/missing:
@@ -596,12 +596,12 @@ host_status = s("HOST_STATUS")
 host_fail = s("HOST_FAIL")
 
 repo_side = {
-    "micro2_backup_script_sha256": {
+    "deployment_host_backup_script_sha256": {
         "status": "pass",
         "value": s("HEAD_BACKUP_SHA256"),
-        "source": "git HEAD:scripts/micro2-backup.sh",
+        "source": "git HEAD:scripts/backup.sh",
     },
-    "micro2_backup_syntax": {
+    "deployment_host_backup_syntax": {
         "status": s("SYNTAX_STATUS"),
         "reason": s("SYNTAX_FAIL"),
     },
@@ -705,7 +705,7 @@ PYEOF
 # --- self-leakage guard ---
 # Re-scan the report for any 64-hex string and refuse to print if any of them
 # is NOT a documented digest field. The probe body reports deployed-binary
-# shas, micro2-backup.sh shas, per-database shas in the verify report, and
+# shas, backup.sh shas, per-database shas in the verify report, and
 # the registry sha — all legitimate, all expected, all listed in the
 # whitelist. The guard fails closed: a future edit that emits a digest
 # outside the whitelist breaks the report rather than printing it.

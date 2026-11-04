@@ -5,7 +5,7 @@
 # alongside dg-restore-points.service, then
 #   systemctl daemon-reload && systemctl enable --now dg-restore-points.timer
 #
-# Every five minutes, matching the litestream config sync: the window
+# Every five minutes, matching the replication config sync: the window
 # moves when the replica does, so it is published at the cadence the
 # copy is refreshed. The steady-state cost is one listing of the
 # replica's files per database per interval.

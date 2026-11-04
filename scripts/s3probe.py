@@ -2,13 +2,13 @@
 """Stdlib-only S3 (SigV4) client for the sandbox adoption packet.
 
 WHY THIS EXISTS. The §6 gates need a handful of bucket-level operations that
-Litestream never performs: reading a bucket's region, putting a lifecycle rule,
+Replication never performs: reading a bucket's region, putting a lifecycle rule,
 listing object versions, reading an object's server-side-encryption metadata,
 and deleting every object and the bucket itself. There is no aws CLI, no boto3
 and no mc on the sandbox host, and installing one would add a dependency whose
 version could change the result. So the operations the packet depends on are
 implemented here, in the standard library only, against the published SigV4
-algorithm. The same client therefore works against OVH Object Storage and
+algorithm. The same client therefore works against object storage provider Object Storage and
 against any S3-compatible endpoint, which is what makes a rehearsal honest:
 the packet can be exercised end to end without an account.
 
@@ -67,7 +67,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from typing import Any, Iterable
 
-# Timeout per request. A sandbox bucket on a metered link is not fast, but a
+# Timeout per request. A sandbox store on a metered link is not fast, but a
 # hung request would hang a gate, and a gate that hangs produces no evidence.
 DEFAULT_TIMEOUT = float(os.environ.get("DG_S3PROBE_TIMEOUT", "30"))
 
@@ -111,7 +111,7 @@ def canonical_uri(path: str) -> str:
 
     S3 SigV4 does not double-encode the path, so a key that already contains a
     slash must keep exactly one encoding level. Encoding the whole path with
-    safe="/" is the documented behaviour and the one both OVH and MinIO accept.
+    safe="/" is the documented behaviour and the one both object storage provider and MinIO accept.
     """
     return urllib.parse.quote(path, safe="/-_.~")
 
@@ -155,7 +155,7 @@ class S3Client:
         # A rehearsal endpoint serves TLS with a self-signed certificate, the
         # same shape as a real S3 endpoint. Trusting it explicitly (rather than
         # disabling verification) keeps the rehearsal's TLS behaviour identical
-        # to the real run's, so a gate cannot pass here and fail against OVH
+        # to the real run's, so a gate cannot pass here and fail against object storage provider
         # because the certificate check was switched off.
         self.ca_bundle = ca_bundle
         self._opener: urllib.request.OpenerDirector | None = None
@@ -477,11 +477,11 @@ def _child(el: ET.Element, name: str) -> ET.Element | None:
     """Find a child element by LOCAL name, namespaced or not.
 
     `Element.find("Expiration")` cannot match a namespaced element, and
-    every real S3 service -- OVH included -- returns its lifecycle document
+    every real S3 service -- object storage provider included -- returns its lifecycle document
     with the standard xmlns. The lookup then yields None and the caller
     reports the field as an empty string, which reads as "the policy was not
     stored" when it was stored and echoed back with its days intact.
-    Measured against s3.uk.io.cloud.ovh.net on 2026-10-14: the raw XML
+    Measured against s3.uk.example.invalid on 2026-10-14: the raw XML
     carries <Expiration><Days>7</Days></Expiration> and
     <NoncurrentVersionExpiration><NoncurrentDays>7</NoncurrentDays>
     while this function's caller reported both as "". `_text` above already
@@ -683,13 +683,13 @@ def op_sse_canary(c: S3Client, key_prefix: str) -> dict[str, Any]:
     `x-amz-server-side-encryption-customer-algorithm` the client sent, and a
     direct check showed it storing the object body in PLAINTEXT while echoing
     that header. A gate that reads the echo and passes has proved nothing, and
-    it would have passed on OVH too if OVH's behaviour were ever wrong.
+    it would have passed on object storage provider too if object storage provider's behaviour were ever wrong.
 
     The only client-side observation that separates the two is a READ-BACK
     WITHOUT THE KEY:
 
     * the GET is refused, naming the encryption -> the bytes at rest are
-      ciphertext. This is a proof, and it is what AWS and OVH do for SSE-C.
+      ciphertext. This is a proof, and it is what AWS and object storage provider do for SSE-C.
     * the GET succeeds and returns the exact canary -> the service stored
       plaintext and merely recorded the metadata. A FAIL, not a limitation of
       the test.

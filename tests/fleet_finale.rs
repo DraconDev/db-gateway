@@ -104,7 +104,7 @@ fn fleet_lives_side_by_side() {
             "SELECT slug FROM posts WHERE status = 'published' ORDER BY published_at DESC"
         ),
         json!([
-            ["soak-report"],
+            ["steady-report"],
             ["rust-notes"],
             ["gateway-bridge"],
             ["hello-world"],

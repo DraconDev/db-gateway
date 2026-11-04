@@ -12,9 +12,9 @@
 # key, an S3-compatible store with a validating, logging proxy in front of it,
 # so all of §6 can be executed end to end before a real account is touched.
 #
-# WHAT IT IS NOT. It is not OVH. It proves the packet drives correct requests,
+# WHAT IT IS NOT. It is not object storage provider. It proves the packet drives correct requests,
 # handles the answers, restores the right database and cleans up after itself.
-# It proves nothing about the OVH test region, class, pricing, lifecycle
+# It proves nothing about the object storage provider test region, class, pricing, lifecycle
 # implementation or TLS. Every gate run against it says so in its own output,
 # and the packet refuses to call the result an adoption packet.
 #
@@ -37,7 +37,7 @@ GOFAKES3_BIN="${DG_REHEARSAL_S3_BIN:-$HOME/.local/dg-sandbox/rehearsal-store/bin
 #                    DIRECTORY behind when the object is deleted. DeleteBucket
 #                    then answers 409 BucketNotEmpty while S3's own LIST shows
 #                    zero objects. That is not S3's emptiness rule -- AWS and
-#                    OVH both decide it from the object listing -- so the fs
+#                    object storage provider both decide it from the object listing -- so the fs
 #                    backend makes the stand-in WRONG in precisely the
 #                    dimension §6 gate 12 measures, and gate 12 duly reported
 #                    "residue remains" for a bucket that held none. A
@@ -49,7 +49,7 @@ GOFAKES3_BIN="${DG_REHEARSAL_S3_BIN:-$HOME/.local/dg-sandbox/rehearsal-store/bin
 #                    proving only the one the fs backend happens to support.
 # The default is therefore memory, and the choice is disclosed to the packet
 # through DG_SANDBOX_ENDPOINT_IMPL so no reader can mistake the store's
-# behaviour for the OVH service's.
+# behaviour for the object storage provider service's.
 S3_BACKEND="${DG_REHEARSAL_S3_BACKEND:-memory}"
 STORE_FS_ARGS=()
 STORE_DESC="gofakes3 (-backend $S3_BACKEND)"
@@ -99,11 +99,11 @@ EOF
 }
 
 # A self-signed certificate for 127.0.0.1. The rehearsal endpoint serves TLS
-# because litestream always builds https:// URLs for an S3 endpoint: against a
+# because replication always builds https:// URLs for an S3 endpoint: against a
 # plain-http endpoint it writes nothing at all and every gate fails for a
 # reason that has nothing to do with the gate. The certificate is handed to the
 # packet as a CA bundle so the rehearsal needs no skip-verify, and the
-# "minimal working replica URL" the packet reports stays exactly what OVH needs.
+# "minimal working replica URL" the packet reports stays exactly what object storage provider needs.
 make_cert() {
     # The private key this cert signs is what every rehearsal endpoint
     # trusts. The openssl branch (-keyout) and the python fallback
@@ -234,7 +234,7 @@ EOF
         echo "could not create a TLS certificate for the rehearsal endpoint" >&2
         exit 1
     fi
-    # Go's crypto/x509 reads SSL_CERT_FILE, and litestream 0.5.17 ABORTS its
+    # Go's crypto/x509 reads SSL_CERT_FILE, and replication 0.5.17 ABORTS its
     # replica client if AWS_CA_BUNDLE is set: "cannot load aws config: unable to
     # add custom RootCAs HTTPClient, has no WithTransportOptions". So
     # SSL_CERT_FILE is the only way to teach this pinned version to trust the
@@ -299,7 +299,7 @@ sys.exit(0 if s.connect_ex(('127.0.0.1',$PROXY_PORT))==0 else 1)" 2>/dev/null &&
     fi
 
     # The bucket is created through the proxy, so its existence is proved by the
-    # same signed path litestream will use rather than by a side door -- and its
+    # same signed path replication will use rather than by a side door -- and its
     # REACHABILITY is proved here too. A proxy that is up but answering nothing
     # (a TLS handshake that never completes, a signer that rejects everything)
     # looks exactly like an endpoint that refuses to work, and every gate then

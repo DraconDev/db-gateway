@@ -7,7 +7,7 @@
 #
 # Runs scripts/bucket-restore-drill.sh (installed on the host as
 # {{DG_RESTORE_DRILL_SCRIPT}}): restores every live database plus the
-# registry from their litestream replicas into a disposable target and
+# registry from their replication replicas into a disposable target and
 # verifies integrity + per-table row counts against the live gateway.
 # This is the cadence proof docs/recovery-policy.md requires -- a
 # backup whose restore is never rehearsed is an assumption, and a
@@ -18,7 +18,7 @@
 
 [Unit]
 Description=DB Gateway weekly bucket restore drill
-After=dg.service dg-litestream.service
+After=dg.service dg-replication.service
 
 [Service]
 Type=oneshot

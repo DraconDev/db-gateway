@@ -40,7 +40,7 @@ fn blog_renders_like_a_real_cms() {
             "SELECT slug FROM posts WHERE status = 'published' ORDER BY published_at DESC"
         ),
         json!([
-            ["soak-report"],
+            ["steady-report"],
             ["rust-notes"],
             ["gateway-bridge"],
             ["hello-world"],
@@ -55,7 +55,7 @@ fn blog_renders_like_a_real_cms() {
             DB,
             "SELECT p.slug FROM posts p JOIN post_tags pt ON pt.post_id = p.id JOIN tags t ON t.id = pt.tag_id WHERE t.name = 'ops' AND p.status = 'published' ORDER BY p.published_at DESC"
         ),
-        json!([["soak-report"], ["gateway-bridge"]])
+        json!([["steady-report"], ["gateway-bridge"]])
     );
 
     // Slug lookup serves the post body.
@@ -73,9 +73,9 @@ fn blog_renders_like_a_real_cms() {
         fleet.cli.q(
             "search",
             DB,
-            "SELECT slug FROM posts WHERE status = 'published' AND (title LIKE '%soak%' OR body LIKE '%soak%') ORDER BY slug"
+            "SELECT slug FROM posts WHERE status = 'published' AND (title LIKE '%steady%' OR body LIKE '%steady%') ORDER BY slug"
         ),
-        json!([["soak-report"]])
+        json!([["steady-report"]])
     );
 
     // Tags on one post, alphabetical.
@@ -115,7 +115,7 @@ fn blog_renders_like_a_real_cms() {
             DB,
             "SELECT slug FROM posts WHERE status = 'published' ORDER BY published_at DESC LIMIT 2"
         ),
-        json!([["draft-notes"], ["soak-report"]])
+        json!([["draft-notes"], ["steady-report"]])
     );
 
     // Editor double-submit: same keyed insert twice is one row, byte-identical.

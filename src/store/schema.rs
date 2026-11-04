@@ -66,7 +66,7 @@ pub fn contents_of(path: &Path) -> Result<(u64, u64)> {
 /// The tables whose structure an operator reads.
 ///
 /// The gateway's own bookkeeping (`_dg_`) and the replication's
-/// (`_litestream_`) are not the operator's data: this view describes
+/// (`_replication_`) are not the operator's data: this view describes
 /// what the operator's data is made of, so those tables stay out of it.
 /// `dg info` still lists every table in the file -- that route answers
 /// "what is in the file", not "what is your data" -- so the two
@@ -76,7 +76,7 @@ pub fn operator_tables(conn: &Connection) -> Result<Vec<String>> {
         .prepare(
             "SELECT name FROM sqlite_master WHERE type='table' \
              AND lower(substr(name,1,4))!='_dg_' \
-             AND name NOT LIKE '_litestream%' ORDER BY name",
+             AND name NOT LIKE '_replication%' ORDER BY name",
         )?
         .query_map([], |row| row.get(0))?
         .collect::<std::result::Result<Vec<String>, _>>()?;

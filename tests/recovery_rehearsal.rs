@@ -2,8 +2,8 @@
 //!
 //! Run: `cargo test --locked --test recovery_rehearsal`
 //!
-//! The binary deliberately does not contact Litestream, OVH, Turso, or
-//! micro2; it exercises the gateway's export/import trust boundary locally.
+//! The binary deliberately does not contact Replication, object storage provider, Turso, or
+//! deployment-host; it exercises the gateway's export/import trust boundary locally.
 
 use serde_json::Value;
 use std::process::Command;

@@ -1,9 +1,9 @@
-# litestream config template for off-host replication of the dg data root.
+# replication config template for off-host replication of the dg data root.
 #
 # This file documents the *shape* of the rendered config. The renderer is
-# scripts/litestream-sync.sh: scripts/install-litestream.sh installs it
-# as /usr/local/bin/litestream-sync.sh and renders the first config with
-# it, and deploy/dg-litestream-sync.timer re-runs it every five minutes
+# scripts/replication-sync.sh: scripts/install-replication.sh installs it
+# as /usr/local/bin/replication-sync.sh and renders the first config with
+# it, and deploy/dg-replication-sync.timer re-runs it every five minutes
 # so databases created or deleted after install enter/leave the config
 # (and the sidecar restarts onto it) without an operator step --
 # docs/audit-2026-10-19.md A2. It lists every live database from
@@ -11,19 +11,19 @@
 # sidecars), plus one fixed entry for the registry itself
 # (metadata.sqlite, replica prefix `metadata`) so the bucket alone can
 # rebuild credentials and scopes -- audit A5, docs/recovery-policy.md.
-# It substitutes bucket/endpoint/region from /etc/dg/litestream.env
+# It substitutes bucket/endpoint/region from /etc/dg/replication.env
 # into the per-db replicas and renders explicit replica retention
 # (168h) and snapshot interval (24h). The rendered file is what lands
-# at /etc/litestream.yml on the host, mode 0600 dg:dg.
+# at /etc/replication.yml on the host, mode 0600 dg:dg.
 #
 # Credentials are read from the sidecar's environment, not from this file.
 # `access-key-id` and `secret-access-key` here are *config keys*; their
 # *values* are the env-var references that systemd's EnvironmentFile=
-# populates from /etc/dg/litestream.env. The four env names match the
-# AWS / OVH standard (`AWS_*`-style) so the same env file works for both
-# litestream and any sibling tool that wants the S3 creds.
+# populates from /etc/dg/replication.env. The four env names match the
+# AWS / object storage provider standard (`AWS_*`-style) so the same env file works for both
+# replication and any sibling tool that wants the S3 creds.
 #
-# Force-path-style is required: the OVH S3 endpoint is path-style, and
+# Force-path-style is required: the object storage provider S3 endpoint is path-style, and
 # every gate in scripts/sandbox-s3-gates.sh uses it for the same reason.
 
 dbs:

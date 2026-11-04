@@ -52,7 +52,7 @@ impl fmt::Display for ServerError {
         match self {
             Self::NonLoopback => write!(
                 f,
-                "only loopback listening is supported; reach remote hosts over an SSH tunnel or private network"
+                "only loopback listening is supported; reach remote hosts over an secure forwarding or private network"
             ),
             Self::Io(error) => write!(f, "{error}"),
             Self::Application(error) => write!(f, "{error}"),

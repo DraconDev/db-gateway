@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
-# Keep the litestream config in step with the gateway's live databases.
+# Keep the replication config in step with the gateway's live databases.
 #
-# Why this exists (docs/audit-2026-10-19.md A2): litestream reads its
-# config once at startup, and scripts/install-litestream.sh renders that
+# Why this exists (docs/audit-2026-10-19.md A2): replication reads its
+# config once at startup, and scripts/install-replication.sh renders that
 # config from the `dg list` output at install time. A database created
 # afterwards was silently never replicated -- and snapshot-set freshness
 # could still report it `fresh`, so nothing surfaced the gap. This script
 # is the durable fix: it re-renders the desired config from the live
 # database list, atomically replaces the config only when it changed,
 # and restarts the sidecar so the new config is the one actually running.
-# Run on a timer (deploy/dg-litestream-sync.timer) it self-heals any
+# Run on a timer (deploy/dg-replication-sync.timer) it self-heals any
 # drift -- creates, deletes, hand edits, missed events -- within one
 # timer interval, and keeps the config file the single source of truth
-# (which `litestream status`, and therefore host-audit, reads).
+# (which `replication status`, and therefore host-audit, reads).
 #
 # Modes:
 #   (default)  apply: replace + restart if the rendered config differs
 #   --check    report per-database coverage; exit 1 on any drift.
-#              Output lines: litestream-coverage db=<name> state=covered|missing|extra
+#              Output lines: replication-coverage db=<name> state=covered|missing|extra
 #   --print    print the desired config to stdout; change nothing
 #
 # Configuration (environment; host defaults first):
@@ -27,14 +27,14 @@
 #   DG_LIST_AS              run `dg list` as this user via sudo -n -u
 #                           (default: dg when running as root, else empty)
 #   DG_DATA_DIR             database files       (default: /var/lib/dg)
-#   LITESTREAM_CONFIG       config to manage     (default: /etc/litestream.yml)
-#   LITESTREAM_ENV_FILE     S3 settings source   (default: /etc/dg/litestream.env)
+#   LITESTREAM_CONFIG       config to manage     (default: /etc/replication.yml)
+#   LITESTREAM_ENV_FILE     S3 settings source   (default: /etc/dg/replication.env)
 #   DG_REPLICA_URL_TEMPLATE if set, replica URL per database with {name}
 #                           substituted, e.g. file:///srv/replicas/{name};
 #                           the S3 env file is then not read. Exists for
 #                           local drills/rehearsals with a file replica.
 #   LITESTREAM_RESTART_CMD  command run (via bash -c) after a config change
-#                           (default: systemctl restart dg-litestream.service;
+#                           (default: systemctl restart dg-replication.service;
 #                            empty string disables the restart)
 #   LITESTREAM_CONFIG_OWNER chown target for the config (default: dg:dg;
 #                            empty string skips chown)
@@ -45,12 +45,12 @@
 #   DG_BACKUP_ROOT           where the replica status is published
 #                           (default: /var/lib/dg-backups)
 #   DG_LITESTREAM_STATUS_CMD command that reports the sidecar's state
-#                           (default: systemctl is-active dg-litestream.service;
+#                           (default: systemctl is-active dg-replication.service;
 #                            empty string disables the check)
 #
 # The S3 access/secret keys are never inlined: the rendered config keeps
 # ${LITESTREAM_S3_*} references for the two credential keys (expanded by
-# litestream from the sidecar's EnvironmentFile), exactly as the
+# replication from the sidecar's EnvironmentFile), exactly as the
 # installer's render did. Only bucket/endpoint/region -- not secrets --
 # are substituted from the env file, and they are never echoed.
 #
@@ -61,7 +61,7 @@
 # own answer. Credentials are never written there either.
 
 set -euo pipefail
-SELF="litestream-sync"
+SELF="replication-sync"
 fail() { echo "[$SELF] FAIL: $*" >&2; exit 1; }
 log() { echo "[$SELF] $*" >&2; }
 
@@ -76,11 +76,11 @@ esac
 DG_BIN="${DG_BIN:-dg}"
 DG_KEY_FILE="${DG_KEY_FILE:-/etc/dg/owner.key}"
 DG_DATA_DIR="${DG_DATA_DIR:-/var/lib/dg}"
-CONFIG="${LITESTREAM_CONFIG:-/etc/litestream.yml}"
-ENV_FILE="${LITESTREAM_ENV_FILE:-/etc/dg/litestream.env}"
+CONFIG="${LITESTREAM_CONFIG:-/etc/replication.yml}"
+ENV_FILE="${LITESTREAM_ENV_FILE:-/etc/dg/replication.env}"
 BACKUP_ROOT="${DG_BACKUP_ROOT:-/var/lib/dg-backups}"
-STATUS_CMD="${DG_LITESTREAM_STATUS_CMD-systemctl is-active dg-litestream.service}"
-RESTART_CMD="${LITESTREAM_RESTART_CMD-systemctl restart dg-litestream.service}"
+STATUS_CMD="${DG_LITESTREAM_STATUS_CMD-systemctl is-active dg-replication.service}"
+RESTART_CMD="${LITESTREAM_RESTART_CMD-systemctl restart dg-replication.service}"
 CONFIG_OWNER="${LITESTREAM_CONFIG_OWNER-dg:dg}"
 if [ -z "${DG_LIST_AS+x}" ]; then
     # On the host this runs as root (timer) and the owner key is 0600 dg,
@@ -137,7 +137,7 @@ for name in "${SORTED[@]}"; do
     if [ -f "$DG_DATA_DIR/${name}.sqlite" ]; then
         KEEP+=("$name")
     else
-        # Registered but fileless: cannot be rendered (litestream would
+        # Registered but fileless: cannot be rendered (replication would
         # create an empty file at that path), but it is NOT covered --
         # --check must report it missing, never pass over it silently.
         SKIPPED+=("$name")
@@ -194,7 +194,7 @@ render_one() { # render_one <name> -- one dbs: entry; name may be "metadata"
     echo "        snapshot-interval: ${SNAPSHOT_INTERVAL}"
 }
 render() {
-    echo "# Managed by litestream-sync.sh from 'dg list' -- do not hand-edit."
+    echo "# Managed by replication-sync.sh from 'dg list' -- do not hand-edit."
     echo "# A database appears here within one sync interval of being created,"
     echo "# and disappears within one interval of being deleted. The metadata"
     echo "# entry is the registry (credentials/scopes) -- see recovery-policy."
@@ -328,9 +328,9 @@ if [ "$MODE" = "check" ]; then
     drift=0
     for name in "${EXPECTED[@]}"; do
         if in_list "$name" "${CURRENT_NAMES[@]+"${CURRENT_NAMES[@]}"}"; then
-            echo "litestream-coverage db=$name state=covered"
+            echo "replication-coverage db=$name state=covered"
         else
-            echo "litestream-coverage db=$name state=missing"
+            echo "replication-coverage db=$name state=missing"
             drift=1
         fi
     done
@@ -341,22 +341,22 @@ if [ "$MODE" = "check" ]; then
             continue
         fi
         if ! in_list "$name" "${EXPECTED[@]}" && ! in_list "$name" "${SKIPPED[@]+"${SKIPPED[@]}"}"; then
-            echo "litestream-coverage db=$name state=extra"
+            echo "replication-coverage db=$name state=extra"
             drift=1
         fi
     done
     for name in "${SKIPPED[@]+"${SKIPPED[@]}"}"; do
-        echo "litestream-coverage db=$name state=missing detail=no-database-file"
+        echo "replication-coverage db=$name state=missing detail=no-database-file"
         drift=1
     done
     if [ "$INCLUDE_REGISTRY" = "1" ] && [ "$REGISTRY_PRESENT" != "1" ]; then
-        echo "litestream-coverage db=metadata state=missing detail=no-registry-file"
+        echo "replication-coverage db=metadata state=missing detail=no-registry-file"
         drift=1
     fi
     # Same database set but different bytes (endpoint/region/URL change,
     # hand edit) is still drift the next apply would rewrite.
     if [ "$drift" = "0" ] && ! config_matches; then
-        echo "litestream-coverage state=drift detail=config-differs-from-rendered"
+        echo "replication-coverage state=drift detail=config-differs-from-rendered"
         drift=1
     fi
     [ "$drift" = "0" ] || exit 1
@@ -371,7 +371,7 @@ if config_matches; then
 fi
 
 CONFIG_DIR="$(dirname "$CONFIG")"
-TMP="$(mktemp "$CONFIG_DIR/.litestream.yml.XXXXXX")" || fail "cannot create temp file in $CONFIG_DIR"
+TMP="$(mktemp "$CONFIG_DIR/.replication.yml.XXXXXX")" || fail "cannot create temp file in $CONFIG_DIR"
 BACKUP=""
 CONFIG_CREATED=0
 RESTART_OK=1
@@ -406,7 +406,7 @@ for name in "${CURRENT_NAMES[@]+"${CURRENT_NAMES[@]}"}"; do in_list "$name" "${E
 # set while the daemon still runs the old one, and every later sync
 # would see "in sync" and never retry the restart.
 if [ -f "$CONFIG" ]; then
-    BACKUP="$(mktemp "$CONFIG_DIR/.litestream.yml.bak.XXXXXX")"
+    BACKUP="$(mktemp "$CONFIG_DIR/.replication.yml.bak.XXXXXX")"
     cp -p "$CONFIG" "$BACKUP"
 else
     CONFIG_CREATED=1

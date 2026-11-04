@@ -6,7 +6,7 @@
 # Nothing in this repository installs, enables, or starts this unit.
 #
 # Runs scripts/restore-point.sh --list (installed on the host as
-# {{DG_RESTORE_POINT_SCRIPT}}): asks litestream which files the
+# {{DG_RESTORE_POINT_SCRIPT}}): asks replication which files the
 # off-host replica holds, and publishes the window of moments the data
 # can be restored to into the backup root. The gateway reads that
 # window and reports it, so an operator can ask "can I get my data back
@@ -20,7 +20,7 @@
 
 [Unit]
 Description=DB Gateway off-host restore window publisher
-After=dg-litestream.service
+After=dg-replication.service
 
 [Service]
 Type=oneshot

@@ -10,12 +10,12 @@ fn tempdir() -> tempfile::TempDir {
 
 /// The window the replica offers is the whole chain, not the newest file.
 ///
-/// `litestream ltx` lists the DEFAULT compaction level only, and level 0
+/// `replication ltx` lists the DEFAULT compaction level only, and level 0
 /// is one database's newest segment. The publisher used to ask for that,
 /// so it published one row per database and a window that was a single
 /// instant: the published window was hours shorter than the replica's
 /// real one, and every moment inside it was reported as "the window
-/// opens later" -- moments litestream itself restores without complaint.
+/// opens later" -- moments replication itself restores without complaint.
 #[test]
 fn the_published_window_covers_the_whole_replica_chain() {
     let dir = tempdir();
@@ -24,12 +24,12 @@ fn the_published_window_covers_the_whole_replica_chain() {
     let data_dir = dir.path().join("dg");
     fs::create_dir_all(&data_dir).unwrap();
 
-    // A litestream that answers `ltx` with a chain across the levels, the
+    // A replication that answers `ltx` with a chain across the levels, the
     // way a database that has been written to all day answers: the
     // snapshot at level 9, the compacted WAL at 1, 2 and 3, and the
     // current segment at level 0.
     let args_log = dir.path().join("ltx.args");
-    let fake = dir.path().join("litestream");
+    let fake = dir.path().join("replication");
     let rows = [
         "level  min_txid          max_txid          size  created",
         "0      0000000000000010  0000000000000010  191   2026-10-25T18:36:57Z",
@@ -47,7 +47,7 @@ fn the_published_window_covers_the_whole_replica_chain() {
     fs::write(&fake, script).unwrap();
     fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
 
-    let config = dir.path().join("litestream.yml");
+    let config = dir.path().join("replication.yml");
     fs::write(
         &config,
         format!(
@@ -77,7 +77,7 @@ fn the_published_window_covers_the_whole_replica_chain() {
     let asked = fs::read_to_string(&args_log).unwrap();
     assert!(
         asked.contains("-level all"),
-        "the publisher asked litestream for the default level only: {asked}"
+        "the publisher asked replication for the default level only: {asked}"
     );
 
     let published: Value =
@@ -112,7 +112,7 @@ fn backup_rejects_invalid_retention_before_touching_backup_root() {
         let dir = tempdir();
         let root = dir.path().join("backups");
         let output = Command::new("bash")
-            .args(["scripts/micro2-backup.sh", "--keep", keep, "--backup-root"])
+            .args(["scripts/backup.sh", "--keep", keep, "--backup-root"])
             .arg(&root)
             .output()
             .expect("run backup script");
@@ -133,7 +133,7 @@ fn backup_staging_is_unique_and_cleaned_on_failure() {
     .unwrap();
     fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
     let output = Command::new("bash")
-        .args(["scripts/micro2-backup.sh", "--backup-root"])
+        .args(["scripts/backup.sh", "--backup-root"])
         .arg(&root)
         .env("DG_BIN", &fake)
         .output()
@@ -195,7 +195,7 @@ exit 2
         .unwrap();
     drop(metadata);
     let output = Command::new("bash")
-        .args(["scripts/micro2-backup.sh", "--data-dir"])
+        .args(["scripts/backup.sh", "--data-dir"])
         .arg(&data)
         .args(["--backup-root"])
         .arg(&root)
@@ -405,7 +405,7 @@ server.serve_forever()
 "#;
 
 #[test]
-fn soak_readiness_wait_is_bounded() {
+fn steady_readiness_wait_is_bounded() {
     // The fake init succeeds, then the fake serve remains alive without ever
     // logging. The bounded environment override proves readiness cannot hang.
     let dir = tempdir();
@@ -417,12 +417,12 @@ fn soak_readiness_wait_is_bounded() {
     .unwrap();
     fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
     let output = Command::new("python3")
-        .args(["-c", "import runpy,sys; sys.argv=['soak.py','--dg-bin',sys.argv[1],'--seconds','0','--out',sys.argv[2]]; runpy.run_path('scripts/soak.py',run_name='__main__')"])
+        .args(["-c", "import runpy,sys; sys.argv=['steady.py','--dg-bin',sys.argv[1],'--seconds','0','--out',sys.argv[2]]; runpy.run_path('scripts/steady.py',run_name='__main__')"])
         .arg(&fake)
-        .arg(dir.path().join("soak.log"))
-        .env("SOAK_READINESS_TIMEOUT", "0.2")
+        .arg(dir.path().join("steady.log"))
+        .env("STEADY_READINESS_TIMEOUT", "0.2")
         .output()
-        .expect("run soak script");
+        .expect("run steady script");
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("server never logged"));
 }
@@ -655,13 +655,13 @@ fn fake_dg(dir: &Path, databases: &[&str]) -> std::path::PathBuf {
     path
 }
 
-/// Run the litestream sync script against a stubbed gateway.
+/// Run the replication sync script against a stubbed gateway.
 ///
 /// The script is what knows where the off-host copy is, so it is what
 /// publishes it; the gateway only reads what was published.
 fn run_sync(dir: &Path, env: &[(&str, &str)]) -> std::process::Output {
     let mut command = Command::new("bash");
-    command.arg("scripts/litestream-sync.sh");
+    command.arg("scripts/replication-sync.sh");
     command.env_clear();
     command.env("PATH", std::env::var("PATH").unwrap_or_default());
     command.env("DG_LIST_AS", "");
@@ -671,7 +671,7 @@ fn run_sync(dir: &Path, env: &[(&str, &str)]) -> std::process::Output {
     for (key, value) in env {
         command.env(key, value);
     }
-    command.output().expect("run litestream-sync.sh")
+    command.output().expect("run replication-sync.sh")
 }
 
 #[test]
@@ -679,7 +679,7 @@ fn the_sync_publishes_where_the_off_host_copy_is() {
     let dir = tempdir();
     let data = dir.path().join("data");
     let backups = dir.path().join("backups");
-    let config = dir.path().join("litestream.yml");
+    let config = dir.path().join("replication.yml");
     fs::create_dir_all(&data).unwrap();
     fs::create_dir_all(&backups).unwrap();
     fs::write(data.join("alpha.sqlite"), b"sqlite").unwrap();
@@ -748,8 +748,8 @@ fn the_published_replica_status_never_carries_a_credential() {
     let dir = tempdir();
     let data = dir.path().join("data");
     let backups = dir.path().join("backups");
-    let config = dir.path().join("litestream.yml");
-    let env_file = dir.path().join("litestream.env");
+    let config = dir.path().join("replication.yml");
+    let env_file = dir.path().join("replication.env");
     fs::create_dir_all(&data).unwrap();
     fs::create_dir_all(&backups).unwrap();
     fs::write(data.join("alpha.sqlite"), b"sqlite").unwrap();
@@ -841,11 +841,11 @@ fn the_restore_drill_publishes_whether_the_copies_restored() {
             )
             .unwrap();
     }
-    // A litestream that restores by copying: the drill's bar is the
+    // A replication that restores by copying: the drill's bar is the
     // comparison against the live gateway, not the tool.
-    let litestream = dir.path().join("litestream");
+    let replication = dir.path().join("replication");
     fs::write(
-        &litestream,
+        &replication,
         "#!/bin/sh\n\
          out=\"\"; src=\"\"\n\
          while [ $# -gt 0 ]; do\n\
@@ -854,7 +854,7 @@ fn the_restore_drill_publishes_whether_the_copies_restored() {
          cp \"$src\" \"$out\"\n",
     )
     .unwrap();
-    fs::set_permissions(&litestream, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::set_permissions(&replication, fs::Permissions::from_mode(0o755)).unwrap();
     // A gateway that answers the list and the counts the drill compares.
     let dg = dir.path().join("dg");
     fs::write(
@@ -872,7 +872,7 @@ fn the_restore_drill_publishes_whether_the_copies_restored() {
     )
     .unwrap();
     fs::set_permissions(&dg, fs::Permissions::from_mode(0o755)).unwrap();
-    let config = dir.path().join("litestream.yml");
+    let config = dir.path().join("replication.yml");
     fs::write(&config, "dbs: []\n").unwrap();
 
     let output = Command::new("bash")
@@ -880,7 +880,7 @@ fn the_restore_drill_publishes_whether_the_copies_restored() {
         .env("DG_BIN", &dg)
         .env("DG_KEY_FILE", dir.path().join("owner.key"))
         .env("DG_DATA_DIR", &data)
-        .env("LITESTREAM_BIN", &litestream)
+        .env("LITESTREAM_BIN", &replication)
         .env("LITESTREAM_CONFIG", &config)
         .env("LITESTREAM_ENV_FILE", dir.path().join("no-such.env"))
         .env("DG_BACKUP_ROOT", &backups)
@@ -919,11 +919,11 @@ fn the_restore_drill_publishes_whether_the_copies_restored() {
     );
 }
 
-/// A litestream stub that answers the two commands the restore-point
+/// A replication stub that answers the two commands the restore-point
 /// script makes: `ltx` (what the replica holds) and `restore` (write a
 /// copy out).
-fn fake_litestream(dir: &Path) -> std::path::PathBuf {
-    let path = dir.join("litestream");
+fn fake_replication(dir: &Path) -> std::path::PathBuf {
+    let path = dir.join("replication");
     fs::write(
         &path,
         "#!/bin/sh\n\
@@ -965,9 +965,9 @@ fn run_restore_point(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> std::pr
     command.output().expect("run restore-point.sh")
 }
 
-/// The litestream config the script reads the database list from.
-fn litestream_config(dir: &Path, data: &Path, names: &[&str]) -> std::path::PathBuf {
-    let config = dir.join("litestream.yml");
+/// The replication config the script reads the database list from.
+fn replication_config(dir: &Path, data: &Path, names: &[&str]) -> std::path::PathBuf {
+    let config = dir.join("replication.yml");
     let mut text = String::from("dbs:\n");
     for name in names {
         text.push_str(&format!("  - path: {}/{name}.sqlite\n", data.display()));
@@ -991,15 +991,15 @@ fn the_restore_point_script_publishes_the_window_the_replica_offers() {
     fs::create_dir_all(&data).unwrap();
     fs::create_dir_all(&backups).unwrap();
     fs::write(data.join("alpha.sqlite"), b"sqlite").unwrap();
-    let litestream = fake_litestream(dir.path());
-    let config = litestream_config(dir.path(), &data, &["alpha"]);
+    let replication = fake_replication(dir.path());
+    let config = replication_config(dir.path(), &data, &["alpha"]);
     let absent_env = dir.path().join("absent.env");
 
     let output = run_restore_point(
         dir.path(),
         &["--list"],
         &[
-            ("LITESTREAM_BIN", litestream.to_str().unwrap()),
+            ("LITESTREAM_BIN", replication.to_str().unwrap()),
             ("LITESTREAM_CONFIG", config.to_str().unwrap()),
             ("LITESTREAM_ENV_FILE", absent_env.to_str().unwrap()),
             ("DG_DATA_DIR", data.to_str().unwrap()),
@@ -1024,7 +1024,7 @@ fn the_restore_point_script_publishes_the_window_the_replica_offers() {
     // The window ends at the moment the replica is CURRENT to, not at the
     // last file it happened to write. A database that has not changed
     // since its snapshot can still be restored to any later moment:
-    // litestream restores the snapshot, and the bytes are the same ones
+    // replication restores the snapshot, and the bytes are the same ones
     // the replica holds now.
     let end = published["window_end"]
         .as_str()
@@ -1055,8 +1055,8 @@ fn the_restore_point_script_publishes_what_a_restore_produced() {
     fs::create_dir_all(&data).unwrap();
     fs::create_dir_all(&backups).unwrap();
     fs::write(data.join("alpha.sqlite"), b"sqlite").unwrap();
-    let litestream = fake_litestream(dir.path());
-    let config = litestream_config(dir.path(), &data, &["alpha"]);
+    let replication = fake_replication(dir.path());
+    let config = replication_config(dir.path(), &data, &["alpha"]);
     let absent_env = dir.path().join("absent.env");
 
     let output = run_restore_point(
@@ -1069,7 +1069,7 @@ fn the_restore_point_script_publishes_what_a_restore_produced() {
             "alpha",
         ],
         &[
-            ("LITESTREAM_BIN", litestream.to_str().unwrap()),
+            ("LITESTREAM_BIN", replication.to_str().unwrap()),
             ("LITESTREAM_CONFIG", config.to_str().unwrap()),
             ("LITESTREAM_ENV_FILE", absent_env.to_str().unwrap()),
             ("DG_DATA_DIR", data.to_str().unwrap()),
@@ -1116,9 +1116,9 @@ fn the_published_restore_facts_never_carry_a_credential() {
     fs::create_dir_all(&data).unwrap();
     fs::create_dir_all(&backups).unwrap();
     fs::write(data.join("alpha.sqlite"), b"sqlite").unwrap();
-    let litestream = fake_litestream(dir.path());
-    let config = litestream_config(dir.path(), &data, &["alpha"]);
-    let env_file = dir.path().join("litestream.env");
+    let replication = fake_replication(dir.path());
+    let config = replication_config(dir.path(), &data, &["alpha"]);
+    let env_file = dir.path().join("replication.env");
     fs::write(
         &env_file,
         "LITESTREAM_S3_ACCESS_KEY_ID=[DRACON_SECRET:REDACTED]KEY\n\
@@ -1130,7 +1130,7 @@ fn the_published_restore_facts_never_carry_a_credential() {
         dir.path(),
         &["--list"],
         &[
-            ("LITESTREAM_BIN", litestream.to_str().unwrap()),
+            ("LITESTREAM_BIN", replication.to_str().unwrap()),
             ("LITESTREAM_CONFIG", config.to_str().unwrap()),
             ("LITESTREAM_ENV_FILE", env_file.to_str().unwrap()),
             ("DG_DATA_DIR", data.to_str().unwrap()),
@@ -1166,11 +1166,11 @@ fn the_restore_point_script_refuses_a_moment_it_cannot_restore() {
     fs::create_dir_all(&data).unwrap();
     fs::create_dir_all(&backups).unwrap();
     fs::write(data.join("alpha.sqlite"), b"sqlite").unwrap();
-    let litestream = fake_litestream(dir.path());
-    let config = litestream_config(dir.path(), &data, &["alpha"]);
+    let replication = fake_replication(dir.path());
+    let config = replication_config(dir.path(), &data, &["alpha"]);
     let absent_env = dir.path().join("absent.env");
     let env = [
-        ("LITESTREAM_BIN", litestream.to_str().unwrap()),
+        ("LITESTREAM_BIN", replication.to_str().unwrap()),
         ("LITESTREAM_CONFIG", config.to_str().unwrap()),
         ("LITESTREAM_ENV_FILE", absent_env.to_str().unwrap()),
         ("DG_DATA_DIR", data.to_str().unwrap()),

@@ -17,8 +17,8 @@
 # everything would pass a weaker test).
 #
 # Everything is local and disposable (file:// replica as the bucket
-# stand-in, pinned litestream 0.5.17, unusual loopback ports). No
-# micro2, no bucket, no network beyond loopback.
+# stand-in, pinned replication 0.5.17, unusual loopback ports). No
+# deployment-host, no bucket, no network beyond loopback.
 #
 # Usage: scripts/registry-recovery-drill.sh
 # Env:   LITESTREAM_BIN, DG_BIN, DG_DRILL_PORT (default 17433), KEEP=1
@@ -29,46 +29,46 @@ SELF="registry-recovery-drill"
 fail() { echo "[$SELF] FAIL: $*" >&2; exit 1; }
 step() { echo "[$SELF] $*"; }
 
-LITESTREAM_BIN="${LITESTREAM_BIN:-$HOME/.local/dg-sandbox/litestream-0.5.17/litestream}"
+LITESTREAM_BIN="${LITESTREAM_BIN:-$HOME/.local/dg-sandbox/replication-0.5.17/replication}"
 DG_BIN="${DG_BIN:-$ROOT/.cargo/target/debug/dg}"
 PORT="${DG_DRILL_PORT:-17433}"
 RPORT=$((PORT + 1))
 SERVER="http://127.0.0.1:${PORT}"
 RSERVER="http://127.0.0.1:${RPORT}"
 
-[ -x "$LITESTREAM_BIN" ] || fail "pinned litestream not found at $LITESTREAM_BIN (set LITESTREAM_BIN)"
-[ "$("$LITESTREAM_BIN" version 2>/dev/null | head -1)" = "0.5.17" ] || fail "litestream at $LITESTREAM_BIN is not 0.5.17"
+[ -x "$LITESTREAM_BIN" ] || fail "pinned replication not found at $LITESTREAM_BIN (set LITESTREAM_BIN)"
+[ "$("$LITESTREAM_BIN" version 2>/dev/null | head -1)" = "0.5.17" ] || fail "replication at $LITESTREAM_BIN is not 0.5.17"
 [ -x "$DG_BIN" ] || (cd "$ROOT" && timeout 300 cargo build --locked --quiet --bin dg) || fail "cargo build failed"
 
 SB="$(mktemp -d "${TMPDIR:-/tmp}/dg-registry-drill-XXXXXX")"
 PIDS=()
 cleanup() {
     for p in "${PIDS[@]+"${PIDS[@]}"}"; do kill "$p" 2>/dev/null || true; done
-    if [ -f "$SB/litestream.pid" ]; then kill "$(cat "$SB/litestream.pid")" 2>/dev/null || true; fi
+    if [ -f "$SB/replication.pid" ]; then kill "$(cat "$SB/replication.pid")" 2>/dev/null || true; fi
     if [ "${KEEP:-0}" = "1" ]; then step "sandbox kept at $SB"; else rm -rf "$SB"; fi
 }
 trap cleanup EXIT
 mkdir -p "$SB/data" "$SB/probe"
 step "sandbox: $SB (live $SERVER, recovered $RSERVER)"
 
-cat >"$SB/restart-litestream.sh" <<EOF
+cat >"$SB/restart-replication.sh" <<EOF
 #!/usr/bin/env bash
 set -eu
-if [ -f "$SB/litestream.pid" ]; then kill "\$(cat "$SB/litestream.pid")" 2>/dev/null || true; sleep 1; fi
-"$LITESTREAM_BIN" replicate -config "$SB/litestream.yml" >>"$SB/litestream.log" 2>&1 &
-echo \$! >"$SB/litestream.pid"
+if [ -f "$SB/replication.pid" ]; then kill "\$(cat "$SB/replication.pid")" 2>/dev/null || true; sleep 1; fi
+"$LITESTREAM_BIN" replicate -config "$SB/replication.yml" >>"$SB/replication.log" 2>&1 &
+echo \$! >"$SB/replication.pid"
 sleep 1
-kill -0 "\$(cat "$SB/litestream.pid")"
+kill -0 "\$(cat "$SB/replication.pid")"
 EOF
-chmod +x "$SB/restart-litestream.sh"
+chmod +x "$SB/restart-replication.sh"
 
 SYNC_ENV=(
     "DG_BIN=$DG_BIN" "DG_SERVER=$SERVER" "DG_KEY_FILE=$SB/owner.key" "DG_LIST_AS="
-    "DG_DATA_DIR=$SB/data" "LITESTREAM_CONFIG=$SB/litestream.yml"
+    "DG_DATA_DIR=$SB/data" "LITESTREAM_CONFIG=$SB/replication.yml"
     "DG_REPLICA_URL_TEMPLATE=file://$SB/replicas/{name}"
-    "LITESTREAM_RESTART_CMD=$SB/restart-litestream.sh" "LITESTREAM_CONFIG_OWNER="
+    "LITESTREAM_RESTART_CMD=$SB/restart-replication.sh" "LITESTREAM_CONFIG_OWNER="
 )
-sync_run() { env "${SYNC_ENV[@]}" "$ROOT/scripts/litestream-sync.sh" "$@"; }
+sync_run() { env "${SYNC_ENV[@]}" "$ROOT/scripts/replication-sync.sh" "$@"; }
 dg() { "$DG_BIN" --server "$SERVER" --key-file "$SB/owner.key" "$@"; }
 wait_for() {
     local secs="$1" desc="$2"; shift 2
@@ -95,7 +95,7 @@ dg key create --role database_read_only --database ledger_app ledger_reader >"$S
 sync_run 2>"$SB/sync1.log" || { cat "$SB/sync1.log" >&2; fail "first sync failed"; }
 sync_run --check >"$SB/check1.out" || fail "check after first sync should pass"
 grep -q "db=metadata state=covered" "$SB/check1.out" || fail "registry not in the rendered config"
-grep -q "retention: 168h" "$SB/litestream.yml" || fail "explicit retention missing from rendered config"
+grep -q "retention: 168h" "$SB/replication.yml" || fail "explicit retention missing from rendered config"
 step "1 ok: replication running against the live gateway, registry included"
 
 # --- 2. post-replication registry + data writes must reach the replica -
@@ -104,7 +104,7 @@ dg key create --role database_read_only --database ledger_app ledger_reader_two 
 dg query ledger_app "INSERT INTO ledger VALUES (3, 'reg-charlie')" >/dev/null
 cred_count_in_replica() {
     rm -f "$SB/probe/metadata.sqlite"
-    "$LITESTREAM_BIN" restore -config "$SB/litestream.yml" -o "$SB/probe/metadata.sqlite" \
+    "$LITESTREAM_BIN" restore -config "$SB/replication.yml" -o "$SB/probe/metadata.sqlite" \
         "$SB/data/metadata.sqlite" >/dev/null 2>&1 || return 1
     python3 - "$SB/probe/metadata.sqlite" <<'PY'
 import sqlite3, sys
@@ -118,11 +118,11 @@ step "2 ok: registry writes made under a live gateway reached the replica"
 
 # --- 3. total loss: wipe the data dir; rebuild from the replica alone --
 for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null || true; done; PIDS=()
-kill "$(cat "$SB/litestream.pid")" 2>/dev/null || true; sleep 1
+kill "$(cat "$SB/replication.pid")" 2>/dev/null || true; sleep 1
 mv "$SB/data" "$SB/data-lost"
 mkdir -p "$SB/data"
 for f in metadata ledger_app other_app; do
-    "$LITESTREAM_BIN" restore -config "$SB/litestream.yml" -o "$SB/data/$f.sqlite" \
+    "$LITESTREAM_BIN" restore -config "$SB/replication.yml" -o "$SB/data/$f.sqlite" \
         "$SB/data/$f.sqlite" >"$SB/restore-$f.log" 2>&1 \
         || { cat "$SB/restore-$f.log" >&2; fail "restore of $f failed"; }
 done

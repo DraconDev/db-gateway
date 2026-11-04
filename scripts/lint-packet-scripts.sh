@@ -5,7 +5,7 @@
 #      followed by another quoted argument. In bash that is not a continuation:
 #      the command ENDS there and the next line is executed as a command of its
 #      own. A fragment of an English sentence then becomes
-#      `week-aged bucket on OVH; ...: command not found` and the packet dies
+#      `week-aged bucket on object storage provider; ...: command not found` and the packet dies
 #      partway through with exit 127 -- after the gates before it have already
 #      run and been recorded. `bash -n` passes: every line is a complete
 #      command on its own.

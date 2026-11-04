@@ -1,38 +1,38 @@
 #!/usr/bin/env bash
 # Local drill for the A2 fix (docs/audit-2026-10-19.md): prove that a
-# database created AFTER the litestream sidecar is already running gets
-# replicated and restores exactly, via scripts/litestream-sync.sh --
+# database created AFTER the replication sidecar is already running gets
+# replicated and restores exactly, via scripts/replication-sync.sh --
 # and that a deleted database leaves the config on the next sync.
 #
 # Everything is local and disposable: a `dg serve` on an unusual loopback
 # port, a file:// replica as the bucket stand-in (each database gets its
 # own replica prefix, per docs/backup-compatibility.md finding 2), and
-# the pinned litestream 0.5.17 (NEVER the v0.3.13 that may be on PATH;
-# gate 1 of the compatibility matrix). No micro2, no bucket, no network
+# the pinned replication 0.5.17 (NEVER the v0.3.13 that may be on PATH;
+# gate 1 of the compatibility matrix). No deployment-host, no bucket, no network
 # beyond loopback. The pass bar follows finding 1 of that matrix: a
 # restore exit code is not evidence -- restored rows are compared
 # value-for-value against what was written, plus integrity_check.
 #
-# Usage: scripts/litestream-sync-drill.sh
-# Env:   LITESTREAM_BIN (default ~/.local/dg-sandbox/litestream-0.5.17/litestream)
+# Usage: scripts/replication-sync-drill.sh
+# Env:   LITESTREAM_BIN (default ~/.local/dg-sandbox/replication-0.5.17/replication)
 #        DG_BIN         (default .cargo/target/debug/dg; built if missing)
 #        DG_DRILL_PORT  (default 17432)
 #        KEEP=1         keep the sandbox dir for inspection
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SELF="litestream-sync-drill"
+SELF="replication-sync-drill"
 fail() { echo "[$SELF] FAIL: $*" >&2; exit 1; }
 step() { echo "[$SELF] $*"; }
 
-LITESTREAM_BIN="${LITESTREAM_BIN:-$HOME/.local/dg-sandbox/litestream-0.5.17/litestream}"
+LITESTREAM_BIN="${LITESTREAM_BIN:-$HOME/.local/dg-sandbox/replication-0.5.17/replication}"
 DG_BIN="${DG_BIN:-$ROOT/.cargo/target/debug/dg}"
 PORT="${DG_DRILL_PORT:-17432}"
 SERVER="http://127.0.0.1:${PORT}"
 
-[ -x "$LITESTREAM_BIN" ] || fail "pinned litestream not found at $LITESTREAM_BIN (set LITESTREAM_BIN)"
+[ -x "$LITESTREAM_BIN" ] || fail "pinned replication not found at $LITESTREAM_BIN (set LITESTREAM_BIN)"
 LVER="$("$LITESTREAM_BIN" version 2>/dev/null | head -1)"
-[ "$LVER" = "0.5.17" ] || fail "litestream at $LITESTREAM_BIN is '$LVER', want 0.5.17 ( PATH v0.3.13 must not be used)"
+[ "$LVER" = "0.5.17" ] || fail "replication at $LITESTREAM_BIN is '$LVER', want 0.5.17 ( PATH v0.3.13 must not be used)"
 if [ ! -x "$DG_BIN" ]; then
     step "building dg (debug)"
     (cd "$ROOT" && timeout 300 cargo build --locked --quiet --bin dg) || fail "cargo build failed"
@@ -42,26 +42,26 @@ SB="$(mktemp -d "${TMPDIR:-/tmp}/dg-sync-drill-XXXXXX")"
 DG_PID=""
 cleanup() {
     [ -n "$DG_PID" ] && kill "$DG_PID" 2>/dev/null || true
-    if [ -f "$SB/litestream.pid" ]; then kill "$(cat "$SB/litestream.pid")" 2>/dev/null || true; fi
+    if [ -f "$SB/replication.pid" ]; then kill "$(cat "$SB/replication.pid")" 2>/dev/null || true; fi
     if [ "${KEEP:-0}" = "1" ]; then step "sandbox kept at $SB"; else rm -rf "$SB"; fi
 }
 trap cleanup EXIT
 mkdir -p "$SB/data" "$SB/restored"
-step "sandbox: $SB (server $SERVER, litestream $LVER)"
+step "sandbox: $SB (server $SERVER, replication $LVER)"
 
-# --- restart shim: (re)starts the local litestream replicate process. ---
+# --- restart shim: (re)starts the local replication replicate process. ---
 # The sync invokes this after any config change, standing in for
-# `systemctl restart dg-litestream.service` on the host.
-cat >"$SB/restart-litestream.sh" <<EOF
+# `systemctl restart dg-replication.service` on the host.
+cat >"$SB/restart-replication.sh" <<EOF
 #!/usr/bin/env bash
 set -eu
-if [ -f "$SB/litestream.pid" ]; then kill "\$(cat "$SB/litestream.pid")" 2>/dev/null || true; sleep 1; fi
-"$LITESTREAM_BIN" replicate -config "$SB/litestream.yml" >>"$SB/litestream.log" 2>&1 &
-echo \$! >"$SB/litestream.pid"
+if [ -f "$SB/replication.pid" ]; then kill "\$(cat "$SB/replication.pid")" 2>/dev/null || true; sleep 1; fi
+"$LITESTREAM_BIN" replicate -config "$SB/replication.yml" >>"$SB/replication.log" 2>&1 &
+echo \$! >"$SB/replication.pid"
 sleep 1
-kill -0 "\$(cat "$SB/litestream.pid")"
+kill -0 "\$(cat "$SB/replication.pid")"
 EOF
-chmod +x "$SB/restart-litestream.sh"
+chmod +x "$SB/restart-replication.sh"
 
 # --- sync environment (the same knobs the timer unit relies on) -------
 SYNC_ENV=(
@@ -70,12 +70,12 @@ SYNC_ENV=(
     "DG_KEY_FILE=$SB/owner.key"
     "DG_LIST_AS="
     "DG_DATA_DIR=$SB/data"
-    "LITESTREAM_CONFIG=$SB/litestream.yml"
+    "LITESTREAM_CONFIG=$SB/replication.yml"
     "DG_REPLICA_URL_TEMPLATE=file://$SB/replicas/{name}"
-    "LITESTREAM_RESTART_CMD=$SB/restart-litestream.sh"
+    "LITESTREAM_RESTART_CMD=$SB/restart-replication.sh"
     "LITESTREAM_CONFIG_OWNER="
 )
-sync_run() { env "${SYNC_ENV[@]}" "$ROOT/scripts/litestream-sync.sh" "$@"; }
+sync_run() { env "${SYNC_ENV[@]}" "$ROOT/scripts/replication-sync.sh" "$@"; }
 dg() { "$DG_BIN" --server "$SERVER" --key-file "$SB/owner.key" "$@"; }
 
 wait_for() { # wait_for <seconds> <description> <cmd...>
@@ -117,19 +117,19 @@ if sync_run --check >"$SB/check2.out" 2>/dev/null; then
 fi
 grep -q "db=drill_two state=missing" "$SB/check2.out" || { cat "$SB/check2.out" >&2; fail "--check did not name drill_two as missing"; }
 step "2a ok: gap is visible (--check fails, names drill_two)"
-sync_run 2>"$SB/sync2.log" || { cat "$SB/sync2.log" "$SB/litestream.log" >&2; fail "sync after create failed"; }
+sync_run 2>"$SB/sync2.log" || { cat "$SB/sync2.log" "$SB/replication.log" >&2; fail "sync after create failed"; }
 sync_run --check >/dev/null || fail "check after second sync should pass"
 wait_for 30 "drill_two replica data" bash -c "ls '$SB'/replicas/drill_two/ltx/*/*.ltx >/dev/null 2>&1"
 step "2b ok: drill_two replicated after sync (sidecar restarted onto new config)"
 
 # --- 3. lose drill_two locally; restore it from the replica alone ------
 kill "$DG_PID"; wait "$DG_PID" 2>/dev/null || true; DG_PID=""
-if [ -f "$SB/litestream.pid" ]; then kill "$(cat "$SB/litestream.pid")" 2>/dev/null || true; sleep 1; fi
+if [ -f "$SB/replication.pid" ]; then kill "$(cat "$SB/replication.pid")" 2>/dev/null || true; sleep 1; fi
 rm -f "$SB/data/drill_two.sqlite" "$SB/data/drill_two.sqlite-wal" "$SB/data/drill_two.sqlite-shm"
 [ ! -e "$SB/data/drill_two.sqlite" ] || fail "drill_two deletion failed"
-"$LITESTREAM_BIN" restore -config "$SB/litestream.yml" -o "$SB/restored/drill_two.sqlite" \
+"$LITESTREAM_BIN" restore -config "$SB/replication.yml" -o "$SB/restored/drill_two.sqlite" \
     "$SB/data/drill_two.sqlite" >"$SB/restore.log" 2>&1 \
-    || { cat "$SB/restore.log" >&2; fail "litestream restore failed"; }
+    || { cat "$SB/restore.log" >&2; fail "replication restore failed"; }
 python3 - "$SB/restored/drill_two.sqlite" <<'PY' || fail "restored drill_two content mismatch (exit code alone is not evidence)"
 import sqlite3, sys
 db = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
@@ -150,7 +150,7 @@ DG_PID=$!
 wait_for 15 "gateway liveness (restart)" curl -fsS -m 2 "$SERVER/health/live"
 dg delete drill_one --confirm drill_one >/dev/null || fail "delete drill_one failed"
 sync_run 2>"$SB/sync3.log" || { cat "$SB/sync3.log" >&2; fail "sync after delete failed"; }
-grep -q "drill_one" "$SB/litestream.yml" && fail "drill_one still in config after delete+sync"
+grep -q "drill_one" "$SB/replication.yml" && fail "drill_one still in config after delete+sync"
 sync_run --check >/dev/null || fail "check after delete-sync should pass"
 step "4 ok: delete removes drill_one from the config on the next sync"
 

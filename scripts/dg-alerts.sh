@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Disk-headroom + Litestream-lag alerts (audit A8, observability
+# Disk-headroom + Replication-lag alerts (audit A8, observability
 # contract §1/§3 alerts 2 and sidecar freshness). One run evaluates
 # every check, prints one structured line per check to stderr (the
 # journal — the same operator channel as the digest), and exits
@@ -16,11 +16,11 @@
 #   disk    free bytes AND inodes on the data filesystem must stay
 #           above the floor (default 15% free or 1 GiB, whichever is
 #           larger; inode floor 10%).
-#   lag     the Litestream sidecar must be active, every live
-#           database must have a replica entry (litestream-sync
-#           --check), `litestream status` must report every database
+#   lag     the Replication sidecar must be active, every live
+#           database must have a replica entry (replication-sync
+#           --check), `replication status` must report every database
 #           ok, and no WAL file may exceed the size ceiling (default
-#           64 MiB): litestream checkpoints continuously, so an
+#           64 MiB): replication checkpoints continuously, so an
 #           unbounded WAL is replication stalled behind it. (An old
 #           WAL *mtime* alone proves nothing — an idle database's
 #           WAL legitimately sits untouched for days; the first live
@@ -30,9 +30,9 @@
 # Usage: scripts/dg-alerts.sh
 # Env: DG_ALERTS_DATA_DIR (/var/lib/dg), DG_ALERTS_DISK_FLOOR_PCT (15),
 #      DG_ALERTS_DISK_FLOOR_BYTES (1073741824), DG_ALERTS_INODE_FLOOR_PCT (10),
-#      DG_ALERTS_WAL_MAX_BYTES (67108864), DG_ALERTS_SIDECAR_UNIT (dg-litestream;
-#      "skip" disables), DG_ALERTS_SYNC_CHECK (/usr/local/bin/litestream-sync.sh;
-#      "skip" disables), DG_ALERTS_LITESTREAM_BIN (/usr/local/bin/litestream;
+#      DG_ALERTS_WAL_MAX_BYTES (67108864), DG_ALERTS_SIDECAR_UNIT (dg-replication;
+#      "skip" disables), DG_ALERTS_SYNC_CHECK (/usr/local/bin/replication-sync.sh;
+#      "skip" disables), DG_ALERTS_LITESTREAM_BIN (/usr/local/bin/replication;
 #      "skip" disables the status sub-check),
 #      DG_ALERTS_WEBHOOK_URL (unset: journal only),
 #      DG_ALERTS_WEBHOOK_URL_FILE (a mode-0600 file holding the URL;
@@ -45,9 +45,9 @@ FLOOR_PCT="${DG_ALERTS_DISK_FLOOR_PCT:-15}"
 FLOOR_BYTES="${DG_ALERTS_DISK_FLOOR_BYTES:-1073741824}"
 INODE_PCT="${DG_ALERTS_INODE_FLOOR_PCT:-10}"
 WAL_MAX="${DG_ALERTS_WAL_MAX_BYTES:-67108864}"
-SIDECAR="${DG_ALERTS_SIDECAR_UNIT:-dg-litestream}"
-SYNC_CHECK="${DG_ALERTS_SYNC_CHECK:-/usr/local/bin/litestream-sync.sh}"
-LS_BIN="${DG_ALERTS_LITESTREAM_BIN:-/usr/local/bin/litestream}"
+SIDECAR="${DG_ALERTS_SIDECAR_UNIT:-dg-replication}"
+SYNC_CHECK="${DG_ALERTS_SYNC_CHECK:-/usr/local/bin/replication-sync.sh}"
+LS_BIN="${DG_ALERTS_LITESTREAM_BIN:-/usr/local/bin/replication}"
 WEBHOOK_URL="${DG_ALERTS_WEBHOOK_URL:-}"
 WEBHOOK_URL_FILE="${DG_ALERTS_WEBHOOK_URL_FILE:-}"
 ALERTS=0
@@ -89,7 +89,7 @@ else
     ALERTS=1
 fi
 
-# --- litestream lag ----------------------------------------------------
+# --- replication lag ----------------------------------------------------
 lag_reasons=""
 if [ "$SIDECAR" != "skip" ]; then
     if ! systemctl is-active --quiet "$SIDECAR" 2>/dev/null; then
@@ -109,19 +109,19 @@ if [ "$LS_BIN" != "skip" ]; then
         # The command's exit status decides whether the answer is "every
         # replica ok" or "I could not ask". A sidecar that is broken --
         # a bad config, an unreadable env file, a crashed replica --
-        # makes `litestream status` fail, and the old check read that as
+        # makes `replication status` fail, and the old check read that as
         # an empty list of bad rows: the lag check reported ok while the
         # replication coverage was unknown.
         status_out="$("$LS_BIN" status 2>/dev/null)"
         status_rc=$?
         if [ "$status_rc" -ne 0 ]; then
-            lag_reasons="${lag_reasons:+$lag_reasons,}litestream-status-failed"
+            lag_reasons="${lag_reasons:+$lag_reasons,}replication-status-failed"
         else
             bad_rows="$(printf '%s\n' "$status_out" | awk 'NR>1 && $2 != "ok" {print $1}' | paste -sd, -)"
             [ -n "$bad_rows" ] && lag_reasons="${lag_reasons:+$lag_reasons,}status-not-ok:${bad_rows}"
         fi
     else
-        lag_reasons="${lag_reasons:+$lag_reasons,}litestream-bin-missing"
+        lag_reasons="${lag_reasons:+$lag_reasons,}replication-bin-missing"
     fi
 fi
 biggest_wal=0
@@ -136,7 +136,7 @@ if [ "$biggest_wal" -gt "$WAL_MAX" ]; then
     lag_reasons="${lag_reasons:+$lag_reasons,}wal-oversized-${biggest_wal}b"
 fi
 if [ -n "$lag_reasons" ]; then
-    detail="reasons=$lag_reasons wal_max_bytes=$WAL_MAX action='check dg-litestream journal and replica coverage; Tier 1 RPO is at risk while lag persists'"
+    detail="reasons=$lag_reasons wal_max_bytes=$WAL_MAX action='check dg-replication journal and replica coverage; Tier 1 RPO is at risk while lag persists'"
     emit lag alert "$detail"
     stage lag "$detail"
     ALERTS=1

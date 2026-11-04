@@ -12,13 +12,13 @@
 #
 # Usage: scripts/resource-sample.sh [--out FILE]   (default: stdout)
 # Env: DG_SAMPLE_UNITS (space list, default "dg.service
-#      dg-litestream.service"), DG_SAMPLE_PATHS (space list of
+#      dg-replication.service"), DG_SAMPLE_PATHS (space list of
 #      label=path, default the live layout), JOURNAL_GLOB (dg*).
 
 set -uo pipefail
 SELF="resource-sample"
 
-UNITS="${DG_SAMPLE_UNITS:-dg.service dg-litestream.service}"
+UNITS="${DG_SAMPLE_UNITS:-dg.service dg-replication.service}"
 PATHS="${DG_SAMPLE_PATHS:-data=/var/lib/dg backups=/var/lib/dg-backups}"
 OUT=""
 [ "${1:-}" = "--out" ] && OUT="${2:-}"

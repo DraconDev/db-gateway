@@ -64,7 +64,7 @@ jobs:
             echo "::warning::Rust suite execution took ${elapsed}s, over the ${RUST_SUITE_BUDGET_SECONDS}s budget (A15). Profile the slowest tests before raising the budget."
           fi
       - run: cargo build --release --locked
-      # The release-bundle contract test exercises the pinned micro2 builder
+      # The release-bundle contract test exercises the pinned deployment-host builder
       # in a real container, so the test's contract depends on a working
       # docker/podman. ubuntu-latest does not ship one, and adding the engine
       # inside a `services:` block requires Docker-in-Docker, which is more
@@ -102,9 +102,9 @@ jobs:
             fi
             echo "release-bundle: docker provisioned"
           fi
-      - name: Run the pinned micro2 release-bundle test
+      - name: Run the pinned deployment-host release-bundle test
         run: cargo test --workspace --locked --test release_bundle -- --ignored
-        # The contract test (`micro2_pinned_container_builds_bundle_and_records_builder`)
+        # The contract test (`deployment_host_pinned_container_builds_bundle_and_records_builder`)
         # is `#[ignore]`d so `cargo test --workspace` does not pay the cost on every
         # PR; the explicit `--ignored` here re-runs only it once the previous
         # step has confirmed a working container engine. The four sibling
@@ -112,7 +112,7 @@ jobs:
         # `cargo test --workspace` step above -- the three fake-engine
         # modes (no engine, builder inspection fail, build/smoke fail)
         # protect the script's failure modes without needing a real
-        # container, and `explicit_host_bundle_never_claims_micro2_abi_verified`
+        # container, and `explicit_host_bundle_never_claims_deployment_host_abi_verified`
         # pins the DG_RELEASE_TARGET=host guarantee that no container
         # engine would otherwise catch.
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -124,7 +124,7 @@ jobs:
       # carries an AWS key, a GitHub token, a private key block, or a
       # long literal assigned to a secret-ish name fails here, with the
       # file and line but never the value. The repo is pushed to GitHub
-      # and GitLab and holds the OVH/Litestream/owner-key material that
+      # and GitLab and holds the object storage provider/Replication/owner-key material that
       # must never be committed, so this is the gate that keeps that
       # property true without depending on anyone's memory.
       - run: ./scripts/secret-scan.sh

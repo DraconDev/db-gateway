@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Prove /etc/dg/litestream.env is the ONLY copy of the replication
+# Prove /etc/dg/replication.env is the ONLY copy of the replication
 # credential on the host.
 #
-# Usage: scripts/check-litestream-secret.sh [SSH_TARGET]
+# Usage: scripts/check-replication-secret.sh [SSH_TARGET]
 #
 # WHY THIS EXISTS AS ITS OWN SCRIPT. The goal's verification contract
-# requires "/etc/dg/litestream.env is the only copy of the credentials on
+# requires "/etc/dg/replication.env is the only copy of the credentials on
 # the host". The check is harder than it looks, because the obvious way to
 # write it is itself a leak:
 #
-#     SEC=$(sudo sed -n 's/^LITESTREAM_S3_SECRET_ACCESS_KEY=//p' /etc/dg/litestream.env)
+#     SEC=$(sudo sed -n 's/^LITESTREAM_S3_SECRET_ACCESS_KEY=//p' /etc/dg/replication.env)
 #     sudo grep -rlF "$SEC" /etc /var /home
 #
 # sudo logs the full COMMAND= of every invocation to the journal, so that
@@ -25,7 +25,7 @@
 # shell, the ssh transport, nor sudo's journal entry ever sees the secret.
 #
 # HOW IT IS BOUNDED. A byte-for-byte read of every file python-side took
-# >5 minutes on micro2 (~6GB, ~380k files under the scanned roots) and
+# >5 minutes on deployment-host (~6GB, ~380k files under the scanned roots) and
 # could not finish inside an operator's timeout. grep with a fixed-string
 # pattern file scans the same bytes in about five minutes with no python
 # per-file overhead, and short-circuits per file. Exit 0 means no file
@@ -35,10 +35,10 @@
 # Exit 1, naming the leaking paths, otherwise.
 
 set -euo pipefail
-SELF="check-litestream-secret"
+SELF="check-replication-secret"
 
-TARGET="${1:-${MICRO2_SSH:-micro2}}"
-ENV_PATH="/etc/dg/litestream.env"
+TARGET="${1:-${DEPLOYMENT_HOST_SSH:-deployment-host}}"
+ENV_PATH="/etc/dg/replication.env"
 
 command -v ssh >/dev/null || { echo "[$SELF] ssh not on PATH" >&2; exit 1; }
 
@@ -49,8 +49,8 @@ command -v ssh >/dev/null || { echo "[$SELF] ssh not on PATH" >&2; exit 1; }
 set +e
 OUTPUT="$(ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" sudo -n bash -s <<'BASH' 2>&1
 set -u
-ENV="/etc/dg/litestream.env"
-PAT="/run/litestream-check.pat.$$"
+ENV="/etc/dg/replication.env"
+PAT="/run/replication-check.pat.$$"
 trap 'rm -f "$PAT"' EXIT
 sed -n 's/^LITESTREAM_S3_SECRET_ACCESS_KEY=//p' "$ENV" > "$PAT" || exit 2
 chmod 0600 "$PAT"

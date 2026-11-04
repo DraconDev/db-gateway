@@ -316,10 +316,10 @@ enum Command {
         #[arg(long)]
         data_dir: PathBuf,
     },
-    /// Run the authenticated server (loopback only; remote access via SSH tunnel).
+    /// Run the authenticated server (local-only; remote access via secure forwarding).
     Serve {
         /// Loopback address to bind, e.g. 127.0.0.1:7432. Remote access
-        /// rides an SSH tunnel; public binds are refused.
+        /// rides an secure forwarding; public binds are refused.
         #[arg(long, default_value = "127.0.0.1:7432")]
         listen: SocketAddr,
         /// Directory holding the registry and database files.

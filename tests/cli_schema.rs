@@ -158,7 +158,7 @@ fn the_replications_own_tables_are_not_the_operators_data() {
     fleet.cli.q(
         "create replication bookkeeping",
         "shop",
-        "CREATE TABLE _litestream_seq (id INTEGER PRIMARY KEY, seq INTEGER)",
+        "CREATE TABLE _replication_seq (id INTEGER PRIMARY KEY, seq INTEGER)",
     );
     let document = fleet.cli.ok("schema", &["schema", "shop"]);
     let names: Vec<&str> = document["tables"]
@@ -177,7 +177,7 @@ fn the_replications_own_tables_are_not_the_operators_data() {
         .map(|table| table["name"].as_str().unwrap_or(""))
         .collect();
     assert!(
-        listed.contains(&"_litestream_seq"),
+        listed.contains(&"_replication_seq"),
         "the file's listing hides a table of the file: {info}"
     );
 }

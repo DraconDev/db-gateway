@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Release bundle for the recorded micro2 target, or an explicit local host build.
+# Release bundle for the recorded deployment-host target, or an explicit local host build.
 #
 # Usage: scripts/release-bundle.sh [OUTPUT_DIR]
 # Default OUTPUT_DIR is a disposable mktemp directory; its path is printed to
 # stdout (the only stdout output). Everything else goes to stderr.
 #
-# The default micro2 path never builds natively. It builds and smoke-tests the
+# The default deployment-host path never builds natively. It builds and smoke-tests the
 # locked release inside one immutable Ubuntu 24.04 amd64 image whose glibc
-# matches the recorded micro2 host. Set DG_CONTAINER_ENGINE=podman or docker to
+# matches the recorded deployment-host host. Set DG_CONTAINER_ENGINE=podman or docker to
 # choose an engine. Set DG_RELEASE_TARGET=host only for a deliberately local,
-# non-micro2 bundle; such a bundle is never labelled target-ABI verified.
+# non-deployment-host bundle; such a bundle is never labelled target-ABI verified.
 #
 # Stages the release executable, README, LICENSE, operator/API docs, builder
 # metadata, and SHA-256 checksums. No publishing or dependency upgrades.
@@ -62,7 +62,7 @@ fail() {
     exit 1
 }
 
-RELEASE_TARGET="${DG_RELEASE_TARGET:-micro2}"
+RELEASE_TARGET="${DG_RELEASE_TARGET:-deployment-host}"
 BUILDER_IMAGE="docker.io/library/ubuntu@sha256:496754492fb28b4d3049432f2ca787449331e23fb14f0dd3fffea86bf5a93eb4"
 BUILDER_OS="Ubuntu 24.04 amd64"
 EXPECTED_GLIBC="2.39"
@@ -94,7 +94,7 @@ container_engine() {
             return
         fi
     done
-    fail "micro2 bundles require podman or docker; native fallback is forbidden"
+    fail "deployment-host bundles require podman or docker; native fallback is forbidden"
 }
 
 run_container() {
@@ -117,7 +117,7 @@ run_container() {
         bash -euo pipefail -c "$1"
 }
 
-verify_micro2_builder() {
+verify_deployment_host_builder() {
     container_engine
     log "verifying pinned builder $BUILDER_IMAGE with $CONTAINER_ENGINE"
     local facts
@@ -136,9 +136,9 @@ verify_micro2_builder() {
         || fail "pinned builder glibc does not match $EXPECTED_GLIBC: $facts"
 }
 
-build_micro2() {
-    verify_micro2_builder
-    log "building and smoke-testing release inside the pinned micro2 builder"
+build_deployment_host() {
+    verify_deployment_host_builder
+    log "building and smoke-testing release inside the pinned deployment-host builder"
     run_container '
         export DEBIAN_FRONTEND=noninteractive
         apt-get -qq update
@@ -168,7 +168,7 @@ build_micro2() {
 build_host() {
     [ "$(uname -s)" = "Linux" ] || fail "host bundles currently require Linux"
     [ "$(uname -m)" = "x86_64" ] || fail "host bundles currently require x86_64"
-    log "building an explicitly requested, non-micro2 host bundle"
+    log "building an explicitly requested, non-deployment-host host bundle"
     CARGO_TARGET_DIR="$RELEASE_TARGET_DIR_HOST" \
         cargo build --release --locked --quiet --manifest-path "$ROOT/Cargo.toml" >&2
     BINARY="$RELEASE_TARGET_DIR_HOST/release/dg"
@@ -176,16 +176,16 @@ build_host() {
 }
 
 case "$RELEASE_TARGET" in
-    micro2) build_micro2 ;;
+    deployment-host) build_deployment_host ;;
     host) build_host ;;
-    *) fail "DG_RELEASE_TARGET must be micro2 or host" ;;
+    *) fail "DG_RELEASE_TARGET must be deployment-host or host" ;;
 esac
 
 [ -x "$BINARY" ] || fail "release artifact is missing or not executable: $BINARY"
 VERSION="$($BINARY --version | awk '{print $2}')"
-if [ "$RELEASE_TARGET" = "micro2" ]; then
+if [ "$RELEASE_TARGET" = "deployment-host" ]; then
     "$BINARY" --version >/dev/null || fail "container-built artifact cannot execute on host"
-    command -v readelf >/dev/null 2>&1 || fail "readelf is required to verify the micro2 artifact"
+    command -v readelf >/dev/null 2>&1 || fail "readelf is required to verify the deployment-host artifact"
     readelf -hW "$BINARY" | grep -Eq 'Machine:[[:space:]]+Advanced Micro Devices X86-64' \
         || fail "release artifact is not x86_64"
     readelf -lW "$BINARY" | grep -Fq "[Requesting program interpreter: $EXPECTED_INTERPRETER]" \
@@ -215,7 +215,7 @@ cp "$ROOT/docs/api.md" "$ROOT/docs/architecture.md" "$OUT/docs/"
 mkdir -p "$OUT/deploy"
 cp "$ROOT/deploy/dg.service" "$OUT/deploy/dg.service"
 
-if [ "$RELEASE_TARGET" = "micro2" ]; then
+if [ "$RELEASE_TARGET" = "deployment-host" ]; then
     IFS='|' read -r BUILDER_IMAGE_RECORDED BUILDER_GLIBC_RECORDED BUILDER_HOST_RECORDED \
         <<<"$BUILDER_METADATA"
     ABI_NOTE="container-built and smoke-tested against the pinned target-matched Ubuntu image; not cross-platform."
@@ -223,7 +223,7 @@ else
     BUILDER_IMAGE_RECORDED="none"
     BUILDER_GLIBC_RECORDED="host"
     BUILDER_HOST_RECORDED="$BUILT_ON"
-    ABI_NOTE="explicit host build; micro2 ABI is not verified."
+    ABI_NOTE="explicit host build; deployment-host ABI is not verified."
 fi
 
 # Record source identity rather than wall-clock build time: a rebuild of the
@@ -241,12 +241,12 @@ built_on: $BUILDER_HOST_RECORDED
 source_revision: $SOURCE_REVISION
 source_commit_time: $SOURCE_COMMIT_TIME
 target: $RELEASE_TARGET
-interpreter: $([ "$RELEASE_TARGET" = "micro2" ] && printf '%s' "$EXPECTED_INTERPRETER" || printf '%s' host-default)
+interpreter: $([ "$RELEASE_TARGET" = "deployment-host" ] && printf '%s' "$EXPECTED_INTERPRETER" || printf '%s' host-default)
 builder_image: $BUILDER_IMAGE_RECORDED
-builder_os: $([ "$RELEASE_TARGET" = "micro2" ] && printf '%s' "$BUILDER_OS" || printf '%s' native-host)
+builder_os: $([ "$RELEASE_TARGET" = "deployment-host" ] && printf '%s' "$BUILDER_OS" || printf '%s' native-host)
 builder_glibc: $BUILDER_GLIBC_RECORDED
-container_engine: $([ "$RELEASE_TARGET" = "micro2" ] && printf '%s' "$CONTAINER_ENGINE" || printf '%s' none)
-abi_verified: $([ "$RELEASE_TARGET" = "micro2" ] && printf '%s' true || printf '%s' false)
+container_engine: $([ "$RELEASE_TARGET" = "deployment-host" ] && printf '%s' "$CONTAINER_ENGINE" || printf '%s' none)
+abi_verified: $([ "$RELEASE_TARGET" = "deployment-host" ] && printf '%s' true || printf '%s' false)
 verified_executable: true
 note: $ABI_NOTE
 EOF

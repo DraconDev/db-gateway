@@ -41,7 +41,7 @@ fn chat_reads_like_a_real_client() {
             "SELECT author, body FROM messages WHERE room_id = 2 ORDER BY sent_at, id"
         ),
         json!([
-            ["dan", "Soak passed"],
+            ["dan", "Steady passed"],
             ["cara", "Nice, cutting over?"],
             ["dan", "Not yet, one more drill"],
             ["cara", "Drill green too"]

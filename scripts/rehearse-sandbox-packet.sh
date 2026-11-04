@@ -90,7 +90,7 @@ echo "   endpoint $DG_SANDBOX_SCHEME://$DG_SANDBOX_ENDPOINT  bucket $DG_SANDBOX_
 
 # Record what is already running before the packet, so "nothing survived" is a
 # comparison rather than an assumption about a machine that may have had
-# unrelated litestream or proxy processes on it before we arrived.
+# unrelated replication or proxy processes on it before we arrived.
 PRE_PIDS="$(pgrep -f 's3-log-proxy.py --listen' 2>/dev/null | sort | tr '\n' ' ' || true)"
 PRE_STORE="$(pgrep -f 'gofakes3 -host' 2>/dev/null | sort | tr '\n' ' ' || true)"
 
@@ -201,7 +201,7 @@ fi
 
 # The packet's own exit is reported, never adopted. It is nonzero whenever a
 # gate is blocked, which on a rehearsal is the expected state for the gates
-# that only OVH can answer; folding that into this driver's verdict would make
+# that only object storage provider can answer; folding that into this driver's verdict would make
 # an honest packet look like a dirty machine.
 post ""
 if [ "$PACKET_STATUS" -eq 0 ]; then

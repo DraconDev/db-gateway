@@ -5,7 +5,7 @@
 #   systemctl daemon-reload
 # Nothing in this repository installs, enables, or starts this unit.
 #
-# Runs the backup producer (scripts/micro2-backup.sh, installed on the
+# Runs the backup producer (scripts/backup.sh, installed on the
 # host as {{DG_BACKUP_SCRIPT}}) once per dg-backup.timer fire. The
 # producer publishes a verified, versioned snapshot set under
 # {{DG_BACKUP_ROOT}} and prunes to the newest 24 sets (--keep 24, the

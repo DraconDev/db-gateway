@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Steady read/write soak against a real `dg serve` (dummy data).
+"""Steady read/write steady against a real `dg serve` (dummy data).
 
-Usage: soak.py --seconds 1800 --out /tmp/soak.log
+Usage: steady.py --seconds 1800 --out /tmp/steady.log
 
 Spawns `dg init` + `dg serve` on a temp data dir, then drives a mixed
 workload (keyed single-row INSERTs, point SELECTs, range SELECTs,
@@ -22,10 +22,10 @@ This harness round-robins across four databases, and `Store::acquire_queue`
 takes a PER-DATABASE guard, so spreading the load that way means the
 contended lock is never contended and per-database queue waits stay at zero
 however busy the server is. That is fine for what this harness is for, and it
-is why it cannot answer a starvation question: use scripts/soak_starvation.py
+is why it cannot answer a starvation question: use scripts/steady_starvation.py
 for that, which drives ONE hot database and reads the per-database
 `queue_waits` / `queue_timeouts` counters off GET /v1/status. See
-docs/evidence/soak-starvation-evidence.log.
+docs/evidence/steady-starvation-evidence.log.
 """
 
 import argparse
@@ -105,13 +105,13 @@ def main():
     if args.dg_bin is None:
         args.dg_bin = str(Path(__file__).resolve().parent.parent / ".cargo" / "target" / "debug" / "dg")
     readiness_timeout = float(
-        os.environ.get("SOAK_READINESS_TIMEOUT", str(READINESS_TIMEOUT))
+        os.environ.get("STEADY_READINESS_TIMEOUT", str(READINESS_TIMEOUT))
     )
     if readiness_timeout <= 0:
         ap.error("--readiness timeout must be positive")
 
-    tmp = tempfile.mkdtemp(prefix="soak-")
-    # A soak holds a complete data dir (registry + every database it created).
+    tmp = tempfile.mkdtemp(prefix="steady-")
+    # A steady holds a complete data dir (registry + every database it created).
     # Leaving it in /tmp after every run -- including a PASS -- fills the same
     # small disk the evidence log lives on. atexit covers the clean exit and
     # any assertion/transport failure alike, as in wipe_restore.py.
@@ -159,9 +159,9 @@ def main():
                 break
         assert base, "server never logged its listen address"
 
-        lat, st, _ = call(base, owner, "POST", "/v1/databases", {"name": "soak"})
+        lat, st, _ = call(base, owner, "POST", "/v1/databases", {"name": "steady"})
         assert st == 200, st
-        DBS = [f"soak_{c}" for c in "abcd"]
+        DBS = [f"steady_{c}" for c in "abcd"]
         for db in DBS:
             lat, st, _ = call(base, owner, "POST", "/v1/databases", {"name": db})
             assert st == 200, (db, st)
@@ -203,7 +203,7 @@ def main():
                     f"/v1/databases/{db}/query",
                     {
                         "sql": "INSERT INTO events(tag, score, payload) VALUES (?, ?, randomblob(64))",
-                        "args": [f"soak-{seq}", seq * 0.5],
+                        "args": [f"steady-{seq}", seq * 0.5],
                     },
                 )
                 latencies.append(lat)
@@ -264,7 +264,7 @@ def main():
                             f"/v1/databases/{db}/query",
                             {"sql": "INSERT INTO events(tag) VALUES (?)",
                              "args": [f"keyed-{db}-{minute}"]},
-                            f"soak-key-{db}-{minute}",
+                            f"steady-key-{db}-{minute}",
                         )
                         latencies.append(lat)
                         if st == 200:
@@ -274,7 +274,7 @@ def main():
                     if not exported_once:
                         exported_once = True
                         lat, st, _ = call(
-                            base, owner, "POST", "/v1/databases/soak_a/export", {}
+                            base, owner, "POST", "/v1/databases/steady_a/export", {}
                         )
                         latencies.append(lat)
                         errors += st != 200
@@ -306,7 +306,7 @@ def main():
                     log.write(json.dumps(sample) + "\n")
                     log.flush()
 
-        assert server.poll() is None, f"server died mid-soak rc={server.returncode}"
+        assert server.poll() is None, f"server died mid-steady rc={server.returncode}"
         for db in DBS:
             lat, st, body = call(
                 base,
@@ -322,14 +322,14 @@ def main():
         inserted = sum(admitted.values())
 
         # Lifecycle registry proof: the latest scratch DB is live, the one
-        # before it is tombstoned (absent), soak DBs untouched by churn.
+        # before it is tombstoned (absent), steady DBs untouched by churn.
         lat, st, body = call(base, owner, "GET", "/v1/databases", {})
         assert st == 200, body
         names = body["databases"]
         assert f"churn_m{minute}" in names, names
         if minute > 1:
             assert f"churn_m{minute - 1}" not in names, names
-        for db in DBS + ["soak"]:
+        for db in DBS + ["steady"]:
             assert db in names, names
 
         s = sorted(latencies)
@@ -350,7 +350,7 @@ def main():
         assert errors == 0, f"{errors} request errors"
         assert p99 < 1000.0, f"p99 {p99:.1f}ms"
         assert rss_end - first_rss < 50 * 1024, f"rss grew {rss_end - first_rss} KiB"
-        print("SOAK PASS", flush=True)
+        print("STEADY PASS", flush=True)
     finally:
         server.kill()
         server.wait()

@@ -2,7 +2,7 @@
 """Cross-database noisy-neighbor probe: does a flood on one database starve
 a second database?
 
-Companion to scripts/soak_starvation.py, which deliberately contends a
+Companion to scripts/steady_starvation.py, which deliberately contends a
 SINGLE per-database guard (its `cold` database is never queried, so its
 zeros cannot show cross-database anything). This probe puts real traffic on
 `cold` while `hot` is flooded on BOTH global lanes and reports cold's

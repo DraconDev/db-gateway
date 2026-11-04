@@ -12,31 +12,31 @@
 # is useful at 2am. The replica keeps seven days of WAL, so the moments
 # that can be restored to are knowable -- but only the host knows them:
 # the bucket, the sidecar and the credentials are all the host's. So the
-# host publishes them, exactly the way scripts/litestream-sync.sh
+# host publishes them, exactly the way scripts/replication-sync.sh
 # publishes where the copy is and scripts/bucket-restore-drill.sh
 # publishes what the drill proved, and the gateway reports them.
 #
-# The credentials never leave /etc/dg/litestream.env: they are read into
+# The credentials never leave /etc/dg/replication.env: they are read into
 # this process the way the sidecar's own systemd unit reads them, and
 # nothing this script prints or publishes carries them.
 #
 # Env:
-#   LITESTREAM_BIN        litestream binary     (default /usr/local/bin/litestream)
-#   LITESTREAM_CONFIG     litestream config     (default /etc/litestream.yml)
-#   LITESTREAM_ENV_FILE   bucket credentials   (default /etc/dg/litestream.env)
+#   LITESTREAM_BIN        replication binary     (default /usr/local/bin/replication)
+#   LITESTREAM_CONFIG     replication config     (default /etc/replication.yml)
+#   LITESTREAM_ENV_FILE   bucket credentials   (default /etc/dg/replication.env)
 #   DG_BACKUP_ROOT        where the facts are published
 #                                                (default /var/lib/dg-backups)
 #   DG_DATA_DIR           database files        (default /var/lib/dg)
 #   RESTORE_ROOT          where restored copies land
 #                                                (default /var/lib/dg-restores)
 #   DG_LITESTREAM_STATUS_CMD command that reports the sidecar's state
-#                         (default: systemctl is-active dg-litestream.service;
+#                         (default: systemctl is-active dg-replication.service;
 #                          empty string disables the check)
 #
 # THE THREE MODES.
 #   --list   publishes the restore window: for every replicated database,
 #            the files the replica holds and the span they cover.
-#   --plan   asks litestream which files a restore to <ISO8601> would
+#   --plan   asks replication which files a restore to <ISO8601> would
 #            fetch, and prints the plan. It writes nothing.
 #   --apply  restores one database to <ISO8601> into a FRESH directory,
 #            verifies it, and publishes the result. It never writes over a
@@ -47,13 +47,13 @@ set -euo pipefail
 
 SELF="restore-point"
 
-LITESTREAM_BIN="${LITESTREAM_BIN:-/usr/local/bin/litestream}"
-LITESTREAM_CONFIG="${LITESTREAM_CONFIG:-/etc/litestream.yml}"
-LITESTREAM_ENV_FILE="${LITESTREAM_ENV_FILE:-/etc/dg/litestream.env}"
+LITESTREAM_BIN="${LITESTREAM_BIN:-/usr/local/bin/replication}"
+LITESTREAM_CONFIG="${LITESTREAM_CONFIG:-/etc/replication.yml}"
+LITESTREAM_ENV_FILE="${LITESTREAM_ENV_FILE:-/etc/dg/replication.env}"
 DG_BACKUP_ROOT="${DG_BACKUP_ROOT:-/var/lib/dg-backups}"
 DG_DATA_DIR="${DG_DATA_DIR:-/var/lib/dg}"
 RESTORE_ROOT="${RESTORE_ROOT:-/var/lib/dg-restores}"
-STATUS_CMD="${DG_LITESTREAM_STATUS_CMD-systemctl is-active dg-litestream.service}"
+STATUS_CMD="${DG_LITESTREAM_STATUS_CMD-systemctl is-active dg-replication.service}"
 
 MODE=""
 TIMESTAMP=""
@@ -98,8 +98,8 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$MODE" ] || fail "one of --list, --plan or --apply is required"
-[ -x "$LITESTREAM_BIN" ] || fail "litestream binary not executable: $LITESTREAM_BIN"
-[ -r "$LITESTREAM_CONFIG" ] || fail "litestream config not readable: $LITESTREAM_CONFIG"
+[ -x "$LITESTREAM_BIN" ] || fail "replication binary not executable: $LITESTREAM_BIN"
+[ -r "$LITESTREAM_CONFIG" ] || fail "replication config not readable: $LITESTREAM_CONFIG"
 
 # The credentials go into this process's environment the way the sidecar's
 # systemd unit puts them there: sourced, exported, never echoed.
@@ -112,7 +112,7 @@ fi
 
 # --- the databases the replica covers --------------------------------------
 
-# The litestream config is the list of what is replicated, and it includes
+# The replication config is the list of what is replicated, and it includes
 # the registry -- the metadata database that holds the credentials and
 # scopes, which the gateway does not serve as a database but without which
 # the copies are files no key can open. Only the `path:` lines are read;
@@ -186,13 +186,13 @@ if [ "$MODE" = "list" ]; then
     while IFS= read -r path; do
         [ -n "$path" ] || continue
         name="$(db_name_of "$path")"
-        # `litestream ltx` lists the files the replica holds for one
+        # `replication ltx` lists the files the replica holds for one
         # database: the snapshot that anchors it and the WAL segments
         # after it. A database with nothing in the replica is reported as
         # such rather than omitted, because "absent from the list" and
         # "not replicated" are different answers.
         #
-        # `-level all` is not optional. `litestream ltx` lists the
+        # `-level all` is not optional. `replication ltx` lists the
         # DEFAULT level only, and level 0 is the newest segment of one
         # database -- so asking for it published one row per database and
         # a window that was a single instant. The bucket holds the whole
@@ -200,7 +200,7 @@ if [ "$MODE" = "list" ]; then
         # 1, 2 and 3, which is what covers the hours and days between
         # snapshots. Without them the published window was hours shorter
         # than the replica's real one, and every moment inside it was
-        # reported as "the window opens later" -- moments litestream
+        # reported as "the window opens later" -- moments replication
         # itself would happily restore.
         if "$LITESTREAM_BIN" ltx -level all -config "$LITESTREAM_CONFIG" "$path" \
             >"$WORK/$name.ltx" 2>"$WORK/$name.err"; then
@@ -278,7 +278,7 @@ stamps = sorted(
 # The end of the window is the moment the replica is CURRENT to, not the
 # last time it happened to write a file. A database that has not changed
 # since its last snapshot is still restorable to any later moment:
-# litestream restores the snapshot, and the bytes are the same ones the
+# replication restores the snapshot, and the bytes are the same ones the
 # replica holds now. When the sidecar is not running the state is frozen
 # at the newest file, so that is the end.
 live = sidecar == "active"
@@ -325,7 +325,7 @@ case "$DATABASE" in
     *[!a-z0-9_]* | "") fail "invalid database name: $DATABASE" ;;
 esac
 
-# The timestamp is ISO 8601, which is what litestream takes. It is parsed
+# The timestamp is ISO 8601, which is what replication takes. It is parsed
 # here too, so a typo is refused before the bucket is touched.
 python3 - "$TIMESTAMP" <<'PY' || fail "invalid --to timestamp: $TIMESTAMP (expected ISO 8601, e.g. 2026-10-20T09:30:00Z)"
 import datetime
@@ -375,7 +375,7 @@ try:
             "select name from sqlite_master where type='table' "
             "and name not glob 'sqlite_*' "
             "and name not glob '_dg_*' "
-            "and name not glob '_litestream_*' "
+            "and name not glob '_replication_*' "
             "order by name"
         )
     ]
@@ -457,11 +457,11 @@ if "$LITESTREAM_BIN" restore -config "$LITESTREAM_CONFIG" \
         SIZE="$(wc -c <"$TARGET" | tr -d ' ')"
     else
         OUTCOME="failed"
-        DETAIL="litestream reported success but wrote no file"
+        DETAIL="replication reported success but wrote no file"
     fi
 else
     OUTCOME="failed"
-    DETAIL="litestream could not restore that moment; see $TARGET_DIR/restore.log"
+    DETAIL="replication could not restore that moment; see $TARGET_DIR/restore.log"
 fi
 
 python3 - "$DG_BACKUP_ROOT" "$RESTORED_AT" "$DATABASE" "$TIMESTAMP" "$OUTCOME" \

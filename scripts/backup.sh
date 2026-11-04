@@ -8,9 +8,9 @@
 # against logical loss (bad delete, corruption through the API), NOT disk
 # loss: pull the versioned set off-host (scp/rsync) for the second leg.
 #
-# Usage: micro2-backup.sh [--server URL] [--key-file PATH] [--data-dir DIR]
+# Usage: backup.sh [--server URL] [--key-file PATH] [--data-dir DIR]
 #                         [--backup-root DIR] [--keep N]
-# Defaults suit the micro2 layout. Run as the service user (dg). Prints the
+# Defaults suit the deployment-host layout. Run as the service user (dg). Prints the
 # manifest only; never key material. Exit nonzero on any failure (set -e);
 # a failed run publishes nothing.
 #
@@ -98,7 +98,7 @@ PY
       # A monitor reading attempts.jsonl would see no run at all, which is
       # indistinguishable from the backup never happening -- so say it out
       # loud, on stderr, without changing this run's exit code.
-      echo "micro2-backup: WARNING: could not append the attempts.jsonl ledger for set '${SET:-unknown}' at step '${STEP:-?}'; this run is not recorded for failure visibility" >&2
+      echo "deployment-host-backup: WARNING: could not append the attempts.jsonl ledger for set '${SET:-unknown}' at step '${STEP:-?}'; this run is not recorded for failure visibility" >&2
     fi
   fi
   if [ "$PUBLISHED" -eq 0 ] && [ -n "$STAGE" ]; then
@@ -119,7 +119,7 @@ exec 9>"$BACKUP_ROOT/.backup.lock"
 flock -n 9 || { echo "another backup is already running" >&2; exit 1; }
 # The glob is deliberately .staging* with no separating dot: this script stages
 # as .staging.XXXXXX (mktemp), while the 2026-09-22 script - and therefore
-# 522 leftovers on the recorded micro2 host - staged as .staging-<TIMESTAMP>.
+# 522 leftovers on the recorded deployment-host host - staged as .staging-<TIMESTAMP>.
 # The narrower .staging.* matched only the first spelling, so the cleanup
 # reported nothing and removed nothing, silently, because an unmatched glob
 # leaves the literal pattern and the -d guard skips it.

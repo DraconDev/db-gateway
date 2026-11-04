@@ -128,8 +128,8 @@ bash "$ROOT/scripts/check-unit-cadence.sh" "$ROOT" \
 # Portable-artifact gate.
 #
 # The recorded outage this gate exists to stop: a NixOS-built binary was
-# deployed to the Ubuntu micro2 target instead of the container-built release
-# bundle. Its RUNPATH carried /nix/store/<glibc-2.40>/lib, so on micro2 Ubuntu's
+# deployed to the Ubuntu deployment-host target instead of the container-built release
+# bundle. Its RUNPATH carried /nix/store/<glibc-2.40>/lib, so on deployment-host Ubuntu's
 # ld.so loaded Nix's glibc 2.40 -- a mismatched loader/libc pair -- and every
 # CLI invocation aborted with "*** stack smashing detected ***". Nothing in the
 # release path noticed, because scripts/release-bundle.sh was bypassed: that
@@ -316,8 +316,8 @@ PY
     case "$runpath" in
         *"/nix/store/"*)
             fail "$bin is not deployable: its RUNPATH resolves libraries from /nix/store, which does not exist on an Ubuntu target.
-  This is the exact defect that took the micro2 hourly backup down for three weeks.
-  Build the real artifact with: DG_RELEASE_TARGET=micro2 scripts/release-bundle.sh
+  This is the exact defect that took the deployment-host hourly backup down for three weeks.
+  Build the real artifact with: DG_RELEASE_TARGET=deployment-host scripts/release-bundle.sh
   then re-run: DG_RELEASE_BUNDLE_DIR=<bundle-dir> scripts/validate-deploy.sh" ;;
     esac
 
@@ -327,9 +327,9 @@ PY
     # container build itself would be caught if its image were ever changed.
     if [ -n "$interp" ]; then
         [ "$interp" = "/lib64/ld-linux-x86-64.so.2" ] \
-            || fail "$bin has interpreter '$interp'; the micro2 target is a
+            || fail "$bin has interpreter '$interp'; the deployment-host target is a
   standard Ubuntu amd64 layout, so the loader must be /lib64/ld-linux-x86-64.so.2.
-  Build the real artifact with: DG_RELEASE_TARGET=micro2 scripts/release-bundle.sh"
+  Build the real artifact with: DG_RELEASE_TARGET=deployment-host scripts/release-bundle.sh"
     fi
 
     # The glibc ceiling, measured off the artifact rather than taken from
@@ -343,7 +343,7 @@ PY
             fail "$bin requires glibc $glibc_ver ($glibc_req), but the target provides $EXPECTED_GLIBC.
   That is the same failure mode as the Nix build -- a loader/libc mismatch -- reached with
   an ordinary loader path, so it is invisible to every other check in this gate.
-  Build against the target's glibc with: DG_RELEASE_TARGET=micro2 scripts/release-bundle.sh"
+  Build against the target's glibc with: DG_RELEASE_TARGET=deployment-host scripts/release-bundle.sh"
         fi
         log "  glibc ceiling: $glibc_ver <= target $EXPECTED_GLIBC (ok)"
     else
@@ -386,7 +386,7 @@ UNIT_MAX="$(sed -n 's/^[[:space:]]*MemoryMax=\([^[:space:]#]*\).*/\1/p' "$UNIT" 
 # The budget page's own statement of the shipped cap, in `MemoryMax=<value>`
 # form, so the two files cannot drift apart silently. Scoped to the line that
 # names the unit, because the page also records `MemoryMax=1G` twice for the
-# litestream sidecar's enforcement scope and that is not the gateway's cap.
+# replication sidecar's enforcement scope and that is not the gateway's cap.
 DOC_MAX="$(grep 'deploy/dg.service' "$BUDGET" | sed -n 's/.*`MemoryMax=\([^`[:space:]]*\)`.*/\1/p' | head -1)"
 if [ -n "$UNIT_MAX" ]; then
     [ -n "$DOC_MAX" ] \
@@ -433,12 +433,12 @@ if command -v systemd-analyze >/dev/null 2>&1; then
         "DG_DATA_DIR=$tmp/data" \
         "DG_BACKUP_ROOT=$tmp/backups" \
         "DG_LISTEN=127.0.0.1:7432" >"$tmp/dg.service"
-    # The litestream-sync units name the host path /usr/local/bin/
-    # litestream-sync.sh; point the verification copy at the repo script
+    # The replication-sync units name the host path /usr/local/bin/
+    # replication-sync.sh; point the verification copy at the repo script
     # so verify checks the unit, not this machine's /usr/local/bin.
-    sed -e "s|/usr/local/bin/litestream-sync.sh|$ROOT/scripts/litestream-sync.sh|g" \
-        "$ROOT/deploy/dg-litestream-sync.service" >"$tmp/dg-litestream-sync.service"
-    cp "$ROOT/deploy/dg-litestream-sync.timer" "$tmp/dg-litestream-sync.timer"
+    sed -e "s|/usr/local/bin/replication-sync.sh|$ROOT/scripts/replication-sync.sh|g" \
+        "$ROOT/deploy/dg-replication-sync.service" >"$tmp/dg-replication-sync.service"
+    cp "$ROOT/deploy/dg-replication-sync.timer" "$tmp/dg-replication-sync.timer"
     # The backup units are placeholder templates like dg.service;
     # substitute the same dummy values so verify checks unit structure.
     for u in dg-backup.service dg-backup-digest.service; do
@@ -447,7 +447,7 @@ if command -v systemd-analyze >/dev/null 2>&1; then
             "DG_BINARY=$TARGET_DIR/debug/dg" \
             "DG_DATA_DIR=$tmp/data" \
             "DG_BACKUP_ROOT=$tmp/data" \
-            "DG_BACKUP_SCRIPT=$ROOT/scripts/micro2-backup.sh" \
+            "DG_BACKUP_SCRIPT=$ROOT/scripts/backup.sh" \
             "DG_LISTEN=127.0.0.1:7432" \
             "DG_OWNER_KEY_FILE=$tmp/owner.key" >"$tmp/$u"
     done
@@ -498,7 +498,7 @@ if command -v systemd-analyze >/dev/null 2>&1; then
         "DG_MESH_LISTEN=127.0.0.2:17432" \
         | sed -e "s|/usr/lib/systemd/systemd-socket-proxyd|$(type -P true || echo /bin/true)|g" \
         >"$tmp/dg-app-proxy.service"
-    if systemd-analyze verify "$tmp/dg.service" "$tmp/dg-litestream-sync.service" "$tmp/dg-litestream-sync.timer" "$tmp/dg-backup.service" "$tmp/dg-backup.timer" "$tmp/dg-backup-digest.service" "$tmp/dg-backup-digest.timer" "$tmp/dg-restore-drill.service" "$tmp/dg-restore-drill.timer" "$tmp/dg-resource-sample.service" "$tmp/dg-resource-sample.timer" "$tmp/dg-alerts.service" "$tmp/dg-alerts.timer" "$tmp/dg-traffic-sample.service" "$tmp/dg-traffic-sample.timer" "$tmp/dg-mesh-proxy.socket" "$tmp/dg-mesh-proxy.service" "$tmp/dg-app-proxy.socket" "$tmp/dg-app-proxy.service" 2>"$tmp/verify.log"; then
+    if systemd-analyze verify "$tmp/dg.service" "$tmp/dg-replication-sync.service" "$tmp/dg-replication-sync.timer" "$tmp/dg-backup.service" "$tmp/dg-backup.timer" "$tmp/dg-backup-digest.service" "$tmp/dg-backup-digest.timer" "$tmp/dg-restore-drill.service" "$tmp/dg-restore-drill.timer" "$tmp/dg-resource-sample.service" "$tmp/dg-resource-sample.timer" "$tmp/dg-alerts.service" "$tmp/dg-alerts.timer" "$tmp/dg-traffic-sample.service" "$tmp/dg-traffic-sample.timer" "$tmp/dg-mesh-proxy.socket" "$tmp/dg-mesh-proxy.service" "$tmp/dg-app-proxy.socket" "$tmp/dg-app-proxy.service" 2>"$tmp/verify.log"; then
         log "systemd-analyze verify: clean"
     else
         cat "$tmp/verify.log" >&2

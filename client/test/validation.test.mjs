@@ -105,7 +105,7 @@ test('a status answer with a placement is read, and a malformed one is refused',
   await withServer(withBody({
     ...base,
     deployment: {
-      host: 'micro2',
+      host: 'deployment-host',
       listen: '127.0.0.1:7432',
       data_dir: '/var/lib/dg',
       backup_root: '/var/lib/dg-backups',
@@ -115,7 +115,7 @@ test('a status answer with a placement is read, and a malformed one is refused',
     },
   }), async gateway => {
     const status = await gateway.status();
-    assert.equal(status.deployment.host, 'micro2');
+    assert.equal(status.deployment.host, 'deployment-host');
     assert.equal(status.deployment.data_dir, '/var/lib/dg');
     assert.equal(status.deployment.databases.alpha.exists, true);
   });

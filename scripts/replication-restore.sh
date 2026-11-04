@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Restore every live dg database from the off-host litestream replica
+# Restore every live dg database from the off-host replication replica
 # and prove the row counts and PRAGMA integrity_check match the source.
 #
-# Usage: scripts/litestream-restore.sh [--out DIR] [--config PATH]
+# Usage: scripts/replication-restore.sh [--out DIR] [--config PATH]
 #
 # "Live database" means REGISTERED database -- what the gateway itself
 # serves: `dg --key-file /etc/dg/owner.key list`. This manual
@@ -15,15 +15,15 @@
 # scripts/bucket-restore-drill.sh on the host. Use this script for an
 # ad-hoc data-only round-trip from the workstation.
 #
-# Reads the bucket name from /etc/dg/litestream.env (the only copy of
+# Reads the bucket name from /etc/dg/replication.env (the only copy of
 # the credentials on the host, mode 0600, owner dg:dg, populated into
-# the sidecar's environment by systemd) and uses the /etc/litestream.yml
-# installed by scripts/install-litestream.sh as the litestream config.
+# the sidecar's environment by systemd) and uses the /etc/replication.yml
+# installed by scripts/install-replication.sh as the replication config.
 # The default --out DIR is /tmp/lit-restore, mode 0700: the restored
 # files stay on the operator host, readable by nobody else. For each
 # registered database the script:
-#   1) runs `litestream restore` on micro2 (as dg) into a mode-0700
-#      scratch dir, pulling the credentials from /etc/dg/litestream.env
+#   1) runs `replication restore` on deployment-host (as dg) into a mode-0700
+#      scratch dir, pulling the credentials from /etc/dg/replication.env
 #      exactly the way the sidecar itself does,
 #   2) streams the restored file back over ssh (sudo cat) so sqlite3 on
 #      this host can read it -- the remote copy is never loosened past
@@ -35,7 +35,7 @@
 #
 # WHAT "MATCH" COMPARES: the USER tables. SQLite's own sqlite_* plus the
 # two internal families (_dg_*, the gateway's replay bookkeeping, and
-# _litestream_*, litestream's own sync state) are excluded from the
+# _replication_*, replication's own sync state) are excluded from the
 # table-set comparison on BOTH sides. The source side must exclude them:
 # the dg CLI answers sql_forbidden (403) for internal tables by design,
 # so counting them through the gateway is impossible, not merely
@@ -47,10 +47,10 @@
 # included.
 #
 # LITESTREAM 0.5.17 INVOCATION NOTE (why the call below looks the way it
-# does): `litestream restore` accepts either a DB_PATH or a bare REPLICA
+# does): `replication restore` accepts either a DB_PATH or a bare REPLICA
 # URL, but NOT -config together with a replica URL ("cannot specify a
 # replica URL and the -config flag"). The URL mode also reads credentials
-# from litestream's own env names (LITESTREAM_ACCESS_KEY_ID et al.), not
+# from replication's own env names (LITESTREAM_ACCESS_KEY_ID et al.), not
 # the LITESTREAM_S3_* names this deployment uses, so URL mode would need
 # the keys renamed. DB_PATH + -config is the mode that expands
 # ${LITESTREAM_S3_*} from the sidecar env, so the restore uses the same
@@ -58,17 +58,17 @@
 # running sidecar uses -- one code path, no second place to get wrong.
 #
 # This is the live proof for the goal's verification contract clause
-# "litestream restore of every live database into a temp path succeeds,
+# "replication restore of every live database into a temp path succeeds,
 # and row counts plus PRAGMA integrity_check match the live sources
 # exactly."
 
 set -euo pipefail
-SELF="litestream-restore"
+SELF="replication-restore"
 fail() { echo "[$SELF] FAIL: $*" >&2; exit 1; }
 log() { echo "[$SELF] $*" >&2; }
 
 OUT_DIR="/tmp/lit-restore"
-CONFIG="/etc/litestream.yml"
+CONFIG="/etc/replication.yml"
 while [ $# -gt 0 ]; do
   case "$1" in
     --out)     OUT_DIR="$2"; shift 2 ;;
@@ -77,11 +77,11 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-TARGET="${MICRO2_SSH:-micro2}"
-ENV_PATH="/etc/dg/litestream.env"
+TARGET="${DEPLOYMENT_HOST_SSH:-deployment-host}"
+ENV_PATH="/etc/dg/replication.env"
 KEY_FILE="/etc/dg/owner.key"
 DATA_DIR="/var/lib/dg"
-LITESTREAM="/usr/local/bin/litestream"
+LITESTREAM="/usr/local/bin/replication"
 DG_BIN="/usr/local/bin/dg"
 REMOTE_OUT="/var/tmp/lit-restore-$(date +%s)"
 DG_QUERY_CACHE="$(mktemp)"
@@ -158,9 +158,9 @@ mapfile -t DBS < <(ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" \
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 chmod 0700 "$OUT_DIR"
-log "restore output directory: ${OUT_DIR} (local; scratch on micro2: ${REMOTE_OUT})"
+log "restore output directory: ${OUT_DIR} (local; scratch on deployment-host: ${REMOTE_OUT})"
 
-# --- 2. for each live db, restore on micro2, pull back, compare. -------
+# --- 2. for each live db, restore on deployment-host, pull back, compare. -------
 ok_count=0
 fail_count=0
 for name in "${DBS[@]}"; do
@@ -168,7 +168,7 @@ for name in "${DBS[@]}"; do
     *[!a-zA-Z0-9_-]*) fail "registry name '$name' contains unexpected characters; refusing to build a path from it" ;;
   esac
   out="${OUT_DIR}/${name}.sqlite"
-  log "[${name}] litestream restore (as dg, ${CONFIG}) -> ${REMOTE_OUT}/${name}.sqlite on ${TARGET}"
+  log "[${name}] replication restore (as dg, ${CONFIG}) -> ${REMOTE_OUT}/${name}.sqlite on ${TARGET}"
   # One remote script as dg: load the env file (the only credential
   # copy), make a 0700 scratch dir, restore from the DB_PATH so the
   # config's ${LITESTREAM_S3_*} references expand against the same env
@@ -176,7 +176,7 @@ for name in "${DBS[@]}"; do
   if ! ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" \
     "sudo -n -u dg bash -c \"set -a; . ${ENV_PATH}; set +a; mkdir -p -m 0700 ${REMOTE_OUT}; ${LITESTREAM} restore -config ${CONFIG} -o ${REMOTE_OUT}/${name}.sqlite ${DATA_DIR}/${name}.sqlite\"" \
     >/dev/null 2>&1; then
-    echo "[$SELF] FAIL: [${name}] litestream restore did not exit 0 (config ${CONFIG}, env ${ENV_PATH} as dg)" >&2
+    echo "[$SELF] FAIL: [${name}] replication restore did not exit 0 (config ${CONFIG}, env ${ENV_PATH} as dg)" >&2
     fail_count=$((fail_count+1)); continue
   fi
 
@@ -202,12 +202,12 @@ for name in "${DBS[@]}"; do
   # error here (its JSON error object, not a result set) must surface
   # as this script's own failure, never as a silently-empty table list.
   src_tables=$(dg_query "$name" \
-    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*' AND name NOT GLOB '_dg_*' AND name NOT GLOB '_litestream_*'" \
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*' AND name NOT GLOB '_dg_*' AND name NOT GLOB '_replication_*'" \
     | dg_rows | LC_ALL=C sort -u) || fail "[${name}] source table listing failed (dg CLI error)"
   # Tables in the restored copy, read locally. The same internal-table
   # exclusion, so the compared set is the same set on both sides.
   cmp_tables=$(sqlite3 "$out" \
-    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*' AND name NOT GLOB '_dg_*' AND name NOT GLOB '_litestream_*';" 2>/dev/null | LC_ALL=C sort -u)
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*' AND name NOT GLOB '_dg_*' AND name NOT GLOB '_replication_*';" 2>/dev/null | LC_ALL=C sort -u)
 
   if [ "$src_tables" != "$cmp_tables" ]; then
     only_src=$(comm -23 <(printf '%s\n' "$src_tables") <(printf '%s\n' "$cmp_tables"))

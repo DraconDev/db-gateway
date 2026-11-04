@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# Install and configure litestream on micro2 as the off-host replication
+# Install and configure replication on deployment-host as the off-host replication
 # sidecar for dg.
 #
-# Usage: scripts/install-litestream.sh
-# Runs as root over ssh to micro2; does not require the operator's input
-# except for /etc/dg/litestream.env, which the operator (or the previous
+# Usage: scripts/install-replication.sh
+# Runs as root over ssh to deployment-host; does not require the operator's input
+# except for /etc/dg/replication.env, which the operator (or the previous
 # goal's setup) must have already written. This script verifies and
-# installs the litestream binary, installs scripts/litestream-sync.sh as
-# /usr/local/bin/litestream-sync.sh and renders the config by running it,
-# and installs the dg-litestream + dg-litestream-sync units. The render
-# logic lives ONLY in litestream-sync.sh: the sync timer re-runs it every
+# installs the replication binary, installs scripts/replication-sync.sh as
+# /usr/local/bin/replication-sync.sh and renders the config by running it,
+# and installs the dg-replication + dg-replication-sync units. The render
+# logic lives ONLY in replication-sync.sh: the sync timer re-runs it every
 # five minutes, so a database created after install is replicated within
 # one interval instead of never (docs/audit-2026-10-19.md A2). Enabling
 # the units is deliberately NOT done by this script, so the operator can
 # choose when the sidecar first starts replicating.
 #
-# The pin mirrors docs/ovh-sandbox-runbook.md section 1, with one change
+# The pin mirrors docs/object storage provider-sandbox-runbook.md section 1, with one change
 # for trust: we verify the tarball's SHA-256 against the upstream
 # checksums.txt published at the same release tag, so a tampered mirror
 # cannot ship a backdoored binary.
@@ -24,45 +24,45 @@
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SELF="install-litestream"
+SELF="install-replication"
 fail() { echo "[$SELF] FAIL: $*" >&2; exit 1; }
 log() { echo "[$SELF] $*" >&2; }
 
-# --- pin: litestream 0.5.17, the version the runbook and the prior trial
+# --- pin: replication 0.5.17, the version the runbook and the prior trial
 # used; an upgrade is a separate runbook run that re-verifies the pin. ---
 VERSION="0.5.17"
-# The upstream asset is named litestream-<version>-linux-x86_64.tar.gz -- with
+# The upstream asset is named replication-<version>-linux-x86_64.tar.gz -- with
 # NO 'v' on the version in the FILENAME, even though the release tag and the
 # URL path segment both use v0.5.17. The runbook documented the wrong name
-# (litestream-v0.5.17-linux-amd64.tar.gz) and 404s; the correct name is
-# verified here by the checksum in Litestream's own checksums.txt at the
+# (replication-v0.5.17-linux-amd64.tar.gz) and 404s; the correct name is
+# verified here by the checksum in Replication's own checksums.txt at the
 # same release tag. Verified 2026-10-15: HTTP 206 for this name, 404 for
 # the runbook's.
-TARBALL="litestream-${VERSION}-linux-x86_64.tar.gz"
-URL="https://github.com/benbjohnson/litestream/releases/download/v${VERSION}/${TARBALL}"
-CHECKSUMS_URL="https://github.com/benbjohnson/litestream/releases/download/v${VERSION}/checksums.txt"
+TARBALL="replication-${VERSION}-linux-x86_64.tar.gz"
+URL="https://github.com/benbjohnson/replication/releases/download/v${VERSION}/${TARBALL}"
+CHECKSUMS_URL="https://github.com/benbjohnson/replication/releases/download/v${VERSION}/checksums.txt"
 # An operator with a checksum-verified tarball already staged locally can
 # point this at it; the script still verifies it against CHECKSUMS_URL
 # before installing, so a local mirror buys offline reachability and
 # nothing else. NEVER bypass the checksum.
 LOCAL_TARBALL="${DG_LITESTREAM_TARBALL:-}"
-CONFIG_PATH="/etc/litestream.yml"
-ENV_PATH="/etc/dg/litestream.env"
-INSTALL_PATH="/usr/local/bin/litestream"
-TEMPLATE="${ROOT}/deploy/litestream.yml"
+CONFIG_PATH="/etc/replication.yml"
+ENV_PATH="/etc/dg/replication.env"
+INSTALL_PATH="/usr/local/bin/replication"
+TEMPLATE="${ROOT}/deploy/replication.yml"
 
-command -v ssh >/dev/null || fail "ssh not on PATH (must run from the repo root with the micro2 ssh alias configured)"
+command -v ssh >/dev/null || fail "ssh not on PATH (must run from the repo root with the deployment-host ssh alias configured)"
 [ -r "$TEMPLATE" ] || fail "config template not found: $TEMPLATE (run from the repo root)"
-[ -r "$ROOT/scripts/litestream-sync.sh" ] || fail "sync script not found: $ROOT/scripts/litestream-sync.sh"
-[ -r "$ROOT/deploy/dg-litestream-sync.service" ] || fail "sync unit not found: $ROOT/deploy/dg-litestream-sync.service"
-[ -r "$ROOT/deploy/dg-litestream-sync.timer" ] || fail "sync timer not found: $ROOT/deploy/dg-litestream-sync.timer"
+[ -r "$ROOT/scripts/replication-sync.sh" ] || fail "sync script not found: $ROOT/scripts/replication-sync.sh"
+[ -r "$ROOT/deploy/dg-replication-sync.service" ] || fail "sync unit not found: $ROOT/deploy/dg-replication-sync.service"
+[ -r "$ROOT/deploy/dg-replication-sync.timer" ] || fail "sync timer not found: $ROOT/deploy/dg-replication-sync.timer"
 
 # The target host. The convention matches the rest of the repo's deploy
 # scripts: SSH over the operator's ~/.ssh/config alias.
-TARGET="${MICRO2_SSH:-micro2}"
+TARGET="${DEPLOYMENT_HOST_SSH:-deployment-host}"
 
 # --- 0. env file already present? The contract requires it is the ONLY
-# copy of the credentials, and it MUST exist before litestream starts. ---
+# copy of the credentials, and it MUST exist before replication starts. ---
 log "checking ${ENV_PATH} on ${TARGET}"
 # The check must run as root: /etc/dg is mode 0750 root:dg, so the ssh
 # login user cannot stat inside it. Testing as the login user would report
@@ -75,20 +75,20 @@ then
 fi
 # Note: the install script does NOT read or print the secret values; it
 # only confirms the file exists with the right mode and ownership. The
-# values travel by EnvironmentFile= from systemd to litestream, never via
+# values travel by EnvironmentFile= from systemd to replication, never via
 # this script's stdout/stderr or the repo.
 
-# --- 1. litestream binary: download, verify, install. Idempotent. ---
+# --- 1. replication binary: download, verify, install. Idempotent. ---
 if ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
   "test -x ${INSTALL_PATH}" 2>/dev/null
 then
-  # `litestream version` prints a bare version string ("0.5.17"), with no
+  # `replication version` prints a bare version string ("0.5.17"), with no
   # program name and no leading 'v'. Normalise both forms so a re-run
   # recognises the same pin instead of failing on the parse.
   EXISTING_VERSION=$(ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
-    "${INSTALL_PATH} version" 2>/dev/null | head -1 | tr -d '\r' | sed -E 's/^(litestream )?v?//')
+    "${INSTALL_PATH} version" 2>/dev/null | head -1 | tr -d '\r' | sed -E 's/^(replication )?v?//')
   if [ "${EXISTING_VERSION}" = "${VERSION}" ]; then
-    log "litestream ${VERSION} already installed at ${INSTALL_PATH}; skipping download"
+    log "replication ${VERSION} already installed at ${INSTALL_PATH}; skipping download"
   else
     fail "${INSTALL_PATH} is v${EXISTING_VERSION:-unknown}, expected v${VERSION}; bump the pin in this script and the runbook together, or remove the installed binary to re-run"
   fi
@@ -120,58 +120,58 @@ else
   ACTUAL=$(sha256sum "$TMPDIR_LOCAL/$TARBALL" | awk '{print $1}')
   [ "$ACTUAL" = "$EXPECTED" ] || fail "sha256 mismatch for ${TARBALL}: got $ACTUAL, upstream $EXPECTED"
 
-  log "extracting the litestream binary and installing it to ${INSTALL_PATH}"
-  tar -C "$TMPDIR_LOCAL" -xzf "$TMPDIR_LOCAL/$TARBALL" litestream \
-    || fail "extract failed: ${TARBALL} has no top-level litestream binary"
+  log "extracting the replication binary and installing it to ${INSTALL_PATH}"
+  tar -C "$TMPDIR_LOCAL" -xzf "$TMPDIR_LOCAL/$TARBALL" replication \
+    || fail "extract failed: ${TARBALL} has no top-level replication binary"
   # scp resolves the ssh alias's hostname but does not inherit the
   # IdentityFile the way plain ssh does, so name the key explicitly.
-  MICRO2_HOST=$(ssh -G "$TARGET" 2>/dev/null | awk '/^hostname /{print $2; exit}')
-  MICRO2_KEY="${MICRO2_SSH_KEY:-$HOME/.ssh/micro2.key}"
-  [ -r "$MICRO2_KEY" ] || fail "cannot read the ssh key $MICRO2_KEY (set MICRO2_SSH_KEY to your micro2 key)"
-  scp -o BatchMode=yes -q -i "$MICRO2_KEY" "$TMPDIR_LOCAL/litestream" "ubuntu@${MICRO2_HOST}:/tmp/litestream.new" \
-    || fail "scp of the binary to ${MICRO2_HOST} failed"
+  DEPLOYMENT_HOST_HOST=$(ssh -G "$TARGET" 2>/dev/null | awk '/^hostname /{print $2; exit}')
+  DEPLOYMENT_HOST_KEY="${DEPLOYMENT_HOST_SSH_KEY:-$HOME/.ssh/deployment-host.key}"
+  [ -r "$DEPLOYMENT_HOST_KEY" ] || fail "cannot read the ssh key $DEPLOYMENT_HOST_KEY (set DEPLOYMENT_HOST_SSH_KEY to your deployment-host key)"
+  scp -o BatchMode=yes -q -i "$DEPLOYMENT_HOST_KEY" "$TMPDIR_LOCAL/replication" "ubuntu@${DEPLOYMENT_HOST_HOST}:/tmp/replication.new" \
+    || fail "scp of the binary to ${DEPLOYMENT_HOST_HOST} failed"
   ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
-    "sudo install -m 0755 /tmp/litestream.new ${INSTALL_PATH} && sudo rm /tmp/litestream.new" \
+    "sudo install -m 0755 /tmp/replication.new ${INSTALL_PATH} && sudo rm /tmp/replication.new" \
     || fail "installing the binary at ${INSTALL_PATH} failed"
   log "installed $(ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" "${INSTALL_PATH} version" 2>/dev/null | head -1)"
 fi
 
-# --- 2. Install the sync script and render /etc/litestream.yml with it. ---
+# --- 2. Install the sync script and render /etc/replication.yml with it. ---
 # The render logic (env parse, live-database filter, atomic 0600 write)
 # used to live inline here; it now lives only in
-# scripts/litestream-sync.sh, which the dg-litestream-sync timer re-runs
+# scripts/replication-sync.sh, which the dg-replication-sync timer re-runs
 # every five minutes on the host. Duplicating the render here would let
 # the install-time config and the timer's config drift apart -- the exact
 # failure A2 was about. LITESTREAM_RESTART_CMD is emptied for this first
 # render: the sidecar is not running yet and this script never starts it.
-log "installing scripts/litestream-sync.sh to /usr/local/bin/ and rendering ${CONFIG_PATH}"
-MICRO2_HOST=$(ssh -G "$TARGET" 2>/dev/null | awk '/^hostname /{print $2; exit}')
-MICRO2_KEY="${MICRO2_SSH_KEY:-$HOME/.ssh/micro2.key}"
-[ -r "$MICRO2_KEY" ] || fail "cannot read the ssh key $MICRO2_KEY (set MICRO2_SSH_KEY to your micro2 key)"
-scp -o BatchMode=yes -q -i "$MICRO2_KEY" \
-  "$ROOT/scripts/litestream-sync.sh" "ubuntu@${MICRO2_HOST}:/tmp/litestream-sync.sh" \
-  || fail "scp of the sync script to ${MICRO2_HOST} failed"
+log "installing scripts/replication-sync.sh to /usr/local/bin/ and rendering ${CONFIG_PATH}"
+DEPLOYMENT_HOST_HOST=$(ssh -G "$TARGET" 2>/dev/null | awk '/^hostname /{print $2; exit}')
+DEPLOYMENT_HOST_KEY="${DEPLOYMENT_HOST_SSH_KEY:-$HOME/.ssh/deployment-host.key}"
+[ -r "$DEPLOYMENT_HOST_KEY" ] || fail "cannot read the ssh key $DEPLOYMENT_HOST_KEY (set DEPLOYMENT_HOST_SSH_KEY to your deployment-host key)"
+scp -o BatchMode=yes -q -i "$DEPLOYMENT_HOST_KEY" \
+  "$ROOT/scripts/replication-sync.sh" "ubuntu@${DEPLOYMENT_HOST_HOST}:/tmp/replication-sync.sh" \
+  || fail "scp of the sync script to ${DEPLOYMENT_HOST_HOST} failed"
 ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
-  "sudo install -m 0755 /tmp/litestream-sync.sh /usr/local/bin/litestream-sync.sh && sudo rm /tmp/litestream-sync.sh" \
+  "sudo install -m 0755 /tmp/replication-sync.sh /usr/local/bin/replication-sync.sh && sudo rm /tmp/replication-sync.sh" \
   || fail "installing the sync script on ${TARGET} failed"
 ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
-  "sudo -n env DG_BIN=/usr/local/bin/dg LITESTREAM_RESTART_CMD= /usr/local/bin/litestream-sync.sh" \
-  || fail "rendering ${CONFIG_PATH} via litestream-sync.sh failed"
-log "rendered ${CONFIG_PATH} via litestream-sync.sh"
+  "sudo -n env DG_BIN=/usr/local/bin/dg LITESTREAM_RESTART_CMD= /usr/local/bin/replication-sync.sh" \
+  || fail "rendering ${CONFIG_PATH} via replication-sync.sh failed"
+log "rendered ${CONFIG_PATH} via replication-sync.sh"
 
 # --- 3. Install the systemd units (sidecar + config-sync timer). ---
-log "copying deploy/dg-litestream.service + dg-litestream-sync units to /etc/systemd/system/"
+log "copying deploy/dg-replication.service + dg-replication-sync units to /etc/systemd/system/"
 # scp resolves the ssh alias's hostname but does not inherit the
 # IdentityFile the way plain ssh does, so name the key explicitly.
-MICRO2_HOST=$(ssh -G "$TARGET" 2>/dev/null | awk '/^hostname /{print $2; exit}')
-MICRO2_KEY="${MICRO2_SSH_KEY:-$HOME/.ssh/micro2.key}"
-[ -r "$MICRO2_KEY" ] || fail "cannot read the ssh key $MICRO2_KEY (set MICRO2_SSH_KEY to your micro2 key)"
-scp -o BatchMode=yes -q -i "$MICRO2_KEY" \
-  "$ROOT/deploy/dg-litestream.service" "$ROOT/deploy/dg-litestream-sync.service" "$ROOT/deploy/dg-litestream-sync.timer" \
-  "ubuntu@${MICRO2_HOST}:/tmp/" \
-  || fail "scp of the units to ${MICRO2_HOST} failed"
+DEPLOYMENT_HOST_HOST=$(ssh -G "$TARGET" 2>/dev/null | awk '/^hostname /{print $2; exit}')
+DEPLOYMENT_HOST_KEY="${DEPLOYMENT_HOST_SSH_KEY:-$HOME/.ssh/deployment-host.key}"
+[ -r "$DEPLOYMENT_HOST_KEY" ] || fail "cannot read the ssh key $DEPLOYMENT_HOST_KEY (set DEPLOYMENT_HOST_SSH_KEY to your deployment-host key)"
+scp -o BatchMode=yes -q -i "$DEPLOYMENT_HOST_KEY" \
+  "$ROOT/deploy/dg-replication.service" "$ROOT/deploy/dg-replication-sync.service" "$ROOT/deploy/dg-replication-sync.timer" \
+  "ubuntu@${DEPLOYMENT_HOST_HOST}:/tmp/" \
+  || fail "scp of the units to ${DEPLOYMENT_HOST_HOST} failed"
 ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
-  "sudo install -m 0644 /tmp/dg-litestream.service /etc/systemd/system/dg-litestream.service && sudo install -m 0644 /tmp/dg-litestream-sync.service /etc/systemd/system/dg-litestream-sync.service && sudo install -m 0644 /tmp/dg-litestream-sync.timer /etc/systemd/system/dg-litestream-sync.timer && sudo rm /tmp/dg-litestream.service /tmp/dg-litestream-sync.service /tmp/dg-litestream-sync.timer && sudo systemctl daemon-reload" \
+  "sudo install -m 0644 /tmp/dg-replication.service /etc/systemd/system/dg-replication.service && sudo install -m 0644 /tmp/dg-replication-sync.service /etc/systemd/system/dg-replication-sync.service && sudo install -m 0644 /tmp/dg-replication-sync.timer /etc/systemd/system/dg-replication-sync.timer && sudo rm /tmp/dg-replication.service /tmp/dg-replication-sync.service /tmp/dg-replication-sync.timer && sudo systemctl daemon-reload" \
   || fail "installing the units on ${TARGET} failed"
 log "units installed and daemon-reloaded"
 
@@ -188,7 +188,7 @@ log "units installed and daemon-reloaded"
 log "verifying ${ENV_PATH} is the only copy of the secret on ${TARGET}"
 if ! ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" sudo -n python3 - <<'PYEOF' 2>&1
 import os, sys
-env = "/etc/dg/litestream.env"
+env = "/etc/dg/replication.env"
 sec = open(env).read().split("LITESTREAM_S3_SECRET_ACCESS_KEY=")[1].split("\n")[0].strip().encode()
 extra = []
 for root in ("/etc", "/var", "/home", "/root", "/opt", "/usr/local", "/tmp"):
@@ -218,5 +218,5 @@ fi
 # --- 4. Verify (do not start). The operator chooses when the sidecar
 # first starts so this script never auto-starts a service that touches
 # the network. ---
-log "install complete. To start: ssh $TARGET 'sudo systemctl enable --now dg-litestream dg-litestream-sync.timer'"
-log "verify with: ssh $TARGET 'sudo systemctl status dg-litestream dg-litestream-sync.timer --no-pager; sudo /usr/local/bin/litestream-sync.sh --check; sudo journalctl -u dg-litestream -n 50 --no-pager'"
+log "install complete. To start: ssh $TARGET 'sudo systemctl enable --now dg-replication dg-replication-sync.timer'"
+log "verify with: ssh $TARGET 'sudo systemctl status dg-replication dg-replication-sync.timer --no-pager; sudo /usr/local/bin/replication-sync.sh --check; sudo journalctl -u dg-replication -n 50 --no-pager'"

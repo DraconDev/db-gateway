@@ -2,7 +2,7 @@
 //!
 //! This is a deterministic fault-injection harness around the gateway's
 //! SQLite online-backup/export and validated-import paths. It is not a
-//! Litestream, S3, OVH, micro2, or continuous-replication test.
+//! Replication, S3, object storage provider, deployment-host, or continuous-replication test.
 
 use dg::{
     execution::{self, Statement},
@@ -546,8 +546,8 @@ fn main() -> AnyResult<()> {
             "restore": fallback_restore,
         },
         "limitations": [
-            "This does not run Litestream or prove continuous shipping timing.",
-            "This does not contact OVH, Turso, provider credentials, production data, or micro2.",
+            "This does not run Replication or prove continuous shipping timing.",
+            "This does not contact object storage provider, Turso, provider credentials, production data, or deployment-host.",
             "The RTO value is a local disposable measurement, not a production guarantee.",
             "The five-minute lag objective still requires a real sidecar/resource sandbox before adoption.",
         ],

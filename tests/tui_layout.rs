@@ -27,7 +27,7 @@ fn status() -> Value {
         },
         "database_counts": {"live": 2, "tombstoned": 0},
         "deployment": {
-            "host": "micro2",
+            "host": "deployment-host",
             "listen": "127.0.0.1:7432",
             "data_dir": "/var/lib/dg",
             "backup_root": "/var/lib/dg-backups",
@@ -714,7 +714,7 @@ fn the_service_tab_says_where_the_gateway_is() {
     open_tab(&mut app, '2');
     let text = screen(&mut app, 191, 40);
     for fact in [
-        "micro2",
+        "deployment-host",
         "127.0.0.1:7432",
         "/var/lib/dg",
         "/var/lib/dg-backups",
@@ -846,7 +846,7 @@ fn the_databases_tab_says_how_big_each_database_is() {
 #[test]
 fn idle_databases_read_as_zeroes_not_as_missing() {
     let names = [
-        "billing_dev_pilot",
+        "billing_dev_demo",
         "inventory",
         "ledger",
         "notes",

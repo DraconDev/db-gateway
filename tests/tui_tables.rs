@@ -39,7 +39,7 @@ fn only_plain_names_open() {
     // quote inside it would break out. The view refuses those names
     // before anything is sent.
     assert!(valid_table("products"));
-    assert!(valid_table("_litestream_seq"));
+    assert!(valid_table("_replication_seq"));
     assert!(valid_table("order_items2"));
     assert!(!valid_table(""));
     assert!(!valid_table("2fast"));

@@ -1,15 +1,15 @@
-# Pilot soak heartbeat timer template (non-installing).
+# Steady check heartbeat timer template (non-installing).
 #
-# Copy to ~/.config/systemd/user/soak-heartbeat.timer on the operator
-# machine alongside soak-heartbeat.service, then
-#   systemctl --user daemon-reload && systemctl --user enable --now soak-heartbeat.timer
+# Copy to ~/.config/systemd/user/steady-heartbeat.timer on the operator
+# machine alongside steady-heartbeat.service, then
+#   systemctl --user daemon-reload && systemctl --user enable --now steady-heartbeat.timer
 # Fires hourly at :35, clear of the :17 on-host backup slot so a
 # heartbeat row always lands in a different minute than the snapshot
 # that will carry it. Persistent=true catches up a missed fire after
-# downtime instead of silently skipping an hour of the soak record.
+# downtime instead of silently skipping an hour of the steady record.
 
 [Unit]
-Description=Hourly pilot soak heartbeat
+Description=Hourly steady check heartbeat
 
 [Timer]
 OnCalendar=*-*-* *:35:00

@@ -22,7 +22,7 @@
 #
 # Inputs, all inside the container:
 #   /root/bundle            the release bundle (dg, SHA256SUMS, deploy/dg.service)
-#   /usr/local/bin/micro2-backup.sh  the canonical backup producer, at the
+#   /usr/local/bin/backup.sh  the canonical backup producer, at the
 #                           path the deployment guide installs it at
 #   /offhost                the off-host artifact directory (a bind mount
 #                           from outside this host, so it survives the loss
@@ -131,7 +131,7 @@ install_from_bundle() {
     log "step 1: install the release bundle"
     [ -d "$BUNDLE" ] || fail "no bundle at $BUNDLE"
     # The bundle is verified ON the host, exactly as the first-deploy record
-    # did on micro2: checksum validity does not imply executability, so the
+    # did on deployment-host: checksum validity does not imply executability, so the
     # checksum is proven here and the mode is set separately.
     ( cd "$BUNDLE" && sha256sum -c SHA256SUMS ) || fail "bundle SHA256SUMS does not verify on this host"
     install -m 0755 -o root -g root "$BUNDLE/dg" "$BINARY" || fail "cannot install the gateway binary"
@@ -232,7 +232,7 @@ assert_first_deploy() {
 publish_backup() {
     log "publishing a backup set with the canonical producer"
     install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$BACKUP_ROOT" || fail "cannot create the backup root"
-    as_user env DG_BIN="$BINARY" bash /usr/local/bin/micro2-backup.sh \
+    as_user env DG_BIN="$BINARY" bash /usr/local/bin/backup.sh \
         --server "$SERVER" \
         --key-file "$KEY_FILE" \
         --data-dir "$DATA_DIR" \

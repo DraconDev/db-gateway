@@ -97,7 +97,7 @@ pub struct Store {
     /// callers; this mutex also keeps the connection itself single-owner.
     marker_db: Mutex<Connection>,
     /// Versioned backup sets published by the external backup job
-    /// (scripts/micro2-backup.sh layout). Convention: `<data-dir>/../dg-backups`
+    /// (scripts/backup.sh layout). Convention: `<data-dir>/../dg-backups`
     /// unless overridden; absent/unreadable means backup status is unknown,
     /// never healthy.
     backup_root: Option<PathBuf>,

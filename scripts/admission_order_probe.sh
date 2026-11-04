@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Rebuild the two per-database admission designs verbatim and run the SAME
 # admission-order experiment against both, so the claim in
-# docs/evidence/soak-starvation-evidence.log is reproducible in one command.
+# docs/evidence/steady-starvation-evidence.log is reproducible in one command.
 #
 #   OLD  a96f261  the phase-fair design that was replaced
 #   NEW  HEAD     the shipped ticket lock

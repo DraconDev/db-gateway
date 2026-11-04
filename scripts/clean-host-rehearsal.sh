@@ -2,7 +2,7 @@
 # Clean-host rehearsal — prove first-deploy and disaster recovery from nothing.
 #
 # The gap this closes: every first-deploy and recovery claim in this repo so
-# far was made in one of two places. The first deploy was made on micro2 — a
+# far was made in one of two places. The first deploy was made on deployment-host — a
 # real host, but not a clean one, and run as a sequence of hand-executed
 # steps rather than one repeatable command. The restore drills were made
 # against disposable directories on a development workstation, where the
@@ -37,11 +37,11 @@
 #      restored registry, that the restored copy is independent of the
 #      artifact, and that a corrupt artifact publishes nothing.
 #
-# The clean host is a container, not a fleet machine: touching micro2 or any
+# The clean host is a container, not a fleet machine: touching deployment-host or any
 # other host is a live change that this repository's own boundary requires
 # separate owner approval, and a rehearsal that needs that approval is a
 # rehearsal nobody runs. The container is built from the digest-pinned image
-# whose glibc matches the recorded micro2 target, so the artifact under test
+# whose glibc matches the recorded deployment-host target, so the artifact under test
 # is the same one a real host would receive. Pointing the same phases at a
 # real host is a separate, owner-approved exercise; this script never
 # contacts one.
@@ -74,7 +74,7 @@ HOST_A="dg-clean-a"
 HOST_B="dg-clean-b"
 RELEASE_SCRIPT="$ROOT/scripts/release-bundle.sh"
 PHASES_SCRIPT="$ROOT/scripts/clean-host-phases.sh"
-BACKUP_SCRIPT="$ROOT/scripts/micro2-backup.sh"
+BACKUP_SCRIPT="$ROOT/scripts/backup.sh"
 
 log() { echo "[rehearsal] $*"; }
 fail() { echo "[rehearsal] FAIL: $*" >&2; exit 1; }
@@ -196,7 +196,7 @@ if [ -z "$BUNDLE_DIR" ]; then
     # build cannot touch the operator's own ~/.cargo: the builder installs
     # its own rustup there, and a shared home would let that overwrite the
     # host's shims.
-    if ! DG_RELEASE_TARGET=micro2 \
+    if ! DG_RELEASE_TARGET=deployment-host \
         DG_CONTAINER_ENGINE="$ENGINE" \
         DG_RELEASE_CARGO_HOME="$WORKDIR/cargo" \
         "$RELEASE_SCRIPT" "$BUNDLE_DIR" >/dev/null 2>>"$EVIDENCE"; then
@@ -275,9 +275,9 @@ stage_host() { # stage_host <name>
         || fail "cannot copy the phase script onto $name"
     # The backup producer goes where the deployment guide puts it, so the
     # rehearsal runs the same file the hourly timer runs.
-    "$ENGINE" cp "$BACKUP_SCRIPT" "$name:/usr/local/bin/micro2-backup.sh" >/dev/null \
+    "$ENGINE" cp "$BACKUP_SCRIPT" "$name:/usr/local/bin/backup.sh" >/dev/null \
         || fail "cannot copy the backup producer onto $name"
-    "$ENGINE" exec -u root "$name" chmod 0755 /usr/local/bin/micro2-backup.sh >/dev/null \
+    "$ENGINE" exec -u root "$name" chmod 0755 /usr/local/bin/backup.sh >/dev/null \
         || fail "cannot make the backup producer executable"
 }
 

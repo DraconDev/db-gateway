@@ -21,7 +21,7 @@ pub(crate) fn is_set_dir(name: &str) -> bool {
         && b[15] == b'Z'
 }
 
-/// One published versioned set (scripts/micro2-backup.sh layout): directory
+/// One published versioned set (scripts/backup.sh layout): directory
 /// name, filesystem mtime, member database names, registry presence, and the
 /// conservative start boundary captured before any database export. A set may
 /// be published after a concurrent write, so publication mtime is not proof

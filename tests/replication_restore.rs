@@ -1,10 +1,10 @@
 //! Integration test for the row-count + PRAGMA integrity_check
-//! comparison logic that `scripts/litestream-restore.sh` runs after every
-//! `litestream restore`.
+//! comparison logic that `scripts/replication-restore.sh` runs after every
+//! `replication restore`.
 //!
 //! The test does not touch the live host or the live bucket. It builds a
 //! synthetic SQLite database, mirrors it (by copy, which is what a
-//! successful `litestream restore` would also produce), and then runs the
+//! successful `replication restore` would also produce), and then runs the
 //! same row-count + integrity_check comparison that the live script uses.
 //! The point is to pin the comparison logic so a future change to the
 //! shell script can be checked against this unit test's expectations.
@@ -12,7 +12,7 @@
 //! This is the test for the goal's verification contract clause "row
 //! counts plus PRAGMA integrity_check match the live sources exactly" —
 //! verified here on a synthetic pair, and the live script applies the
-//! same logic to the real restored files on micro2.
+//! same logic to the real restored files on deployment-host.
 
 use rusqlite::Connection;
 use std::path::Path;

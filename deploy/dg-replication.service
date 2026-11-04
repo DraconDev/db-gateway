@@ -1,16 +1,16 @@
 # Off-host replication sidecar for dg.
 #
-# Copy to /etc/systemd/system/dg-litestream.service on the target host, then
+# Copy to /etc/systemd/system/dg-replication.service on the target host, then
 #   systemctl daemon-reload
 # Nothing in this repository installs, enables, or starts this unit.
 #
-# The credentials never appear here. /etc/dg/litestream.env is the only copy
+# The credentials never appear here. /etc/dg/replication.env is the only copy
 # of the secret on the host (mode 0600, owner dg:dg) and is loaded by
 # systemd at ExecStart time via EnvironmentFile=; nothing else on the host
 # is permitted to read it.
 
 [Unit]
-Description=db-gateway off-host replication sidecar (litestream)
+Description=db-gateway off-host replication sidecar (replication)
 After=network.target
 Wants=dg.service
 After=dg.service
@@ -19,8 +19,8 @@ After=dg.service
 Type=simple
 User=dg
 Group=dg
-ExecStart=/usr/local/bin/litestream replicate -config /etc/litestream.yml
-EnvironmentFile=/etc/dg/litestream.env
+ExecStart=/usr/local/bin/replication replicate -config /etc/replication.yml
+EnvironmentFile=/etc/dg/replication.env
 Restart=on-failure
 RestartSec=5s
 # MemoryMax: the supervised sidecar cap. The measured figure is the
@@ -32,12 +32,12 @@ RestartSec=5s
 # (64 MiB, matching the host's enforcement), and the two units do not
 # have to agree. An early revision of this unit
 # carried 8 MiB, derived by analogy from the gateway's SQLite cache
-# ceiling -- the wrong model for litestream, whose memory is the S3
+# ceiling -- the wrong model for replication, whose memory is the S3
 # transfer and compaction working set rather than a page cache -- and the
 # sidecar was OOM-killed on its first start. The 1 GiB host budget is
 # dg.service (64 MiB) + this (96 MiB) + OS, which fits with room.
 # Evidence: docs/evidence/sandbox-packet-2026-09-29-rehearsal.log gate 9, and the
-# dg-litestream journal's oom-kill + restart counter from the 8 MiB cap.
+# dg-replication journal's oom-kill + restart counter from the 8 MiB cap.
 MemoryMax=96M
 
 [Install]

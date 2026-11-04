@@ -242,7 +242,7 @@ fn create(address: &str, cred: &str, name: &str) {
 }
 
 /// Append one attempt record, exactly the shape the producer
-/// (`scripts/micro2-backup.sh`) writes to `$BACKUP_ROOT/attempts.jsonl`.
+/// (`scripts/backup.sh`) writes to `$BACKUP_ROOT/attempts.jsonl`.
 fn record_attempt(root: &std::path::Path, ts: &str, outcome: &str, step: &str, set: Option<&str>) {
     let record = json!({
         "ts": ts,

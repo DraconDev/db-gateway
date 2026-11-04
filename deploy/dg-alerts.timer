@@ -6,7 +6,7 @@
 # Every 15 minutes: disk and replication lag are the two failures
 # that get worse while nobody looks, and a quarter-hour detection
 # bound is well inside both floors (15% free disk; a WAL that grows
-# past the 64 MiB ceiling means litestream checkpointing is stuck
+# past the 64 MiB ceiling means replication checkpointing is stuck
 # behind it — WAL *age* alone proves nothing for idle databases).
 
 [Unit]

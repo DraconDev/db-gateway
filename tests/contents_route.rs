@@ -93,7 +93,7 @@ fn the_gateways_own_tables_are_not_counted_as_the_operators_data() {
     fleet.cli.q(
         "replication bookkeeping",
         "shop",
-        "CREATE TABLE _litestream_seq (id INTEGER PRIMARY KEY, seq INTEGER)",
+        "CREATE TABLE _replication_seq (id INTEGER PRIMARY KEY, seq INTEGER)",
     );
     let document = contents(&fleet);
     let shop = &document["databases"]["shop"];

@@ -9,16 +9,16 @@
 # which builds the debug profile. Together they cover item 1 of
 # docs/resource-budget.md (release-profile RSS under a realistic workload,
 # idle and sustained) and item 3 (target OS baseline RSS and page-cache
-# behavior with the data dir hot), on the dev host. The supervised micro2
+# behavior with the data dir hot), on the dev host. The supervised deployment-host
 # sample (8292 KiB) is the on-target fact for the same workload; this
 # harness exists so the release profile is measured too and so the OS
 # baseline and page-cache growth are observed rather than guessed.
 #
-# What it does NOT do: measure litestream/OVH sidecar (item 2, already
+# What it does NOT do: measure replication/object storage provider sidecar (item 2, already
 # measured in docs/evidence/sandbox-packet-2026-09-29-rehearsal.log gate 9, peaks
 # 44 MiB replication / 33 MiB restore inside a 1 GiB enforced scope), the
 # target-host burst test (item 4) or the disk growth projection (item 5).
-# A 1 GB fit claim is the supervised micro2 run with this harness's
+# A 1 GB fit claim is the supervised deployment-host run with this harness's
 # workload carried over; that is the next step, not this script.
 
 set -euo pipefail
@@ -233,7 +233,7 @@ SQLITE_CACHE_CEILING_KIB=$(( (READ_PERMITS + WRITE_PERMITS) * CACHE_PER_CONN_KIB
 # Page cache growth attributable to the gateway's data dir = hot Cached
 # minus cold Cached. A negative result means the kernel evicted pages
 # during the workload (unlikely with a 30+ GiB host, but reported as a
-# signed delta for honesty). On the 1 GB micro2 host the same delta is
+# signed delta for honesty). On the 1 GB deployment-host host the same delta is
 # the binding term.
 PAGE_CACHE_DELTA_KIB=$(( OS_HOT_CACHED - OS_COLD_CACHED ))
 
@@ -344,15 +344,15 @@ report = {
     "disk_bytes": $DISK_BYTES,
     "workdir": "$WORKDIR",
     "limitations": [
-        "Dev host has 32 GiB RAM and 16 CPUs; the binding terms on a 1 GiB / 2 vCPU micro2 target will differ.",
+        "Dev host has 32 GiB RAM and 16 CPUs; the binding terms on a 1 GiB / 2 vCPU deployment-host target will differ.",
         "Burst is single-process, loopback, no TLS terminator, no real workload, no realistic schema.",
         "Page cache delta is whole-host Cached minus cold; includes any unrelated files the kernel happened to cache during the run, not just the data dir.",
         "Single run, not a statistical sample; rerun to compare, not to certify.",
         "Item 2 (sidecar) is sourced from the rehearsal packet, not re-measured here. Re-run scripts/sandbox-s3-gates.sh on a new packet to update the sidecar row.",
-        "Item 4 (target-host burst under capacity-reject regime) and item 5 (disk growth projection) are not in scope; the supervised micro2 run is the right place to record them.",
+        "Item 4 (target-host burst under capacity-reject regime) and item 5 (disk growth projection) are not in scope; the supervised deployment-host run is the right place to record them.",
 $CONSTRAINED_LIMITATION_LINE
     ],
-    "budget_note": "This report is one input to the MemoryMax value, not a claim of fit. A 1 GB fit claim requires the supervised micro2 run with the same workload and the same page-cache methodology; the suggested_memory_max_kib field is a starting ceiling, not a number the host has run under.",
+    "budget_note": "This report is one input to the MemoryMax value, not a claim of fit. A 1 GB fit claim requires the supervised deployment-host run with the same workload and the same page-cache methodology; the suggested_memory_max_kib field is a starting ceiling, not a number the host has run under.",
 }
 print(json.dumps(report, indent=2))
 EOF

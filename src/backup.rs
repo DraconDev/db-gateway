@@ -1,6 +1,6 @@
 //! Offline verification of published versioned backup sets.
 //!
-//! Producer: `scripts/micro2-backup.sh` writes `<root>/<timestamp>/` sets
+//! Producer: `scripts/backup.sh` writes `<root>/<timestamp>/` sets
 //! with `manifest.json`, per-database files plus `.sha256` sidecars, and a
 //! registry copy. Reader: [`crate::store::Store::backup_sets`] skips
 //! malformed sets for status purposes; [`verify_set`] re-verifies a set on

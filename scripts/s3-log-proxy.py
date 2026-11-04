@@ -9,11 +9,11 @@ THREE JOBS, ONE PROCESS.
    wrong. This proxy recomputes the SigV4 of every request that arrives,
    checking the access key against the one it was started with, the signed
    header set, and the date window, and answers 403 SignatureDoesNotMatch when
-   any of it disagrees. A litestream whose config is wrong therefore fails here
-   exactly as it would against OVH.
+   any of it disagrees. A replication whose config is wrong therefore fails here
+   exactly as it would against object storage provider.
 
-2. LOG. Gate 4 asks which S3 operations litestream 0.5.17 issues. That is not
-   knowable from the litestream documentation and not knowable from a single
+2. LOG. Gate 4 asks which S3 operations replication 0.5.17 issues. That is not
+   knowable from the replication documentation and not knowable from a single
    quiet run, so every request is recorded as one JSON line: method, bucket,
    key, query, signed headers, status, bytes. The packet reads the log back and
    reports a measured matrix instead of an assumed one.
@@ -24,7 +24,7 @@ THREE JOBS, ONE PROCESS.
    and every matching request gets that response, or `refuse=*` to make the
    endpoint stop answering at all, which is the blocked-egress case.
 
-WHY A PROXY AND NOT A PATCH. The packet has to run unchanged against OVH,
+WHY A PROXY AND NOT A PATCH. The packet has to run unchanged against object storage provider,
 where there is no proxy. Everything fault-specific lives here and in the
 harness's fault file, never in the code path that talks to the real endpoint.
 
@@ -80,7 +80,7 @@ def _upstream_conn():
     recording proxy in front of it spoke plain HTTP to a TLS port, the
     handshake never completed, and the gate recorded "0 objects written" with
     no error anywhere -- a silent false negative that looks exactly like a
-    litestream configuration problem.
+    replication configuration problem.
     """
     if not UPSTREAM_TLS:
         return http.client.HTTPConnection(UPSTREAM[0], UPSTREAM[1], timeout=120)
@@ -221,7 +221,7 @@ def resign_for_upstream(
     # x-amz-* headers present in a request to be in SignedHeaders, and the
     # forwarder below relays them all. A fixed 3-header set produces
     # "AccessDenied: headers present which were not signed" on any client
-    # (boto3, recent AWS SDKs, litestream) that sends checksum headers.
+    # (boto3, recent AWS SDKs, replication) that sends checksum headers.
     signed_headers = sorted(
         {"host", "x-amz-content-sha256", "x-amz-date"}
         | {h for h in scoped if h.startswith("x-amz-")}
@@ -300,11 +300,11 @@ def _needs_empty_listing_emulation(method: str, query: str, payload: bytes, buck
     a delimiter, and while answering 200 for a missing prefix generally. Real S3
     answers 200 with an empty result in all of those cases.
 
-    It matters because litestream 0.5.17's restore lists
+    It matters because replication 0.5.17's restore lists
     `<prefix>/generations/` with a delimiter to establish v0.3.x time bounds.
     Against the rehearsal store that 404 is fatal and the restore aborts with
     "get v0.3.x time bounds ... NoSuchBucket" -- so a rehearsal would report that
-    restore-from-S3 does not work when it is the store lying, not litestream.
+    restore-from-S3 does not work when it is the store lying, not replication.
 
     The translation is deliberately narrow: only a 404, only for a GET that is
     itself a listing, only when the error code is NoSuchBucket, and only after
@@ -554,7 +554,7 @@ class Handler(BaseHTTPRequestHandler):
                 "bytes": size,
                 "request_bytes": request_bytes,
                 "content_type": self.headers.get("content-type", ""),
-                "litestream_meta": ";".join(
+                "replication_meta": ";".join(
                     f"{k}={v}" for k, v in self.headers.items() if k.lower().startswith("x-amz-meta-")
                 ),
                 "host": self.headers.get("host", ""),
@@ -679,7 +679,7 @@ class Server(socketserver.ThreadingTCPServer):
 
     The handshake is done by the worker thread, not on the listening socket.
     Wrapping the LISTENING socket makes accept() perform the handshake, which
-    means one connection that opens and sends nothing -- which litestream does,
+    means one connection that opens and sends nothing -- which replication does,
     and which every connection pool does -- blocks the accept loop, so the real
     request behind it is never served. The symptom is a client that connects,
     sits there, and never gets a byte, with nothing logged anywhere.
@@ -764,7 +764,7 @@ def summarize(path: str) -> int:
     if sse_seen:
         print(f"requests carrying server-side-encryption headers, in THIS cycle's log: {sse_seen}")
     else:
-        # Scoped to this window, on purpose. An unqualified "litestream sent
+        # Scoped to this window, on purpose. An unqualified "replication sent
         # none" reads as a statement about the whole run, and gate 10's SSE-C
         # probe -- run through a different proxy, later, on purpose -- does sign
         # those headers. Two lines in one packet, contradicting each other
@@ -843,7 +843,7 @@ def main(argv: list[str] | None = None) -> int:
     # deadlocks: head exits after one line, but the proxy keeps the pipe's write
     # end open while it serves, so the substitution waits forever. This is not a
     # theoretical hazard -- it is what the first two rehearsal runs hung on, and
-    # it would have hung the real OVH run identically.
+    # it would have hung the real object storage provider run identically.
     if args.port_file:
         # Write-then-rename so a reader never sees a half-written port.
         tmp = f"{args.port_file}.tmp"

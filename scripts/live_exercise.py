@@ -4,7 +4,7 @@
 Usage: live_exercise.py [--server URL] [--key-file PATH] [--prefix P]
                         [--cleanup] [--out FILE]
 
-The load harnesses in this repo (soak.py, soak_starvation.py,
+The load harnesses in this repo (steady.py, steady_starvation.py,
 noisy_neighbor_cross_db.py) start their own `dg serve` on a temp
 directory and never touch a deployment. That is deliberate: a load test
 on the box that holds the data is a load test on the data. But it also

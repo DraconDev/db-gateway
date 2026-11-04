@@ -1,6 +1,6 @@
 //! Release-bundle contract tests.
 //!
-//! The default micro2 test performs the real locked build and smoke test in
+//! The default deployment-host test performs the real locked build and smoke test in
 //! the immutable Ubuntu image. Focused fake-engine tests prove the default
 //! path cannot silently fall back to a native build and that build/smoke
 //! failures propagate.
@@ -53,10 +53,10 @@ fn fake_engine(dir: &Path, body: &str) -> PathBuf {
 }
 
 #[test]
-fn micro2_rejects_missing_container_engine_without_native_fallback() {
+fn deployment_host_rejects_missing_container_engine_without_native_fallback() {
     let dir = tempdir();
     let missing = dir.path().join("missing-engine");
-    let output = run_release(Some(&missing), "micro2");
+    let output = run_release(Some(&missing), "deployment-host");
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("requested container engine is unavailable"));
@@ -67,10 +67,10 @@ fn micro2_rejects_missing_container_engine_without_native_fallback() {
 }
 
 #[test]
-fn micro2_propagates_builder_inspection_failure() {
+fn deployment_host_propagates_builder_inspection_failure() {
     let dir = tempdir();
     let engine = fake_engine(dir.path(), "echo 'builder drift' >&2; exit 42");
-    let output = run_release(Some(&engine), "micro2");
+    let output = run_release(Some(&engine), "deployment-host");
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("builder could not be inspected"));
@@ -79,7 +79,7 @@ fn micro2_propagates_builder_inspection_failure() {
 }
 
 #[test]
-fn micro2_propagates_build_or_smoke_failure() {
+fn deployment_host_propagates_build_or_smoke_failure() {
     let dir = tempdir();
     let engine = fake_engine(
         dir.path(),
@@ -96,7 +96,7 @@ echo 'unexpected fake-engine invocation' >&2
 exit 44
 "#,
     );
-    let output = run_release(Some(&engine), "micro2");
+    let output = run_release(Some(&engine), "deployment-host");
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
@@ -113,19 +113,19 @@ exit 44
 // is exercised in CI by the `check` job of `.github/workflows/ci.yml`, which
 // installs docker first and re-runs this single test with `--ignored`.
 // Run it locally with:
-//   cargo test --locked --test release_bundle -- --ignored micro2_pinned
+//   cargo test --locked --test release_bundle -- --ignored deployment_host_pinned
 // The script auto-selects the engine (podman preferred, docker fallback;
 // override with DG_CONTAINER_ENGINE=podman|docker). Verified 2026-10-15:
 // 1 passed, EXIT=0 via auto-detect. The four sibling
 // tests in this file still run on every PR: the three fake-engine modes
 // (no engine, builder drift, build/smoke failure) prove the script's
 // failure modes without needing a real container, and
-// `explicit_host_bundle_never_claims_micro2_abi_verified` pins the
+// `explicit_host_bundle_never_claims_deployment_host_abi_verified` pins the
 // `DG_RELEASE_TARGET=host` contract on every PR.
 #[test]
 #[ignore]
-fn micro2_pinned_container_builds_bundle_and_records_builder() {
-    let output = run_release(None, "micro2");
+fn deployment_host_pinned_container_builds_bundle_and_records_builder() {
+    let output = run_release(None, "deployment-host");
     assert!(
         output.status.success(),
         "bundle script failed: {}",
@@ -187,7 +187,7 @@ fn micro2_pinned_container_builds_bundle_and_records_builder() {
     }
     let info = fs::read_to_string(bundle("BUILD-INFO.txt")).unwrap();
     for expected in [
-        "target: micro2",
+        "target: deployment-host",
         "builder_image: ",
         PINNED_IMAGE,
         "builder_os: Ubuntu 24.04 amd64",
@@ -207,7 +207,7 @@ fn micro2_pinned_container_builds_bundle_and_records_builder() {
 }
 
 #[test]
-fn explicit_host_bundle_never_claims_micro2_abi_verified() {
+fn explicit_host_bundle_never_claims_deployment_host_abi_verified() {
     let _guard = release_lock();
     let dir = tempdir();
     let out = dir.path().join("bundle");
@@ -224,7 +224,7 @@ fn explicit_host_bundle_never_claims_micro2_abi_verified() {
     assert!(info.contains("target: host"));
     assert!(info.contains("builder_image: none"));
     assert!(info.contains("abi_verified: false"));
-    assert!(info.contains("micro2 ABI is not verified"));
+    assert!(info.contains("deployment-host ABI is not verified"));
 }
 
 // The bundle's `dg` must be executable, and the deploy gate must be the

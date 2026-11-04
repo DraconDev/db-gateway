@@ -868,7 +868,7 @@ fn a_reader_waits_for_a_writer_that_releases_inside_the_bound() {
     writer.join().unwrap();
 }
 
-/// A read flood must not delay a writer. This is the Phase 2 soak
+/// A read flood must not delay a writer. This is the Phase 2 steady
 /// measurement turned into a test: a writer queues behind a held reader
 /// batch, and a reader arriving after that writer must NOT jump in front
 /// of it.
@@ -978,7 +978,7 @@ fn waiting_writer_makes_new_readers_yield() {
 /// queue is a fair ticket lock rather than a flag: that flag fixed the
 /// writers
 /// and starved the readers, 4,260 reader rejections against 5 writer
-/// rejections in one soak run. A continuous stream of writers must still
+/// rejections in one steady run. A continuous stream of writers must still
 /// let a waiting reader in.
 #[test]
 fn continuous_writers_do_not_starve_a_waiting_reader() {

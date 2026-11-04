@@ -2,7 +2,7 @@
 //!
 //! Run: `timeout 600 cargo test --locked --test backup_pipeline`
 //!
-//! The canonical producer is scripts/micro2-backup.sh against a live
+//! The canonical producer is scripts/backup.sh against a live
 //! disposable server; `dg backup verify` re-checks published sets offline;
 //! the restore drill follows docs/recovery-contract.md §3 against a set the
 //! script actually published (hash chain, empty target, registry restore
@@ -113,7 +113,7 @@ fn run_script(
 ) -> std::process::Output {
     let mut command = Command::new("bash");
     command.args([
-        "scripts/micro2-backup.sh",
+        "scripts/backup.sh",
         "--server",
         &format!("http://{}", server.address),
         "--key-file",
@@ -498,7 +498,7 @@ fn interrupted_run_publishes_nothing_and_next_run_recovers() {
     let mut killed = Command::new("bash");
     killed
         .args([
-            "scripts/micro2-backup.sh",
+            "scripts/backup.sh",
             "--server",
             &format!("http://{}", server.address),
             "--key-file",
@@ -562,7 +562,7 @@ fn failed_run_records_attempt() {
     std::fs::write(&key_file, "a".repeat(64)).unwrap();
     let output = Command::new("bash")
         .args([
-            "scripts/micro2-backup.sh",
+            "scripts/backup.sh",
             "--server",
             "http://127.0.0.1:9",
             "--key-file",
