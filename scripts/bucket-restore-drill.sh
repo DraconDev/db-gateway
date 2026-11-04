@@ -24,9 +24,9 @@
 # Usage: scripts/bucket-restore-drill.sh
 # Env: DG_BIN (/usr/local/bin/dg), DG_SERVER, DG_KEY_FILE
 #      (/etc/dg/owner.key), DG_DATA_DIR (/var/lib/dg),
-#      LITESTREAM_BIN (/usr/local/bin/replication),
-#      LITESTREAM_CONFIG (/etc/replication.yml),
-#      LITESTREAM_ENV_FILE (/etc/dg/replication.env; sourced if readable,
+#      REPLICATION_BIN (/usr/local/bin/replication),
+#      REPLICATION_CONFIG (/etc/replication.yml),
+#      REPLICATION_ENV_FILE (/etc/dg/replication.env; sourced if readable,
 #      needed so S3 restores get credentials the same way the sidecar
 #      does; values are never echoed),
 #      DG_DRILL_SCRATCH_PARENT (/var/tmp), KEEP=1 keeps the scratch dir.
@@ -43,9 +43,9 @@ log() { echo "[$SELF] $*" >&2; }
 DG_BIN="${DG_BIN:-/usr/local/bin/dg}"
 DG_KEY_FILE="${DG_KEY_FILE:-/etc/dg/owner.key}"
 DG_DATA_DIR="${DG_DATA_DIR:-/var/lib/dg}"
-LITESTREAM_BIN="${LITESTREAM_BIN:-/usr/local/bin/replication}"
-LITESTREAM_CONFIG="${LITESTREAM_CONFIG:-/etc/replication.yml}"
-ENV_FILE="${LITESTREAM_ENV_FILE:-/etc/dg/replication.env}"
+REPLICATION_BIN="${REPLICATION_BIN:-/usr/local/bin/replication}"
+REPLICATION_CONFIG="${REPLICATION_CONFIG:-/etc/replication.yml}"
+ENV_FILE="${REPLICATION_ENV_FILE:-/etc/dg/replication.env}"
 SCRATCH_PARENT="${DG_DRILL_SCRATCH_PARENT:-/var/tmp}"
 BACKUP_ROOT="${DG_BACKUP_ROOT:-/var/lib/dg-backups}"
 
@@ -84,8 +84,8 @@ PY
 }
 
 [ -x "$DG_BIN" ] || fail "dg binary not executable: $DG_BIN"
-[ -x "$LITESTREAM_BIN" ] || fail "replication binary not executable: $LITESTREAM_BIN"
-[ -r "$LITESTREAM_CONFIG" ] || fail "replication config not readable: $LITESTREAM_CONFIG"
+[ -x "$REPLICATION_BIN" ] || fail "replication binary not executable: $REPLICATION_BIN"
+[ -r "$REPLICATION_CONFIG" ] || fail "replication config not readable: $REPLICATION_CONFIG"
 # ENV_FILE is an operator-nominated path by design (default
 # /etc/dg/replication.env); there is no constant source to follow.
 # shellcheck disable=SC1090
@@ -155,7 +155,7 @@ PY
 }
 restore_one() { # restore_one <name>
     rm -f "$SCRATCH/$1.sqlite"
-    timeout 600 "$LITESTREAM_BIN" restore -config "$LITESTREAM_CONFIG" \
+    timeout 600 "$REPLICATION_BIN" restore -config "$REPLICATION_CONFIG" \
         -o "$SCRATCH/$1.sqlite" "$DG_DATA_DIR/$1.sqlite" >/dev/null 2>"$SCRATCH/restore-$1.log"
 }
 

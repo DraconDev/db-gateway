@@ -59,12 +59,12 @@ fn the_published_window_covers_the_whole_replica_chain() {
 
     let output = Command::new("bash")
         .args(["scripts/restore-point.sh", "--list"])
-        .env("LITESTREAM_BIN", &fake)
-        .env("LITESTREAM_CONFIG", &config)
-        .env("LITESTREAM_ENV_FILE", dir.path().join("no-such-env-file"))
+        .env("REPLICATION_BIN", &fake)
+        .env("REPLICATION_CONFIG", &config)
+        .env("REPLICATION_ENV_FILE", dir.path().join("no-such-env-file"))
         .env("DG_BACKUP_ROOT", &backup_root)
         .env("DG_DATA_DIR", &data_dir)
-        .env("DG_LITESTREAM_STATUS_CMD", "echo active")
+        .env("DG_REPLICATION_STATUS_CMD", "echo active")
         .output()
         .expect("run the window publisher");
     assert!(
@@ -665,8 +665,8 @@ fn run_sync(dir: &Path, env: &[(&str, &str)]) -> std::process::Output {
     command.env_clear();
     command.env("PATH", std::env::var("PATH").unwrap_or_default());
     command.env("DG_LIST_AS", "");
-    command.env("LITESTREAM_RESTART_CMD", "true");
-    command.env("LITESTREAM_CONFIG_OWNER", "");
+    command.env("REPLICATION_RESTART_CMD", "true");
+    command.env("REPLICATION_CONFIG_OWNER", "");
     command.env("HOME", dir);
     for (key, value) in env {
         command.env(key, value);
@@ -695,7 +695,7 @@ fn the_sync_publishes_where_the_off_host_copy_is() {
                 dir.path().join("owner.key").to_str().unwrap(),
             ),
             ("DG_DATA_DIR", data.to_str().unwrap()),
-            ("LITESTREAM_CONFIG", config.to_str().unwrap()),
+            ("REPLICATION_CONFIG", config.to_str().unwrap()),
             ("DG_BACKUP_ROOT", backups.to_str().unwrap()),
             ("DG_REPLICA_URL_TEMPLATE", "file:///srv/replicas/{name}"),
         ],
@@ -773,8 +773,8 @@ fn the_published_replica_status_never_carries_a_credential() {
                 dir.path().join("owner.key").to_str().unwrap(),
             ),
             ("DG_DATA_DIR", data.to_str().unwrap()),
-            ("LITESTREAM_CONFIG", config.to_str().unwrap()),
-            ("LITESTREAM_ENV_FILE", env_file.to_str().unwrap()),
+            ("REPLICATION_CONFIG", config.to_str().unwrap()),
+            ("REPLICATION_ENV_FILE", env_file.to_str().unwrap()),
             ("DG_BACKUP_ROOT", backups.to_str().unwrap()),
         ],
     );
@@ -880,9 +880,9 @@ fn the_restore_drill_publishes_whether_the_copies_restored() {
         .env("DG_BIN", &dg)
         .env("DG_KEY_FILE", dir.path().join("owner.key"))
         .env("DG_DATA_DIR", &data)
-        .env("LITESTREAM_BIN", &replication)
-        .env("LITESTREAM_CONFIG", &config)
-        .env("LITESTREAM_ENV_FILE", dir.path().join("no-such.env"))
+        .env("REPLICATION_BIN", &replication)
+        .env("REPLICATION_CONFIG", &config)
+        .env("REPLICATION_ENV_FILE", dir.path().join("no-such.env"))
         .env("DG_BACKUP_ROOT", &backups)
         .env("DG_DRILL_SCRATCH_PARENT", dir.path())
         .output()
@@ -999,13 +999,13 @@ fn the_restore_point_script_publishes_the_window_the_replica_offers() {
         dir.path(),
         &["--list"],
         &[
-            ("LITESTREAM_BIN", replication.to_str().unwrap()),
-            ("LITESTREAM_CONFIG", config.to_str().unwrap()),
-            ("LITESTREAM_ENV_FILE", absent_env.to_str().unwrap()),
+            ("REPLICATION_BIN", replication.to_str().unwrap()),
+            ("REPLICATION_CONFIG", config.to_str().unwrap()),
+            ("REPLICATION_ENV_FILE", absent_env.to_str().unwrap()),
             ("DG_DATA_DIR", data.to_str().unwrap()),
             ("DG_BACKUP_ROOT", backups.to_str().unwrap()),
             ("RESTORE_ROOT", restores.to_str().unwrap()),
-            ("DG_LITESTREAM_STATUS_CMD", "echo active"),
+            ("DG_REPLICATION_STATUS_CMD", "echo active"),
         ],
     );
     assert!(
@@ -1069,9 +1069,9 @@ fn the_restore_point_script_publishes_what_a_restore_produced() {
             "alpha",
         ],
         &[
-            ("LITESTREAM_BIN", replication.to_str().unwrap()),
-            ("LITESTREAM_CONFIG", config.to_str().unwrap()),
-            ("LITESTREAM_ENV_FILE", absent_env.to_str().unwrap()),
+            ("REPLICATION_BIN", replication.to_str().unwrap()),
+            ("REPLICATION_CONFIG", config.to_str().unwrap()),
+            ("REPLICATION_ENV_FILE", absent_env.to_str().unwrap()),
             ("DG_DATA_DIR", data.to_str().unwrap()),
             ("DG_BACKUP_ROOT", backups.to_str().unwrap()),
             ("RESTORE_ROOT", restores.to_str().unwrap()),
@@ -1130,9 +1130,9 @@ fn the_published_restore_facts_never_carry_a_credential() {
         dir.path(),
         &["--list"],
         &[
-            ("LITESTREAM_BIN", replication.to_str().unwrap()),
-            ("LITESTREAM_CONFIG", config.to_str().unwrap()),
-            ("LITESTREAM_ENV_FILE", env_file.to_str().unwrap()),
+            ("REPLICATION_BIN", replication.to_str().unwrap()),
+            ("REPLICATION_CONFIG", config.to_str().unwrap()),
+            ("REPLICATION_ENV_FILE", env_file.to_str().unwrap()),
             ("DG_DATA_DIR", data.to_str().unwrap()),
             ("DG_BACKUP_ROOT", backups.to_str().unwrap()),
             ("RESTORE_ROOT", restores.to_str().unwrap()),
@@ -1170,9 +1170,9 @@ fn the_restore_point_script_refuses_a_moment_it_cannot_restore() {
     let config = replication_config(dir.path(), &data, &["alpha"]);
     let absent_env = dir.path().join("absent.env");
     let env = [
-        ("LITESTREAM_BIN", replication.to_str().unwrap()),
-        ("LITESTREAM_CONFIG", config.to_str().unwrap()),
-        ("LITESTREAM_ENV_FILE", absent_env.to_str().unwrap()),
+        ("REPLICATION_BIN", replication.to_str().unwrap()),
+        ("REPLICATION_CONFIG", config.to_str().unwrap()),
+        ("REPLICATION_ENV_FILE", absent_env.to_str().unwrap()),
         ("DG_DATA_DIR", data.to_str().unwrap()),
         ("DG_BACKUP_ROOT", backups.to_str().unwrap()),
         ("RESTORE_ROOT", restores.to_str().unwrap()),

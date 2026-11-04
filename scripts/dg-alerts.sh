@@ -32,7 +32,7 @@
 #      DG_ALERTS_DISK_FLOOR_BYTES (1073741824), DG_ALERTS_INODE_FLOOR_PCT (10),
 #      DG_ALERTS_WAL_MAX_BYTES (67108864), DG_ALERTS_SIDECAR_UNIT (dg-replication;
 #      "skip" disables), DG_ALERTS_SYNC_CHECK (/usr/local/bin/replication-sync.sh;
-#      "skip" disables), DG_ALERTS_LITESTREAM_BIN (/usr/local/bin/replication;
+#      "skip" disables), DG_ALERTS_REPLICATION_BIN (/usr/local/bin/replication;
 #      "skip" disables the status sub-check),
 #      DG_ALERTS_WEBHOOK_URL (unset: journal only),
 #      DG_ALERTS_WEBHOOK_URL_FILE (a mode-0600 file holding the URL;
@@ -47,7 +47,7 @@ INODE_PCT="${DG_ALERTS_INODE_FLOOR_PCT:-10}"
 WAL_MAX="${DG_ALERTS_WAL_MAX_BYTES:-67108864}"
 SIDECAR="${DG_ALERTS_SIDECAR_UNIT:-dg-replication}"
 SYNC_CHECK="${DG_ALERTS_SYNC_CHECK:-/usr/local/bin/replication-sync.sh}"
-LS_BIN="${DG_ALERTS_LITESTREAM_BIN:-/usr/local/bin/replication}"
+LS_BIN="${DG_ALERTS_REPLICATION_BIN:-/usr/local/bin/replication}"
 WEBHOOK_URL="${DG_ALERTS_WEBHOOK_URL:-}"
 WEBHOOK_URL_FILE="${DG_ALERTS_WEBHOOK_URL_FILE:-}"
 ALERTS=0

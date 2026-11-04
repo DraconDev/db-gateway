@@ -21,15 +21,15 @@
 # nothing this script prints or publishes carries them.
 #
 # Env:
-#   LITESTREAM_BIN        replication binary     (default /usr/local/bin/replication)
-#   LITESTREAM_CONFIG     replication config     (default /etc/replication.yml)
-#   LITESTREAM_ENV_FILE   bucket credentials   (default /etc/dg/replication.env)
+#   REPLICATION_BIN        replication binary     (default /usr/local/bin/replication)
+#   REPLICATION_CONFIG     replication config     (default /etc/replication.yml)
+#   REPLICATION_ENV_FILE   bucket credentials   (default /etc/dg/replication.env)
 #   DG_BACKUP_ROOT        where the facts are published
 #                                                (default /var/lib/dg-backups)
 #   DG_DATA_DIR           database files        (default /var/lib/dg)
 #   RESTORE_ROOT          where restored copies land
 #                                                (default /var/lib/dg-restores)
-#   DG_LITESTREAM_STATUS_CMD command that reports the sidecar's state
+#   DG_REPLICATION_STATUS_CMD command that reports the sidecar's state
 #                         (default: systemctl is-active dg-replication.service;
 #                          empty string disables the check)
 #
@@ -47,13 +47,13 @@ set -euo pipefail
 
 SELF="restore-point"
 
-LITESTREAM_BIN="${LITESTREAM_BIN:-/usr/local/bin/replication}"
-LITESTREAM_CONFIG="${LITESTREAM_CONFIG:-/etc/replication.yml}"
-LITESTREAM_ENV_FILE="${LITESTREAM_ENV_FILE:-/etc/dg/replication.env}"
+REPLICATION_BIN="${REPLICATION_BIN:-/usr/local/bin/replication}"
+REPLICATION_CONFIG="${REPLICATION_CONFIG:-/etc/replication.yml}"
+REPLICATION_ENV_FILE="${REPLICATION_ENV_FILE:-/etc/dg/replication.env}"
 DG_BACKUP_ROOT="${DG_BACKUP_ROOT:-/var/lib/dg-backups}"
 DG_DATA_DIR="${DG_DATA_DIR:-/var/lib/dg}"
 RESTORE_ROOT="${RESTORE_ROOT:-/var/lib/dg-restores}"
-STATUS_CMD="${DG_LITESTREAM_STATUS_CMD-systemctl is-active dg-replication.service}"
+STATUS_CMD="${DG_REPLICATION_STATUS_CMD-systemctl is-active dg-replication.service}"
 
 MODE=""
 TIMESTAMP=""
@@ -98,15 +98,15 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$MODE" ] || fail "one of --list, --plan or --apply is required"
-[ -x "$LITESTREAM_BIN" ] || fail "replication binary not executable: $LITESTREAM_BIN"
-[ -r "$LITESTREAM_CONFIG" ] || fail "replication config not readable: $LITESTREAM_CONFIG"
+[ -x "$REPLICATION_BIN" ] || fail "replication binary not executable: $REPLICATION_BIN"
+[ -r "$REPLICATION_CONFIG" ] || fail "replication config not readable: $REPLICATION_CONFIG"
 
 # The credentials go into this process's environment the way the sidecar's
 # systemd unit puts them there: sourced, exported, never echoed.
-if [ -r "$LITESTREAM_ENV_FILE" ]; then
+if [ -r "$REPLICATION_ENV_FILE" ]; then
     set -a
     # shellcheck disable=SC1090
-    . "$LITESTREAM_ENV_FILE"
+    . "$REPLICATION_ENV_FILE"
     set +a
 fi
 
@@ -119,7 +119,7 @@ fi
 # the credential lines are not matched by the pattern and are never
 # printed.
 config_paths() {
-    python3 - "$LITESTREAM_CONFIG" <<'PY'
+    python3 - "$REPLICATION_CONFIG" <<'PY'
 import re
 import sys
 
@@ -202,7 +202,7 @@ if [ "$MODE" = "list" ]; then
         # than the replica's real one, and every moment inside it was
         # reported as "the window opens later" -- moments replication
         # itself would happily restore.
-        if "$LITESTREAM_BIN" ltx -level all -config "$LITESTREAM_CONFIG" "$path" \
+        if "$REPLICATION_BIN" ltx -level all -config "$REPLICATION_CONFIG" "$path" \
             >"$WORK/$name.ltx" 2>"$WORK/$name.err"; then
             :
         else
@@ -347,10 +347,10 @@ DB_PATH="$DG_DATA_DIR/$DATABASE.sqlite"
 
 if [ "$MODE" = "plan" ]; then
     echo "restore plan: $DATABASE at $TIMESTAMP"
-    echo "source: $LITESTREAM_CONFIG"
+    echo "source: $REPLICATION_CONFIG"
     echo "target: ${RESTORE_ROOT}/<timestamp>/$DATABASE.sqlite (a fresh directory; a live database is never written)"
     echo
-    if ! "$LITESTREAM_BIN" restore -config "$LITESTREAM_CONFIG" \
+    if ! "$REPLICATION_BIN" restore -config "$REPLICATION_CONFIG" \
         -dry-run -timestamp "$TIMESTAMP" "$DB_PATH"; then
         fail "no restore is available for $DATABASE at $TIMESTAMP"
     fi
@@ -431,7 +431,7 @@ INTEGRITY="unknown"
 # The restore is the one thing that reads the bucket with the real
 # credentials, so it is the one thing that can fail for reasons that
 # have nothing to do with the data.
-if "$LITESTREAM_BIN" restore -config "$LITESTREAM_CONFIG" \
+if "$REPLICATION_BIN" restore -config "$REPLICATION_CONFIG" \
     -o "$TARGET" -timestamp "$TIMESTAMP" "$DB_PATH" 2>"$TARGET_DIR/restore.log"; then
     if [ -s "$TARGET" ]; then
         # The restored copy is data: it gets the same mode as every other

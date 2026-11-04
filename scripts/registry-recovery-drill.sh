@@ -21,7 +21,7 @@
 # deployment-host, no bucket, no network beyond loopback.
 #
 # Usage: scripts/registry-recovery-drill.sh
-# Env:   LITESTREAM_BIN, DG_BIN, DG_DRILL_PORT (default 17433), KEEP=1
+# Env:   REPLICATION_BIN, DG_BIN, DG_DRILL_PORT (default 17433), KEEP=1
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -29,15 +29,15 @@ SELF="registry-recovery-drill"
 fail() { echo "[$SELF] FAIL: $*" >&2; exit 1; }
 step() { echo "[$SELF] $*"; }
 
-LITESTREAM_BIN="${LITESTREAM_BIN:-$HOME/.local/dg-sandbox/replication-0.5.17/replication}"
+REPLICATION_BIN="${REPLICATION_BIN:-$HOME/.local/dg-sandbox/replication-0.5.17/replication}"
 DG_BIN="${DG_BIN:-$ROOT/.cargo/target/debug/dg}"
 PORT="${DG_DRILL_PORT:-17433}"
 RPORT=$((PORT + 1))
 SERVER="http://127.0.0.1:${PORT}"
 RSERVER="http://127.0.0.1:${RPORT}"
 
-[ -x "$LITESTREAM_BIN" ] || fail "pinned replication not found at $LITESTREAM_BIN (set LITESTREAM_BIN)"
-[ "$("$LITESTREAM_BIN" version 2>/dev/null | head -1)" = "0.5.17" ] || fail "replication at $LITESTREAM_BIN is not 0.5.17"
+[ -x "$REPLICATION_BIN" ] || fail "pinned replication not found at $REPLICATION_BIN (set REPLICATION_BIN)"
+[ "$("$REPLICATION_BIN" version 2>/dev/null | head -1)" = "0.5.17" ] || fail "replication at $REPLICATION_BIN is not 0.5.17"
 [ -x "$DG_BIN" ] || (cd "$ROOT" && timeout 300 cargo build --locked --quiet --bin dg) || fail "cargo build failed"
 
 SB="$(mktemp -d "${TMPDIR:-/tmp}/dg-registry-drill-XXXXXX")"
@@ -55,7 +55,7 @@ cat >"$SB/restart-replication.sh" <<EOF
 #!/usr/bin/env bash
 set -eu
 if [ -f "$SB/replication.pid" ]; then kill "\$(cat "$SB/replication.pid")" 2>/dev/null || true; sleep 1; fi
-"$LITESTREAM_BIN" replicate -config "$SB/replication.yml" >>"$SB/replication.log" 2>&1 &
+"$REPLICATION_BIN" replicate -config "$SB/replication.yml" >>"$SB/replication.log" 2>&1 &
 echo \$! >"$SB/replication.pid"
 sleep 1
 kill -0 "\$(cat "$SB/replication.pid")"
@@ -64,9 +64,9 @@ chmod +x "$SB/restart-replication.sh"
 
 SYNC_ENV=(
     "DG_BIN=$DG_BIN" "DG_SERVER=$SERVER" "DG_KEY_FILE=$SB/owner.key" "DG_LIST_AS="
-    "DG_DATA_DIR=$SB/data" "LITESTREAM_CONFIG=$SB/replication.yml"
+    "DG_DATA_DIR=$SB/data" "REPLICATION_CONFIG=$SB/replication.yml"
     "DG_REPLICA_URL_TEMPLATE=file://$SB/replicas/{name}"
-    "LITESTREAM_RESTART_CMD=$SB/restart-replication.sh" "LITESTREAM_CONFIG_OWNER="
+    "REPLICATION_RESTART_CMD=$SB/restart-replication.sh" "REPLICATION_CONFIG_OWNER="
 )
 sync_run() { env "${SYNC_ENV[@]}" "$ROOT/scripts/replication-sync.sh" "$@"; }
 dg() { "$DG_BIN" --server "$SERVER" --key-file "$SB/owner.key" "$@"; }
@@ -104,7 +104,7 @@ dg key create --role database_read_only --database ledger_app ledger_reader_two 
 dg query ledger_app "INSERT INTO ledger VALUES (3, 'reg-charlie')" >/dev/null
 cred_count_in_replica() {
     rm -f "$SB/probe/metadata.sqlite"
-    "$LITESTREAM_BIN" restore -config "$SB/replication.yml" -o "$SB/probe/metadata.sqlite" \
+    "$REPLICATION_BIN" restore -config "$SB/replication.yml" -o "$SB/probe/metadata.sqlite" \
         "$SB/data/metadata.sqlite" >/dev/null 2>&1 || return 1
     python3 - "$SB/probe/metadata.sqlite" <<'PY'
 import sqlite3, sys
@@ -122,7 +122,7 @@ kill "$(cat "$SB/replication.pid")" 2>/dev/null || true; sleep 1
 mv "$SB/data" "$SB/data-lost"
 mkdir -p "$SB/data"
 for f in metadata ledger_app other_app; do
-    "$LITESTREAM_BIN" restore -config "$SB/replication.yml" -o "$SB/data/$f.sqlite" \
+    "$REPLICATION_BIN" restore -config "$SB/replication.yml" -o "$SB/data/$f.sqlite" \
         "$SB/data/$f.sqlite" >"$SB/restore-$f.log" 2>&1 \
         || { cat "$SB/restore-$f.log" >&2; fail "restore of $f failed"; }
 done

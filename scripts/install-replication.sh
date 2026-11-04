@@ -45,7 +45,7 @@ CHECKSUMS_URL="https://github.com/benbjohnson/replication/releases/download/v${V
 # point this at it; the script still verifies it against CHECKSUMS_URL
 # before installing, so a local mirror buys offline reachability and
 # nothing else. NEVER bypass the checksum.
-LOCAL_TARBALL="${DG_LITESTREAM_TARBALL:-}"
+LOCAL_TARBALL="${DG_REPLICATION_TARBALL:-}"
 CONFIG_PATH="/etc/replication.yml"
 ENV_PATH="/etc/dg/replication.env"
 INSTALL_PATH="/usr/local/bin/replication"
@@ -100,7 +100,7 @@ else
   # download; the checksum below is still enforced, so a mirror cannot
   # smuggle a different binary.
   if [ -n "$LOCAL_TARBALL" ]; then
-    [ -r "$LOCAL_TARBALL" ] || fail "DG_LITESTREAM_TARBALL=$LOCAL_TARBALL is not readable"
+    [ -r "$LOCAL_TARBALL" ] || fail "DG_REPLICATION_TARBALL=$LOCAL_TARBALL is not readable"
     log "using staged tarball ${LOCAL_TARBALL}"
     cp "$LOCAL_TARBALL" "$TMPDIR_LOCAL/$TARBALL"
   else
@@ -142,7 +142,7 @@ fi
 # scripts/replication-sync.sh, which the dg-replication-sync timer re-runs
 # every five minutes on the host. Duplicating the render here would let
 # the install-time config and the timer's config drift apart -- the exact
-# failure A2 was about. LITESTREAM_RESTART_CMD is emptied for this first
+# failure A2 was about. REPLICATION_RESTART_CMD is emptied for this first
 # render: the sidecar is not running yet and this script never starts it.
 log "installing scripts/replication-sync.sh to /usr/local/bin/ and rendering ${CONFIG_PATH}"
 DEPLOYMENT_HOST_HOST=$(ssh -G "$TARGET" 2>/dev/null | awk '/^hostname /{print $2; exit}')
@@ -155,7 +155,7 @@ ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
   "sudo install -m 0755 /tmp/replication-sync.sh /usr/local/bin/replication-sync.sh && sudo rm /tmp/replication-sync.sh" \
   || fail "installing the sync script on ${TARGET} failed"
 ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
-  "sudo -n env DG_BIN=/usr/local/bin/dg LITESTREAM_RESTART_CMD= /usr/local/bin/replication-sync.sh" \
+  "sudo -n env DG_BIN=/usr/local/bin/dg REPLICATION_RESTART_CMD= /usr/local/bin/replication-sync.sh" \
   || fail "rendering ${CONFIG_PATH} via replication-sync.sh failed"
 log "rendered ${CONFIG_PATH} via replication-sync.sh"
 

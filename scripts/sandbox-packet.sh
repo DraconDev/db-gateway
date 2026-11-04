@@ -24,7 +24,7 @@
 # which is both a leak and a false result: a gate that passes with the wrong
 # key proves nothing. Every invocation here runs with HOME pointed at the
 # sandbox, an empty AWS_CONFIG_FILE/AWS_SHARED_CREDENTIALS_FILE, and
-# LITESTREAM_CREDENTIALS written by the owner into the sandbox. No invocation
+# REPLICATION_CREDENTIALS written by the owner into the sandbox. No invocation
 # here can reach a credential the operator did not hand to the sandbox.
 #
 # WHY IT REFUSES AMBIGUOUS DATA. Gate 12 requires no residue. The data
@@ -179,7 +179,7 @@ export AWS_SHARED_CREDENTIALS_FILE="$HOME/.aws-credentials"
 export AWS_PROFILE=""
 export AWS_REGION="${DG_SANDBOX_REGION:-us-east-1}"
 export AWS_EC2_METADATA_DISABLED=true
-export LITESTREAM_CREDENTIALS="$HOME/replication.yml"
+export REPLICATION_CREDENTIALS="$HOME/replication.yml"
 export DG_SANDBOX_DIR="$SANDBOX"
 
 # The owner's test-bucket keys land in the sandbox only, mode 0600, and only
@@ -191,7 +191,7 @@ if [ -n "${DG_SANDBOX_ACCESS_KEY_ID:-}" ] || [ -n "${DG_SANDBOX_SECRET_KEY:-}" ]
         exit 2
     }
     umask 077
-    cat > "$LITESTREAM_CREDENTIALS" <<EOF
+    cat > "$REPLICATION_CREDENTIALS" <<EOF
 access-key-id: ${DG_SANDBOX_ACCESS_KEY_ID}
 secret-access-key: ${DG_SANDBOX_SECRET_KEY}
 EOF
@@ -250,14 +250,14 @@ record() {
 # Gate 1: pin and record. No bucket needed, so it is the one gate that can be
 # genuinely satisfied before the owner supplies anything.
 # --------------------------------------------------------------------------
-LITESTREAM="$PIN_ROOT/replication"
-if [ ! -x "$LITESTREAM" ]; then
-    record 1 FAIL "replication ${PIN_VERSION} is not installed at ${LITESTREAM}" \
+REPLICATION="$PIN_ROOT/replication"
+if [ ! -x "$REPLICATION" ]; then
+    record 1 FAIL "replication ${PIN_VERSION} is not installed at ${REPLICATION}" \
         "Install it with the checksum from the release's checksums.txt, then re-run." \
         "scripts/sandbox-packet.sh exits nonzero while this gate is not PASS."
 else
-    VERSION_OUT="$("$LITESTREAM" version 2>&1 | head -1)"
-    SHA_OUT="$(sha256sum "$LITESTREAM" | cut -d' ' -f1)"
+    VERSION_OUT="$("$REPLICATION" version 2>&1 | head -1)"
+    SHA_OUT="$(sha256sum "$REPLICATION" | cut -d' ' -f1)"
     TARBALL="$PIN_ROOT/replication-${PIN_VERSION}-linux-x86_64.tar.gz"
     PUBLISHED_SHA=""
     [ -f "$PIN_ROOT/checksums.txt" ] && \
@@ -361,9 +361,9 @@ ROWS_BEFORE="$(row_count rehearsal ledger)"
 # own prefix for the same reason, and the first version of this rehearsal
 # sharing one directory restored a database with no `ledger` table at all.
 mkdir -p "$replica_dir/rehearsal" "$replica_dir/rehearsal_two"
-LITESTREAM_CFG="$rehearsal_root/replication.yml"
+REPLICATION_CFG="$rehearsal_root/replication.yml"
 CONTROL_SOCK="$rehearsal_root/replication.sock"
-cat > "$LITESTREAM_CFG" <<EOF
+cat > "$REPLICATION_CFG" <<EOF
 logging:
   level: info
   type: json
@@ -375,10 +375,10 @@ dbs:
     replica:
       path: $replica_dir/rehearsal
 EOF
-"$LITESTREAM" replicate -config "$LITESTREAM_CFG" \
+"$REPLICATION" replicate -config "$REPLICATION_CFG" \
     > "$rehearsal_root/replication.log" 2>&1 &
-LITESTREAM_PID=$!
-track_daemon "$LITESTREAM_PID"
+REPLICATION_PID=$!
+track_daemon "$REPLICATION_PID"
 sleep 2
 
 for i in $(seq 1 60); do
@@ -438,20 +438,20 @@ fi
 #
 # SIGHUP is not a reload mechanism here: it terminates the process, and this
 # rehearsal measured that rather than assuming it.
-cat >> "$LITESTREAM_CFG" <<EOF
+cat >> "$REPLICATION_CFG" <<EOF
   - path: $data_dir/rehearsal_two.sqlite
     replica:
       path: $replica_dir/rehearsal_two
 EOF
 CONFIG_EDIT_START="(not attempted)"
-"$LITESTREAM" start -socket "$CONTROL_SOCK" "$data_dir/rehearsal_two.sqlite" \
+"$REPLICATION" start -socket "$CONTROL_SOCK" "$data_dir/rehearsal_two.sqlite" \
     > "$rehearsal_root/start-after-config-edit.log" 2>&1 \
     && CONFIG_EDIT_START="config edit + replication start: WORKED" \
     || CONFIG_EDIT_START="config edit + replication start: FAILED -- $(head -1 "$rehearsal_root/start-after-config-edit.log" 2>/dev/null)"
 
 # -replica must be a URL with a scheme (file:// for a directory), not a bare
 # path; the daemon rejects a scheme-less value outright.
-"$LITESTREAM" register -socket "$CONTROL_SOCK" -replica "file://$replica_dir/rehearsal_two" \
+"$REPLICATION" register -socket "$CONTROL_SOCK" -replica "file://$replica_dir/rehearsal_two" \
     "$data_dir/rehearsal_two.sqlite" > "$rehearsal_root/register.log" 2>&1 \
     && REGISTER_RESULT="WORKED" || REGISTER_RESULT="FAILED -- $(head -1 "$rehearsal_root/register.log" 2>/dev/null)"
 
@@ -485,7 +485,7 @@ done
 # confirm the daemon honours it.
 UNREGISTER_RESULT="(not attempted)"
 if [ "$ADDED" -eq 1 ]; then
-    "$LITESTREAM" unregister -socket "$CONTROL_SOCK" "$data_dir/rehearsal_two.sqlite" \
+    "$REPLICATION" unregister -socket "$CONTROL_SOCK" "$data_dir/rehearsal_two.sqlite" \
         > "$rehearsal_root/unregister.log" 2>&1 \
         && UNREGISTER_RESULT="replication unregister: WORKED" \
         || UNREGISTER_RESULT="replication unregister: FAILED -- $(head -1 "$rehearsal_root/unregister.log" 2>/dev/null)"
@@ -512,8 +512,8 @@ else
         "$(tail -5 "$rehearsal_root/replication.log" 2>/dev/null | sed 's/^/  /')"
 fi
 
-kill "$LITESTREAM_PID" 2>/dev/null || true
-wait "$LITESTREAM_PID" 2>/dev/null || true
+kill "$REPLICATION_PID" 2>/dev/null || true
+wait "$REPLICATION_PID" 2>/dev/null || true
 
 # --------------------------------------------------------------------------
 # Gate 5 rehearsal: restore to a separate path and compare rows exactly. A
@@ -532,7 +532,7 @@ dbs:
     replica:
       path: $replica_dir/rehearsal
 EOF
-if "$LITESTREAM" restore -config "$rehearsal_root/restore.yml" \
+if "$REPLICATION" restore -config "$rehearsal_root/restore.yml" \
     -o "$restore_dir/rehearsal.sqlite" "$data_dir/rehearsal.sqlite" \
     > "$rehearsal_root/restore.log" 2>&1; then
     RESTORE_OK=1
@@ -578,8 +578,8 @@ if [ -n "${DG_SANDBOX_BUCKET:-}" ] && [ -n "${DG_SANDBOX_ENDPOINT:-}" ]; then
     # S3 half, inflating the process count the resource gate measures and
     # making "nothing survived this run" impossible to read. Stop them here.
     cleanup_server
-    kill "${LITESTREAM_PID:-0}" 2>/dev/null || true
-    wait "${LITESTREAM_PID:-0}" 2>/dev/null || true
+    kill "${REPLICATION_PID:-0}" 2>/dev/null || true
+    wait "${REPLICATION_PID:-0}" 2>/dev/null || true
     echo "bucket configured; handing off to scripts/sandbox-s3-gates.sh" >&2
     # A child, not an exec: `exec` replaces this process, the EXIT trap never
     # runs, and the sandbox holding the owner's test key, the replication config

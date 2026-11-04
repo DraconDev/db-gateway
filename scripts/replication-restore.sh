@@ -46,11 +46,11 @@
 # PRAGMA integrity_check still covers the whole restored file, internals
 # included.
 #
-# LITESTREAM 0.5.17 INVOCATION NOTE (why the call below looks the way it
+# REPLICATION 0.5.17 INVOCATION NOTE (why the call below looks the way it
 # does): `replication restore` accepts either a DB_PATH or a bare REPLICA
 # URL, but NOT -config together with a replica URL ("cannot specify a
 # replica URL and the -config flag"). The URL mode also reads credentials
-# from replication's own env names (LITESTREAM_ACCESS_KEY_ID et al.), not
+# from replication's own env names (REPLICATION_ACCESS_KEY_ID et al.), not
 # the LITESTREAM_S3_* names this deployment uses, so URL mode would need
 # the keys renamed. DB_PATH + -config is the mode that expands
 # ${LITESTREAM_S3_*} from the sidecar env, so the restore uses the same
@@ -81,7 +81,7 @@ TARGET="${DEPLOYMENT_HOST_SSH:-deployment-host}"
 ENV_PATH="/etc/dg/replication.env"
 KEY_FILE="/etc/dg/owner.key"
 DATA_DIR="/var/lib/dg"
-LITESTREAM="/usr/local/bin/replication"
+REPLICATION="/usr/local/bin/replication"
 DG_BIN="/usr/local/bin/dg"
 REMOTE_OUT="/var/tmp/lit-restore-$(date +%s)"
 DG_QUERY_CACHE="$(mktemp)"
@@ -174,7 +174,7 @@ for name in "${DBS[@]}"; do
   # config's ${LITESTREAM_S3_*} references expand against the same env
   # the sidecar runs with. stdout suppressed -- exit code is the signal.
   if ! ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" \
-    "sudo -n -u dg bash -c \"set -a; . ${ENV_PATH}; set +a; mkdir -p -m 0700 ${REMOTE_OUT}; ${LITESTREAM} restore -config ${CONFIG} -o ${REMOTE_OUT}/${name}.sqlite ${DATA_DIR}/${name}.sqlite\"" \
+    "sudo -n -u dg bash -c \"set -a; . ${ENV_PATH}; set +a; mkdir -p -m 0700 ${REMOTE_OUT}; ${REPLICATION} restore -config ${CONFIG} -o ${REMOTE_OUT}/${name}.sqlite ${DATA_DIR}/${name}.sqlite\"" \
     >/dev/null 2>&1; then
     echo "[$SELF] FAIL: [${name}] replication restore did not exit 0 (config ${CONFIG}, env ${ENV_PATH} as dg)" >&2
     fail_count=$((fail_count+1)); continue

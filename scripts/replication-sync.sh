@@ -27,24 +27,24 @@
 #   DG_LIST_AS              run `dg list` as this user via sudo -n -u
 #                           (default: dg when running as root, else empty)
 #   DG_DATA_DIR             database files       (default: /var/lib/dg)
-#   LITESTREAM_CONFIG       config to manage     (default: /etc/replication.yml)
-#   LITESTREAM_ENV_FILE     S3 settings source   (default: /etc/dg/replication.env)
+#   REPLICATION_CONFIG       config to manage     (default: /etc/replication.yml)
+#   REPLICATION_ENV_FILE     S3 settings source   (default: /etc/dg/replication.env)
 #   DG_REPLICA_URL_TEMPLATE if set, replica URL per database with {name}
 #                           substituted, e.g. file:///srv/replicas/{name};
 #                           the S3 env file is then not read. Exists for
 #                           local drills/rehearsals with a file replica.
-#   LITESTREAM_RESTART_CMD  command run (via bash -c) after a config change
+#   REPLICATION_RESTART_CMD  command run (via bash -c) after a config change
 #                           (default: systemctl restart dg-replication.service;
 #                            empty string disables the restart)
-#   LITESTREAM_CONFIG_OWNER chown target for the config (default: dg:dg;
+#   REPLICATION_CONFIG_OWNER chown target for the config (default: dg:dg;
 #                            empty string skips chown)
-#   DG_LITESTREAM_INCLUDE_REGISTRY  replicate metadata.sqlite as the fixed
+#   DG_REPLICATION_INCLUDE_REGISTRY  replicate metadata.sqlite as the fixed
 #                            `metadata` entry (default: 1; 0 opts out)
-#   DG_LITESTREAM_RETENTION replica retention  (default: 168h)
-#   DG_LITESTREAM_SNAPSHOT_INTERVAL              (default: 24h)
+#   DG_REPLICATION_RETENTION replica retention  (default: 168h)
+#   DG_REPLICATION_SNAPSHOT_INTERVAL              (default: 24h)
 #   DG_BACKUP_ROOT           where the replica status is published
 #                           (default: /var/lib/dg-backups)
-#   DG_LITESTREAM_STATUS_CMD command that reports the sidecar's state
+#   DG_REPLICATION_STATUS_CMD command that reports the sidecar's state
 #                           (default: systemctl is-active dg-replication.service;
 #                            empty string disables the check)
 #
@@ -76,12 +76,12 @@ esac
 DG_BIN="${DG_BIN:-dg}"
 DG_KEY_FILE="${DG_KEY_FILE:-/etc/dg/owner.key}"
 DG_DATA_DIR="${DG_DATA_DIR:-/var/lib/dg}"
-CONFIG="${LITESTREAM_CONFIG:-/etc/replication.yml}"
-ENV_FILE="${LITESTREAM_ENV_FILE:-/etc/dg/replication.env}"
+CONFIG="${REPLICATION_CONFIG:-/etc/replication.yml}"
+ENV_FILE="${REPLICATION_ENV_FILE:-/etc/dg/replication.env}"
 BACKUP_ROOT="${DG_BACKUP_ROOT:-/var/lib/dg-backups}"
-STATUS_CMD="${DG_LITESTREAM_STATUS_CMD-systemctl is-active dg-replication.service}"
-RESTART_CMD="${LITESTREAM_RESTART_CMD-systemctl restart dg-replication.service}"
-CONFIG_OWNER="${LITESTREAM_CONFIG_OWNER-dg:dg}"
+STATUS_CMD="${DG_REPLICATION_STATUS_CMD-systemctl is-active dg-replication.service}"
+RESTART_CMD="${REPLICATION_RESTART_CMD-systemctl restart dg-replication.service}"
+CONFIG_OWNER="${REPLICATION_CONFIG_OWNER-dg:dg}"
 if [ -z "${DG_LIST_AS+x}" ]; then
     # On the host this runs as root (timer) and the owner key is 0600 dg,
     # so `dg list` must run as dg. Anywhere else, run it directly.
@@ -152,8 +152,8 @@ done
 # key (docs/recovery-policy.md). Registry connections in the gateway
 # are per-operation, like the application databases already replicated
 # under a live gateway; restored-pair skew is handled by the recovery
-# runbook in that policy. DG_LITESTREAM_INCLUDE_REGISTRY=0 opts out.
-INCLUDE_REGISTRY="${DG_LITESTREAM_INCLUDE_REGISTRY:-1}"
+# runbook in that policy. DG_REPLICATION_INCLUDE_REGISTRY=0 opts out.
+INCLUDE_REGISTRY="${DG_REPLICATION_INCLUDE_REGISTRY:-1}"
 REGISTRY_PRESENT=0
 [ -f "$DG_DATA_DIR/metadata.sqlite" ] && REGISTRY_PRESENT=1
 EXPECTED=("${KEEP[@]}")
@@ -166,8 +166,8 @@ fi
 # render. 168h of WAL + daily snapshots is the frequent tier; the
 # 30/7 daily-version classes are bucket-lifecycle territory (policy
 # doc records their production state separately).
-RETENTION="${DG_LITESTREAM_RETENTION:-168h}"
-SNAPSHOT_INTERVAL="${DG_LITESTREAM_SNAPSHOT_INTERVAL:-24h}"
+RETENTION="${DG_REPLICATION_RETENTION:-168h}"
+SNAPSHOT_INTERVAL="${DG_REPLICATION_SNAPSHOT_INTERVAL:-24h}"
 
 # Where the copy is. Empty until the replica settings are read below; the
 # file-replica mode has no bucket, and says so rather than naming one.

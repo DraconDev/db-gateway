@@ -20,7 +20,7 @@
 # exact failure mode this file exists to prevent.
 #
 # CREDENTIALS. Replication 0.5.17 does NOT read S3 credentials from the
-# LITESTREAM_CREDENTIALS file -- that was measured on 2026-09-28, by a run that
+# REPLICATION_CREDENTIALS file -- that was measured on 2026-09-28, by a run that
 # had that file in place and still ended in the AWS chain at the EC2 metadata
 # service. S3 signing comes from the standard AWS environment variables. So the
 # only credentials in this script's environment are the two the operator passed
@@ -154,8 +154,8 @@ case "$BUCKET" in
     *prod*|*live*) echo "refusing: bucket name '$BUCKET' looks like a production bucket" >&2; exit 2;;
 esac
 
-LITESTREAM="$PIN_ROOT/replication"
-[ -x "$LITESTREAM" ] || { echo "replication ${PIN_VERSION} is not installed at $LITESTREAM" >&2; exit 2; }
+REPLICATION="$PIN_ROOT/replication"
+[ -x "$REPLICATION" ] || { echo "replication ${PIN_VERSION} is not installed at $REPLICATION" >&2; exit 2; }
 [ -x "$DG_BIN" ] || echo "warning: dg binary not built at $DG_BIN; gateway-dependent gates will report BLOCKED" >&2
 
 # TLS trust. A real S3 endpoint presents a publicly valid certificate, so a
@@ -440,7 +440,7 @@ c.execute("CREATE TABLE t(a INTEGER)")
 c.execute("INSERT INTO t VALUES (1)")
 c.commit()
 PY
-    timeout 25 env ${G3_CA_MODE:-} "$LITESTREAM" replicate -config "$cfg" > "$SANDBOX/gate3-$label.log" 2>&1 || true
+    timeout 25 env ${G3_CA_MODE:-} "$REPLICATION" replicate -config "$cfg" > "$SANDBOX/gate3-$label.log" 2>&1 || true
     sleep 1
     # By pid, not by a --listen pattern: the cmdline always says 127.0.0.1:0.
     [ -n "$PROXY_PID" ] && kill "$PROXY_PID" 2>/dev/null || true
@@ -584,7 +584,7 @@ dbs:
     replica:
       url: s3://$BUCKET/sbx/bob?endpoint=$SCHEME://$G4_ENDPOINT&region=$REGION
 EOF
-"$LITESTREAM" replicate -config "$G4_ROOT/replication.yml" > "$G4_ROOT/replication.log" 2>&1 &
+"$REPLICATION" replicate -config "$G4_ROOT/replication.yml" > "$G4_ROOT/replication.log" 2>&1 &
 G4_PID=$!
 track_daemon G4_PID
 sleep 4
@@ -603,8 +603,8 @@ PY
 write_rows "$G4_ROOT/alice.sqlite" 200
 write_rows "$G4_ROOT/bob.sqlite" 150
 sleep 8
-"$LITESTREAM" sync -socket "$G4_SOCK" "$G4_ROOT/alice.sqlite" >/dev/null 2>&1 || true
-"$LITESTREAM" sync -socket "$G4_SOCK" "$G4_ROOT/bob.sqlite"   >/dev/null 2>&1 || true
+"$REPLICATION" sync -socket "$G4_SOCK" "$G4_ROOT/alice.sqlite" >/dev/null 2>&1 || true
+"$REPLICATION" sync -socket "$G4_SOCK" "$G4_ROOT/bob.sqlite"   >/dev/null 2>&1 || true
 sleep 2
 
 # Restore both databases back out of the bucket, which is the only way to know
@@ -620,7 +620,7 @@ dbs:
       url: s3://$BUCKET/sbx/$name?endpoint=$SCHEME://$G4_ENDPOINT&region=$REGION
 EOF
     rm -f "$G4_ROOT/out-$name.sqlite"
-    timeout 60 "$LITESTREAM" restore -config "$G4_ROOT/restore-$name.yml" \
+    timeout 60 "$REPLICATION" restore -config "$G4_ROOT/restore-$name.yml" \
         -o "$G4_ROOT/out-$name.sqlite" "$src" > "$G4_ROOT/restore-$name.log" 2>&1 || true
 done
 G4_ALICE_ROWS="$(python3 - "$G4_ROOT/out-alice.sqlite" <<'PY'
@@ -812,12 +812,12 @@ dbs:
       url: s3://$BUCKET/$G5_PREFIX?endpoint=$UPSTREAM_SCHEME://$ENDPOINT&region=$REGION
 EOF
     local rc=0
-    "${TIMEOUT_ARGV[@]}" "$LITESTREAM" restore -config "$G5_ROOT/restore-$label.yml" \
+    "${TIMEOUT_ARGV[@]}" "$REPLICATION" restore -config "$G5_ROOT/restore-$label.yml" \
         "$@" -o "$out" "$out" > "$G5_ROOT/restore-$label.log" 2>&1 || rc=$?
     echo "$rc"
 }
 
-"$LITESTREAM" replicate -config "$G5_ROOT/replication.yml" > "$G5_ROOT/replication.log" 2>&1 &
+"$REPLICATION" replicate -config "$G5_ROOT/replication.yml" > "$G5_ROOT/replication.log" 2>&1 &
 G5_PID=$!
 track_daemon G5_PID
 sleep 4
@@ -826,7 +826,7 @@ sleep 4
 # artificial boundary invented after the fact.
 g5_write 1 30
 sleep 5
-"${TIMEOUT_ARGV[@]}" "$LITESTREAM" sync -socket "$G5_SOCK" "$G5_SRC" >/dev/null 2>&1 || true
+"${TIMEOUT_ARGV[@]}" "$REPLICATION" sync -socket "$G5_SOCK" "$G5_SRC" >/dev/null 2>&1 || true
 sleep 2
 # The content the mid-history point MUST restore, captured HERE, while this
 # position is the live one and before the next batch exists. Everything after
@@ -848,7 +848,7 @@ echo "mid-history position captured at $(date -u +%FT%TZ): $G5_MID_EXPECTED (int
     > "$G5_ROOT/mid-position.txt"
 g5_write 31 40
 sleep 5
-"${TIMEOUT_ARGV[@]}" "$LITESTREAM" sync -socket "$G5_SOCK" "$G5_SRC" >/dev/null 2>&1 || true
+"${TIMEOUT_ARGV[@]}" "$REPLICATION" sync -socket "$G5_SOCK" "$G5_SRC" >/dev/null 2>&1 || true
 sleep 2
 kill "$G5_PID" 2>/dev/null || true
 wait "$G5_PID" 2>/dev/null || true
@@ -863,7 +863,7 @@ wait "$G5_PID" 2>/dev/null || true
 # restores the full first batch. This took the SECOND row instead -- a
 # committed position after the first batch and strictly before the last, which
 # is the point an operator would have asked for at the time.
-G5_LTX_ALL="$("$LITESTREAM" ltx -config "$G5_ROOT/replication.yml" "$G5_SRC" 2>/dev/null || true)"
+G5_LTX_ALL="$("$REPLICATION" ltx -config "$G5_ROOT/replication.yml" "$G5_SRC" 2>/dev/null || true)"
 g5_ltx_field() { # <2=min_txid 3=max_txid 5=created> <row index, 1-based over data rows>
     printf '%s\n' "$G5_LTX_ALL" \
         | awk -v col="$1" -v want="$2" \
@@ -1106,7 +1106,7 @@ dbs:
       path: $G5_DMG
 EOF
     local rc=0
-    "${TIMEOUT_ARGV[@]}" "$LITESTREAM" restore -config "$G5_ROOT/dmg-$case_name.yml" \
+    "${TIMEOUT_ARGV[@]}" "$REPLICATION" restore -config "$G5_ROOT/dmg-$case_name.yml" \
         -o "$out" "$out" > "$G5_ROOT/dmg-$case_name.log" 2>&1 || rc=$?
     local digest verdict
     digest="$(g5_digest "$out")"
@@ -1447,7 +1447,7 @@ dbs:
       url: s3://$BUCKET/sbx/g5?endpoint=$UPSTREAM_SCHEME://$ENDPOINT&region=$REGION
 EOF
     G6_AFTER_RC=0
-    "${TIMEOUT_ARGV[@]}" "$LITESTREAM" restore -config "$SANDBOX/gate6-restore.yml" \
+    "${TIMEOUT_ARGV[@]}" "$REPLICATION" restore -config "$SANDBOX/gate6-restore.yml" \
         -o "$G6_EXPIRE_OUT" "$G6_EXPIRE_OUT" > "$SANDBOX/gate6-restore.log" 2>&1 || G6_AFTER_RC=$?
     G6_AFTER_DIGEST="$(g5_digest "$G6_EXPIRE_OUT")"
     [ "$G6_AFTER_RC" = "0" ] && [ "$G6_AFTER_DIGEST" = "$G5_SRC_DIGEST" ] && G6_AFTER_OK=1
@@ -1599,7 +1599,7 @@ dbs:
     replica:
       url: s3://$BUCKET/sbx/g8?endpoint=$SCHEME://$G8_PORT_P&region=$REGION
 EOF
-"$LITESTREAM" replicate -config "$G8_ROOT/replication.yml" > "$G8_ROOT/replication.log" 2>&1 &
+"$REPLICATION" replicate -config "$G8_ROOT/replication.yml" > "$G8_ROOT/replication.log" 2>&1 &
 G8_LS_PID=$!
 track_daemon G8_LS_PID
 sleep 4
@@ -1642,7 +1642,7 @@ dbs:
     replica:
       url: s3://$BUCKET/sbx/g8?endpoint=$SCHEME://$G8_PORT_P&region=$REGION
 EOF
-    timeout 45 "$LITESTREAM" restore -config "$G8_ROOT/probe-restore.yml" \
+    timeout 45 "$REPLICATION" restore -config "$G8_ROOT/probe-restore.yml" \
         -o "$out" "$G8_SRC" > "$G8_ROOT/probe-restore.log" 2>&1 || true
     g8_restore_stderr="$(grep -iE 'error|denied|403|forbidden|expired|signature|no such host|connection|timeout|refused|not implemented' \
         "$G8_ROOT/probe-restore.log" 2>/dev/null | head -2 || true)"
@@ -1740,13 +1740,13 @@ g8_write_and_serve() {
     # of this gate did exactly that and then reported that two of the three
     # failures were invisible -- a measurement bug that looked like a product
     # finding. -timeout keeps it bounded if the daemon never answers.
-    sync_out="$("$LITESTREAM" sync -wait -timeout 30 -socket "$G8_SOCK" "$G8_SRC" 2>&1 || true)"
+    sync_out="$("$REPLICATION" sync -wait -timeout 30 -socket "$G8_SOCK" "$G8_SRC" 2>&1 || true)"
     printf '%s\n' "$sync_out" | tail -1 | cut -c1-120 > "$G8_ROOT/sync-last.txt"
     sync_said="no"
     printf '%s' "$sync_out" | grep -qiE 'error|denied|403|forbidden|expired|signature|no such host|connection|timeout|rejected|unavailable' && sync_said="yes"
     # The status surface, read the way an operator reads it: from the same
     # config file the daemon was started with, after the failed sync.
-    status_out="$("$LITESTREAM" status -json -config "$G8_ROOT/replication.yml" 2>&1 | head -c 300 || true)"
+    status_out="$("$REPLICATION" status -json -config "$G8_ROOT/replication.yml" 2>&1 | head -c 300 || true)"
     status_said="no"
     printf '%s' "$status_out" | grep -qiE 'error|denied|403|forbidden|expired|signature|"error"' && status_said="yes"
     local signal
@@ -1872,7 +1872,7 @@ G8_A_PHASE1="$(grep -c 'revoked-credential fault' "$G8_ROOT/replication.log" 2>/
 # reassuring line in a log.
 : > "$G8_FAULTS"
 kill "$G8_LS_PID" 2>/dev/null || true; wait "$G8_LS_PID" 2>/dev/null || true
-"$LITESTREAM" replicate -config "$G8_ROOT/replication.yml" > "$G8_ROOT/replication.log" 2>&1 &
+"$REPLICATION" replicate -config "$G8_ROOT/replication.yml" > "$G8_ROOT/replication.log" 2>&1 &
 G8_LS_PID=$!
 track_daemon G8_LS_PID
 # Give the new daemon a moment to list objects, then write.
@@ -1882,7 +1882,7 @@ g8_write "after-recovery"
 G8_RECOVERED=0
 G8_RECOVERED_ROWS=-1
 for _ in $(seq 1 20); do
-    "$LITESTREAM" sync -socket "$G8_SOCK" "$G8_SRC" >/dev/null 2>&1 || true
+    "$REPLICATION" sync -socket "$G8_SOCK" "$G8_SRC" >/dev/null 2>&1 || true
     G8_RECOVERED_ROWS="$(g8_restored)"
     if [ "${G8_RECOVERED_ROWS:--1}" -ge 0 ] 2>/dev/null && [ "${G8_RECOVERED_ROWS:-0}" -ge "${G8_LIVE_AFTER:-0}" ]; then
         G8_RECOVERED=1
@@ -2265,7 +2265,7 @@ EOF
 
 
 
-"$LITESTREAM" replicate -config "$G9_CFG" > "$G9_ROOT/replicate.log" 2>&1 &
+"$REPLICATION" replicate -config "$G9_CFG" > "$G9_ROOT/replicate.log" 2>&1 &
 G9_PID=$!
 track_daemon G9_PID
 sleep 6
@@ -2320,12 +2320,12 @@ G9_RESTORE_RAW=""
 # into two arguments. An empty prefix (unconstrained run) is a valid prefix:
 # the wrapper then runs replication directly.
 G9_PREFIX_JSON="$(printf '%s\n' "${G9_PREFIX[@]-}" | python3 -c 'import json,sys; print(json.dumps([l for l in sys.stdin.read().splitlines() if l.strip()]))')"
-G9_RESTORE_RAW="$(G9_LITESTREAM="$LITESTREAM" G9_ARGV="$G9_PREFIX_JSON" \
+G9_RESTORE_RAW="$(G9_REPLICATION="$REPLICATION" G9_ARGV="$G9_PREFIX_JSON" \
     python3 - "$G9_SRC" "$G9_OUT" "$G9_CFG" <<'PY'
 import json, os, resource, subprocess, sys
 
 src, out, cfg = sys.argv[1], sys.argv[2], sys.argv[3]
-lit = os.environ["G9_LITESTREAM"]
+lit = os.environ["G9_REPLICATION"]
 argv = json.loads(os.environ["G9_ARGV"]) + [lit, "restore", "-config", cfg, "-o", out, src]
 log = os.path.join(os.path.dirname(out), "restore.log")
 try:
@@ -2510,9 +2510,9 @@ dbs:
       url: s3://$BUCKET/$G10_SSEC_PREFIX?endpoint=$SCHEME://$G10_PROXY_PORT&region=$REGION
       sse-customer-key: $(head -c 32 /dev/urandom | base64)
 EOF
-timeout 20 "$LITESTREAM" replicate -config "$G10_ROOT/with-customer-key.yml" > "$G10_ROOT/with-key.log" 2>&1 || true
+timeout 20 "$REPLICATION" replicate -config "$G10_ROOT/with-customer-key.yml" > "$G10_ROOT/with-key.log" 2>&1 || true
 G10_KEY_ERROR="$(grep -m1 -iE 'Error|error=' "$G10_ROOT/with-key.log" 2>/dev/null | cut -c1-200 || true)"
-# WHAT LITESTREAM ACTUALLY PUT ON THE WIRE, read out of the proxy's own log of
+# WHAT REPLICATION ACTUALLY PUT ON THE WIRE, read out of the proxy's own log of
 # the requests it signed and forwarded.
 G10_SSE_C_PUTS=0
 G10_SSE_C_SENT=0
@@ -2532,7 +2532,7 @@ else
     G10_SSE_C_VERDICT="the customer-key run made no uploads at all, so nothing can be said about what it would have sent"
 fi
 
-"$LITESTREAM" replicate -config "$G10_ROOT/replication.yml" > "$G10_ROOT/replicate.log" 2>&1 &
+"$REPLICATION" replicate -config "$G10_ROOT/replication.yml" > "$G10_ROOT/replicate.log" 2>&1 &
 G10_PID=$!
 track_daemon G10_PID
 sleep 6
@@ -2589,7 +2589,7 @@ env -i PATH="$CLEAN_PATH" HOME="$SANDBOX/home" \
     AWS_SHARED_CREDENTIALS_FILE="$SANDBOX/home/.aws-empty" \
     AWS_EC2_METADATA_DISABLED=true AWS_REGION="$REGION" \
     SSL_CERT_FILE="${SSL_CERT_FILE:-}" \
-    "${TIMEOUT_ARGV[@]}" "$LITESTREAM" restore -config "$G10_ROOT/replication.yml" -o "$G10_OUT" "$G10_SRC" \
+    "${TIMEOUT_ARGV[@]}" "$REPLICATION" restore -config "$G10_ROOT/replication.yml" -o "$G10_OUT" "$G10_SRC" \
     > "$G10_ROOT/restore.log" 2>&1 || true
 G10_ROWS="$(python3 - "$G10_OUT" <<'PY'
 import sqlite3, sys
@@ -2621,7 +2621,7 @@ env -i PATH="$CLEAN_PATH" HOME="$SANDBOX/home" \
     SSL_CERT_FILE="${SSL_CERT_FILE:-}" \
     DG_SANDBOX_WITHDRAW=1 \
     "${TIMEOUT_ARGV[@]}" env AWS_ACCESS_KEY_ID= AWS_SECRET_ACCESS_KEY= \
-    "$LITESTREAM" restore -config "$G10_ROOT/replication.yml" -o "$G10_NOKEY_OUT" "$G10_SRC" \
+    "$REPLICATION" restore -config "$G10_ROOT/replication.yml" -o "$G10_NOKEY_OUT" "$G10_SRC" \
     > "$G10_ROOT/restore-nokey.log" 2>&1 || true
 G10_NOKEY_RC=$?
 G10_NOKEY_MSG="$(grep -m1 -iE 'Error|error=' "$G10_ROOT/restore-nokey.log" 2>/dev/null | cut -c1-200 || true)"
@@ -2869,12 +2869,12 @@ dbs:
     replica:
       url: s3://$BUCKET/sbx/g11/ledger_app?endpoint=$UPSTREAM_SCHEME://$ENDPOINT&region=$REGION
 EOF
-    "$LITESTREAM" replicate -config "$G11_ROOT/replication.yml" > "$G11_ROOT/replicate.log" 2>&1 &
+    "$REPLICATION" replicate -config "$G11_ROOT/replication.yml" > "$G11_ROOT/replicate.log" 2>&1 &
     G11_LS_PID=$!
     track_daemon G11_LS_PID
     sleep 6
-    "${TIMEOUT_ARGV[@]}" "$LITESTREAM" sync -socket "$G11_LS_SOCK" "$G11_SRC/metadata.sqlite" >/dev/null 2>&1 || true
-    "${TIMEOUT_ARGV[@]}" "$LITESTREAM" sync -socket "$G11_LS_SOCK" "$G11_SRC/ledger_app.sqlite" >/dev/null 2>&1 || true
+    "${TIMEOUT_ARGV[@]}" "$REPLICATION" sync -socket "$G11_LS_SOCK" "$G11_SRC/metadata.sqlite" >/dev/null 2>&1 || true
+    "${TIMEOUT_ARGV[@]}" "$REPLICATION" sync -socket "$G11_LS_SOCK" "$G11_SRC/ledger_app.sqlite" >/dev/null 2>&1 || true
     sleep 2
     kill "$G11_LS_PID" 2>/dev/null || true
     wait "$G11_LS_PID" 2>/dev/null || true
@@ -2888,7 +2888,7 @@ dbs:
     replica:
       url: s3://$BUCKET/sbx/g11/$f?endpoint=$UPSTREAM_SCHEME://$ENDPOINT&region=$REGION
 EOF
-        "${TIMEOUT_ARGV[@]}" "$LITESTREAM" restore -config "$G11_ROOT/restore-$f.yml" \
+        "${TIMEOUT_ARGV[@]}" "$REPLICATION" restore -config "$G11_ROOT/restore-$f.yml" \
             -o "$G11_RCV/$f.sqlite" "$G11_RCV/$f.sqlite" > "$G11_ROOT/restore-$f.log" 2>&1 || true
     done
     G11_RCV_META_SIZE="$(stat -c%s "$G11_RCV/metadata.sqlite" 2>/dev/null || echo 0)"

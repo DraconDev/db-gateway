@@ -14,7 +14,7 @@
 # value-for-value against what was written, plus integrity_check.
 #
 # Usage: scripts/replication-sync-drill.sh
-# Env:   LITESTREAM_BIN (default ~/.local/dg-sandbox/replication-0.5.17/replication)
+# Env:   REPLICATION_BIN (default ~/.local/dg-sandbox/replication-0.5.17/replication)
 #        DG_BIN         (default .cargo/target/debug/dg; built if missing)
 #        DG_DRILL_PORT  (default 17432)
 #        KEEP=1         keep the sandbox dir for inspection
@@ -25,14 +25,14 @@ SELF="replication-sync-drill"
 fail() { echo "[$SELF] FAIL: $*" >&2; exit 1; }
 step() { echo "[$SELF] $*"; }
 
-LITESTREAM_BIN="${LITESTREAM_BIN:-$HOME/.local/dg-sandbox/replication-0.5.17/replication}"
+REPLICATION_BIN="${REPLICATION_BIN:-$HOME/.local/dg-sandbox/replication-0.5.17/replication}"
 DG_BIN="${DG_BIN:-$ROOT/.cargo/target/debug/dg}"
 PORT="${DG_DRILL_PORT:-17432}"
 SERVER="http://127.0.0.1:${PORT}"
 
-[ -x "$LITESTREAM_BIN" ] || fail "pinned replication not found at $LITESTREAM_BIN (set LITESTREAM_BIN)"
-LVER="$("$LITESTREAM_BIN" version 2>/dev/null | head -1)"
-[ "$LVER" = "0.5.17" ] || fail "replication at $LITESTREAM_BIN is '$LVER', want 0.5.17 ( PATH v0.3.13 must not be used)"
+[ -x "$REPLICATION_BIN" ] || fail "pinned replication not found at $REPLICATION_BIN (set REPLICATION_BIN)"
+LVER="$("$REPLICATION_BIN" version 2>/dev/null | head -1)"
+[ "$LVER" = "0.5.17" ] || fail "replication at $REPLICATION_BIN is '$LVER', want 0.5.17 ( PATH v0.3.13 must not be used)"
 if [ ! -x "$DG_BIN" ]; then
     step "building dg (debug)"
     (cd "$ROOT" && timeout 300 cargo build --locked --quiet --bin dg) || fail "cargo build failed"
@@ -56,7 +56,7 @@ cat >"$SB/restart-replication.sh" <<EOF
 #!/usr/bin/env bash
 set -eu
 if [ -f "$SB/replication.pid" ]; then kill "\$(cat "$SB/replication.pid")" 2>/dev/null || true; sleep 1; fi
-"$LITESTREAM_BIN" replicate -config "$SB/replication.yml" >>"$SB/replication.log" 2>&1 &
+"$REPLICATION_BIN" replicate -config "$SB/replication.yml" >>"$SB/replication.log" 2>&1 &
 echo \$! >"$SB/replication.pid"
 sleep 1
 kill -0 "\$(cat "$SB/replication.pid")"
@@ -70,10 +70,10 @@ SYNC_ENV=(
     "DG_KEY_FILE=$SB/owner.key"
     "DG_LIST_AS="
     "DG_DATA_DIR=$SB/data"
-    "LITESTREAM_CONFIG=$SB/replication.yml"
+    "REPLICATION_CONFIG=$SB/replication.yml"
     "DG_REPLICA_URL_TEMPLATE=file://$SB/replicas/{name}"
-    "LITESTREAM_RESTART_CMD=$SB/restart-replication.sh"
-    "LITESTREAM_CONFIG_OWNER="
+    "REPLICATION_RESTART_CMD=$SB/restart-replication.sh"
+    "REPLICATION_CONFIG_OWNER="
 )
 sync_run() { env "${SYNC_ENV[@]}" "$ROOT/scripts/replication-sync.sh" "$@"; }
 dg() { "$DG_BIN" --server "$SERVER" --key-file "$SB/owner.key" "$@"; }
@@ -127,7 +127,7 @@ kill "$DG_PID"; wait "$DG_PID" 2>/dev/null || true; DG_PID=""
 if [ -f "$SB/replication.pid" ]; then kill "$(cat "$SB/replication.pid")" 2>/dev/null || true; sleep 1; fi
 rm -f "$SB/data/drill_two.sqlite" "$SB/data/drill_two.sqlite-wal" "$SB/data/drill_two.sqlite-shm"
 [ ! -e "$SB/data/drill_two.sqlite" ] || fail "drill_two deletion failed"
-"$LITESTREAM_BIN" restore -config "$SB/replication.yml" -o "$SB/restored/drill_two.sqlite" \
+"$REPLICATION_BIN" restore -config "$SB/replication.yml" -o "$SB/restored/drill_two.sqlite" \
     "$SB/data/drill_two.sqlite" >"$SB/restore.log" 2>&1 \
     || { cat "$SB/restore.log" >&2; fail "replication restore failed"; }
 python3 - "$SB/restored/drill_two.sqlite" <<'PY' || fail "restored drill_two content mismatch (exit code alone is not evidence)"
