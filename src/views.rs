@@ -2484,7 +2484,7 @@ mod tests {
         serde_json::json!({
             "version": "0.2.0",
             "deployment": {
-                "host": "micro2",
+                "host": "deployment-host",
                 "listen": "127.0.0.1:7432",
                 "data_dir": "/var/lib/dg",
                 "backup_root": "/var/lib/dg-backups",
@@ -2519,7 +2519,7 @@ mod tests {
         // machine on the other end is the one holding the data.
         let text = render_section(&deployment(&placed()));
         for fact in [
-            "micro2",
+            "deployment-host",
             "127.0.0.1:7432",
             "/var/lib/dg",
             "/var/lib/dg-backups",
