@@ -10,7 +10,7 @@
 #
 # Usage: steady-heartbeat.sh [--server URL] [--key-file PATH]
 #                          [--database NAME] [--dg PATH]
-# Defaults: the deployment-host tunnel, ~/.config/dg/steady.key,
+# Defaults: the deployment-host secure forwarding, ~/.config/dg/steady.key,
 # billing_demo, and `dg` from PATH (DG_BIN overrides).
 # Prints one line; exit nonzero on any failure.
 set -euo pipefail
