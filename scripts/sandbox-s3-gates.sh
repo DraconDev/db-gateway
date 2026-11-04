@@ -33,7 +33,7 @@ set -euo pipefail
 # stderr of its own still leaves a trail in the driver log.
 [ "${DG_SANDBOX_TRACE:-0}" = "1" ] && set -x
 
-PIN_VERSION="0.5.17"
+PIN_VERSION="${DG_REPLICATION_VERSION:-}"
 # Resolved against the real home only if the parent has not already pinned it.
 # sandbox-packet.sh exports DG_SANDBOX_PIN_ROOT before it repoints HOME at the
 # sandbox; without that, this script looks for the pin inside the sandbox home
