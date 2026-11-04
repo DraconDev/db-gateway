@@ -7,7 +7,7 @@
 
 **`dg`** is a single-owner SQLite service: one Rust gateway, many independent databases, an HTTP API and CLI, and off-host backups.
 
-**Status (2026-10-21): M1–M3 delivered; supervised non-production deployment live on micro2; production not accepted.** The authenticated gateway (owner bootstrap, database-scoped keys, SQL query/batch over HTTP, idempotent writes, restart persistence), TypeScript client, JSON CLI, interactive shell, terminal operator view, and clone/export/import/tombstone-delete lifecycle operations exist and are tested. Database import and clone are owner-only management operations (owner decision 2026-10-10); scoped application keys can export and query only within their authorized source scope. Backups are live on the reference deployment: hourly verified snapshot sets plus continuous Litestream replication to OVH object storage (compatibility verified 12/12 gates against a live sandbox bucket, [docs/evidence/sandbox-packet-2026-10-14-ovh.log](docs/evidence/sandbox-packet-2026-10-14-ovh.log)), with backup-health status/digest and automatic replication coverage for newly created databases. A pilot database was launched on micro2 on 2026-10-16 and the first 14 hourly entries of its soak are recorded ([docs/evidence/pilot-soak-log.md](docs/evidence/pilot-soak-log.md), 2026-10-16T09:24Z through 2026-10-16T21:17Z); the 7-day soak the pilot plan calls for is **not yet evidenced** — the committed log ends at 2026-10-16T21:17Z and the interval after that has not been collected into it, so the soak gate stays open rather than passed. There is deliberately no HTTPS in the gateway: it listens on loopback only and is reached through an SSH tunnel. Production acceptance (Profile C RPO/RTO sign-off, rollback decisions) and any Turso migration remain separately approved milestones. **Do not deploy this as a production database service.**
+**Status: pre-production (0.x).** Interfaces and data formats may change. Do not treat this as a production database system.
 
 ## Quick start (local only)
 
@@ -63,7 +63,7 @@ Prefer an uninstalled debug build instead: `cargo build --locked` plus `export P
 
 ## TypeScript client
 
-`client/` ships `@dracon/db-gateway` (execute, atomic batch, idempotent replay), verified against a running server by `npm test` (from the repo root). Bots and coding agents should use scoped `database_read_only`/`database_read_write` keys — never the owner key. See docs/api.md for the credential model and retry policy.
+`client/` provides a TypeScript client for the HTTP API. Run `npm test` from the repository root to verify it against a local server.
 
 ## Reading the output
 
@@ -167,6 +167,4 @@ the operator actually has.
 
 ## Security posture
 
-Loopback-only listening; credentials stored hash-only; app keys are revocable and database-scoped; read-only enforcement uses SQLite's authorizer plus statement checks (not SQL prefix matching); attach/pragma/extension/trigger attack surfaces are denied; `_dg_*` tables are protected. There is no TLS in the gateway by design: remote use rides an SSH tunnel to the loopback listener, and clients refuse plaintext non-loopback endpoints. Deployment to a public host is out of scope until a separately approved network-edge decision (see [TASKS.md](TASKS.md)).
-
-On the reference deployment, live SQLite files reside on micro2's persistent local disk; OVH object storage holds asynchronous recoverable backups (hourly snapshot sets + Litestream WAL replication). No production credentials, servers, or buckets are touched by this repository's tests.
+The service is designed for trusted local or private-network use; do not expose it directly to the public internet. Owner credentials should be kept separate from application credentials, and application credentials should be revocable. Backups are operator-configured.
