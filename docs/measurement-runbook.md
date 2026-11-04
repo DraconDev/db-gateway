@@ -1,8 +1,8 @@
-# micro2 measurement runbook (RUN 2026-09-22 — see docs/evidence/micro2-2026-09-22-evidence.log; soak adapted to 600 s per runbook, burst rerun unkeyed after keyed run hit the replay cap by design)
+# deployment-host measurement runbook (RUN 2026-09-22 — see docs/evidence/deployment-host-2026-09-22-evidence.log; verification adapted to 600 s per runbook, burst rerun unkeyed after keyed run hit the replay cap by design)
 
 Exact steps for resource-budget items 1–5 (`docs/resource-budget.md`), the
 burst test (tasklist D2), and log-retention setup (R11). Procedure only —
-running it needs SSH access to micro2 plus a separately approved live window.
+running it needs private transport access to deployment-host plus a separately approved live window.
 All commands are read-only except where marked **WRITE**; WRITE steps run
 only inside the approved window against the test instance/data, never
 production data (none exists yet).
@@ -18,7 +18,7 @@ systemctl show dg.service -p MemoryMax,ActiveState,SubState  # expect MemoryMax=
 
 ```sh
 # Steady workload: 6 fleet-shaped DBs seeded from fleet/*.sql via dg, then
-# 10 minutes of mixed reads/writes (adapt scripts/soak.py --seconds 600).
+# 10 minutes of mixed reads/writes (adapt scripts/verification.py --seconds 600).
 # Sample RSS every 10 s:
 for i in $(seq 1 60); do
   grep VmRSS /proc/$(systemctl show dg.service -p MainPID --value)/status
@@ -55,7 +55,7 @@ before/after a full-table scan of every DB).
 
 ## D3b. Sidecar footprint (after C1-live)
 
-During steady replication and during a restore, sample the Litestream
+During steady replication and during a restore, sample the replication sidecar
 process RSS + CPU the same way as D1, plus replication bandwidth (`nload` or
 `/proc/net/dev` deltas) and disk staging under the sidecar's work dir.
 

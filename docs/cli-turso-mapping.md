@@ -80,7 +80,7 @@ maps each Turso CLI verb to its `dg` equivalent.
 
 No Turso equivalent; kept as the single-node operational surface:
 
-- `dg serve` — loopback-only server; remote via SSH tunnel.
+- `dg serve` — local-only server; remote via private transport.
 - `dg status` — the service dashboard: version, uptime, live and
   tombstoned database counts, request totals with a rate, the error
   rate, the admission queue, and a per-database table. The table's
@@ -115,7 +115,7 @@ No Turso equivalent; kept as the single-node operational surface:
 
 `dg tui` runs on the operator's machine and reaches the gateway
 through the same client as every other command, so the transport rules
-are the ones above: a literal loopback origin or HTTPS, never a public
+are the ones above: a literal local origin or HTTPS, never a public
 listener. The credential is read from the `0600` key file into memory
 and is never drawn — the one key the view shows is a newly issued one,
 which the gateway shows once and never again.

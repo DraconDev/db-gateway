@@ -216,7 +216,7 @@ gateway, many isolated databases, scoped credentials, an HTTP API, CLI
 and TUI, and off-host backups. Pre-production (0.x)."
 - **Topics:** `rust`, `sqlite`, `database`, `database-gateway`,
   `self-hosted`, `cli`, `tui`, `http-api`, `axum`, `rusqlite`, `libsql`,
-  `turso`, `litestream`, `backups`, `ratatui`,
+  `turso`, `replication sidecar`, `backups`, `ratatui`,
   `credential-management`.
 - **In-tree, so it does move in a diff:** `Cargo.toml` and both
   `package.json` files now carry `description`, `repository` and
@@ -279,7 +279,7 @@ descriptors, source/scripts, and tests/examples. The front-door cleanup
 is in `README.md`, `SECURITY.md`, and `CONTRIBUTING.md`: the README no
 longer links to the internal task ledger or contributor/operator runbooks,
 and the security and contributor pages state only generic boundaries
-(pre-production, loopback, private transport, least-privilege
+(pre-production, local, private transport, least-privilege
 credentials, operator-configured off-host backups). No hostnames, public
 addresses, provider endpoints, evidence-log references, deployment
 schedules, key paths, or milestone state remain in those files.

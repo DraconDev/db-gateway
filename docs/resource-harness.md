@@ -10,7 +10,7 @@ scripts/resource-report-release.sh     # release profile
 The debug script builds the debug binary (`cargo build --locked`); the release
 script builds the release binary (`cargo build --release --locked`). Both
 start a real `dg serve` on a disposable directory, sample VmRSS, load a
-fixed workload, sample loopback latency, print one JSON report to stdout, then
+fixed workload, sample local latency, print one JSON report to stdout, then
 kill the server and remove the workdir (trap on exit). The release script
 adds a 50-way concurrent INSERT burst (4 s window) and OS cold/hot
 `/proc/meminfo` snapshots so the page-cache growth attributable to the
@@ -60,18 +60,18 @@ The full report is committed as
 (gateway burst peak vs SQLite cache ceiling vs sidecar peak) doubled
 for headroom, with a 64 MiB floor. The unit file `deploy/dg.service`
 sets `MemoryMax=64M` — the on-host value the owner decision was
-revised to on 2026-10-16, matching what the supervised micro2 host
-enforces (67108864); the supervised micro2
+revised to on 2026-10-16, matching what the supervised deployment-host host
+enforces (67108864); the supervised deployment-host
 run is the place to record the on-target fact under the same cap.
 
 ## What is NOT measured
 
-- Continuous-backup sidecars (Litestream/OVH), OS page cache (debug
+- Continuous-backup sidecars (replication sidecar/object storage provider), OS page cache (debug
   harness), WAL checkpoint timing, TLS/reverse-proxy overhead — none run
   during the debug harness. The release harness samples OS page cache
   cold/hot; the dev host's Cached column is not the binding term at
   32 GiB, but the methodology transfers to a 1 GiB target.
-- Contention or multi-client load; loopback single-client probes only.
+- Contention or multi-client load; local single-client probes only.
 - A single run is not a statistical sample.
 
 ## Budget position
@@ -80,10 +80,10 @@ run is the place to record the on-target fact under the same cap.
 budget.** Both are local baselines for trend comparison only (e.g.
 re-run after a storage or dependency change and diff the RSS/latency
 fields). A production budget claim would require the deployment host,
-realistic load, and the litestream sidecar running under the
+realistic load, and the replication sidecar sidecar running under the
 `MemoryMax=1G` envelope documented in
-`docs/evidence/sandbox-packet-2026-09-29-rehearsal.log` gate 9. The release
+`docs/evidence/sandbox-2026-09-29-rehearsal.log` gate 9. The release
 script's `suggested_memory_max_kib` (91,264 KiB, ~89 MiB) is the measured
 starting ceiling this discussion starts from; the unit's own cap is
-`MemoryMax=64M` (67108864 bytes), and the supervised micro2 run is the
+`MemoryMax=64M` (67108864 bytes), and the supervised deployment-host run is the
 on-target confirmation.

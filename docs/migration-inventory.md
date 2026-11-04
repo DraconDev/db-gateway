@@ -3,7 +3,7 @@
 Status: **preparation only**. No Turso account, database, or application
 repository was accessed. The gateway is the migration **target**: Turso
 databases move into it, and Turso is decommissioned only after a successful
-soak (see `docs/migration-cutover.md`). Notes below are a dated,
+verification (see `docs/migration-cutover.md`). Notes below are a dated,
 public-source reference inventory of the concerns that affect bringing a
 Turso database under this gateway; they are not a claim to reproduce Turso's
 entire product catalog. Anything marked UNVERIFIED must be confirmed against
@@ -95,27 +95,27 @@ dropped `studio_youtube_oauth_states` is excluded — youtube.rs:176,826).
   (unassigned)
 - idempotency adoption: none yet (risk 8)
 
-### Source C — billing databases (`dracon-billing`, `dracon-billing-dev`)
+### Source C — billing databases (`example-billing`, `example-billing-dev`)
 
 - URLs (code-grounded, `apis/tools/migrate-turso-omega-cleanup.py`):
-  `libsql://dracon-billing-dev-dracondev.aws-eu-west-1.turso.io`,
-  `libsql://dracon-billing-dracondev.aws-eu-west-1.turso.io`
-- tables, code-grounded (billing-api state.rs `CREATE TABLE` set):
+  `libsql://example-billing-dev-dracondev.aws-eu-west-1.turso.io`,
+  `libsql://example-billing-dracondev.aws-eu-west-1.turso.io`
+- tables, code-grounded (example-application state.rs `CREATE TABLE` set):
   `ai_policies`, `ai_pool_accounting`, `ai_reservations`,
   `ai_usage_accounting`, `current_usage`,
   `entitlement_event_watermarks`, `failed_email_notifications`,
   `processed_webhook_events`, `service_access`, `software_licenses`,
   `tier_limits`, `users` (12 tables; remote facts VERIFIED 2026-10-19:
-  prod `dracon-billing` is 246 kB with **20 tables** — the 12 above
+  prod `example-billing` is 246 kB with **20 tables** — the 12 above
   plus 8 `dracon_ai_*` tables — 12 indexes, no views/triggers;
   near-empty: processed_webhook_events=24, users=4, service_access=3,
-  tier_limits=3, rest ≈0. C-dev `dracon-billing-dev` is 1.0 MB, 19
+  tier_limits=3, rest ≈0. development `example-billing-dev` is 1.0 MB, 19
   tables (no `entitlement_event_watermarks`), and was **trial-imported
-  and verified 2026-10-19** — `docs/evidence/migration-cdev-trial-2026-10-19.log`)
+  and verified 2026-10-19** — `docs/evidence/migration-development-trial-2026-10-19.log`)
 - denied objects: production `ALTER TABLE ... DROP COLUMN` migration
-  code (billing-api state.rs:847,866,932); production views/triggers:
+  code (example-application state.rs:847,866,932); production views/triggers:
   none found; remote-side views: UNVERIFIED
-- client/writers: `billing-api` (`apis/services/billing-api/src/state.rs`
+- client/writers: `example-application` (`apis/services/example-application/src/state.rs`
   references the billing DB, state.rs:560; credentials `TURSO_BILLING_URL` /
   `TURSO_BILLING_TOKEN` per apis/docs/archive/2026-06-15 deploy + audit
   docs); the migrate script is one-shot, not an
@@ -140,9 +140,9 @@ when activated).
 The 2026-10-11 survey read no remote state. On **2026-10-19**, with
 explicit owner approval, read-only remote facts were recorded for
 A/B/C (`turso db list/show`, SELECT counts, `turso db export` of
-C-dev): sizes, live table sets, row counts, and the remote
+development): sizes, live table sets, row counts, and the remote
 views/triggers census (none anywhere) are VERIFIED as of that date in
-the source blocks above and `docs/evidence/migration-cdev-trial-2026-10-19.log`.
+the source blocks above and `docs/evidence/migration-development-trial-2026-10-19.log`.
 Still UNVERIFIED: full column DDL for A/B (resolvable from an export
 when their trials are scheduled), writer rates/topology, and the
 newer estate databases observed in the account list (dracon-auth,
@@ -174,8 +174,8 @@ disposable export).
 | 7 | Writers | Turso primary/replica topology becomes gateway single-writer-per-database with 429/408 backpressure. Applications must re-tune retry behavior to gateway semantics. | REPO-VERIFIED / UNVERIFIED (source topology) |
 | 8 | Idempotency | The gateway offers `Idempotency-Key` replay (24 h, 256 keys) that Turso callers lack. Migrated writers should adopt keyed writes for exactly-once resubmission instead of blind retries. | REPO-VERIFIED |
 | 9 | Lifecycle | Tombstone + 24 h purge, clone/export/import routes, and `_dg_*` protection are gateway concepts operators must learn; Turso platform operations no longer apply after cutover. | REPO-VERIFIED |
-| 10 | Recovery | Gateway recovery = versioned export snapshots + documented restore (`docs/recovery-contract.md`). Turso point-in-time recovery is left behind: gateway exports must be running before cutover, and Turso-side exports are retained as the rollback floor through the soak. | REPO-VERIFIED / UNVERIFIED (source export mechanics) |
-| 11 | Latency/topology | Network-attached Turso becomes loopback gateway (~4 ms local p50, `docs/resource-harness.md`). Expect lower latency but different failure modes: no reconnects, explicit 429/408 backpressure instead. | REPO-VERIFIED / UNVERIFIED |
+| 10 | Recovery | Gateway recovery = versioned export snapshots + documented restore (`docs/recovery-contract.md`). Turso point-in-time recovery is left behind: gateway exports must be running before cutover, and Turso-side exports are retained as the rollback floor through the verification. | REPO-VERIFIED / UNVERIFIED (source export mechanics) |
+| 11 | Latency/topology | Network-attached Turso becomes local gateway (~4 ms local p50, `docs/resource-harness.md`). Expect lower latency but different failure modes: no reconnects, explicit 429/408 backpressure instead. | REPO-VERIFIED / UNVERIFIED |
 
 ## Design response: keep the gateway boundary
 
@@ -184,7 +184,7 @@ disposable export).
 | Client protocol | A typed client and explicit request/response contract | Keep the custom JSON HTTP API; do not add Hrana/libSQL wire compatibility by implication | A separately approved application requirement plus a versioned protocol design |
 | Database engine | SQLite data and SQL portability where statements are standard | Keep stock SQLite/rusqlite and test statement-by-statement; reject libSQL-only syntax unless explicitly designed | A disposable parity fixture with exact rows, errors, and limits |
 | Authentication | Database-scoped application access is a useful boundary | Keep hash-only owner/app credentials and generation-bound scopes; do not import platform tokens or SaaS tenancy | A new security review and migration inventory for any auth change |
-| Replication/topology | Off-host recovery and observable replica freshness are useful goals | Do not assume remote replicas, edge placement, or high availability; evaluate Litestream/OVH independently under `docs/backup-compatibility.md` | Failure, latency, resource, and restore evidence on the chosen target |
+| Replication/topology | Off-host recovery and observable replica freshness are useful goals | Do not assume remote replicas, edge placement, or high availability; evaluate replication sidecar/object storage provider independently under `docs/backup-compatibility.md` | Failure, latency, resource, and restore evidence on the chosen target |
 | Lifecycle/control plane | Explicit create, export, restore, and deletion operations need operator intent | Keep tombstones, validated import, and owner-only management; do not inherit opaque platform lifecycle semantics | An owner-approved lifecycle contract and regression suite |
 | Limits/retries | Clients need bounded requests and explicit retry behavior | Keep gateway limits and keyed replay; reshape sources that exceed them instead of raising caps by migration pressure | Current vendor documentation plus workload measurements |
 | Recovery/observability | Freshness, restore verification, and failure visibility are first-class concerns | Implement the local signal contract in `docs/observability-contract.md`; gateway exports must cover every migrated database before its cutover | Passing sandbox restore/failure/resource matrices and owner approval |
@@ -213,7 +213,7 @@ Copy per **source** (Turso) database:
 - app readers:             (which applications read, latency needs)
 - credentials to replace:  (Turso tokens → gateway key names + roles)
 - idempotency adoption:    (which callers will send Idempotency-Key)
-- recovery requirement:    (RPO/RTO per docs/recovery-decisions.md)
+- recovery requirement:    (recovery objectives per docs/recovery-decisions.md)
 ```
 
 ## Local fixture rehearsal and its limits

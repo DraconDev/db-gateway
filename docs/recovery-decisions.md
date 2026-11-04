@@ -3,16 +3,16 @@
 **Document role:** Historical/current research brief; the canonical roadmap is
 [`personal-turso-megaplan.md`](personal-turso-megaplan.md). **Tier
 selection is superseded by [`recovery-policy.md`](recovery-policy.md)
-(2026-10-19)**: continuous Litestream WAL shipping to OVH is Tier 1
+(2026-10-19)**: continuous replication sidecar WAL shipping to object storage provider is Tier 1
 (host loss) and per-database consistent verified snapshots are Tier 2
-(local rollback), both live on micro2. This brief's Profile C analysis
+(local rollback), both live on deployment-host. This brief's Profile C analysis
 and measurements remain the evidence base for the objectives the
 policy adopts.
 
 Status: **decision brief and working local policy, not an accepted production
 policy**. The owner has selected Profile C objectives for local preparation,
-but nothing in this document is an owner-accepted RPO/RTO/retention guarantee,
-a backup SLA, or verified OVH/tool coverage. Public sources only; live bucket,
+but nothing in this document is an owner-accepted recovery objectives/retention guarantee,
+a backup SLA, or verified object storage provider/tool coverage. Public sources only; live bucket,
 tool-version, and host verification remain open M3 work.
 
 ## Decision status (updated 2026-09-29)
@@ -21,15 +21,15 @@ tool-version, and host verification remain open M3 work.
   lag objective after committed changes, seven days of frequent points, and
   daily history of 30 production / 7 development versions.
 - **Working restore objective:** verify every sync and rehearse a separate-
-  target restore daily; target a 15-minute local RTO objective, with owner
+  target restore daily; target a 1periodic local recovery objective objective, with owner
   authorization required before any cutover.
 - **Policy status:** these are owner-selected objectives for local preparation,
-  not an accepted production RPO/RTO/retention guarantee. The local rehearsal
+  not an accepted production recovery objectives/retention guarantee. The local rehearsal
   reports a measurement but does not prove sidecar timing or host fit.
 - **Failure fallback:** an unresolved adoption gate blocks rollout; manual
   validated snapshots remain the fallback.
-- **Live boundary:** no OVH account, bucket, credential, backup sidecar,
-  production data, or further micro2 action may be touched by this brief.
+- **Live boundary:** no object storage provider account, bucket, credential, backup sidecar,
+  production data, or further deployment-host action may be touched by this brief.
   Adoption requires the sandbox gates in `docs/backup-compatibility.md` §6
   and a separate owner approval.
 - **Monitoring dependency:** the implementation must expose the newest
@@ -85,12 +85,12 @@ exposed during each of these windows:
 
 ## 3. Profile comparison
 
-“RPO” below means *objective*: the maximum age of the newest verified
+“recovery objective” below means *objective*: the maximum age of the newest verified
 recoverable copy under successful operation. Actual loss after a failure can
-be larger. “RTO” means time to a verified readable copy on a separate target
+be larger. “recovery objective” means time to a verified readable copy on a separate target
 under rehearsed conditions, not a production SLA.
 
-| Profile | Backup cadence (objective) | Retention | RPO objective | RTO objective | What it costs | When it fits |
+| Profile | Backup cadence (objective) | Retention | recovery objective objective | recovery objective objective | What it costs | When it fits |
 | --- | --- | --- | --- | --- | --- | --- |
 | A — manual snapshots only | `export` before risky ops; no schedule | Ad hoc, operator-kept | Unbounded (since last manual export) | Hours (manual import + verify) | ~0; operator discipline only | Pre-M3 development; no production promise |
 | B — daily versioned snapshots | 1 verified snapshot per database per day | 7–30 daily versions per database | 24h | ~1h per database to a separate target | Storage = db size × versions retained; one daily upload + verify per db; small compute on the 1 GB host | Single-owner service with daily-change tolerance; simplest restore via existing validated `import` |
@@ -110,7 +110,7 @@ Notes:
 
 ## 4. Working Profile C recommendation (owner-accepted 2026-09-27 as a target, not a guarantee)
 **Owner decision, 2026-09-27: ACCEPTED as the working objective, explicitly not
-as a guarantee.** The five-minute lag/RPO objective, the 15-minute
+as a guarantee.** The five-minute lag/recovery objective objective, the 1periodic
 restore-to-verified-readable-copy objective, and the retention classes (7 days
 of frequent recovery points, 30 daily production versions, 7 daily development
 versions) stand. Nothing here is an SLO, a backup SLA, or evidence of coverage:
@@ -124,7 +124,7 @@ Use Profile C as the **working local objective**: continuous WAL-style
 shipping with a five-minute lag objective, seven days of frequent recovery
 points, 30 daily production versions, and 7 daily development versions.
 Verify every sync and perform a daily restore to a separate target. The local
-rehearsal targets a 15-minute restore-to-verified-readable-copy objective;
+rehearsal targets a 1periodic restore-to-verified-readable-copy objective;
 owner authorization is required before any cutover.
 
 Why C over B for this preparation: the owner prefers an eager recovery point
@@ -135,7 +135,7 @@ Those costs and the five-minute lag remain unmeasured until the sandbox.
 
 Why C is not accepted yet: continuous replication can stall while serving
 writes continue, checkpoint contention can affect the gateway's 250ms busy
-window, and a local filesystem mock cannot prove Litestream/OVH behavior.
+window, and a local filesystem mock cannot prove replication sidecar/object storage provider behavior.
 The adoption packet must prove lag, failure visibility, resource headroom,
 retention, registry coverage, encryption, and separate-target restore.
 
@@ -155,7 +155,7 @@ continuous path recovered.
   the host or a scratch target; keep it off the serving path.
 - **Operational attention**: backup-health visibility (newest verified copy
   per database, failure alerts) is part of M3 scope; an unverified schedule
-  is profile A with a cron entry.
+  is profile A with a scheduler entry.
 
 ## 6. Unresolved owner decisions (explicit, blocking live work)
 
@@ -163,23 +163,23 @@ continuous path recovered.
 follows in the sandbox/notification work):
 
 1. **ACCEPTED as a working target, not a guarantee** — the Profile C objectives
-   in §4: five-minute lag/RPO, 15-minute RTO, and the retention classes. Not an
+   in §4: five-minute lag/recovery objective, 1periodic recovery objective, and the retention classes. Not an
    SLO and not coverage evidence; the sandbox gates any stronger claim.
 2. **STILL OPEN** — monthly budget cap, excluded databases, bucket
    region/endpoint, credential scope, and encryption. These need real bucket
    facts and pricing, so they are deliberately deferred to the sandbox step
    rather than guessed here.
    *Measured inputs now available* (`docs/backup-compatibility.md` §6a, from
-   the litestream 0.5.17 rehearsal, 2026-09-28 + 2026-09-29):
+   the replication sidecar 0.5.17 rehearsal, 2026-09-28 + 2026-09-29):
 
    - `endpoint` and `region` are honoured as replica URL query parameters
      (`s3://<bucket>/<prefix>?endpoint=<scheme://host>&region=<r>`) and need
-     no other setting. Path-style addressing is required by OVH; virtual-host
-     style is silently accepted by litestream and not used.
+     no other setting. Path-style addressing is required by object storage provider; virtual-host
+     style is silently accepted by replication sidecar and not used.
    - A replica root is **not** namespaced per database, so the bucket layout
      must be one prefix per gateway database (`s3://<bucket>/<db-name>/...`).
      The gateway holds N databases, so this is load-bearing, not tidy.
-   - **Encryption client-side, MEASURED** -- litestream 0.5.17 **sends
+   - **Encryption client-side, MEASURED** -- replication sidecar 0.5.17 **sends
      SSE-C**: with `sse-customer-key` set, the validating proxy recorded
      `sse_customer_present=1` on all three PUTs under that prefix -- the request
      carried `x-amz-server-side-encryption-customer-algorithm`, `-key` and
@@ -190,48 +190,48 @@ follows in the sandbox/notification work):
      in this file said the key was ignored and the data replicated in the
      clear; that was inferred from a clean daemon start and the request log
      refuted it. Whether the stored bytes are encrypted is the SERVICE's
-     answer, not litestream's -- see decision 3.
+     answer, not replication sidecar's -- see decision 3.
    - **Credential scope, MEASURED** -- the operation matrix the packet issues
      against a bucket in a passing run (933 requests; re-derivable with
      `scripts/packet-facts.py` from the committed packet and its matrix sidecar) on the 2026-09-29
-     rehearsal, 270+26+8+70 = 374 of them litestream's, three non-2xx answers all named, no others):
+     rehearsal, 270+26+8+70 = 374 of them replication sidecar's, three non-2xx answers all named, no others):
 
      | method | query-prefix | count | IAM action | issued by |
      | --- | --- | --- | --- | --- |
-     | `GET` | `list-type=2` | 270 | `s3:ListBucket` | litestream |
+     | `GET` | `list-type=2` | 270 | `s3:ListBucket` | replication sidecar |
      | `GET` | `list-type=2` | 442 | `s3:ListBucket` | packet (versions, retention, residue) |
-     | `GET` | `x-id=GetObject` | 26 | `s3:GetObject` | litestream |
+     | `GET` | `x-id=GetObject` | 26 | `s3:GetObject` | replication sidecar |
      | `GET` | `x-id=GetObject` | 26 | `s3:GetObject` | packet (gate 5 damage cases) |
      | `GET` | `(object key)` | 5 | `s3:GetObject` | packet (gate 5, gate 10 canary) |
      | `GET` | `versions` | 4 | `s3:ListBucketVersions` | packet |
      | `GET` | `lifecycle` | 1 | `s3:GetLifecycleConfiguration` | packet |
-     | `HEAD` | `(object key)` | 8 | `s3:GetObject` | litestream |
+     | `HEAD` | `(object key)` | 8 | `s3:GetObject` | replication sidecar |
      | `HEAD` | `(object key)` | 4 | `s3:GetObject` | packet (SSE check, artifact inspection) |
      | `HEAD` | `/<bucket>` | 1 | `s3:ListBucket` | packet (gate 12) |
      | `PUT` | `(object key)` | 1 | `s3:PutObject` | packet (SSE canary) |
      | `PUT` | `lifecycle` | 1 | `s3:PutLifecycleConfiguration` | packet |
      | `PUT` | `/<bucket>` | 2 | `s3:CreateBucket` | packet (idempotent) |
-     | `PUT` | `x-id=PutObject` | 70 | `s3:PutObject` | litestream (3 carry SSE-C on the wire) |
+     | `PUT` | `x-id=PutObject` | 70 | `s3:PutObject` | replication sidecar (3 carry SSE-C on the wire) |
      | `DELETE` | `/<bucket>` | 1 | `s3:DeleteBucket` | packet (gate 12) |
      | `DELETE` | `versionId` | 71 | `s3:DeleteObjectVersion` | packet (gate 12) |
 
-     **The litestream-only half is the minimum a steady-state policy needs**:
+     **The replication sidecar-only half is the minimum a steady-state policy needs**:
      `s3:ListBucket`, `s3:GetObject`, `s3:PutObject`, scoped to the
      per-database prefix (e.g. `sbx/*`). The split is measured, not assumed:
-     litestream stamps uploads with `x-amz-meta-litestream-timestamp` and signs
+     replication sidecar stamps uploads with `x-amz-meta-replication sidecar-timestamp` and signs
      with the Go SDK, which leaves `amz-sdk-*` markers, and `s3probe.py` leaves
      neither, so the two clients are separable in the request log. Everything else in that table is the
      packet driving the bucket rather than replication, and
      `s3:CreateBucket` / `s3:DeleteBucket` / `s3:PutLifecycleConfiguration`
      exist only so a disposable test bucket can be managed by the packet
      itself -- none of them is exercised by a steady-state retention run, and
-     `litestream` never issues a delete at all, so retention is entirely the
+     `replication sidecar` never issues a delete at all, so retention is entirely the
      bucket's lifecycle job (which is what gate 6 measures, and what the
      rehearsal endpoint could not answer: it answers
      `PutBucketLifecycleConfiguration` with 409 and
      `GetBucketLifecycleConfiguration` with a plain object listing). The
      minimum scoping is `arn:...:bucket=<test-bucket>` plus a `Condition` on
-     the key prefix. The OVH account-level cap (1 Gbps/connection, 300
+     the key prefix. The object storage provider account-level cap (1 Gbps/connection, 300
      PUT/s + 900 GET/s soft limits) is the owner-decision input that no
      rehearsal can answer.
    - **Encryption** -- `sse-customer-key` IS sent by 0.5.17 (measured on the
@@ -245,14 +245,14 @@ follows in the sandbox/notification work):
    confused:
 
    - **The client sends SSE-C.** With `replica.sse-customer-key` set,
-     litestream 0.5.17 signs `x-amz-server-side-encryption-customer-algorithm`,
+     replication sidecar 0.5.17 signs `x-amz-server-side-encryption-customer-algorithm`,
      `-key` and `-key-md5` on every upload; the packet's validating proxy
      recorded all three inside `SignedHeaders`. An earlier note here said
      0.5.17 "ignores the key and replicates in the clear", inferred from the
      daemon starting without an error. The request log refuted it, and the
      note is withdrawn. **SSE-C is available to the owner as a client-side
      lever** -- this is the correction that matters, because the withdrawn
-     claim implied the only choice was OVH-managed SSE.
+     claim implied the only choice was object storage provider-managed SSE.
    - **The service's answer is still missing, and a header is not it.** A HEAD
      on the stored objects reported no `x-amz-server-side-encryption`, and the
      SSE-C `customer-algorithm` echo came back as `AES256`. That echo is the
@@ -263,28 +263,28 @@ follows in the sandbox/notification work):
      canary with SSE-C, read it back WITHOUT the customer key (a refusal is a
      proof; the plaintext coming back is a finding), then with the key -- and
      passes only on that proof. This is a property of the stand-in, not of
-     litestream and not of OVH.
+     replication sidecar and not of object storage provider.
 
-   So decision 3 is a real choice between SSE-OMK (OVH-managed, transparent),
-   SSE-C (client-supplied per PUT, and litestream already sends it), or
+   So decision 3 is a real choice between SSE-OMK (object storage provider-managed, transparent),
+   SSE-C (client-supplied per PUT, and replication sidecar already sends it), or
    client-side encryption before the PUT, and the packet states which
    observation each requires rather than guessing. Gate 10 BLOCKS here on the
    missing service-side proof, not on the client half. The credential-isolation
    half is not confounded and has been **measured clean**: with every ambient
    credential removed, a restore from the bucket returned all 100 rows. Two
-   things only OVH can answer: whether its canary reads back REFUSED without
+   things only object storage provider can answer: whether its canary reads back REFUSED without
    the customer key under SSE-C, and whether a restore there succeeds with the
    key and fails cleanly without it. For SSE-OMK the honest position is that a
    transparent decrypt cannot be observed from outside, and the owner is
-   relying on OVH's documentation plus the reported header.
+   relying on object storage provider's documentation plus the reported header.
    *Status 2026-09-29*: **sidecar headroom has been MEASURED, locally**.
-   `sandbox-s3-gates.sh` gate 9 ran the litestream 0.5.17 sidecar inside a
+   `sandbox-s3-gates.sh` gate 9 ran the replication sidecar 0.5.17 sidecar inside a
    kernel-enforced 1 GiB transient scope: replication peak 44 MiB (45,632 KiB), restore
    peak 35 MiB (34,576 KiB), restore 2740 ms, no OOM kill. The enforcement is proved, not assumed -- the
    probe allocates 8x the cap and requires the child to be killed, and a
    mechanism that lets it survive is rejected. Headroom against the 1 GB
    budget is roughly 95% at steady state and restore **at this database size**;
-   the OVH 1 GB VPS run will confirm on different hardware, and
+   the object storage provider 1 GB VPS run will confirm on different hardware, and
    `docs/backup-compatibility.md` §6a row for gate 9 carries the constraint
    mechanism and the OOM-kill observation so the owner can compare. Budget cap,
    region pricing, and the exact decision are still the owner's; the input they
@@ -308,21 +308,21 @@ follows in the sandbox/notification work):
    the five-minute objective, and what measured headroom the 1 GB host must
    show. This is the question the sandbox exists to answer.
    *Status 2026-09-29*: the gate program is built and rehearsed end to end
-   (`scripts/rehearse-sandbox-packet.sh`); **ten of twelve gates PASS in
+   (`scripts/rehearse-sandbox.sh`); **ten of twelve gates PASS in
    rehearsal** (`docs/backup-compatibility.md` §6a), and the two that do not
    are BLOCKED for a reason no rehearsal can remove: gate 6 needs a service
    that implements `?lifecycle` and gate 10 needs a service that reports
-   server-side encryption. Both are OVH's to answer, with the commands
+   server-side encryption. Both are object storage provider's to answer, with the commands
    unchanged. The rehearsal packet for that run is
-   `docs/evidence/sandbox-packet-2026-09-29-rehearsal.log`. **The alerting half of decision 6 is partly
-   settled by the gate-8 measurement**: litestream 0.5.17 does not surface
-   every failure mode in the daemon log or in `litestream status`. Blocked-
-   egress was visible only via the `litestream sync` CLI, and the restore
+   `docs/evidence/sandbox-2026-09-29-rehearsal.log`. **The alerting half of decision 6 is partly
+   settled by the gate-8 measurement**: replication sidecar 0.5.17 does not surface
+   every failure mode in the daemon log or in `replication sidecar status`. Blocked-
+   egress was visible only via the `replication sidecar sync` CLI, and the restore
    path was the only surface for parts of the measurement. A passing gate 8
    is therefore not "an alert exists" -- it is "an alert exists that an
    operator must be looking at the right surface for". Decision 6 needs an
    external freshness check (a scheduled restore-and-count, or comparing the
-   gateway's own last-backup timestamp against now), not just a litestream
+   gateway's own last-backup timestamp against now), not just a replication sidecar
    log watcher. The packet names the surfaces in the gate-8 output so the
    operator can pick which one to alert on. The question cannot be answered
    without a test bucket, the owner's go-ahead, and the 1 GB VPS -- which
@@ -334,10 +334,10 @@ follows in the sandbox/notification work):
 - SQLite, `PRAGMA synchronous`: https://www.sqlite.org/pragma.html#pragma_synchronous
 - SQLite, Online Backup: https://www.sqlite.org/backup.html
 - SQLite, `PRAGMA integrity_check`: https://www.sqlite.org/pragma.html#pragma_integrity_check
-- Litestream documentation (replication concept reference; version/tool selection still open): https://litestream.io/
+- replication sidecar documentation (replication concept reference; version/tool selection still open): https://replication sidecar.io/
 - OVHcloud Object Storage overview (endpoint/region/S3-compatibility verification still open): https://www.ovhcloud.com/en/public-cloud/object-storage/
 - OVHcloud Object Storage S3 API documentation index (credential/permission/retention verification still open): https://help.ovhcloud.com/csm/en-public-cloud-storage-s3/
-- Oracle Cloud Always Free resources (micro2 shape/disk/access verification still open): https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm
+- owner-operated Cloud Always Free resources (deployment-host shape/disk/access verification still open): https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm
 
 Local implementation references (not public sources): `src/execution.rs`
 (WAL, `synchronous=FULL`, atomic replay), `src/store/transfers.rs` (online backup,

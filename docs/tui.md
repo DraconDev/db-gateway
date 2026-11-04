@@ -23,7 +23,7 @@ handed help prose or escape sequences where it expected silence.
 It talks to the same gateway, over the same API, with the same
 credential as every other command — `--server` and `--key-file` mean
 what they mean everywhere else. A remote gateway is reached the same
-way it always is: through an SSH tunnel.
+way it always is: through an private transport.
 
 The v0.10.0 owner-only lifecycle safeguards (`dg protect` and
 `dg undelete`) are CLI/API actions, not new TUI actions. The full-screen
@@ -149,7 +149,7 @@ whether that file is there. The counters say what a database did; only the
 file says whether it could.
 
 Neither answer can be worked out by the client. A gateway is usually reached
-through a tunnel, so from the operator's machine it is a loopback port and
+through a tunnel, so from the operator's machine it is a local port and
 nothing more, and the machine on the other end is the one holding the data.
 The gateway is therefore the only place that can report it, and it does so in
 `GET /v1/status` — the same answer the CLI's `dg status` prints.

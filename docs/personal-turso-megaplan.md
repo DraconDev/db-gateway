@@ -8,7 +8,7 @@
 This is the canonical forward-planning artifact for the project. It supersedes
 `docs/plan-2026-09-22.md` for sequencing and architecture direction; that older
 plan remains historical evidence. This roadmap is not authorization to touch
-OVH, production data, subscriptions, Turso, or a live host. Every live phase
+object storage provider, production data, subscriptions, Turso, or a live host. Every live phase
 still needs its own approval window.
 
 ## 1. Product promise
@@ -20,9 +20,9 @@ DB Gateway is the personal Turso replacement:
 - Each application gets a scoped database credential, never the owner key.
 - Each database is an independent SQLite file with bounded work and lifecycle operations.
 - The server acknowledges a write after the local SQLite transaction commits.
-- Verified versioned copies are copied to an off-host OVH Object Storage bucket.
+- Verified versioned copies are copied to an off-host object storage bucket.
 - A new or replacement server can be restored and verified from those copies.
-- The CLI remains the primary interface; a workstation-local web console may complement it through a loopback companion and SSH-forwarded connection, without becoming a public hosted interface.
+- The CLI remains the primary interface; a workstation-local web console may complement it through a local companion and private-transport connection, without becoming a public hosted interface.
 
 ### Important durability distinction
 
@@ -38,7 +38,7 @@ local SQLite transaction on the primary server  <-- synchronous read/write path
 later backup job
       |
       v
-verified artifact in OVH Object Storage          <-- asynchronous recovery tier
+verified artifact in object storage          <-- asynchronous recovery tier
 ```
 
 An acknowledged write is locally durable according to SQLite settings. It is not claimed to be in the bucket until a backup reports success and verification. The service must expose that lag rather than pretending that object storage is synchronous.
@@ -57,8 +57,8 @@ competing silently with the canonical roadmap.
 | `docs/api.md` | Current API/CLI contract | Normative interface behavior; not live authorization |
 | `docs/recovery-contract.md` | Current local recovery contract | Normative artifact layout and restore checks; not a bucket policy |
 | `docs/recovery-decisions.md` | Research/decision brief | Profile C analysis and measurements; retained for policy history — tier selection is canonical in `docs/recovery-policy.md` |
-| `docs/recovery-policy.md` | **Canonical recovery policy** | Tier 1 Litestream→OVH (host loss) vs Tier 2 snapshot sets (local rollback); RPO/RTO objectives, retention, bucket-alone registry recovery |
-| `docs/access-edge.md` | **Canonical access-edge decision** | WireGuard mesh + loopback socket proxies for application hosts; threat model; rejected alternatives (audit A9) |
+| `docs/recovery-policy.md` | **Canonical recovery policy** | Tier 1 replication sidecar→object storage provider (host loss) vs Tier 2 snapshot sets (local rollback); recovery objectives objectives, retention, bucket-alone registry recovery |
+| `docs/access-edge.md` | **Canonical access-edge decision** | WireGuard mesh + local socket proxies for application hosts; threat model; rejected alternatives (audit A9) |
 | `docs/observability-contract.md` | Current observability contract | Freshness/request-pressure evidence; disk/RSS/alert integrations remain future work |
 | `docs/scale-proposal-2026-09-21.md` | Implemented scale reference | Phases 1–2 landed; measured sizing and multi-host gate remain open |
 | `docs/migration-cutover.md` | **Normative migration gates** | GATE 1/2/3, rollback floor, write reconciliation, and decommission approval govern Phase 7 |
@@ -76,9 +76,9 @@ It checks structure and links, not the truth of future measurements.
 | First topology | Single primary first | Design stable interfaces for later replicas; do not build automatic failover yet |
 | Runtime | Native binary under Ubuntu systemd | Keep local SQLite files, logging, and process supervision simple |
 | Build consistency | Nix flake for project tooling and checks | Pin development/CI/package inputs without pretending Nix is the Ubuntu ABI boundary |
-| Release ABI | Immutable Ubuntu builder image | Build and smoke-test against micro2's Ubuntu/x86_64/glibc contract |
-| First bucket target | Verified snapshots, then continuous WAL (both live; canonical roles in `docs/recovery-policy.md`) | Snapshots were the understandable, testable start; Litestream WAL shipping is now the host-loss tier and snapshots the local-rollback tier |
-| Client access | SSH tunnel first | Keep the service private; add HTTPS/private networking when needed |
+| Release ABI | Immutable Ubuntu builder image | Build and smoke-test against deployment-host's Ubuntu/x86_64/glibc contract |
+| First bucket target | Verified snapshots, then continuous WAL (both live; canonical roles in `docs/recovery-policy.md`) | Snapshots were the understandable, testable start; replication sidecar WAL shipping is now the host-loss tier and snapshots the local-rollback tier |
+| Client access | private transport first | Keep the service private; add HTTPS/private networking when needed |
 | Product interface | CLI first | Invest in `dg` commands, JSON output, automation, and shell ergonomics |
 
 The system should remain useful if every optional future feature is removed. That is the test of a good personal service: the core path is small, explicit, and operable without a control plane dashboard.
@@ -90,7 +90,7 @@ The system should remain useful if every optional future feature is removed. Tha
                                   |
                               dg CLI
                                   |
-                       SSH tunnel or private edge
+                       private transport or private edge
                                   |
                          127.0.0.1:7432
                                   |
@@ -103,7 +103,7 @@ The system should remain useful if every optional future feature is removed. Tha
                                   |
                  snapshot staging + manifest + hashes
                                   |
-                   OVH S3-compatible Object Storage
+                   object storage-compatible Object Storage
                                   |
                  separate restore target / replacement host
 ```
@@ -148,7 +148,7 @@ Consistency means one source of truth for each concern, not using one tool for e
 | Rust compiler | `rust-toolchain.toml` | Flake reads/checks the same pinned channel; release container installs the same version |
 | Rust dependencies | `Cargo.lock` | All local, CI, and release builds use `--locked` |
 | Local checks | `nix flake check` wrappers plus existing Rust/TS checks | CI runs the flake checks and the repository gates |
-| Target ABI | Pinned Ubuntu builder image digest | `release-bundle.sh` refuses native fallback for micro2 |
+| Target ABI | Pinned Ubuntu builder image digest | `release-bundle.sh` refuses native fallback for deployment-host |
 | Runtime service | `deploy/dg.service` and documented install layout | Systemd validation and install smoke tests |
 | Live data | SQLite files under the service data directory | Registry, lifecycle, and backup tools operate through `dg`/store APIs |
 | Backup artifact | Manifest, per-file hashes, registry hash, version metadata | Backup and restore validate the same contract |
@@ -157,7 +157,7 @@ Consistency means one source of truth for each concern, not using one tool for e
 
 ### Why Nix is not the release ABI boundary
 
-Nix is valuable for repeatable development and CI environments, but a Nix-built binary may contain Nix store paths or a different dynamic-linker arrangement. The micro2 release must be built against the target's Ubuntu userland. Therefore:
+Nix is valuable for repeatable development and CI environments, but a Nix-built binary may contain Nix store paths or a different dynamic-linker arrangement. The deployment-host release must be built against the target's Ubuntu userland. Therefore:
 
 - flake: project/tooling consistency;
 - pinned Ubuntu builder: target compatibility;
@@ -171,8 +171,8 @@ The service is single-owner, but it is still internet-adjacent infrastructure.
 
 ### Runtime boundaries
 
-- Bind `dg` to loopback by default.
-- Reach it through an SSH tunnel until an HTTPS/private-network edge is explicitly added.
+- Bind `dg` to local by default.
+- Reach it through an private transport until an HTTPS/private-network edge is explicitly added.
 - Run it as an unprivileged `dg` service account.
 - Use `ProtectSystem=strict`, `NoNewPrivileges`, `ProtectHome`, and a narrow `ReadWritePaths` set.
 - Keep the data directory private (`0700`) and owned by the service user.
@@ -263,7 +263,7 @@ A backup is not considered healthy merely because `upload` returned success. The
 
 ### Snapshot cadence
 
-The first implementation should expose a configurable schedule, but not promise a universal RPO. Recommended starting point:
+The first implementation should expose a configurable schedule, but not promise a universal recovery objective. Recommended starting point:
 
 - one verified snapshot every six hours for active databases;
 - daily retention for seven days;
@@ -314,7 +314,7 @@ The last three commands are future work; they should not be added as fake placeh
 - No hidden retries for writes.
 - Scoped credentials for applications.
 - Configurable server/key resolution through flags, environment, and a future named-context file.
-- Optional named contexts for `micro2`, `staging`, and `local` without putting secrets in shell history.
+- Optional named contexts for `deployment-host`, `staging`, and `local` without putting secrets in shell history.
 
 ## 9. Work plan and gates
 
@@ -341,11 +341,11 @@ obligations.
 Deliverables:
 
 - confirm single-primary-first topology;
-- confirm SSH-tunnel-first access;
+- confirm private transport-tunnel-first access;
 - confirm verified snapshots as the first bucket profile;
 - choose initial cadence, retention, budget, and bucket region;
 - document owner-key custody and second-custodian policy;
-- document the accepted RPO/RTO objectives and their non-guarantee wording;
+- document the accepted recovery objectives objectives and their non-guarantee wording;
 - update `docs/recovery-decisions.md` and `docs/deployment-readiness.md`;
 - retain `docs/plan-2026-09-22.md` as historical evidence marked superseded by this plan.
 
@@ -371,7 +371,7 @@ Deliverables:
 - a check that the flake and `rust-toolchain.toml` select the same Rust channel;
 - a dedicated pinned Ubuntu builder image containing Rust 1.97.1, GCC, libc headers, `pkg-config`, and `readelf`;
 - the image pinned by immutable digest, not a floating tag;
-- `release-bundle.sh` using the builder for `micro2` with no native fallback;
+- `release-bundle.sh` using the builder for `deployment-host` with no native fallback;
 - bundle `BUILD-INFO.txt` recording image digest, OS, architecture, glibc, engine, and ABI result;
 - a deliberate builder-update policy and review checklist;
 - `scripts/check_plan_consistency.py` and focused tests for canonical links,
@@ -384,7 +384,7 @@ Done when:
 - a clean checkout can run the local check suite;
 - a release bundle is built inside the pinned image;
 - the bundled binary runs `dg --version` and a disposable `dg init` inside that image;
-- host mode is clearly marked non-micro2/unverified;
+- host mode is clearly marked non-deployment-host/unverified;
 - release tests pass and the exact builder is reproducible from the recorded digest;
 - the plan-consistency checker passes in CI and rejects a malformed fixture.
 
@@ -404,7 +404,7 @@ Deliverables:
 - install/check/uninstall scripts that do not silently overwrite keys or data;
 - `systemd-analyze verify` in CI;
 - `dg status` smoke checks after install/restart;
-- documentation for SSH tunnel setup and local CLI connection;
+- documentation for private transport setup and local CLI connection;
 - resource limits based on measured values, not guesses.
 
 Done when:
@@ -449,7 +449,7 @@ Rollback:
 - manual `dg export` remains available as the emergency fallback;
 - do not delete the previous verified set until the new set is complete.
 
-### Phase 4 — OVH bucket adapter
+### Phase 4 — object storage bucket adapter
 
 **Goal:** Move verified snapshot sets off-host without making bucket failure look like data success.
 
@@ -542,7 +542,7 @@ Deliverables:
 - one development-database pilot;
 - one low-risk application pilot;
 - write-freeze/final-export cutover procedure;
-- rollback floor retaining the Turso source until the soak passes;
+- rollback floor retaining the Turso source until the verification passes;
 - application-level row/schema/behavior checks after cutover.
 
 Done when:
@@ -552,7 +552,7 @@ Done when:
 - GATE 1 freezes writers and records the freeze timestamp;
 - GATE 2 performs the irreversible application switch and records gateway-side
   writes for reconciliation;
-- GATE 3 is not crossed until every application confirms the soak;
+- GATE 3 is not crossed until every application confirms the verification;
 - rollback has been rehearsed, including reconciliation of gateway-side writes
   when returning to Turso;
 - Turso remains authoritative until the explicit cutover gate is passed;
@@ -608,7 +608,7 @@ These must remain true in every phase:
 5. Raw copies of live WAL databases are forbidden.
 6. The owner key never appears in application code, repositories, logs, or automated clients.
 7. Scoped credentials remain bound to the correct database generation.
-8. The service remains loopback/private unless an access policy is explicitly changed.
+8. The service remains local/private unless an access policy is explicitly changed.
 9. Release artifacts identify exactly how they were built.
 10. Live changes require a bounded, reversible, evidence-producing window.
 11. A failed or refused phase leaves the previous primary usable.
@@ -624,7 +624,7 @@ The safest first implementation slice is local and reversible:
 4. Add the plan-consistency checker, malformed fixtures, and CI invocation.
 5. Add CI checks that build the image, create a bundle, and inspect `BUILD-INFO.txt`.
 6. Update deployment documentation and run the existing release-bundle test.
-7. Do not touch the live host, OVH, Turso, or any production data in this slice.
+7. Do not touch the live host, object storage provider, Turso, or any production data in this slice.
 
 That slice makes the later daemon, backup, and migration phases more trustworthy without making any irreversible infrastructure decision.
 
@@ -634,7 +634,7 @@ The following values are deliberately not invented here:
 
 - initial snapshot cadence and retention;
 - monthly bucket budget and region;
-- RPO/RTO acceptance wording;
+- recovery objectives acceptance wording;
 - owner-key second custodian;
 - target concurrent-client count;
 - whether/when a standby is justified.

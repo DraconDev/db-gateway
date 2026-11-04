@@ -6,7 +6,7 @@
 Plan only — no migration is performed, no Turso system was contacted, and no
 application cutover exists yet. The gateway is the migration **target**;
 Turso is the source that stays authoritative until stage 5 and is
-decommissioned only after the soak. Builds on
+decommissioned only after the verification. Builds on
 `docs/migration-inventory.md` (risks + inventory) and
 `tests/migration_fixture.rs` (gateway-side import mechanics, not source
 evidence).
@@ -21,7 +21,7 @@ evidence).
    scratch gateway data dir, per-statement testing of edge SQL, limit probes
    near our caps, exact-row comparison).
 3. Rollback floor in place: a fresh Turso-side export set plus checksums,
-   taken within the agreed window and retained untouched through the soak.
+   taken within the agreed window and retained untouched through the verification.
 4. Gateway targets chosen: fresh names (never tombstoned), credentials
    issued to test identities only, gateway backup coverage running for the
    data dir that will receive the imports.
@@ -33,7 +33,7 @@ evidence).
 
 The generic Stages 1–6 below are run **once per production source**, in
 sequence (Source A → Source B → Source C), with each cutover completing
-its full lifecycle — including the soak — before the next begins. The
+its full lifecycle — including the verification — before the next begins. The
 sources named in `docs/migration-inventory.md` § Source survey
 (2026-10-11) are:
 
@@ -41,11 +41,11 @@ sources named in `docs/migration-inventory.md` § Source survey
 |---|---|---|---|---|
 | A | `email-api` database (`TURSO_EMAIL_URL` / `TURSO_EMAIL_TOKEN`) | `email-api` handlers via `api_core::db::SharedDb` + `ConnectionSupervisor` (state.rs:166) | (unassigned) | inventory complete; remote sizes/rows UNVERIFIED |
 | B | `studio-api` database (`STUDIO_API_DB_URL` / `STUDIO_API_DB_TOKEN`) | `studio-api` handlers via SharedDb + supervisor (state.rs:145) **and** a dedicated poller with its own `poller_database` / `poller_conn` (state.rs:680) | (unassigned) | inventory complete; remote sizes/rows UNVERIFIED |
-| C | `billing` databases (`dracon-billing`, `dracon-billing-dev`) | `billing-api` handlers via SharedDb + supervisor (state.rs:592); one-shot `migrate-turso-omega-cleanup.py` is not an ongoing writer | (unassigned) | inventory complete; remote sizes/rows UNVERIFIED |
+| C | `billing` databases (`example-billing`, `example-billing-dev`) | `example-application` handlers via SharedDb + supervisor (state.rs:592); one-shot `migrate-turso-omega-cleanup.py` is not an ongoing writer | (unassigned) | inventory complete; remote sizes/rows UNVERIFIED |
 
 The pilot source from Stage 1 is selected from these three. Each
 subsequent production cutover repeats Stages 2–6 with the named source's
-freeze mechanism and application set; a soak failure or rollback in one
+freeze mechanism and application set; a verification failure or rollback in one
 source blocks the next.
 
 ## Per-source freeze mechanism (avoiding accidental dual writers)
@@ -95,16 +95,16 @@ freeze + env-var swap before restart**, repeated per source:
    replacement poller at the gateway on next start.
 5. **Confirmation before GATE 2:** same as Source A plus a
    `ps -L -p $(pgrep studio-api)` (must be empty) and a 60 s wait to
-   confirm the poller is not respawned by a cron entry.
+   confirm the poller is not respawned by a scheduler entry.
 
-### Source C — billing-api
+### Source C — example-application
 
-1. **Freeze:** stop the `billing-api` service. The one-shot
+1. **Freeze:** stop the `example-application` service. The one-shot
    `migrate-turso-omega-cleanup.py` script is not an ongoing writer
    and does not need a freeze of its own — confirm it is not
    currently running (`pgrep -f migrate-turso-omega-cleanup.py`
    empty) before proceeding.
-2. **Confirm:** zero `billing-api` processes, zero established Hrana
+2. **Confirm:** zero `example-application` processes, zero established Hrana
    streams to `TURSO_BILLING_URL` from this host, no `migrate-` script
    running. Turso-side check mechanism UNVERIFIED.
 3. **Cutover gateway-side** per Stages 3–5 below.
@@ -123,7 +123,7 @@ section is here to prevent.
 
 Pick one source database: smallest writer count, tolerant readers, no
 denied SQL objects if possible. Record why it was chosen. Success criterion:
-pilot migrates and soaks one full application cycle with zero data
+pilot migrates and verifications one full application cycle with zero data
 discrepancies.
 
 ### Stage 2 — Writer freeze (operator-controlled)
@@ -169,38 +169,38 @@ application's own smoke checks plus a Turso-vs-gateway row-count comparison.
 **GATE 3 (point of no return):** owner declares the Turso copy frozen only
 after every application confirms.
 
-### Stage 6 — Soak and decommission
+### Stage 6 — verification and decommission
 
-Keep the Turso exports and rollback floor through the soak period (decided
+Keep the Turso exports and rollback floor through the verification period (decided
 in gate 8 of `docs/deployment-readiness.md`). Decommission the Turso copy —
-and consider any subscription change — only when the soak criterion (stage
+and consider any subscription change — only when the verification criterion (stage
 1) is met for every database, and only with separate explicit approval:
 subscription changes are never implicit in a cutover.
 
-## Post-cutover verification (soak-period checks)
+## Post-cutover verification (verification-period checks)
 
 The four areas named in TASKS.md:190 — schemas, row counts/data,
 application behaviour, backup coverage — must all pass at every checkpoint
 below, per source, before that source is considered cutover-complete. The
-soak duration itself is owner-decision-bound (gate 8 of
+verification duration itself is owner-decision-bound (gate 8 of
 `docs/deployment-readiness.md`); the checks below define what "passing the
-soak" means, not how long the soak runs.
+verification" means, not how long the verification runs.
 
 **Checkpoints.** Three repeatable checkpoints, per source:
 
-- **C1 — At soak start** (immediately after GATE 3 for the source):
+- **C1 — At verification start** (immediately after GATE 3 for the source):
   baseline the four areas against the Turso export set retained on the
   rollback floor.
-- **C2 — Daily during soak**: drift checks; the same comparisons re-run
+- **C2 — Daily during verification**: drift checks; the same comparisons re-run
   to catch silent regressions, schema drift, or backup-side issues
-  before the soak ends.
-- **C3 — At soak end** (before GATE 3 → decommission): the final
-  pass-or-fail record that the soak criterion was met for the source.
+  before the verification ends.
+- **C3 — At verification end** (before GATE 3 → decommission): the final
+  pass-or-fail record that the verification criterion was met for the source.
 
-A failed check at any checkpoint pauses that source's soak: the cutover
+A failed check at any checkpoint pauses that source's verification: the cutover
 is not considered complete, GATE 3 is not crossed, and the rollback
 conditions below apply. The Turso copy stays authoritative through the
-soak.
+verification.
 
 ### A. Schema verification (per source, per checkpoint)
 
@@ -224,7 +224,7 @@ integrity_check is `ok`.
 
 ### B. Row counts and data verification (per source, per checkpoint)
 
-Turso is still live during the soak; comparisons run against the
+Turso is still live during the verification; comparisons run against the
 rollback-floor export set (C1) and against an on-demand re-export (C2,
 C3) so the comparison target does not move under the gateway.
 
@@ -237,7 +237,7 @@ C3) so the comparison target does not move under the gateway.
   `docs/recovery-contract.md` §4 application-data checks).
 - Drift threshold: C2 daily re-runs accept zero row-count drift; a
   one-row drift that maps to a documented, expected application write
-  is acceptable only when reconciled in the soak log.
+  is acceptable only when reconciled in the verification log.
 - Sample of recently-written rows: a writer path known to be live (per
   the inventory's per-source writer list) produces rows that match
   application expectations on the gateway.
@@ -248,7 +248,7 @@ zero; sample rows match application expectations.
 ### C. Application behaviour verification (per source, per checkpoint)
 
 The application set is the per-source set named in the Per-production
-cutover plan above (email-api, studio-api, billing-api):
+cutover plan above (email-api, studio-api, example-application):
 
 - Application smoke checks pass: the per-app smoke set recorded in the
   inventory's per-source notes returns 200/expected for every request
@@ -262,7 +262,7 @@ cutover plan above (email-api, studio-api, billing-api):
   qualifying write; replay under the same key returns the same result
   (covered by `tests/replay_deep.rs`).
 - Error profile: zero 5xx responses attributable to the gateway on the
-  request path during the soak; 4xx responses are within the
+  request path during the verification; 4xx responses are within the
   documented envelope.
 - Latency budget: p50/p99 latency stays within the agreed budget
   against the Turso baseline from the inventory; the budget is the
@@ -274,8 +274,8 @@ the contract; zero unexpected 5xx; latency within budget.
 ### D. Backup coverage (per source, before C1 closes, re-checked at C2 and C3)
 
 Backup coverage is a precondition for the next production cutover, so
-it must be live by C1 of the current source's soak — not at the end of
-all soaks.
+it must be live by C1 of the current source's verification — not at the end of
+all verifications.
 
 - Backup set inclusion: `dg backup status` lists the new gateway
   database; the backup root's manifest contains the source name (per
@@ -297,11 +297,11 @@ all soaks.
 Pass criterion: set inclusion confirmed; first verified snapshot
 exists; one restore drill passes §4; freshness signal is `fresh`;
 alert delivery confirmed (one test failure-and-notice during the
-soak, or explicit dry-run).
+verification, or explicit dry-run).
 
-### E. Soak exit (per source)
+### E. verification exit (per source)
 
-A source's soak is complete when every check in A–D has passed at C1,
+A source's verification is complete when every check in A–D has passed at C1,
 C2 (every day), and C3 for that source. The source's GATE 3 is
 crossed only after this record exists; the next source's cutover
 (per the per-production plan) starts only after the prior source's
@@ -316,7 +316,7 @@ owner approval.
 
 A Turso **cancellation or downgrade** is a separate, terminal action
 that lives one level above the cutover gates above. It is **never**
-implicit in a successful cutover or soak, and it is **never** part of
+implicit in a successful cutover or verification, and it is **never** part of
 the Stage 6 decommission. The two halves — Turso source decommission
 (deleting the database copy) and subscription cancellation (ending
 the platform relationship) — are both gated by the same pre-cancellation
@@ -338,13 +338,13 @@ floor. Before any cancellation/downgrade:
   recorded `manifest.json` listing every file with its size and
   SHA-256.
 - **Retention period:** the export set is retained for at least
-  the soak period (gate 8 of `docs/deployment-readiness.md`) **plus
+  the verification period (gate 8 of `docs/deployment-readiness.md`) **plus
   one additional owner-approved window** (a separate owner decision;
-  the soak-period length and the post-soak retention window are not
-  the same thing — the soak proves correctness, the retention
+  the verification-period length and the post-verification retention window are not
+  the same thing — the verification proves correctness, the retention
   window is the operator's own insurance against late findings).
   Early deletion requires an explicit owner decision recorded in
-  the soak log; the default is "retain through the post-soak
+  the verification log; the default is "retain through the post-verification
   window, then re-decide."
 - **Integrity:** every export file's SHA-256 matches the
   `manifest.json`; one restore drill on a randomly chosen export
@@ -370,9 +370,9 @@ across the application set, the host, and the Turso side.
   and the matching token vars) — they reference the gateway
   credentials only. Verified by reading each application's
   authoritative env file on the live host and grepping for the
-  Turso URL strings; the result is recorded in the soak log.
+  Turso URL strings; the result is recorded in the verification log.
 - **Per-application runtime check:** the running process for each
-  application (email-api, studio-api, billing-api) has open
+  application (email-api, studio-api, example-application) has open
   connections only to the gateway, not to Turso. Verified by
   `ss -tnp` (or equivalent) from each host: zero established
   connections to the Turso URL/port attributable to the
@@ -385,9 +385,9 @@ across the application set, the host, and the Turso side.
   definitive proof from the source side. Mechanism (UI vs API)
   is the operator's; the *criterion* is the access log: zero
   entries after the source's GATE 3 timestamp, with the
-  monitoring window at least the soak length.
-- **Edge crawlers / dashboards / cron jobs:** every external
-  reader (a Turso studio/CLI session, a cron-driven script, a
+  monitoring window at least the verification length.
+- **Edge crawlers / dashboards / scheduler jobs:** every external
+  reader (a Turso studio/CLI session, a scheduler-driven script, a
   dashboard query) is inventoried in the migration-inventory
   and explicitly retired or re-pointed at the gateway before
   the cancellation request is opened. The inventory's
@@ -409,7 +409,7 @@ plan. The request must include, in writing:
   change, database deletion, group deletion, full platform
   closure — whichever applies).
 - The retention-window decision (default: retain through the
-  post-soak window; non-default: an explicit shorter window
+  post-verification window; non-default: an explicit shorter window
   with the owner-signed reason).
 - The pass record for blocks 1 and 2 (export set integrity +
   client-dependency confirmation) with dates and operator
@@ -439,7 +439,7 @@ is refused — if any of the following holds:
   URL/port from the application host.
 - The Turso access log shows any read or write entry after the
   source's GATE 3 timestamp inside the monitoring window.
-- An edge crawler, dashboard, or cron-driven reader is
+- An edge crawler, dashboard, or scheduler-driven reader is
   unaccounted for in the per-source retirement record.
 - The owner decision is missing any of the four points above.
 

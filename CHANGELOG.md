@@ -24,7 +24,7 @@ fixes; 1.0.0 waits for production acceptance.
 - **Public front door trimmed.** `README.md` no longer links to the
   internal task ledger or contributor/operator runbooks, and
   `SECURITY.md` / `CONTRIBUTING.md` now state only generic boundaries
-  (pre-production, loopback, private transport, least-privilege
+  (pre-production, local, private transport, least-privilege
   credentials, operator-configured off-host backups). The publication
   runbook records the whole-tree audit disposition; no behavior changed.
 
@@ -89,7 +89,7 @@ fixes; 1.0.0 waits for production acceptance.
   `DG_ALERTS_WEBHOOK_URL_FILE` points at) names an endpoint, disk and
   replication-lag alerts are additionally delivered there as JSON — the
   §3a second-sink pattern, extended from backup health. Same URL rule
-  as `--backup-notify-webhook` (HTTPS, or HTTP on a literal loopback
+  as `--backup-notify-webhook` (HTTPS, or HTTP on a literal local
   address), no proxy, no redirects; a failed delivery is reported, and
   unconfigured runs behave exactly as before.
 - **Snapshot sets now have an automated off-host second leg.**
@@ -258,9 +258,9 @@ fixes; 1.0.0 waits for production acceptance.
 - **Both clients carry the deployment fields `/v1/status` publishes.**
   The disk reading, the databases' total size and the retention window
   were dropped on the way out, so neither client could surface them.
-- **The TypeScript client accepts every literal loopback origin.** It
+- **The TypeScript client accepts every literal local origin.** It
   allowed only `127.0.0.1` and `[::1]`; the CLI and the Rust crate
-  accept any literal loopback address, so the three clients no longer
+  accept any literal local address, so the three clients no longer
   answer the same question differently.
 - **The CI job's backstop covers the steps that follow the suite.** A
   30-minute timeout against a 1500-second suite budget left five
@@ -452,7 +452,7 @@ fixes; 1.0.0 waits for production acceptance.
   levels 1, 2 and 3, which is what covers the time between snapshots. The
   publisher asked the replication tool for its **default** level, and the default
   is level 0 — one database's newest segment. So it published one row per
-  database and a window that was a single instant. `billing_dev_pilot`
+  database and a window that was a single instant. `example_database`
   was published as "Oct 16 07:30:03 to Oct 16 07:30:03" while the bucket
   held six files going back to 07:30:00 and forward to a snapshot on the
   17th; `inventory` was published as a point, and the bucket held

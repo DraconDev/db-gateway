@@ -10,13 +10,13 @@ per-database fresh/behind/stale/unknown digest, off by default and enabled per
 gateway by flag. Disk/RSS/alert integrations
 remain future work. This contract defines the signals
 needed to operate DB Gateway and a future backup sidecar. Backup tiers are
-canonical in `docs/recovery-policy.md` (2026-10-19): continuous Litestream
-WAL shipping to OVH is Tier 1 (host loss; the five-minute Profile C
+canonical in `docs/recovery-policy.md` (2026-10-19): continuous replication sidecar
+WAL shipping to object storage provider is Tier 1 (host loss; the five-minute Profile C
 objective is a working target there, not a production guarantee) and
 per-database consistent verified snapshots are Tier 2 (local rollback).
 This document adds no endpoint,
 metric exporter, alert integration, or live host configuration. The first
-supervised micro2 deployment began loopback-only with no backup sidecar;
+supervised deployment-host deployment began local-only with no backup sidecar;
 the sidecar and hourly producer are live there now.
 Any implementation or live rollout requires separate owner approval.
 Related: `docs/deployment.md` (install configuration),
@@ -65,7 +65,7 @@ comparison pass on a separate target. Record, per database:
 For the Tier 2 snapshot design, alert when committed changes are
 not represented by a verified copy within the owner-approved snapshot cadence.
 The five-minute Tier 1 objective is the Profile C target in
-`docs/recovery-policy.md`, not a current RPO promise.
+`docs/recovery-policy.md`, not a current recovery objective promise.
 Cadence, sink, resource headroom, and restore evidence remain policy or
 verification inputs rather than guarantees. Durable write markers survive gateway
 restart. During idle periods, report the last committed-change marker and
@@ -112,12 +112,12 @@ Minimum future alerts are:
 2. disk/inode headroom below the accepted operating floor. **Delivered
    2026-10-19 (audit A8)** — `scripts/dg-alerts.sh` (disk check:
    free bytes/inodes vs floor; lag check: sidecar active, replica
-   coverage, `litestream status` all-ok, WAL size ceiling) on
+   coverage, `replication sidecar status` all-ok, WAL size ceiling) on
    `dg-alerts.timer` (15 min),
    journal-delivered like the digest. Failure drills: forced disk
-   floor, oversized-WAL sandbox, and an error-row `litestream
+   floor, oversized-WAL sandbox, and an error-row `replication sidecar
    status` stub all fire; healthy inputs stay silent
-   (`docs/audit-2026-10-19.md` A8 record). The Litestream-lag half of
+   (`docs/audit-2026-10-19.md` A8 record). The replication sidecar-lag half of
    this alert is new with it — previously only freshness (§2/§3a)
    existed, nothing watched the sidecar itself;
 3. sustained request pressure or deadline failures;
@@ -129,7 +129,7 @@ Minimum future alerts are:
 
 Alerts must identify the database (when applicable), last verified timestamp,
 current age, failure reason, and a bounded operator action. No alert should
-claim data-loss prevention, an RPO, or an RTO before the owner accepts the
+claim data-loss prevention, an recovery objective, or an recovery objective before the owner accepts the
 corresponding profile and the sandbox/live evidence exists.
 
 ## 3a-0. Canonical digest mechanism (2026-10-19, audit A8)
@@ -138,16 +138,16 @@ Two digest mechanisms exist and exactly one is canonical per
 deployment — running both delivers every digest twice and, worse,
 lets each mask the other's failure:
 
-- **On micro2 (and any systemd deployment): the external timer is
+- **On deployment-host (and any systemd deployment): the external timer is
   canonical.** `dg-backup-digest.timer` runs `dg backup digest`
   offline against the data directory: it works with the gateway
   stopped (the in-server digest cannot report on a dead gateway —
   precisely the 3 a.m. case), it is the path the 2026-10-17 watchdog
-  proved end-to-end, and it is what is enabled on micro2 today
+  proved end-to-end, and it is what is enabled on deployment-host today
   (verified read-only 2026-10-19: timer enabled+active, and
   `dg.service` carries no digest flags). The in-server
   `--backup-digest-secs` / `--backup-failure-poll-secs` flags must
-  stay **off** (0, the default) on micro2.
+  stay **off** (0, the default) on deployment-host.
 - **In-server flags are for non-systemd single-process deployments**
   (a lone `dg serve` with no timer infrastructure), where they are
   the only delivery path. Choosing them there is legitimate; mixing
@@ -163,10 +163,10 @@ decision called the floor, because no alert stack exists in the project.
 | | value | where it is set |
 | --- | --- | --- |
 | Digest sink | one structured log line per notification, always on once delivery is enabled | `LogSink` (src/notify.rs); systemd captures stderr |
-| Second sink | POST the note as JSON to an owner-supplied URL: HTTPS, or plain HTTP on a literal loopback address; no proxy, no redirects | `dg serve --backup-notify-webhook URL` |
-| Digest cadence | 24h; the first digest goes out one full period after startup, never on boot | `dg serve --backup-digest-secs N`, **default 0 (off)**; on micro2 the external `dg-backup-digest.timer` delivers the cadence instead (§3a-0) — never both |
+| Second sink | POST the note as JSON to an owner-supplied URL: HTTPS, or plain HTTP on a literal local address; no proxy, no redirects | `dg serve --backup-notify-webhook URL` |
+| Digest cadence | 24h; the first digest goes out one full period after startup, never on boot | `dg serve --backup-digest-secs N`, **default 0 (off)**; on deployment-host the external `dg-backup-digest.timer` delivers the cadence instead (§3a-0) — never both |
 | Immediate-failure notice | one notice per failed attempt, as soon as the producer records it; polled every 60s | `dg serve --backup-failure-poll-secs N`, **default 0 (off)** |
-| Failure signal | `$BACKUP_ROOT/attempts.jsonl`, appended by `scripts/micro2-backup.sh`: outcome, step reached, set | `read_attempts` (src/backup_health.rs) |
+| Failure signal | `$BACKUP_ROOT/attempts.jsonl`, appended by `scripts/backup.sh`: outcome, step reached, set | `read_attempts` (src/backup_health.rs) |
 | Notice scope | the newest failed attempt not yet reported, once. Two failures inside one poll window produce one notice naming the newer; the complete history stays in `attempts.jsonl` and the next failure always alerts again | `DeliveryState` (src/notify.rs) |
 | Freshness rule | §2, computed once and shared by `/v1/backups`, `dg backup status`, `dg backup digest` and the digest sink | `snapshot` (src/backup_health.rs) |
 | On demand | `dg backup digest [--json]`, reads the data directory directly, so it works with the gateway stopped; exits nonzero when any database is stale beyond the cadence or unknown | owner-only equivalent of the delivered digest |
@@ -195,7 +195,7 @@ silent loss, and it never blocks the other sinks.
 
 What the delivered note carries, per §3: the database, its state, the newest
 verified set, the age, the failing attempt and the step it reached, and a
-bounded operator action. What it must never carry: an RPO, an RTO, or a
+bounded operator action. What it must never carry: an recovery objective, an recovery objective, or a
 data-loss claim. `Note` has no field for any of them, so there is nowhere to
 put one — none is accepted yet.
 
@@ -215,7 +215,7 @@ close the restore-verification gate in §5.
 Before implementation or live rollout, attach:
 
 - the accepted profile from `docs/recovery-decisions.md`;
-- the Litestream/OVH sandbox matrices from
+- the replication sidecar/object storage sandbox matrices from
   `docs/backup-compatibility.md` §6;
 - the resource report required by `docs/resource-budget.md`;
 - the local failure-injection rehearsal from
@@ -228,10 +228,10 @@ This contract deliberately does not choose Prometheus, journald scraping,
 email, a hosted monitor, or a particular API shape. Those are implementation
 choices after the signal semantics and authorization boundary are accepted.
 Alert 4 is the one exception, and it is bounded on purpose: §3a chooses a
-structured-log sink plus an optional HTTPS/loopback webhook for backup health
+structured-log sink plus an optional HTTPS/local webhook for backup health
 only, because the owner's 2026-09-27 decision asked for delivery and the
 project had no alert stack to choose from. The same second-sink shape was
-extended 2026-11-02 to `scripts/dg-alerts.sh` (disk headroom + Litestream
+extended 2026-11-02 to `scripts/dg-alerts.sh` (disk headroom + replication sidecar
 lag): the journal line is unconditional, and an alert is additionally
 POSTed when `DG_ALERTS_WEBHOOK_URL` (or its `_FILE` form) names an
 endpoint. Alerts 1, 2, 3, 5 and 6 remain otherwise unchosen, and no

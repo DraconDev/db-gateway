@@ -6,7 +6,7 @@
 Status: **local contract for snapshot drills, not a backup policy**. This
 document specifies what a recovery artifact contains, how a restore is
 verified on an empty target, and what counts as pass or fail. It selects no
-production RPO/RTO/retention, touches no remote infrastructure, and proves
+production recovery objectives/retention, touches no remote infrastructure, and proves
 nothing about continuous backup. Policy choices live in
 `docs/recovery-policy.md` (canonical tiers/objectives/retention;
 `docs/recovery-decisions.md` keeps the research history); tool
@@ -36,7 +36,7 @@ YYYYMMDDTHHMMSSZ/            # e.g. 20260925T223050Z; staging dirs never match
 ```
 
 `manifest.json` shape (as written by the canonical producer,
-`scripts/micro2-backup.sh`):
+`scripts/backup.sh`):
 
 ```json
 {
@@ -72,7 +72,7 @@ Expectations:
   hex; mismatch between the sidecar, the manifest, and recomputed bytes is a
   failure (§5).
 - The registry backup is a consistent SQLite online-backup copy of
-  `metadata.sqlite` (the procedure used by `scripts/micro2-backup.sh`), or a
+  `metadata.sqlite` (the procedure used by `scripts/backup.sh`), or a
   raw file copy taken only after the service is stopped and all SQLite WAL
   sidecars have been checkpointed/removed. Never copy only the main registry
   file while a live or idle service may have committed WAL state. Database
@@ -87,7 +87,7 @@ Expectations:
 
 ### Producer durability, permissions, and run records
 
-The canonical producer (`scripts/micro2-backup.sh`) holds this contract;
+The canonical producer (`scripts/backup.sh`) holds this contract;
 any replacement producer must hold it too:
 
 - **Permissions.** The backup root is mode `0700`, and every published set
@@ -116,12 +116,12 @@ any replacement producer must hold it too:
 - **Encryption.** Export sets are plaintext SQLite plus manifest/sidecars,
   protected by owner-only filesystem permissions (`chmod 700` backup root,
   `go-rwx` staging); the set format has no at-rest encryption and the
-  documented off-host leg is scp/rsync. The Litestream leg uses client-side
+  documented off-host leg is scp/rsync. The replication sidecar leg uses client-side
   SSE-C, measured on the wire; the at-rest half is bucket decision 3, still
   open (docs/backup-compatibility.md).
 - **Bucket unavailable.** The export producer has no bucket dependency: an
   outage stops neither local snapshot publication nor the manifest chain; it
-  only ages the off-host second leg. For the Litestream leg, bucket outage
+  only ages the off-host second leg. For the replication sidecar leg, bucket outage
   stops new recoverable points without stopping local writes, and the failure
   must be visible (docs/recovery-decisions.md outage windows).
 - **Empty-listing refusal.** A run that lists zero live databases exits
@@ -245,7 +245,7 @@ filesystem-backed object mock around the existing export/import trust
 boundary. The rehearsal records the working Profile C objectives (continuous
 WAL-style shipping, five-minute lag, 7-day frequent points, 30/7 daily
 history, every-sync verification, daily separate-target restore, and a
-15-minute local RTO objective) and injects four failures:
+1periodic local recovery objective objective) and injects four failures:
 
 - crash during shipping, with `failed` then `stale` status visibility;
 - partial/corrupt object, with checksum/integrity rejection and no publication;
@@ -256,5 +256,5 @@ A successful manual export is then used as the explicit fallback and restored
 to a separate target with exact rows, integrity, foreign-key, and
 copy-independence checks. The recorded local output is
 `docs/evidence/recovery-rehearsal-evidence.json`. This is local fault/status/restore
-evidence only: it does not prove Litestream timing, S3 behavior, OVH
-compatibility, a 1 GiB sidecar budget, or a production RTO.
+evidence only: it does not prove replication sidecar timing, S3 behavior, object storage provider
+compatibility, a 1 GiB sidecar budget, or a production recovery objective.

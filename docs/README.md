@@ -29,20 +29,20 @@ canonical list below. For "what did we actually measure", go to
 | `audit-2026-10-19.md` | The current audit register (the A-series); living until the next audit supersedes it. |
 | `architecture.md` | Target architecture and decision register (register member). |
 | `api.md` | HTTP/CLI API contract: routes, value encoding, errors, retry semantics (register member). |
-| `access-edge.md` | Access/edge design: mesh/app proxies, socket activation, loopback rules. |
+| `access-edge.md` | Access/edge design: mesh/app proxies, socket activation, local rules. |
 | `backup-compatibility.md` | Backup-format compatibility assessment against public implementations. |
 | `cli-turso-mapping.md` | How the `dg` CLI maps to the Turso/libSQL surface it replaces. |
 | `turso-surface-gap.md` | The Turso-vs-`dg` surface comparison: the ranked gaps, each one's disposition, and where the Turso side is marked unverified. |
 | `tui.md` | The terminal operator view (`dg tui`): the tabs, the keys, the actions, and the rules it holds. |
 | `deployment.md` | The deploy guide. `scripts/validate-deploy.sh` checks units against it. |
-| `deployment-readiness.md` | micro2 deployment acceptance checklist. |
+| `deployment-readiness.md` | deployment-host deployment acceptance checklist. |
 | `later-capabilities.md` | Deferred-capability decisions: what was postponed and why. |
-| `micro2-measurement-runbook.md` | How host measurements (soaks, sampling) are run on micro2. |
+| `measurement-runbook.md` | How host measurements (verifications, sampling) are run on deployment-host. |
 | `migration-cutover.md` | Migration cutover plan (register member). |
 | `migration-inventory.md` | Migration source/target inventory and per-item status. |
 | `no-turso-contact-2026-10-31.txt` | The trace behind the comparison's Turso-contact disclosure: commands by date, their reported results, and the limits of what the credential check establishes. |
 | `observability-contract.md` | The observability contract: signals, alerts, the 3 a.m. rules (register member). |
-| `ovh-sandbox-runbook.md` | Runbook for the sandbox S3 rehearsal packet. |
+| `sandbox-runbook.md` | Runbook for the sandbox S3 rehearsal packet. |
 | `publication-readiness.md` | What it takes to take this repository public: `scripts/public-readiness.sh`, what the gate checks, the leaks it found and fixed, and the history decisions that are the owner's. |
 | `recovery-contract.md` | Recovery contract: restore guarantees and drills (register member). |
 | `recovery-decisions.md` | Recovery decision record (register member). |
@@ -73,35 +73,35 @@ lives in `TASKS.md`, `deployment-readiness.md`, and
 `audit-2026-10-19.md`) and is classed historical evidence by the
 megaplan register, which names its path; it does not move.
 
-- **First deploy & micro2 sessions** — `first-deploy-micro2.md`,
-  `first-deploy-micro2-evidence.log`, `micro2-2026-09-21.md`,
-  `micro2-2026-09-22-evidence.log`, `host-audit-micro2-2026-10-14.json`,
+- **First deploy & deployment-host sessions** — `first-deploy.md`,
+  `first-deploy-evidence.log`, `deployment-host-2026-09-21.md`,
+  `deployment-host-2026-09-22-evidence.log`, `host-audit-2026-10-14.json`,
   `fresh-host-bucket-drill-2026-10-17.log`, `watchdog-2026-10-17.log`.
 - **Restore & recovery drills** — `m3-restore-2026-10-15.md`,
   `m3-restore-drill-2026-10-15.log`,
   `registry-recovery-drill-2026-10-19.log`,
   `recovery-rehearsal-evidence.json`,
-  `litestream-replication-evidence.log`,
-  `litestream-sync-drill-2026-10-19.log`,
-  `migration-cdev-trial-2026-10-19.log`,
+  `replication sidecar-replication-evidence.log`,
+  `replication-sync-drill-2026-10-19.log`,
+  `migration-development-trial-2026-10-19.log`,
   `wipe-restore-2026-09-21-evidence.log`, `wipe-restore-evidence.log`.
-- **Sandbox packet (OVH S3 gates)** — `sandbox-packet-2026-09-28-rehearsal.log`,
-  `sandbox-packet-2026-09-29-rehearsal.log`,
-  `sandbox-packet-2026-09-29-rehearsal.matrix.json`,
-  `sandbox-packet-2026-10-13-ovh.log`, `sandbox-packet-2026-10-14-ovh.log`,
+- **sandbox (object storage gates)** — `sandbox-2026-09-28-rehearsal.log`,
+  `sandbox-2026-09-29-rehearsal.log`,
+  `sandbox-2026-09-29-rehearsal.matrix.json`,
+  `sandbox-2026-10-13-object storage provider.log`, `sandbox-2026-10-14-object storage provider.log`,
   `first-resource-report-release-2026-10-10.json`.
-- **Pilot (billing_dev_pilot)** — `pilot-day0-2026-10-16.md`,
-  `pilot-soak-log.md`, `pilot-rollback-rehearsal-2026-10-16.log`.
-- **Load, soak & resource evidence** — `benchmark-2026-09-21.md`,
+- **Pilot (example_database)** — `pilot-day0-2026-10-16.md`,
+  `pilot-verification-log.md`, `pilot-rollback-rehearsal-2026-10-16.log`.
+- **Load, verification & resource evidence** — `benchmark-2026-09-21.md`,
   `comparison-2026-09-21.md`, `e2e-test-campaign-2026-10-15.log`,
   `m4-failure-visibility-2026-10-15.json`, `m4-failure-visibility-2026-10-15.log`,
-  `m4-micro2-headroom-2026-10-15.md`, `m4-micro2-sampling-2026-10-16.log`,
+  `m4-headroom-2026-10-15.md`, `m4-sampling-2026-10-16.log`,
   `noisy-neighbor-cross-db-2026-10-11.json`, `noisy-neighbor-cross-db-2026-10-11.log`,
   `resource-report-release-1G-scope-2026-10-11.json`,
   `resource-report-release-1G-scope-2026-10-15.json`,
-  `soak-2026-09-21-evidence.log`, `soak-2h-evidence.log`,
-  `soak-30min-evidence.log`, `soak-starvation-2026-10-11.log`,
-  `soak-starvation-evidence-2026-10-11.json`, `soak-starvation-evidence.log`,
+  `verification-2026-09-21-evidence.log`, `verification-2h-evidence.log`,
+  `verification-30min-evidence.log`, `verification-starvation-2026-10-11.log`,
+  `verification-starvation-evidence-2026-10-11.json`, `verification-starvation-evidence.log`,
   `upgrade-rehearsal-2026-09-21-evidence.log`, `upgrade-rehearsal-evidence.log`.
 - **Host rehearsals & scanner reviews** — `clean-host-rehearsal-2026-10-19.log`,
   `clean-host-rehearsal-2026-10-19T232000Z.log`,
@@ -134,20 +134,20 @@ megaplan register, which names its path; it does not move.
   `turso-live-2026-10-29-databases.txt`,
   `turso-live-2026-10-29-edit-data.txt`,
   `turso-live-2026-10-29-per-database.txt`.
-- **Suite, soak & replica campaigns (0.4.2 / 0.9.0)** —
+- **Suite, verification & replica campaigns (0.4.2 / 0.9.0)** —
   `cargo-test-full-suite-2026-10-29.txt`,
   `workspace-suite-0.9.0.log`, `coverage-matrix-2026-10-25.md`,
   `live-exercise-2026-10-25.json`,
   `noisy-neighbor-cross-db-0.4.2-2026-10-25.json`,
-  `replica-bucket-layout-2026-10-25.txt`, `soak-0.4.2-2026-10-25.log`,
-  `soak-starvation-0.4.2-2026-10-25.json`.
+  `replica-bucket-layout-2026-10-25.txt`, `verification-0.4.2-2026-10-25.log`,
+  `verification-starvation-0.4.2-2026-10-25.json`.
 - **Release verification receipts** — `verification/README.md` (the register
   that explains them), `verification/full-suite-eeed1a4.log`,
   `verification/full-suite-eeed1a4-summary.txt`,
   `verification/full-suite-c13bf7f.log`,
   `verification/full-suite-c13bf7f-summary.txt`.
-- **C-dev migration pilot (2026-11-02 … 2026-11-03)** —
-  `migration-cdev-pilot-2026-11-02.log`,
+- **development migration pilot (2026-11-02 … 2026-11-03)** —
+  `migration-development-pilot-2026-11-02.log`,
   `turso-gateway-comparison-2026-11-03.log`.
 
 ## Rules

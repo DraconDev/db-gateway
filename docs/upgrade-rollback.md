@@ -35,7 +35,7 @@ the filesystem copy (byte-exact, fastest restore).
    `dg.prev-<version>`.
 5. `systemctl start dg`, then verify: query one known row per database and
    confirm exact values; confirm `dg --version` on the deployed path.
-6. Soak: leave the previous binary and the pre-upgrade snapshots in place
+6. verification: leave the previous binary and the pre-upgrade snapshots in place
    until the owner confirms the new version (retention: until confirmed,
    then delete the `.pre-<version>` copy after the next successful snapshot).
 
@@ -57,14 +57,14 @@ the filesystem copy (byte-exact, fastest restore).
 Decided by the owner on 2026-10-19; these close the four open items
 gate 8 of `docs/deployment-readiness.md` carried:
 
-1. **Soak period:** pre-upgrade snapshots and the previous binary are
+1. **verification period:** pre-upgrade snapshots and the previous binary are
    kept **7 days** after an upgrade is confirmed good, then the
    `.pre-<version>` copy may be deleted. (Extends step 6 above: owner
    confirmation starts the 7-day clock; unconfirmed upgrades keep
    their snapshots indefinitely.)
 2. **Snapshot retention:** the hourly producer keeps the **newest 24
    sets** (`--keep 24`, as deployed). Longer rollback reach is Tier
-   1's job (Litestream, 7-day in-replica retention,
+   1's job (replication sidecar, 7-day in-replica retention,
    `docs/recovery-policy.md`), not the same-disk sets'.
 3. **Owner credential custody:** the owner key lives in the owner's
    password manager plus `/etc/dg/owner.key` (0600, dg) on the host.
@@ -103,5 +103,5 @@ Disposable dirs under `/tmp`, debug `dg` as "current", release `dg` as the
 | Rollback | stop, `rm -rf` + restore fs snapshot, restart original binary | `SELECT *` → exactly `[[1,"widget"]]` (`gadget` gone, as documented data-loss window) |
 | Cleanup | kill servers, `rm -rf` rehearsal dir | no `dg serve` processes, dir removed |
 
-All rehearsal servers bound loopback with ephemeral ports; no systemd unit,
+All rehearsal servers bound local with ephemeral ports; no systemd unit,
 no target host, and no destructive action outside `/tmp` was taken.

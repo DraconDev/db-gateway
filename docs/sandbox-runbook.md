@@ -1,4 +1,4 @@
-# OVH/Litestream sandbox runbook (NOT YET RUN)
+# replication sandbox runbook (NOT YET RUN)
 
 Executable form of the 12 checks in `docs/backup-compatibility.md` §6. This
 file is a **procedure**, not evidence: every step below is untested against
@@ -13,17 +13,17 @@ Record every result in a dated evidence log next to this file.
 
 ## 0. Prerequisites (owner provisions)
 
-- `{{TEST_REGION}}`: the region string OVH shows for your bucket (the control
+- `{{TEST_REGION}}`: the region string object storage provider shows for your bucket (the control
   panel's Object Storage **Endpoints** tab, and the credentials page for the key
   pair). This document does not carry a list of them on purpose: an endpoint or
   region string written from memory is exactly the kind of unverified fact this
   packet exists to catch, and the two values are two clicks away in the console
   you have to visit anyway to create the bucket.
-- `{{TEST_BUCKET}}`: dedicated sandbox bucket, versioning enabled per the
+- `{{TEST_BUCKET}}`: dedicated object storage bucket, versioning enabled per the
   retention drill's needs — nothing else lives here.
 - `{{S3_ACCESS_KEY}}` / `{{S3_SECRET_KEY}}`: dedicated backup-test user keys,
   least-privilege to `{{TEST_BUCKET}}` only.
-- `{{SANDBOX}}`: SSH-reachable 1 GiB-shaped Linux host (x86_64) with the
+- `{{SANDBOX}}`: private transport-reachable 1 GiB-shaped Linux host (x86_64) with the
   release `dg` bundle installed per `docs/deployment.md` (test instance).
 - Acceptance bar: R6 (7-day run, p99 lag ≤ 5 min, 3× ≤15 min restores,
   sidecar RSS ≤ 256 MiB, full matrices, registry proven).
@@ -54,17 +54,17 @@ only credentials in its environment are the ones you pass here). With
 ```sh
 umask 077
 export DG_SANDBOX_BUCKET="$TEST_BUCKET"
-# Endpoint and region come from YOUR OVH console, not from a list in this repo:
+# Endpoint and region come from YOUR object storage provider console, not from a list in this repo:
 # the bucket's "Endpoints" tab in the control panel, and the credentials page for
-# the key pair. The pattern is s3.<region>.io.cloud.ovh.net, and the packet
+# the key pair. The pattern is s3.<region>.io.cloud.net, and the packet
 # prepends https:// -- so the variable takes the bare host, with no scheme.
-export DG_SANDBOX_ENDPOINT="s3.${TEST_REGION}.io.cloud.ovh.net"
+export DG_SANDBOX_ENDPOINT="s3.${TEST_REGION}.io.cloud.net"
 export DG_SANDBOX_REGION="$TEST_REGION"
 export DG_SANDBOX_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID"
 export DG_SANDBOX_SECRET_KEY="$AWS_SECRET_ACCESS_KEY"
 
-scripts/sandbox-packet.sh \
-  --out "docs/sandbox-packet-$(date -u +%Y-%m-%d)-ovh.log" \
+scripts/sandbox.sh \
+  --out "docs/sandbox-$(date -u +%Y-%m-%d)-object storage provider.log" \
   --i-have-owner-go-ahead
 echo "exit $?   # 0 only if no gate is blocked or failed; §6's own rule"
 unset DG_SANDBOX_ACCESS_KEY_ID DG_SANDBOX_SECRET_KEY
@@ -86,7 +86,7 @@ you want it to manage a disposable bucket itself.
 should pass again. Gates 6 and 10 are the two that the local rehearsal could
 not answer -- gate 6 because a stand-in implements no lifecycle API, gate 10
 because it advertises an encryption header it does not apply -- and both need
-your bucket. The remaining eight need it to be OVH rather than loopback:
+your bucket. The remaining eight need it to be object storage provider rather than local:
 endpoint and region behaviour, storage class, pricing, quota behaviour, and the
 encryption header the service reports on what it stored. A §6 PASS still
 requires the 7-day window in section 0's acceptance bar; this command produces
@@ -100,10 +100,10 @@ packet you just wrote.
 
 ```sh
 # On {{SANDBOX}}: install exactly v0.5.17, nothing floating.
-curl -sSL -o litestream.tar.gz \
-  https://github.com/benbjohnson/litestream/releases/download/v0.5.17/litestream-v0.5.17-linux-amd64.tar.gz
-tar xzf litestream.tar.gz litestream && sudo install -m0755 litestream /usr/local/bin/
-litestream version   # record verbatim output + today's date
+curl -sSL -o replication sidecar.tar.gz \
+  https://github.com/benbjohnson/replication sidecar/releases/download/v0.5.17/replication sidecar-v0.5.17-linux-amd64.tar.gz
+tar xzf replication sidecar.tar.gz replication sidecar && sudo install -m0755 replication sidecar /usr/local/bin/
+replication sidecar version   # record verbatim output + today's date
 ```
 
 Record: version output, download date, config-reference fetch date. Any
@@ -111,11 +111,11 @@ upgrade re-runs this whole runbook.
 
 ## 2. WAL contention
 
-Goal: prove Litestream checkpoints don't surface as gateway capacity,
+Goal: prove replication sidecar checkpoints don't surface as gateway capacity,
 deadline or internal failures, and quantify latency impact.
 
 ```sh
-# Baseline first (no sidecar): 5-minute write loop, all-200s expected.
+# Baseline first (no sidecar): periodic write loop, all-200s expected.
 dg --key-file owner.key create wal_a && dg --key-file owner.key create wal_b
 for db in wal_a wal_b; do
   dg --key-file owner.key query $db "CREATE TABLE w (id INTEGER PRIMARY KEY, v TEXT)" &
@@ -134,24 +134,24 @@ done
 
 Record: baseline vs replication failure counts, p50/p99 table, PASS/FAIL.
 
-## 3. Explicit OVH endpoint config
+## 3. Explicit object storage provider endpoint config
 
-Litestream does not auto-detect OVH: the endpoint, region, and path style
+replication sidecar does not auto-detect object storage provider: the endpoint, region, and path style
 are explicit. Sketch only — conform exact keys to the v0.5.17 config
-reference (https://litestream.io/reference/config/):
+reference (https://replication sidecar.io/reference/config/):
 
 ```yaml
-# /etc/litestream-test.yml (0600; keys via env, never inline)
+# /etc/replication sidecar-test.yml (0600; keys via env, never inline)
 dbs:
   - path: /var/lib/dg-test/wal_a.sqlite
     replicas:
-      - url: s3://{{TEST_BUCKET}}/wal_a?endpoint=https://s3.{{TEST_REGION}}.io.cloud.ovh.net
+      - url: s3://{{TEST_BUCKET}}/wal_a?endpoint=https://s3.{{TEST_REGION}}.io.cloud.net
         region: {{TEST_REGION}}
         force-path-style: true
 ```
 
 ```sh
-litestream replicate -config /etc/litestream-test.yml  # foreground first run
+replication sidecar replicate -config /etc/replication sidecar-test.yml  # foreground first run
 # Try force-path-style true/false and skip-verify variants one at a time.
 ```
 
@@ -161,7 +161,7 @@ error. If no variant syncs, STOP: adoption blocked.
 ## 4. Required-operation coverage
 
 With replication running under a write loop, capture every S3 operation
-Litestream issues (sidecar debug logs + bucket access logging if available),
+replication sidecar issues (sidecar debug logs + bucket access logging if available),
 including multipart and any versioning/lifecycle reads. Confirm each
 succeeds against `{{TEST_REGION}}`.
 
@@ -171,13 +171,13 @@ Record: passing operation matrix (operation → observed → OK/FAIL).
 
 ```sh
 # Latest point to a SEPARATE path, then gateway validation + exact rows.
-litestream restore -config /etc/litestream-test.yml -o /tmp/restored.sqlite \
+replication sidecar restore -config /etc/replication sidecar-test.yml -o /tmp/restored.sqlite \
   s3://{{TEST_BUCKET}}/wal_a
 dg --key-file owner.key import wal_a_restored --from /tmp/restored.sqlite
 dg --key-file owner.key query wal_a "SELECT count(*) FROM w"
 dg --key-file owner.key query wal_a_restored "SELECT count(*) FROM w"
 # counts must match exactly; spot-check literal rows both sides.
-# Repeat for a mid-history point (litestream restore -timestamp ...).
+# Repeat for a mid-history point (replication sidecar restore -timestamp ...).
 # Negative: corrupt one byte of a copied artifact, import must fail cleanly.
 ```
 
@@ -205,7 +205,7 @@ database without restart" may ever be promised.
 
 One at a time, with a write loop running: (a) revoke/break the S3 keys,
 (b) block egress to the endpoint, (c) fill the destination toward quota.
-For each, record how the failure surfaces (sidecar log line, `litestream
+For each, record how the failure surfaces (sidecar log line, `replication sidecar
 status` output, exit code) AND confirm serving writes keep succeeding with a
 visible stale-backup signal — silent stalling fails this check.
 
@@ -236,9 +236,9 @@ authorization context are not a recovery.
 
 ```sh
 # Delete ALL sandbox residue and prove it is gone.
-aws --endpoint-url https://s3.{{TEST_REGION}}.io.cloud.ovh.net \
+aws --endpoint-url https://s3.{{TEST_REGION}}.io.cloud.net \
   s3 rb s3://{{TEST_BUCKET}} --force   # plus versioned-object purge as needed
-# Delete the test user/keys in the OVH control panel, remove configs/keys
+# Delete the test user/keys in the object storage provider control panel, remove configs/keys
 # from {{SANDBOX}} and the workstation env file, then re-list to confirm.
 ```
 

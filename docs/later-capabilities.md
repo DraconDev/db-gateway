@@ -45,10 +45,10 @@ placement and ephemeral storage are not M0/M1 requirements").
    lost, when, and how operators see it. That statement is
    missing because no concrete use case is driving it; designing
    it in a vacuum produces either over-broad promises (a new
-   RPO class) or over-narrow ones (a non-feature).
+   recovery objective class) or over-narrow ones (a non-feature).
 4. **Turso migration is the active front.** The current cutover
    plan (`docs/migration-cutover.md`) is blocked on inventory
-   UNVERIFIEDs and the soak's preconditions; adding a parallel
+   UNVERIFIEDs and the verification's preconditions; adding a parallel
    feature path is sequencing debt.
 
 ### Design space (when re-evaluated, this is the surface area)
@@ -135,7 +135,7 @@ following are true:
   host (gate 5 of `docs/deployment-readiness.md` resolved).
 - The recovery contract is verified on a real bucket
   with restore drills passing (gate 7 resolved).
-- The Turso cutover is past Stage 6 (soak complete, all
+- The Turso cutover is past Stage 6 (verification complete, all
   three sources' GATE 3 crossed) — or the owner
   explicitly cancels the migration.
 - A concrete workload is named that the durable tier
@@ -238,7 +238,7 @@ future designer**, not commitments.
   cadence. The archival covers the period between verified
   snapshots, so a restore + replay reconstructs the
   database from the last verified snapshot forward.
-- Storage: a separate path in the same OVH bucket, or a
+- Storage: a separate path in the same object storage bucket, or a
   dedicated bucket, decided at adoption time. Retention
   is shorter than the snapshot retention (the snapshot
   tier is the durable floor; the replay tier is the
@@ -313,7 +313,7 @@ following are true:
   host (gate 5 of `docs/deployment-readiness.md` resolved).
 - The recovery contract is verified on a real bucket
   with restore drills passing (gate 7 resolved).
-- The Turso cutover is past Stage 6 (soak complete, all
+- The Turso cutover is past Stage 6 (verification complete, all
   three sources' GATE 3 crossed) — or the owner
   explicitly cancels the migration.
 - A concrete workload is named where loss of an
@@ -358,7 +358,7 @@ parked: this document's deferral stands.
 **Deferral decision date:** 2026-10-11
 **Decision:** DEFERRED — not part of the initial release, gated
 on measured workload.
-**Authority:** The initial release is single-host on micro2
+**Authority:** The initial release is single-host on deployment-host
 (1 GB RAM, 2 vCPU) and the canonical plan/architecture
 documents place multi-host placement in "later, only on
 measured need" phases — `docs/architecture.md` ("Later
@@ -380,7 +380,7 @@ says the durable tier cannot serve it on a single host.
    Multi-host placement adds a coordination layer (placement
    decisions, cross-host consistency, network latency
    between gateway and database) that is not needed for the
-   1 GB micro2 target. Adding it before measurement says it
+   1 GB deployment-host target. Adding it before measurement says it
    is needed is sequencing debt.
 2. **The capacity ceiling is unmeasured on the recorded
    host.** `docs/deployment-readiness.md` gate 5 is "Not
@@ -437,7 +437,7 @@ future designer**, not commitments.
   is observable via the existing observability contract
   signals (`dg status` per-DB queue waits/timeouts,
   `dg backup status` freshness); the trigger is recorded
-  in the soak log; a database that crosses the trigger is
+  in the verification log; a database that crosses the trigger is
   flagged for placement review, not auto-moved.
 
 #### Placement procedure
@@ -474,12 +474,12 @@ future designer**, not commitments.
 - A multi-host deployment is a **multi-gateway**
   deployment, not a multi-data-dir one. Each host runs
   its own `dg` instance; the placement procedure is
-  owner-initiated via each host's CLI over SSH or
-  loopback. The gateway does not implement a
+  owner-initiated via each host's CLI over private transport or
+  local. The gateway does not implement a
   "move database to peer" RPC; that is a host-side
   orchestration concern.
-- The listen policy (loopback-only) and the access
-  policy (SSH tunnel or HTTPS edge per
+- The listen policy (local-only) and the access
+  policy (private transport or HTTPS edge per
   `docs/architecture.md` M1) are unchanged. Placement
   does not relax the listen policy; each host is
   individually secure, and the application moves its
@@ -503,7 +503,7 @@ following are true:
   resolved).
 - The recovery contract is verified on a real bucket
   with restore drills passing (gate 7 resolved).
-- The Turso cutover is past Stage 6 (soak complete, all
+- The Turso cutover is past Stage 6 (verification complete, all
   three sources' GATE 3 crossed) — or the owner
   explicitly cancels the migration.
 - A **measured workload** triggers the chosen

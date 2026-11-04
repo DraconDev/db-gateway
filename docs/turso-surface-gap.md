@@ -106,7 +106,7 @@ Console tabs: **Overview**, **Branches**, **Analytics**, **Top Queries**,
 | Turso surface | `dg` equivalent | Status | Note | Turso evidence | Disposition |
 |---|---|---|---|---|---|
 | Overview → Activity (rows read/written, storage, syncs) | `dg inspect`, `dg status`, TUI service/databases tabs | have | `dg` adds queue-wait percentiles Turso does not expose. | Console (2026-10-29). | not worth doing — already at parity, and `dg` reports wait percentiles Turso does not. |
-| Overview → Connect → Database URL | `dg status` → `listen`, SSH tunnel | not-applicable | `dg` reports the bound loopback address; there is no public URL to mint. Remote access is an SSH tunnel (§4). | Console (2026-10-29). | not worth doing — structurally inapplicable; there is no public URL to mint. |
+| Overview → Connect → Database URL | `dg status` → `listen`, private transport | not-applicable | `dg` reports the bound local address; there is no public URL to mint. Remote access is an private transport (§4). | Console (2026-10-29). | not worth doing — structurally inapplicable; there is no public URL to mint. |
 | Overview → Create Token | `dg key create --role … --database …` | partial | Database-scoped roles match; Turso token expiry and table-action controls are provider governance, not a single-operator gap (§4). | Console + CLI `--help` (2026-10-29). | not worth doing — fails the bar: the owner already mints database-scoped keys directly, so console token UI is convenience, not protection. |
 | Overview → Export → Download SQLite File | `dg export --out` | have | | Console (2026-10-29). | not worth doing — already at parity. |
 | Overview → Delete Database | `dg delete --confirm <name>` | have | Typed confirmation and tombstone retention. | Console (2026-10-29). | not worth doing — already at parity. |
@@ -114,7 +114,7 @@ Console tabs: **Overview**, **Branches**, **Analytics**, **Top Queries**,
 | Overview → Delete Protection | `dg protect <name>` | have | A persistent guard blocks `dg delete`; `dg inspect` reports whether it is on. Gap 5 CLOSED in 0.10.0. | Console (2026-10-29); `dg` 0.10.0. | not worth doing — closed by gap 5; at parity in 0.10.0. |
 | Overview → Block Writes | — | missing | No per-database write switch; stopping the service or revoking credentials takes every database down. See gap 3. | Console (2026-10-29). | already-gap (3) — carried there as *worth doing*: it protects a lone operator from self-inflicted corruption during an incident. |
 | Overview → Block Reads | — | not-applicable | A read cannot damage a database, so blocking reads addresses a party you do not trust with the data — a tenant, not the operator who owns the file. §4. | Console (2026-10-29). | not worth doing — structurally inapplicable: a read cannot damage a database, so this guards a tenant, not the operator who owns the file. |
-| Overview → Restrict Access (CIDR / VPC allow-list) | — | not-applicable | Provider firewall for shared infrastructure. `dg` is loopback-only with remote access by SSH tunnel, so network admission is answered by the host and the credential; §4. | Console (2026-10-29). | not worth doing — structurally inapplicable: loopback-only plus SSH tunnel puts network admission on the host. |
+| Overview → Restrict Access (CIDR / VPC allow-list) | — | not-applicable | Provider firewall for shared infrastructure. `dg` is local-only with remote access by private transport, so network admission is answered by the host and the credential; §4. | Console (2026-10-29). | not worth doing — structurally inapplicable: local-only plus private transport puts network admission on the host. |
 | Overview → Invalidate All Tokens | `dg key revoke --database <db>` | have | Revokes every application credential scoped to the database in one confirmed command; the owner key is never revoked. Gap 4 CLOSED in 0.10.0. | Console (2026-10-29); `dg` 0.10.0. | not worth doing — closed by gap 4; at parity in 0.10.0. |
 | Branches → Create From Now | `dg branch create <parent> <name>` | have | | Console (2026-10-29). | not worth doing — already at parity. |
 | Branches → Create From Point-in-Time | `dg branch create --from <ISO8601>` | have | Reports the backup window when the moment falls outside it. | Console (2026-10-29). | not worth doing — already at parity. |
@@ -149,7 +149,7 @@ lags; see §3.
 
 | `dg` surface | What it answers | Disposition |
 |---|---|---|
-| `dg serve` | Loopback-only authenticated server; remote via SSH tunnel. | not worth doing — the bar cannot weigh it: there is no comparable Turso surface, and this is a `dg` lead (§3), not a gap to close. |
+| `dg serve` | Local-only authenticated server; remote via private transport. | not worth doing — the bar cannot weigh it: there is no comparable Turso surface, and this is a `dg` lead (§3), not a gap to close. |
 | `dg status`, `dg watch` | Version, uptime, admission config, request totals/rate, error counts, wait percentiles, per-database traffic. | not worth doing — the bar cannot weigh it: Turso's nearest page is captured (§1.3) but this dashboard is a `dg` lead (§3), not a gap. |
 | `dg tui` | The six-tab operator view (databases, service, backups, keys, queries, locations) plus the database page and rows browser. | not worth doing — the bar cannot weigh a whole interface against nothing; the per-tab mapping is §1.7, and the asymmetries there are already carried by gaps 2 and 4. |
 | `dg backup run/status/digest/verify` | Backup freshness, the three-state `fresh`/`behind`/`stale` judgement against an approved cadence, offline manifest/hash-chain verification. | not worth doing — already shipped, and the bar is already satisfied: `fresh`/`behind`/`stale` against a cadence protects the operator from believing a stale copy is good. No Turso counterpart exists, so nothing is outstanding. |
@@ -239,7 +239,7 @@ checkable against `src/api.rs` and the routers it merges.
 | Database file placement / disk | `GET /v1/status` → `disk`, `databases` | unverified | None | Placement is a `dg`-only concept on a single node (§4); the Turso analogue is region/group, which is structurally inapplicable. | not worth doing — unverified: the captures name this surface but show no route, verb or payload, so there is nothing to act on. Revisit only with a capture that exercises it. |
 | API authentication model | Bearer credential in a header; owner vs database-scoped app key | unverified | CLI `--help` (2026-10-29): JWT key flag for Hrana/HTTP; `turso auth whoami` | `dg` uses one opaque bearer credential with an owner/app distinction and generation binding. Turso uses platform tokens for management and JWTs for data-plane Hrana. The two models are **not** equivalent, but the Turso side is unverified beyond the flag text. | not worth doing — unverified: the captures name this surface but show no route, verb or payload, so there is nothing to act on. Revisit only with a capture that exercises it. |
 | Error envelope | `{"error":{"code":…,"message":…}}` with a stable `code` (`invalid_request`, `database_protected`, `retention_expired`, …) | unverified | None | `dg` error codes are a documented contract (`docs/api.md`). Turso's error shape is not captured. | not worth doing — unverified: the captures name this surface but show no route, verb or payload, so there is nothing to act on. Revisit only with a capture that exercises it. |
-| Transport / exposure | Loopback only; remote access via SSH tunnel | unverified | Console only: "Connect → Database URL" (`turso-live-2026-10-29-per-database.txt`) | `dg` binds loopback and has no public URL to mint; Turso exposes a per-database "Database URL" and is reachable over the internet. That structural difference stands. The URL *shape* itself is **unverified** — the capture records the label "Database URL" (`turso-live-2026-10-29-per-database.txt:14`), not the string, and no capture contains a `libsql://` value. | not worth doing — fails the bar as a `dg` action: loopback-plus-SSH-tunnel is the safer configuration for a single-operator box, and adopting a public URL would add exposure to close a gap nobody has. |
+| Transport / exposure | Local only; remote access via private transport | unverified | Console only: "Connect → Database URL" (`turso-live-2026-10-29-per-database.txt`) | `dg` binds local and has no public URL to mint; Turso exposes a per-database "Database URL" and is reachable over the internet. That structural difference stands. The URL *shape* itself is **unverified** — the capture records the label "Database URL" (`turso-live-2026-10-29-per-database.txt:14`), not the string, and no capture contains a `libsql://` value. | not worth doing — fails the bar as a `dg` action: local-plus-private transport-tunnel is the safer configuration for a single-operator box, and adopting a public URL would add exposure to close a gap nobody has. |
 
 **What this section is not.** It is not evidence that Turso's API is absent or
 weak — the captures simply do not cover it. A future pass that is allowed to
@@ -318,7 +318,7 @@ Reproduced live on 2026-10-29 against the local gateway:
 ```
 $ dg inspect --json inventory
 {"created_at":1792931768,"name":"inventory","size_bytes":90240,
- "tables":[{"name":"_litestream_lock","rows":0}, … ],
+ "tables":[{"name":"_replication_lock","rows":0}, … ],
  "tombstoned":false}
 ```
 
@@ -384,7 +384,7 @@ controls, read on 2026-10-29. (Allow ATTACH is not applicable to `dg`'s
 isolated-file model; Delete Protection is gap 5.)
 
 The CIDR/VPC allow-list is provider machinery, not a personal gap: `dg` listens
-on loopback and reaches remote gateways through an SSH tunnel, so "who may
+on local and reaches remote gateways through an private transport, so "who may
 connect" is already answered by the network and the credential. Recorded in §4
 rather than counted as a loss.
 
@@ -630,8 +630,8 @@ Stated so a parity table cannot be mistaken for a to-do list.
 - **Cross-database ATTACH.** Each database is an isolated file behind its own
   route pair; there is no shared connection to attach from.
 - **CIDR / VPC network allow-lists.** These exist so a provider can decide which
-  of its customers' machines reach a shared database. `dg` is a loopback
-  listener, and remote access is an SSH tunnel, so the network already answers
+  of its customers' machines reach a shared database. `dg` is a local
+  listener, and remote access is an private transport, so the network already answers
   this and a per-database allow-list would be a second, weaker copy of the
   answer.
 - **Token expiry, per-table/action scopes, group tokens.** Governance for
@@ -797,7 +797,7 @@ showed on 2026-10-29; it is evidence of Turso's surface, not a judgment about
 `dg`.
 
 The capture's own text already undercuts its heading: it observes that `dg`
-"listens on loopback only and reaches remote gateways through an SSH tunnel, so
+"listens on local only and reaches remote gateways through an private transport, so
 per-database network admission is not part of its model." That is the right
 observation with the wrong label. A control that answers a question `dg`'s
 architecture has already answered is not a gap, which is exactly the
@@ -811,7 +811,7 @@ Read those five controls as follows:
 | Block Writes | **gap 3** — a genuine operator harm, self-inflicted corruption |
 | Allow ATTACH | not applicable (§4) — each database is an isolated file |
 | Delete Protection | **gap 5 CLOSED in 0.10.0** — now guarded by `dg protect` |
-| CIDR / VPC allow-list | not applicable (§4) — loopback plus SSH tunnel |
+| CIDR / VPC allow-list | not applicable (§4) — local plus private transport |
 
 The other two entries in that list survived the mindset audit: the time-series
 gap is **gap 2**, and bulk token invalidation was **gap 4**, now **CLOSED in
@@ -910,8 +910,8 @@ lone-operator standard, and two were re-graded downward:
   credentials handed to other people; a key file on the operator's own disk
   gains little from a calendar. Only bulk revocation survives, because it
   shortens a real incident.
-- The CIDR/VPC allow-list is a provider firewall. `dg` is loopback-only behind
-  an SSH tunnel, so the network already answers that question; it is now
+- The CIDR/VPC allow-list is a provider firewall. `dg` is local-only behind
+  an private transport, so the network already answers that question; it is now
   not-applicable in §4 rather than a missing feature.
 
 Two were kept for the opposite reason — they look small next to Turso's console

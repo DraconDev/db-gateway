@@ -5,26 +5,26 @@ Related: `docs/upgrade-rollback.md` (binary upgrades and rollback),
 `docs/observability-contract.md` (monitoring), `docs/recovery-contract.md`
 (full host replacement and restore).
 Nothing here installs, enables, or starts a service, and this guide is not
-live-deploy authorization. The first supervised deploy to micro2 is recorded
-separately in `docs/evidence/first-deploy-micro2.md`; that record supplies the resolved
+live-deploy authorization. The first supervised deploy to deployment-host is recorded
+separately in `docs/evidence/first-deploy.md`; that record supplies the resolved
 values for the installed instance while this guide intentionally retains
 placeholders for future/repeated deployments.
 
 ## Prerequisites (owner runs on the target)
 
 1. Build the release bundle with `scripts/release-bundle.sh`. The default
-   `DG_RELEASE_TARGET=micro2` requires `podman` or `docker` and builds inside
+   `DG_RELEASE_TARGET=deployment-host` requires `podman` or `docker` and builds inside
    the immutable `docker.io/library/ubuntu@sha256:496754492fb28b4d3049432f2ca787449331e23fb14f0dd3fffea86bf5a93eb4`
-   image (Ubuntu 24.04 amd64, glibc 2.39), matching the recorded micro2 target.
+   image (Ubuntu 24.04 amd64, glibc 2.39), matching the recorded deployment-host target.
    The container installs the toolchain from `rust-toolchain.toml`, runs the
    locked release build, executes `dg --version` and a disposable `dg init`,
    verifies the x86-64 ELF interpreter is `/lib64/ld-linux-x86-64.so.2`, and
-   refuses a `DG_RELEASE_TARGET=micro2` bundle whose glibc requirement exceeds
+   refuses a `DG_RELEASE_TARGET=deployment-host` bundle whose glibc requirement exceeds
    `EXPECTED_GLIBC` (`scripts/release-bundle.sh`; currently 2.39), stages that
    container-built binary.
    Copy the resulting bundle to the target and verify `SHA256SUMS` there. Use
-   `DG_RELEASE_TARGET=host` only for an explicitly local, non-micro2 bundle;
-   that path is never labelled micro2 ABI-verified.
+   `DG_RELEASE_TARGET=host` only for an explicitly local, non-deployment-host bundle;
+   that path is never labelled target ABI-verified.
 
    Nominate a built bundle for the deploy-time guard with
    `DG_RELEASE_BUNDLE_DIR=<bundle-dir> scripts/validate-deploy.sh`. The guard
@@ -36,7 +36,7 @@ placeholders for future/repeated deployments.
    workstation precisely because a Nix build cannot be deployed to Ubuntu.
 
    Container selection is automatic: set `DG_CONTAINER_ENGINE=podman` or
-   `DG_CONTAINER_ENGINE=docker` to choose explicitly. The micro2 path fails
+   `DG_CONTAINER_ENGINE=docker` to choose explicitly. The deployment-host path fails
    closed when neither engine is available, rather than falling back to a
    native build.
 
@@ -51,10 +51,10 @@ placeholders for future/repeated deployments.
    and the operator reads the document.
 
    **Builder update policy:** treat the image digest and expected glibc family
-   as release inputs. Update them only for an intentional micro2 OS/glibc
+   as release inputs. Update them only for an intentional deployment-host OS/glibc
    change: first record the target's architecture and `ldd --version` output,
    then select the matching Ubuntu image digest, run
-   `DG_RELEASE_TARGET=micro2 scripts/release-bundle.sh` plus
+   `DG_RELEASE_TARGET=deployment-host scripts/release-bundle.sh` plus
    `cargo test --locked --test release_bundle`, review `BUILD-INFO.txt`, and
    commit the image/expected-glibc change together. Never substitute a
    floating tag, newer glibc, or a locally built image without updating and
@@ -63,7 +63,7 @@ placeholders for future/repeated deployments.
 3. Place the `dg` binary at its final path, owned by root, executable.
    The bundle carries the gateway only. The operator's terminal view
    (`dg tui`) runs on the operator machine and reaches the gateway over
-   an SSH tunnel, so nothing but the binary is needed on the host.
+   an private transport, so nothing but the binary is needed on the host.
 4. Create the data directory, owned by the service user, mode `0700`.
 5. Create the backup root, owned by the service user, mode `0700`.
    This one is not optional: `dg.service` carries the backup root in
@@ -89,9 +89,9 @@ placeholders for future/repeated deployments.
 | `{{DG_USER}}` | Dedicated unprivileged service user | **Unresolved** — target-host decision (e.g. `dg`) |
 | `{{DG_BINARY}}` | Absolute path of the `dg` executable | **Unresolved** — target layout decision (e.g. `/usr/local/bin/dg`) |
 | `{{DG_DATA_DIR}}` | Persistent data directory | **Unresolved** — target layout decision (e.g. `/var/lib/dg`) |
-| `{{DG_LISTEN}}` | Listen address; must stay loopback | Default `127.0.0.1:7432`; any change must remain a loopback address or `dg serve` refuses to start |
+| `{{DG_LISTEN}}` | Listen address; must stay local | Default `127.0.0.1:7432`; any change must remain a local address or `dg serve` refuses to start |
 | `{{DG_BACKUP_ROOT}}` | Versioned backup-set root the hourly producer publishes into (also `dg-backup.service`/`dg-backup-digest.service` `WorkingDirectory=`) — must exist before the units start: mode `0700`, owned by the service user | **Unresolved** — target layout decision (e.g. `/var/lib/dg-backups`) |
-| `{{DG_BACKUP_SCRIPT}}` | Absolute path of the installed hourly backup producer (`scripts/micro2-backup.sh` on the reference host) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/micro2-backup.sh`) |
+| `{{DG_BACKUP_SCRIPT}}` | Absolute path of the installed hourly backup producer (`scripts/backup.sh` on the reference host) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/backup.sh`) |
 | `{{DG_RESTORE_DRILL_SCRIPT}}` | Absolute path of the installed weekly bucket restore drill (`scripts/bucket-restore-drill.sh`) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/bucket-restore-drill.sh`) |
 | `{{DG_RESTORE_POINT_SCRIPT}}` | Absolute path of the installed restore-point tool (`scripts/restore-point.sh`), which publishes the window of moments the off-host replica can be restored to (`dg-restore-points.service`) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/restore-point.sh`) |
 | `{{DG_RESTORE_ROOT}}` | Directory the restored copies land in (`dg-restore-points.service` `RESTORE_ROOT=`); it holds data, so it is mode 0700 and owned by the service user | **Unresolved** — target layout decision (e.g. `/var/lib/dg-restores`) |
@@ -109,7 +109,7 @@ the same style: substitute the placeholders above, install under
 **The snapshot cadence (2026-10-25):** `dg.service` and
 `dg-backup-digest.service` both pass `--backup-cadence-secs 3600` /
 `--cadence-secs 3600` — the owner-approved snapshot cadence, which is the
-hourly producer's own interval (the Tier-2 RPO objective,
+hourly producer's own interval (the Tier-2 recovery objective objective,
 `docs/recovery-policy.md`). It is the number the backup-health alarm is
 judged against: a change that no verified copy carries is a finding only
 once it has waited longer than that. Without it, every change written
@@ -142,15 +142,15 @@ drift it exists to detect. `scripts/unit-render.sh` is that render,
 and `scripts/validate-deploy.sh` uses it too, so the deploy gate
 verifies units that carry no template text.
 
-**Non-loopback access (audit A9):** application hosts reach the
+**Non-local access (audit A9):** application hosts reach the
 gateway over a WireGuard mesh via `deploy/dg-mesh-proxy.{socket,service}`
-(socket-proxyd to loopback; the gateway itself never leaves loopback).
+(socket-proxyd to local; the gateway itself never leaves local).
 Decision, threat model, and rejected alternatives:
 `docs/access-edge.md`. Not installed anywhere yet — edge install is
 a separate owner-approved change.
 
 **Alerts and journal retention (audit A8):** `deploy/dg-alerts.{service,timer}`
-runs the disk-headroom + Litestream-lag checker every 15 minutes
+runs the disk-headroom + replication sidecar-lag checker regularly
 (structured `dg-alert` journal lines + nonzero exit on alert;
 delivery is the journal, per `docs/observability-contract.md` §3).
 `deploy/journald-10-dg.conf` is the journald drop-in template
@@ -168,8 +168,8 @@ failure (`docs/observability-contract.md` §3a-0).
 
 ## Preserved properties
 
-- **Loopback listening**: the template defaults to `127.0.0.1:7432`, and the
-  server itself rejects non-loopback `--listen` before authentication exists
+- **Local listening**: the template defaults to `127.0.0.1:7432`, and the
+  server itself rejects non-local `--listen` before authentication exists
   (`dg serve --help` documents the option; `validate_listen` enforces it).
 - **A server does not outlive its launcher**: `dg serve` arms
   `PR_SET_PDEATHSIG`, so a server started by a test, an audit harness or an
@@ -182,11 +182,11 @@ failure (`docs/observability-contract.md` §3a-0).
   `--detach-safe` — and note that `scripts/check-orphans.sh` (run in CI) will
   report the resulting orphan rather than ignoring it.
 - **HTTPS / private transport**: `dg serve` performs no TLS itself because it
-  only listens on loopback. The Rust client requires HTTPS for any
-  non-loopback endpoint (src/client.rs endpoint validation), and the
+  only listens on local. The Rust client requires HTTPS for any
+  non-local endpoint (src/client.rs endpoint validation), and the
   terminal view uses that same client. Remote exposure must therefore
   terminate TLS at a reverse proxy on a private network; plaintext over a
-  non-loopback network is refused by the clients, not a supported
+  non-local network is refused by the clients, not a supported
   configuration.
 - **Dedicated unprivileged execution**: `User=`/`Group=` plus
   `NoNewPrivileges=true`, `ProtectSystem=strict`, `ProtectHome=true`.
@@ -209,16 +209,16 @@ failure (`docs/observability-contract.md` §3a-0).
 Beyond the placeholder table: the service username, binary/data paths, log
 retention for the JSON stderr stream, and the backup sidecar unit.
 The sidecar units ARE provided — they are templates in `deploy/`, in the
-same style as the gateway's own: `deploy/dg-litestream.service` (the
+same style as the gateway's own: `deploy/dg-replication.service` (the
 replication sidecar, with its measured `MemoryMax=96M` and its credential
-file `/etc/dg/litestream.env`), and `deploy/dg-litestream-sync.service`
-with `deploy/dg-litestream-sync.timer` (the five-minute re-render that
+file `/etc/dg/replication.env`), and `deploy/dg-replication-sync.service`
+with `deploy/dg-replication-sync.timer` (the periodic re-render that
 keeps a newly created database in the replication config). Install them
 the same way as the backup units — substitute the placeholders, install
 under `/etc/systemd/system/`, `daemon-reload`, enable the timer — and
 see `docs/backup-compatibility.md` for what the sidecar does.
 
-`MemoryMax=` is **set** as of 2026-10-10, revised to the on-host value 2026-10-16 (`deploy/dg.service`: `MemoryMax=64M`, matching the micro2 enforcement of 67108864 recorded in `docs/evidence/m4-micro2-sampling-2026-10-16.log`).
+`MemoryMax=` is **set** as of 2026-10-10, revised to the on-host value 2026-10-16 (`deploy/dg.service`: `MemoryMax=64M`, matching the deployment-host enforcement of 67108864 recorded in `docs/evidence/m4-sampling-2026-10-16.log`).
 The value is ~2.7x the SQLite per-connection cache ceiling (12 connections x
 2 MiB, measured from `src/store/admission.rs:12-14` and `src/execution.rs:42`) with
 the gateway peak under burst (11 MiB under a 1 GiB-enforced local harness,
@@ -235,7 +235,7 @@ exits non-zero when any invariant fails; diagnostics go to stderr.
 ### Modes
 
 Set `DG_AUDIT_TARGET` to an ssh-config alias or `user@host` (never an IP or
-key path in the repo — credentials resolve from `~/.ssh/config` and the SSH
+key path in the repo — credentials resolve from `the operator's access configuration` and the private transport
 agent). Set `DG_RELEASE_BUNDLE_DIR` to a `scripts/release-bundle.sh` output
 directory to nominate the exact binary the host is held to.
 
@@ -256,7 +256,7 @@ directory to nominate the exact binary the host is held to.
 
 Binary sha256 matching the nominated bundle's `SHA256SUMS` (plus mode and
 owner), `dg.service` and `dg-backup.timer` `ActiveState` with `User=dg`,
-`/usr/local/bin/micro2-backup.sh` sha256 matching `git HEAD:`, zero stale
+`/usr/local/bin/backup.sh` sha256 matching `git HEAD:`, zero stale
 `.staging*` directories under the backup root, the newest versioned set's
 manifest age under `DG_AUDIT_MAX_SET_AGE_HOURS` (default 26h — one hour
 past the hourly timer), and `dg backup verify latest` returning `ok:true`.
@@ -291,13 +291,13 @@ script's own exit status. A record showing `"status": "skipped"` inside
 check (not that it passed); `owner_key_mode` is the only routinely-skipped
 check and it is skipped only when the key file is absent.
 
-## Off-host replication (`dg-litestream.service`)
+## Off-host replication (`dg-replication.service`)
 
 The same-disk backup root protects against logical loss only. A disk
-failure takes the databases and their backups together. `dg-litestream`
+failure takes the databases and their backups together. `dg-replication`
 is the second leg: a systemd service that replicates every live `.sqlite`
 under `/var/lib/dg/` to the recorded object store using
-litestream 0.5.17, with its credentials in `/etc/dg/litestream.env` (mode
+replication sidecar 0.5.17, with its credentials in `/etc/dg/replication.env` (mode
 0600, owner `dg:dg`) — the only copy on the host — and nothing in the
 unit, the config, or the repository carrying a secret (the config uses
 `${LITESTREAM_S3_*}` env-var references populated by systemd's
@@ -307,44 +307,44 @@ unit, the config, or the repository carrying a secret (the config uses
 
 ```sh
 # 1. The operator (or the bucket-creation runbook) writes the credential
-#    file once. scripts/install-litestream.sh refuses to run without it,
+#    file once. scripts/install-replication.sh refuses to run without it,
 #    and never reads or echoes its contents:
-#    /etc/dg/litestream.env, mode 0600, owner dg:dg, containing:
-#      LITESTREAM_S3_BUCKET=...
-#      LITESTREAM_S3_ENDPOINT=...
-#      LITESTREAM_S3_REGION=...
-#      LITESTREAM_S3_ACCESS_KEY_ID=...
-#      LITESTREAM_S3_SECRET_ACCESS_KEY=...
-scripts/install-litestream.sh        # installs, renders config, drops units
-ssh micro2 'sudo systemctl enable --now dg-litestream dg-litestream-sync.timer'
-ssh micro2 'sudo journalctl -u dg-litestream -n 50 --no-pager'
+#    /etc/dg/replication.env, mode 0600, owner dg:dg, containing:
+#      REPLICATION_S3_BUCKET=...
+#      REPLICATION_S3_ENDPOINT=...
+#      REPLICATION_S3_REGION=...
+#      REPLICATION_S3_ACCESS_KEY_ID=...
+#      REPLICATION_S3_SECRET_ACCESS_KEY=...
+scripts/install-replication.sh        # installs, renders config, drops units
+ssh deployment-host 'sudo systemctl enable --now dg-replication dg-replication-sync.timer'
+ssh deployment-host 'sudo journalctl -u dg-replication -n 50 --no-pager'
 ```
 
-The install script verifies the litestream tarball's SHA-256 against the
+The install script verifies the replication sidecar tarball's SHA-256 against the
 upstream `checksums.txt` for the pinned release tag before installing,
 and is idempotent — a re-run detects the installed binary and reuses it.
 Nothing is started automatically: the operator chooses when the sidecar
 first begins replicating.
 
-The config is rendered by `scripts/litestream-sync.sh` (installed as
-`/usr/local/bin/litestream-sync.sh`): litestream reads its config only
-at startup, so the `dg-litestream-sync.timer` re-renders from `dg list`
-every five minutes and restarts the sidecar only when the config
+The config is rendered by `scripts/replication-sync.sh` (installed as
+`/usr/local/bin/replication-sync.sh`): replication sidecar reads its config only
+at startup, so the `dg-replication-sync.timer` re-renders from `dg list`
+regularly and restarts the sidecar only when the config
 changed — a database created or deleted after install enters or leaves
 replication within one interval, with no operator step
-(docs/audit-2026-10-19.md A2). `litestream-sync.sh --check` reports
+(docs/audit-2026-10-19.md A2). `replication-sync.sh --check` reports
 per-database coverage, and host-audit's `litestream_coverage` check
 fails if any live database is missing from the config. Local proof:
-`scripts/litestream-sync-drill.sh`
-(evidence: docs/evidence/litestream-sync-drill-2026-10-19.log).
+`scripts/replication-sync-drill.sh`
+(evidence: docs/evidence/replication-sync-drill-2026-10-19.log).
 
 ### Proving a restore round-trip
 
 ```sh
-scripts/litestream-restore.sh
+scripts/replication-restore.sh
 ```
 
-For every live database the script runs `litestream restore` into a
+For every live database the script runs `replication sidecar restore` into a
 0700 temp directory, asserts `PRAGMA integrity_check` is `ok`, enumerates
 every user table, and asserts each `count(*)` matches what the live
 gateway is serving. Non-zero exit on the first mismatch. The same
