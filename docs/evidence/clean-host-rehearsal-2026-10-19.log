@@ -1,360 +1,0 @@
-=== clean-host rehearsal — first deploy and disaster recovery ===
-date (UTC):        2026-10-19T19:43:32Z
-repo:              /home/dracon/Dev/db-gateway
-container engine:  docker
-pinned target img: docker.io/library/ubuntu@sha256:496754492fb28b4d3049432f2ca787449331e23fb14f0dd3fffea86bf5a93eb4
-git HEAD:          450eb64
-
-step 1: building the release bundle the documented way (container-built, ABI verified)
-[release-bundle] verifying pinned builder docker.io/library/ubuntu@sha256:496754492fb28b4d3049432f2ca787449331e23fb14f0dd3fffea86bf5a93eb4 with docker
-[release-bundle] building and smoke-testing release inside the pinned micro2 builder
-debconf: delaying package configuration, since apt-utils is not installed
-info: downloading installer
-info: profile set to minimal
-info: default host tuple is x86_64-unknown-linux-gnu
-info: syncing channel updates for 1.97.1-x86_64-unknown-linux-gnu
-info: latest update on 2026-07-16 for version 1.97.1 (8bab26f4f 2026-07-14)
-info: downloading 3 components
-info: default toolchain set to 1.97.1-x86_64-unknown-linux-gnu
-dg init: the owner key is on stdout and is shown only once -- redirect it to a mode-0600 file (e.g. `dg init --data-dir DIR > ~/.config/dg/key`) and clear your scrollback.
-[release-bundle] staging bundle in /tmp/dg-clean-host-EIxlMH/bundle
-[release-bundle] generating checksums
-  bundle built: /tmp/dg-clean-host-EIxlMH/bundle
-  bundle SHA256SUMS verify
-
-step 2: building the clean-host image from the pinned target image
-#0 building with "default" instance using docker driver
-
-#1 [internal] load build definition from Dockerfile
-#1 transferring dockerfile: 345B done
-#1 DONE 0.1s
-
-#2 [internal] load metadata for docker.io/library/ubuntu@sha256:496754492fb28b4d3049432f2ca787449331e23fb14f0dd3fffea86bf5a93eb4
-#2 DONE 0.0s
-
-#3 [internal] load .dockerignore
-#3 transferring context: 2B done
-#3 DONE 0.1s
-
-#4 [1/2] FROM docker.io/library/ubuntu@sha256:496754492fb28b4d3049432f2ca787449331e23fb14f0dd3fffea86bf5a93eb4
-#4 DONE 0.0s
-
-#5 [2/2] RUN export DEBIAN_FRONTEND=noninteractive  && apt-get -qq update  && apt-get -qq install -y --no-install-recommends       systemd systemd-sysv python3 curl ca-certificates  && rm -rf /var/lib/apt/lists/*
-#5 6.577 debconf: delaying package configuration, since apt-utils is not installed
-#5 6.660 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 4381 files and directories currently installed.)
-#5 6.680 Preparing to unpack .../libssl3t64_3.0.13-0ubuntu3.16_amd64.deb ...
-#5 6.718 Unpacking libssl3t64:amd64 (3.0.13-0ubuntu3.16) over (3.0.13-0ubuntu3.15) ...
-#5 6.912 Setting up libssl3t64:amd64 (3.0.13-0ubuntu3.16) ...
-#5 6.981 Selecting previously unselected package libpython3.12-minimal:amd64.
-#5 6.981 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 4381 files and directories currently installed.)
-#5 6.984 Preparing to unpack .../libpython3.12-minimal_3.12.3-1ubuntu0.17_amd64.deb ...
-#5 6.994 Unpacking libpython3.12-minimal:amd64 (3.12.3-1ubuntu0.17) ...
-#5 7.092 Selecting previously unselected package libexpat1:amd64.
-#5 7.093 Preparing to unpack .../libexpat1_2.6.1-2ubuntu0.6_amd64.deb ...
-#5 7.101 Unpacking libexpat1:amd64 (2.6.1-2ubuntu0.6) ...
-#5 7.170 Selecting previously unselected package python3.12-minimal.
-#5 7.170 Preparing to unpack .../python3.12-minimal_3.12.3-1ubuntu0.17_amd64.deb ...
-#5 7.186 Unpacking python3.12-minimal (3.12.3-1ubuntu0.17) ...
-#5 7.269 Setting up libpython3.12-minimal:amd64 (3.12.3-1ubuntu0.17) ...
-#5 7.301 Setting up libexpat1:amd64 (2.6.1-2ubuntu0.6) ...
-#5 7.331 Setting up python3.12-minimal (3.12.3-1ubuntu0.17) ...
-#5 7.903 Selecting previously unselected package python3-minimal.
-#5 7.903 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 4700 files and directories currently installed.)
-#5 7.907 Preparing to unpack .../0-python3-minimal_3.12.3-0ubuntu2.1_amd64.deb ...
-#5 7.919 Unpacking python3-minimal (3.12.3-0ubuntu2.1) ...
-#5 7.983 Selecting previously unselected package media-types.
-#5 7.984 Preparing to unpack .../1-media-types_10.1.0_all.deb ...
-#5 7.993 Unpacking media-types (10.1.0) ...
-#5 8.081 Selecting previously unselected package netbase.
-#5 8.082 Preparing to unpack .../2-netbase_6.4_all.deb ...
-#5 8.092 Unpacking netbase (6.4) ...
-#5 8.180 Selecting previously unselected package tzdata.
-#5 8.181 Preparing to unpack .../3-tzdata_2026e-0ubuntu0.24.04.1_all.deb ...
-#5 8.188 Unpacking tzdata (2026e-0ubuntu0.24.04.1) ...
-#5 8.304 Selecting previously unselected package readline-common.
-#5 8.305 Preparing to unpack .../4-readline-common_8.2-4build1_all.deb ...
-#5 8.329 Unpacking readline-common (8.2-4build1) ...
-#5 8.407 Selecting previously unselected package libreadline8t64:amd64.
-#5 8.408 Preparing to unpack .../5-libreadline8t64_8.2-4build1_amd64.deb ...
-#5 8.421 Adding 'diversion of /lib/x86_64-linux-gnu/libhistory.so.8 to /lib/x86_64-linux-gnu/libhistory.so.8.usr-is-merged by libreadline8t64'
-#5 8.431 Adding 'diversion of /lib/x86_64-linux-gnu/libhistory.so.8.2 to /lib/x86_64-linux-gnu/libhistory.so.8.2.usr-is-merged by libreadline8t64'
-#5 8.440 Adding 'diversion of /lib/x86_64-linux-gnu/libreadline.so.8 to /lib/x86_64-linux-gnu/libreadline.so.8.usr-is-merged by libreadline8t64'
-#5 8.447 Adding 'diversion of /lib/x86_64-linux-gnu/libreadline.so.8.2 to /lib/x86_64-linux-gnu/libreadline.so.8.2.usr-is-merged by libreadline8t64'
-#5 8.453 Unpacking libreadline8t64:amd64 (8.2-4build1) ...
-#5 8.521 Selecting previously unselected package libsqlite3-0:amd64.
-#5 8.522 Preparing to unpack .../6-libsqlite3-0_3.45.1-1ubuntu2.8_amd64.deb ...
-#5 8.533 Unpacking libsqlite3-0:amd64 (3.45.1-1ubuntu2.8) ...
-#5 8.596 Selecting previously unselected package libpython3.12-stdlib:amd64.
-#5 8.597 Preparing to unpack .../7-libpython3.12-stdlib_3.12.3-1ubuntu0.17_amd64.deb ...
-#5 8.606 Unpacking libpython3.12-stdlib:amd64 (3.12.3-1ubuntu0.17) ...
-#5 8.723 Selecting previously unselected package python3.12.
-#5 8.724 Preparing to unpack .../8-python3.12_3.12.3-1ubuntu0.17_amd64.deb ...
-#5 8.735 Unpacking python3.12 (3.12.3-1ubuntu0.17) ...
-#5 8.787 Selecting previously unselected package libpython3-stdlib:amd64.
-#5 8.788 Preparing to unpack .../9-libpython3-stdlib_3.12.3-0ubuntu2.1_amd64.deb ...
-#5 8.799 Unpacking libpython3-stdlib:amd64 (3.12.3-0ubuntu2.1) ...
-#5 8.859 Setting up python3-minimal (3.12.3-0ubuntu2.1) ...
-#5 9.022 Selecting previously unselected package python3.
-#5 9.022 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5706 files and directories currently installed.)
-#5 9.026 Preparing to unpack .../python3_3.12.3-0ubuntu2.1_amd64.deb ...
-#5 9.042 Unpacking python3 (3.12.3-0ubuntu2.1) ...
-#5 9.107 Selecting previously unselected package libapparmor1:amd64.
-#5 9.107 Preparing to unpack .../libapparmor1_4.0.1really4.0.1-0ubuntu0.24.04.9_amd64.deb ...
-#5 9.117 Unpacking libapparmor1:amd64 (4.0.1really4.0.1-0ubuntu0.24.04.9) ...
-#5 9.179 Selecting previously unselected package libargon2-1:amd64.
-#5 9.180 Preparing to unpack .../libargon2-1_0~20190702+dfsg-4build1_amd64.deb ...
-#5 9.189 Unpacking libargon2-1:amd64 (0~20190702+dfsg-4build1) ...
-#5 9.254 Preparing to unpack .../libudev1_255.4-1ubuntu8.18_amd64.deb ...
-#5 9.280 Unpacking libudev1:amd64 (255.4-1ubuntu8.18) over (255.4-1ubuntu8.17) ...
-#5 9.373 Setting up libudev1:amd64 (255.4-1ubuntu8.18) ...
-#5 9.448 Selecting previously unselected package libdevmapper1.02.1:amd64.
-#5 9.448 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5736 files and directories currently installed.)
-#5 9.451 Preparing to unpack .../0-libdevmapper1.02.1_2%3a1.02.185-3ubuntu3.2_amd64.deb ...
-#5 9.460 Unpacking libdevmapper1.02.1:amd64 (2:1.02.185-3ubuntu3.2) ...
-#5 9.529 Selecting previously unselected package libjson-c5:amd64.
-#5 9.530 Preparing to unpack .../1-libjson-c5_0.17-1build1_amd64.deb ...
-#5 9.539 Unpacking libjson-c5:amd64 (0.17-1build1) ...
-#5 9.628 Selecting previously unselected package libcryptsetup12:amd64.
-#5 9.628 Preparing to unpack .../2-libcryptsetup12_2%3a2.7.0-1ubuntu4.2_amd64.deb ...
-#5 9.640 Unpacking libcryptsetup12:amd64 (2:2.7.0-1ubuntu4.2) ...
-#5 9.726 Selecting previously unselected package libfdisk1:amd64.
-#5 9.728 Preparing to unpack .../3-libfdisk1_2.39.3-9ubuntu6.6_amd64.deb ...
-#5 9.739 Unpacking libfdisk1:amd64 (2.39.3-9ubuntu6.6) ...
-#5 9.828 Selecting previously unselected package libkmod2:amd64.
-#5 9.829 Preparing to unpack .../4-libkmod2_31+20240202-2ubuntu7.2_amd64.deb ...
-#5 9.840 Unpacking libkmod2:amd64 (31+20240202-2ubuntu7.2) ...
-#5 9.905 Selecting previously unselected package libsystemd-shared:amd64.
-#5 9.906 Preparing to unpack .../5-libsystemd-shared_255.4-1ubuntu8.18_amd64.deb ...
-#5 9.917 Unpacking libsystemd-shared:amd64 (255.4-1ubuntu8.18) ...
-#5 10.06 Preparing to unpack .../6-libsystemd0_255.4-1ubuntu8.18_amd64.deb ...
-#5 10.09 Unpacking libsystemd0:amd64 (255.4-1ubuntu8.18) over (255.4-1ubuntu8.17) ...
-#5 10.22 Setting up libsystemd0:amd64 (255.4-1ubuntu8.18) ...
-#5 10.30 Selecting previously unselected package systemd-dev.
-#5 10.30 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5775 files and directories currently installed.)
-#5 10.31 Preparing to unpack .../systemd-dev_255.4-1ubuntu8.18_all.deb ...
-#5 10.32 Unpacking systemd-dev (255.4-1ubuntu8.18) ...
-#5 10.44 Selecting previously unselected package systemd.
-#5 10.44 Preparing to unpack .../systemd_255.4-1ubuntu8.18_amd64.deb ...
-#5 10.47 Unpacking systemd (255.4-1ubuntu8.18) ...
-#5 10.70 Setting up libapparmor1:amd64 (4.0.1really4.0.1-0ubuntu0.24.04.9) ...
-#5 10.74 Setting up libargon2-1:amd64 (0~20190702+dfsg-4build1) ...
-#5 10.81 Setting up libdevmapper1.02.1:amd64 (2:1.02.185-3ubuntu3.2) ...
-#5 10.84 Setting up libjson-c5:amd64 (0.17-1build1) ...
-#5 10.85 Setting up libcryptsetup12:amd64 (2:2.7.0-1ubuntu4.2) ...
-#5 10.87 Setting up libfdisk1:amd64 (2.39.3-9ubuntu6.6) ...
-#5 10.88 Setting up libkmod2:amd64 (31+20240202-2ubuntu7.2) ...
-#5 10.89 Setting up libsystemd-shared:amd64 (255.4-1ubuntu8.18) ...
-#5 10.91 Setting up systemd-dev (255.4-1ubuntu8.18) ...
-#5 10.93 Setting up systemd (255.4-1ubuntu8.18) ...
-#5 10.98 Created symlink /etc/systemd/system/getty.target.wants/getty@tty1.service → /usr/lib/systemd/system/getty@.service.
-#5 10.98 Created symlink /etc/systemd/system/multi-user.target.wants/remote-fs.target → /usr/lib/systemd/system/remote-fs.target.
-#5 10.99 Created symlink /etc/systemd/system/sysinit.target.wants/systemd-pstore.service → /usr/lib/systemd/system/systemd-pstore.service.
-#5 10.99 Initializing machine ID from random generator.
-#5 11.04 /usr/lib/tmpfiles.d/systemd-network.conf:10: Failed to resolve user 'systemd-network': No such process
-#5 11.04 /usr/lib/tmpfiles.d/systemd-network.conf:11: Failed to resolve user 'systemd-network': No such process
-#5 11.04 /usr/lib/tmpfiles.d/systemd-network.conf:12: Failed to resolve user 'systemd-network': No such process
-#5 11.04 /usr/lib/tmpfiles.d/systemd-network.conf:13: Failed to resolve user 'systemd-network': No such process
-#5 11.04 /usr/lib/tmpfiles.d/systemd.conf:22: Failed to resolve group 'systemd-journal': No such process
-#5 11.04 /usr/lib/tmpfiles.d/systemd.conf:23: Failed to resolve group 'systemd-journal': No such process
-#5 11.04 /usr/lib/tmpfiles.d/systemd.conf:28: Failed to resolve group 'systemd-journal': No such process
-#5 11.04 /usr/lib/tmpfiles.d/systemd.conf:29: Failed to resolve group 'systemd-journal': No such process
-#5 11.04 /usr/lib/tmpfiles.d/systemd.conf:30: Failed to resolve group 'systemd-journal': No such process
-#5 11.05 Creating group 'systemd-journal' with GID 999.
-#5 11.05 Creating group 'systemd-network' with GID 998.
-#5 11.05 Creating user 'systemd-network' (systemd Network Management) with UID 998 and GID 998.
-#5 11.20 Selecting previously unselected package systemd-sysv.
-#5 11.20 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 6756 files and directories currently installed.)
-#5 11.20 Preparing to unpack .../00-systemd-sysv_255.4-1ubuntu8.18_amd64.deb ...
-#5 11.21 Unpacking systemd-sysv (255.4-1ubuntu8.18) ...
-#5 11.29 Selecting previously unselected package openssl.
-#5 11.29 Preparing to unpack .../01-openssl_3.0.13-0ubuntu3.16_amd64.deb ...
-#5 11.30 Unpacking openssl (3.0.13-0ubuntu3.16) ...
-#5 11.39 Selecting previously unselected package ca-certificates.
-#5 11.39 Preparing to unpack .../02-ca-certificates_20260601~24.04.1_all.deb ...
-#5 11.40 Unpacking ca-certificates (20260601~24.04.1) ...
-#5 11.51 Selecting previously unselected package libkrb5support0:amd64.
-#5 11.51 Preparing to unpack .../03-libkrb5support0_1.20.1-6ubuntu2.10_amd64.deb ...
-#5 11.52 Unpacking libkrb5support0:amd64 (1.20.1-6ubuntu2.10) ...
-#5 11.60 Selecting previously unselected package libk5crypto3:amd64.
-#5 11.60 Preparing to unpack .../04-libk5crypto3_1.20.1-6ubuntu2.10_amd64.deb ...
-#5 11.61 Unpacking libk5crypto3:amd64 (1.20.1-6ubuntu2.10) ...
-#5 11.68 Selecting previously unselected package libkeyutils1:amd64.
-#5 11.68 Preparing to unpack .../05-libkeyutils1_1.6.3-3build1_amd64.deb ...
-#5 11.69 Unpacking libkeyutils1:amd64 (1.6.3-3build1) ...
-#5 11.76 Selecting previously unselected package libkrb5-3:amd64.
-#5 11.76 Preparing to unpack .../06-libkrb5-3_1.20.1-6ubuntu2.10_amd64.deb ...
-#5 11.77 Unpacking libkrb5-3:amd64 (1.20.1-6ubuntu2.10) ...
-#5 11.86 Selecting previously unselected package libgssapi-krb5-2:amd64.
-#5 11.86 Preparing to unpack .../07-libgssapi-krb5-2_1.20.1-6ubuntu2.10_amd64.deb ...
-#5 11.87 Unpacking libgssapi-krb5-2:amd64 (1.20.1-6ubuntu2.10) ...
-#5 11.95 Selecting previously unselected package libnghttp2-14:amd64.
-#5 11.95 Preparing to unpack .../08-libnghttp2-14_1.59.0-1ubuntu0.4_amd64.deb ...
-#5 11.96 Unpacking libnghttp2-14:amd64 (1.59.0-1ubuntu0.4) ...
-#5 12.03 Selecting previously unselected package libpsl5t64:amd64.
-#5 12.03 Preparing to unpack .../09-libpsl5t64_0.21.2-1.1build1_amd64.deb ...
-#5 12.04 Unpacking libpsl5t64:amd64 (0.21.2-1.1build1) ...
-#5 12.10 Selecting previously unselected package libbrotli1:amd64.
-#5 12.10 Preparing to unpack .../10-libbrotli1_1.1.0-2build2_amd64.deb ...
-#5 12.11 Unpacking libbrotli1:amd64 (1.1.0-2build2) ...
-#5 12.16 Selecting previously unselected package libsasl2-modules-db:amd64.
-#5 12.16 Preparing to unpack .../11-libsasl2-modules-db_2.1.28+dfsg1-5ubuntu3.1_amd64.deb ...
-#5 12.17 Unpacking libsasl2-modules-db:amd64 (2.1.28+dfsg1-5ubuntu3.1) ...
-#5 12.23 Selecting previously unselected package libsasl2-2:amd64.
-#5 12.23 Preparing to unpack .../12-libsasl2-2_2.1.28+dfsg1-5ubuntu3.1_amd64.deb ...
-#5 12.24 Unpacking libsasl2-2:amd64 (2.1.28+dfsg1-5ubuntu3.1) ...
-#5 12.31 Selecting previously unselected package libldap2:amd64.
-#5 12.31 Preparing to unpack .../13-libldap2_2.6.10+dfsg-0ubuntu0.24.04.1_amd64.deb ...
-#5 12.32 Unpacking libldap2:amd64 (2.6.10+dfsg-0ubuntu0.24.04.1) ...
-#5 12.39 Selecting previously unselected package librtmp1:amd64.
-#5 12.39 Preparing to unpack .../14-librtmp1_2.4+20151223.gitfa8646d.1-2build7_amd64.deb ...
-#5 12.41 Unpacking librtmp1:amd64 (2.4+20151223.gitfa8646d.1-2build7) ...
-#5 12.48 Selecting previously unselected package libssh-4:amd64.
-#5 12.48 Preparing to unpack .../15-libssh-4_0.10.6-2ubuntu0.5_amd64.deb ...
-#5 12.50 Unpacking libssh-4:amd64 (0.10.6-2ubuntu0.5) ...
-#5 12.57 Selecting previously unselected package libcurl4t64:amd64.
-#5 12.57 Preparing to unpack .../16-libcurl4t64_8.5.0-2ubuntu10.16_amd64.deb ...
-#5 12.58 Unpacking libcurl4t64:amd64 (8.5.0-2ubuntu10.16) ...
-#5 12.64 Selecting previously unselected package curl.
-#5 12.64 Preparing to unpack .../17-curl_8.5.0-2ubuntu10.16_amd64.deb ...
-#5 12.65 Unpacking curl (8.5.0-2ubuntu10.16) ...
-#5 12.72 Setting up media-types (10.1.0) ...
-#5 12.77 Setting up systemd-sysv (255.4-1ubuntu8.18) ...
-#5 12.81 Setting up libkeyutils1:amd64 (1.6.3-3build1) ...
-#5 12.84 Setting up libbrotli1:amd64 (1.1.0-2build2) ...
-#5 12.87 Setting up libsqlite3-0:amd64 (3.45.1-1ubuntu2.8) ...
-#5 12.91 Setting up libpsl5t64:amd64 (0.21.2-1.1build1) ...
-#5 12.93 Setting up libnghttp2-14:amd64 (1.59.0-1ubuntu0.4) ...
-#5 12.96 Setting up libkrb5support0:amd64 (1.20.1-6ubuntu2.10) ...
-#5 12.99 Setting up libsasl2-modules-db:amd64 (2.1.28+dfsg1-5ubuntu3.1) ...
-#5 13.03 Setting up tzdata (2026e-0ubuntu0.24.04.1) ...
-#5 13.11 
-#5 13.11 Current default time zone: 'Etc/UTC'
-#5 13.11 Local time is now:      Mon Oct 19 19:45:39 UTC 2026.
-#5 13.11 Universal Time is now:  Mon Oct 19 19:45:39 UTC 2026.
-#5 13.11 Run 'dpkg-reconfigure tzdata' if you wish to change it.
-#5 13.11 
-#5 13.14 Setting up librtmp1:amd64 (2.4+20151223.gitfa8646d.1-2build7) ...
-#5 13.18 Setting up libk5crypto3:amd64 (1.20.1-6ubuntu2.10) ...
-#5 13.21 Setting up libsasl2-2:amd64 (2.1.28+dfsg1-5ubuntu3.1) ...
-#5 13.24 Setting up netbase (6.4) ...
-#5 13.32 Setting up libkrb5-3:amd64 (1.20.1-6ubuntu2.10) ...
-#5 13.35 Setting up openssl (3.0.13-0ubuntu3.16) ...
-#5 13.40 Setting up readline-common (8.2-4build1) ...
-#5 13.43 Setting up libldap2:amd64 (2.6.10+dfsg-0ubuntu0.24.04.1) ...
-#5 13.47 Setting up ca-certificates (20260601~24.04.1) ...
-#5 13.99 Updating certificates in /etc/ssl/certs...
-#5 14.51 121 added, 0 removed; done.
-#5 14.56 Setting up libgssapi-krb5-2:amd64 (1.20.1-6ubuntu2.10) ...
-#5 14.59 Setting up libssh-4:amd64 (0.10.6-2ubuntu0.5) ...
-#5 14.62 Setting up libreadline8t64:amd64 (8.2-4build1) ...
-#5 14.65 Setting up libpython3.12-stdlib:amd64 (3.12.3-1ubuntu0.17) ...
-#5 14.69 Setting up libcurl4t64:amd64 (8.5.0-2ubuntu10.16) ...
-#5 14.72 Setting up python3.12 (3.12.3-1ubuntu0.17) ...
-#5 15.57 Setting up curl (8.5.0-2ubuntu10.16) ...
-#5 15.60 Setting up libpython3-stdlib:amd64 (3.12.3-0ubuntu2.1) ...
-#5 15.63 Setting up python3 (3.12.3-0ubuntu2.1) ...
-#5 15.73 Processing triggers for libc-bin (2.39-0ubuntu8.9) ...
-#5 15.79 Processing triggers for ca-certificates (20260601~24.04.1) ...
-#5 15.80 Updating certificates in /etc/ssl/certs...
-#5 16.13 0 added, 0 removed; done.
-#5 16.13 Running hooks in /etc/ca-certificates/update.d...
-#5 16.13 done.
-#5 DONE 16.3s
-
-#6 exporting to image
-#6 exporting layers
-#6 exporting layers 0.3s done
-#6 writing image sha256:41d16b1718ceeade13609d6b34dc8dac3d9231bbdb1ab649a2a22b70d08f9d4c done
-#6 naming to docker.io/library/dg-cleanhost:ubuntu-24.04 0.0s done
-#6 DONE 0.4s
-  clean-host image ready: dg-cleanhost:ubuntu-24.04
-
-step 3: host A — the documented first deploy on a clean host
-  starting host A as 'dg-clean-a'
-  host A booted systemd (running)
-[phase] === FIRST DEPLOY on a clean host ===
-[phase] asserting the host carries nothing of the project
-[phase] PASS the host is clean (no binary, no data dir, no service user, no unit)
-[phase] step 1: install the release bundle
-dg: OK
-README.md: OK
-LICENSE: OK
-docs/api.md: OK
-docs/architecture.md: OK
-deploy/dg.service: OK
-BUILD-INFO.txt: OK
-dg 0.2.0
-[phase] PASS bundle verified on the host and the gateway installed at /usr/local/bin/dg
-[phase] step 2: create the dedicated unprivileged service user
-[phase] PASS service user dg created
-[phase] step 3: create the data directory (service user, mode 0700)
-[phase] PASS data directory /var/lib/dg created
-[phase] step 4: mint the owner credential once, into a mode-0600 file
-dg init: the owner key is on stdout and is shown only once -- redirect it to a mode-0600 file (e.g. `dg init --data-dir DIR > ~/.config/dg/key`) and clear your scrollback.
-[phase] PASS owner credential minted into /etc/dg/owner.key (600 dg:dg 65 bytes, contents withheld)
-[phase] step 5: install the service template with the placeholders substituted
-Configuration file /etc/systemd/system/dg.service is marked world-writable. Please remove world writability permission bits. Proceeding anyway.
-[phase] PASS unit rendered and verified (no placeholders left)
-[phase] step 6: daemon-reload, enable and start
-Created symlink /etc/systemd/system/multi-user.target.wants/dg.service → /etc/systemd/system/dg.service.
-[phase] PASS dg.service is enabled and active
-[phase] asserting the deployed service
-[phase] PASS service enabled = enabled
-[phase] PASS service active = active
-[phase] PASS liveness body = {"status":"ok"}
-[phase] PASS unauthenticated liveness answers on loopback
-[phase] seeding application data
-[phase] PASS seeded authors = [[1,"octavia"],[2,"ursula"]]
-[phase] PASS seeded books = [[1,1,"kindred",9.5],[2,2,"earthsea",12.0]]
-[phase] asserting restart survival
-[phase] PASS authors after restart = [[1,"octavia"],[2,"ursula"]]
-[phase] PASS books after restart = [[1,1,"kindred",9.5],[2,2,"earthsea",12.0]]
-[phase] PASS a restart loses nothing and duplicates nothing
-[phase] publishing a backup set with the canonical producer
-{"completed_at": 1792439146, "created": "2026-10-19T19:45:46Z", "databases": [{"file": "deploy_smoke.sqlite", "name": "deploy_smoke", "sha256": "a5a2fa73a7fbf36f8125d1d1c6c17333666e586e4451b12d0291e45dd69c20e0", "size": 20480}], "dg_version": "0.2.0", "registry": {"file": "metadata.sqlite.bak", "sha256": "1e1dad4e2bb44e459cbca6c3e2f767b87dc905ba0f2f29e899cf78b5dc83d854", "size": 32768}, "registry_captured_at": 1792439146, "started_at": 1792439146, "timestamp": "20261019T194546Z", "tool": "dg export", "verification": "validated_before_publication"}
-backup set: /var/lib/dg-backups/20261019T194546Z (kept latest 3)
-[phase] PASS backup set published: 20261019T194546Z
-[phase] verifying the published set
-{"databases":[{"file":"deploy_smoke.sqlite","name":"deploy_smoke","sha256":"a5a2fa73a7fbf36f8125d1d1c6c17333666e586e4451b12d0291e45dd69c20e0","size":20480}],"has_registry":true,"ok":true,"set":"20261019T194546Z"}
-[phase] PASS dg backup verify accepted the published set
-[phase] performing the off-host leg (the copy that must survive the loss of this host)
-{"databases":[{"file":"deploy_smoke.sqlite","name":"deploy_smoke","sha256":"a5a2fa73a7fbf36f8125d1d1c6c17333666e586e4451b12d0291e45dd69c20e0","size":20480}],"has_registry":true,"ok":true,"set":"20261019T194546Z"}
-[phase] PASS off-host copy verified (manifest sha256 5ece5a00b68a6b37260a23ee1ab68d25d7630a6de554ddde165ccdc9f6a6917b)
-[phase] === FIRST DEPLOY COMPLETE ===
-  host A: first deploy complete
-
-step 4: destroying host A (the container is removed: data dir, backup root, registry and credential all go)
-  host A is gone
-
-step 5: host B — a replacement clean host restoring from the off-host artifact
-  starting host B as 'dg-clean-b'
-  host B booted systemd (running)
-[phase] === DISASTER RECOVERY on a replacement host ===
-[phase] asserting the host carries nothing of the project
-[phase] PASS the host is clean (no binary, no data dir, no service user, no unit)
-[phase] step 1: install the release bundle
-dg: OK
-README.md: OK
-LICENSE: OK
-docs/api.md: OK
-docs/architecture.md: OK
-deploy/dg.service: OK
-BUILD-INFO.txt: OK
-dg 0.2.0
-[phase] PASS bundle verified on the host and the gateway installed at /usr/local/bin/dg
-[phase] step 2: create the dedicated unprivileged service user
-[phase] PASS service user dg created
-[phase] step 3: create the data directory (service user, mode 0700)
-[phase] PASS data directory /var/lib/dg created
-[phase] step 4: mint the owner credential once, into a mode-0600 file
-dg init: the owner key is on stdout and is shown only once -- redirect it to a mode-0600 file (e.g. `dg init --data-dir DIR > ~/.config/dg/key`) and clear your scrollback.
-[phase] PASS owner credential minted into /etc/dg/owner.key (600 dg:dg 65 bytes, contents withheld)
-[phase] step 5: install the service template with the placeholders substituted
-Configuration file /etc/systemd/system/dg.service is marked world-writable. Please remove world writability permission bits. Proceeding anyway.
-[phase] PASS unit rendered and verified (no placeholders left)
-[phase] step 6: daemon-reload, enable and start
-Created symlink /etc/systemd/system/multi-user.target.wants/dg.service → /etc/systemd/system/dg.service.
-[phase] PASS dg.service is enabled and active
-[phase] provisioning an empty target
-{"timestamp":"2026-10-19T19:45:50.103735Z","level":"ERROR","fields":{"message":"command failed","code":"already_bootstrapped","detail":"already_bootstrapped: owner already exists"},"target":"dg"}
-[phase] FAIL: cannot provision the empty target

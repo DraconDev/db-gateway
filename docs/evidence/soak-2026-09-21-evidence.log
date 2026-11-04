@@ -1,6 +1,0 @@
-# 2026-09-21, release dg 0.1.0, 240s, dummy data. Prior runs: soak-30min-evidence.log, soak-2h-evidence.log (kept).
-{"minute": 1, "rss_kb": 10368, "reqs": 5162, "errs": 0, "p50_ms": 2.49, "p99_ms": 88.2}
-{"minute": 2, "rss_kb": 7928, "reqs": 10313, "errs": 0, "p50_ms": 2.77, "p99_ms": 81.32}
-{"minute": 3, "rss_kb": 7864, "reqs": 14518, "errs": 0, "p50_ms": 3.31, "p99_ms": 93.1}
-{"minute": 4, "rss_kb": 8060, "reqs": 19347, "errs": 0, "p50_ms": 3.53, "p99_ms": 90.12}
-{"verdict":"SOAK PASS","seconds":240,"reqs":19347,"errors":0}

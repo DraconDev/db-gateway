@@ -1,6 +1,0 @@
-dg init: the owner key is on stdout and is shown only once -- redirect it to a mode-0600 file (e.g. `dg init --data-dir DIR > ~/.config/dg/key`) and clear your scrollback.
-[m4-drill] baseline: create + seed + backup
-[m4-drill] drill R: scoped key write, revoke, denied write, owner write
-[m4-drill] drill E: backup against unreachable server fails visibly, writes continue
-[m4-drill] drill D: prlimit ceiling kills the writer, restart recovers, rows exact
-scripts/m4-failure-visibility-drill.sh: line 182: 93637 File size limit exceeded   (core dumped) "$DG" serve --listen 127.0.0.1:0 --data-dir "$DATA" --backup-root "$BACKUPS" 2> "$WORKDIR/stderr.log"
