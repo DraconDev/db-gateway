@@ -139,7 +139,7 @@ Record: baseline vs replication failure counts, p50/p99 table, PASS/FAIL.
 ## 3. Explicit object storage provider endpoint config
 
 replication sidecar does not auto-detect object storage provider: the endpoint, region, and path style
-are explicit. Sketch only — conform exact keys to the v0.5.17 config
+are explicit. Sketch only — conform exact keys to the the pinned sidecar release config
 reference (https://replication sidecar.io/reference/config/):
 
 ```yaml

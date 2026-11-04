@@ -55,8 +55,8 @@ deployment-host access; the sandbox gates below remain required before any adopt
 
 | Component | Examined | Source |
 | --- | --- | --- |
-| replication sidecar docs, actively maintained line | v0.5.x (“Latest — actively maintained”), previous line v0.3.14 | https://replication sidecar.io/ |
-| replication sidecar latest release tag | v0.5.17, published 2026-08-31 (GitHub releases API) | https://github.com/benbjohnson/replication sidecar/releases/tag/v0.5.17 |
+| replication sidecar docs, actively maintained line | maintained release line | sidecar documentation (generic; see operator-supplied mirror) |
+| replication sidecar latest release tag | pinned release supplied by the operator | operator-supplied download/checksum coordinates |
 | replication sidecar S3-compatible replica config | URL `s3://bucket/path?endpoint=…` or explicit `type/bucket/path/endpoint/region/access-key-id/secret-access-key` fields; provider auto-detection list; `force-path-style`, `skip-verify` options | https://replication sidecar.io/guides/s3-compatible/ |
 | replication sidecar S3 guide | IAM user, bucket, CLI/file usage, access-point and custom-endpoint notes | https://replication sidecar.io/guides/s3/ |
 | replication sidecar config reference | Global settings, retention, snapshots, L0 retention, compaction, per-database snapshot settings, `sync-interval`, replica settings | https://replication sidecar.io/reference/config/ |
@@ -99,7 +99,7 @@ extracted here; required-operation coverage is a sandbox check (§6.4).
 
 | Area | What the docs say | Fit / risk for this project |
 | --- | --- | --- |
-| Documented version | v0.5.x maintained; v0.5.17 tagged 2026-08-31; v0.3.14 is the previous line | Pin `v0.5.17` (or newer only after re-reading the changelog) for any sandbox; never float on “latest” |
+| Documented version | maintained release line | Pin a recorded sidecar version for any sandbox; never float on “latest” |
 | WAL constraints | WAL-only; auto-enables WAL; checkpoint write locks; 5s `busy_timeout` recommended | Mode-compatible; contention against the gateway’s 250ms timeout + 2s deadline is the main measured risk |
 | Endpoints/regions | One endpoint pattern `https://s3.<region>.io.cloud.net` for all buckets/objects in both Standard and High Performance; virtual-host style; region table with 1-AZ vs 3-AZ and per-tier support; SigV4 | Clear convention; region/storage-class choice is still an owner decision (see `docs/recovery-decisions.md` §6) |
 | Authentication | Public Cloud project + Object Storage user + access key/secret key; per-bucket access profiles; resources private by default; replication sidecar takes `access-key-id`/`secret-access-key` via config or environment | No conflict at doc level; least-privilege bucket/key scoping is a sandbox check, and no keys exist yet |
@@ -112,7 +112,7 @@ extracted here; required-operation coverage is a sandbox check (§6.4).
 
 ## 4. What is explicitly NOT claimed
 
-- That replication sidecar v0.5.17 works against the owner’s actual object storage provider region/class
+- That the pinned replication sidecar release works against the operator's actual object storage endpoint/region/class
   (object storage provider is **absent** from replication sidecar’s endpoint auto-detection list, so an
   explicit `endpoint` + `region` + path-style configuration is required and
   untested).
@@ -154,7 +154,7 @@ evidence by accident.
 
 | gate | state | evidence |
 | --- | --- | --- |
-| 1 pin and record | **PASS** | `replication sidecar 0.5.17`, tarball sha256 matched against the release's own `checksums.txt`, installed beside (not over) the v0.3.13 on `PATH`, which must not be used for §6 |
+| 1 pin and record | **PASS** | `replication sidecar the pinned sidecar release`, tarball sha256 matched against the release's own `checksums.txt`, installed beside (not over) the an earlier release on `PATH`, which must not be used for §6 |
 | 2 WAL contention | rehearsal PASS | replication advanced under 60 live gateway writes with 0 capacity/deadline/internal failures; **no** p50/p99 comparison and no 1 GB-shaped sandbox yet |
 | 3 explicit object storage provider endpoint | rehearsal PASS | explicit `endpoint`/`region` are honoured and the minimal working replica URL is `s3://<bucket>/<prefix>?endpoint=<scheme://host>&region=<r>`; the same URL FAILS without the scheme and without the rehearsal CA, so the pass is neither a transport artifact nor a disabled-verification artifact |
 | 4 operation coverage | rehearsal PASS | the operation matrix below is MEASURED, not assumed, and both databases restored with exact row counts |
@@ -174,7 +174,7 @@ in at the end of the full packet, of which the per-record JSONL is elided from
 the committed copy for size; `scripts/rehearse-sandbox.sh` regenerates
 it).
 
-### What the rehearsal found, measured on 0.5.17
+### What the rehearsal found, measured on the pinned sidecar release
 
 These are the reason to run the rehearsal before spending a bucket, and each
 one would otherwise have been discovered by a gate recording a false PASS.
@@ -197,7 +197,7 @@ one would otherwise have been discovered by a gate recording a false PASS.
    daemon log is the only signal for a runtime-added database.
 4. **Starting cleanly is not evidence that a config key did anything.** A
    first pass wrote `sse-customer-key` into the replica config, watched the
-   daemon start without an error, and recorded that replication sidecar 0.5.17
+   daemon start without an error, and recorded that replication sidecar the pinned sidecar release
    "replicated in the clear" -- which the run's own request log then refuted:
    all three uploads carried `x-amz-server-side-encryption-customer-algorithm`,
    `-key` and `-key-md5` **on the wire** -- the validating proxy recorded
@@ -273,7 +273,7 @@ would reasonably ask "why did gates 8 and 12 suddenly pass?".
 These are the durable fixes; weakening the gates would have been simpler and
 would have been wrong.
 
-### Operation matrix replication sidecar 0.5.17 + this packet actually issue
+### Operation matrix replication sidecar the pinned sidecar release + this packet actually issue
 
 Measured on the 2026-09-29 rehearsal run, in counts of requests the bucket's
 proxy saw (933 requests in total; the per-record log is folded into the full
@@ -339,7 +339,7 @@ calls a passing run makes.
 ### Encryption finding, ready for decision 3
 
 **What replication sidecar does, measured on the wire.** With
-`replica.sse-customer-key` set, replication sidecar 0.5.17 starts without an error and
+`replica.sse-customer-key` set, replication sidecar the pinned sidecar release starts without an error and
 **sends SSE-C on every upload**: the packet's validating proxy recorded
 `sse_customer_present=1` on all three PUTs under that prefix, i.e. the request
 carried `x-amz-server-side-encryption-customer-algorithm`, `-key` and `-key-md5`
@@ -348,7 +348,7 @@ re-signs upstream over its own header set, so the endpoint's log never carries
 replication sidecar's signed header list. The claim that matters -- replication sidecar sends the
 key -- is visible in the committed packet; the claim about which headers were
 inside the signature is not, and is not made. This corrects an earlier
-finding in this document, which claimed 0.5.17 ignores the key and replicates
+finding in this document, which claimed the pinned sidecar release ignores the key and replicates
 in the clear; that claim was inferred from a clean start and the request log
 refuted it. The client-side lever exists -- the owner is not forced into
 SSE-OMK because SSE-C is unavailable.
@@ -416,7 +416,7 @@ prints past-the-fact position data). An operator who only watches the daemon
 log or only watches `dg backup status` will not see this failure. Decision 6
 (alerting / sandbox acceptance) must include an EXTERNAL freshness check --
 a scheduled restore-and-count, or comparing the gateway's own last-backup
-timestamp against now -- because replication sidecar 0.5.17 does not provide a
+timestamp against now -- because replication sidecar the pinned sidecar release does not provide a
 proactive surface for the full failure set.
 
 ### What the object storage provider run still must produce that no rehearsal can
@@ -450,7 +450,7 @@ seven days of frequent points plus 30/7 periodic history, every-sync verificatio
 and a separate-target restore within the periodic objective before those
 numbers are described as anything stronger than working objectives.
 
-1. **Pin and record**: install exactly `v0.5.17` in the sandbox, record
+1. **Pin and record**: install exactly `the pinned sidecar release` in the sandbox, record
    `replication sidecar version` output and the fetched config-reference date. Any
    upgrade re-runs this list.
 2. **WAL contention**: replicate 2+ live gateway databases under a small
@@ -461,7 +461,7 @@ numbers are described as anything stronger than working objectives.
    `force-path-style`/`skip-verify` variants documented; record the minimal
    working config and the failing variants.
 4. **Required-operation coverage**: confirm every S3 operation replication sidecar
-   v0.5.17 issues (including multipart and any versioning/lifecycle reads)
+   the pinned sidecar release issues (including multipart and any versioning/lifecycle reads)
    succeeds against the test region/class; save the passing matrix.
 5. **Restore drill**: `replication sidecar restore` to a separate path, then gateway
    import validation + exact-row comparison against the source; also restore

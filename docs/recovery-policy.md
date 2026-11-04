@@ -25,7 +25,7 @@ documents while each silently lacked something the other had.
 
 | | **Tier 1 — host loss** | **Tier 2 — local rollback** |
 |---|---|---|
-| Mechanism | replication sidecar 0.5.17 continuous WAL replication to object storage (`dg-replication.service`), one replica prefix per database plus `metadata` for the registry | periodic verified snapshot sets on the same disk (`dg-backup.timer` → `backup.sh` → `/var/lib/dg-backups`) |
+| Mechanism | replication sidecar the pinned sidecar release continuous WAL replication to object storage (`dg-replication.service`), one replica prefix per database plus `metadata` for the registry | periodic verified snapshot sets on the same disk (`dg-backup.timer` → `backup.sh` → `/var/lib/dg-backups`) |
 | Authoritative for | Host/disk loss, host compromise, any failure where deployment-host's disk is gone or untrusted | Operator error, bad writes, botched lifecycle ops, quick same-host restore |
 | Contains | Every live database **and the registry** (`metadata.sqlite`: credential hashes, scopes, database rows) | Every live database plus `metadata.sqlite.bak`, manifest + checksums (`recovery-contract.md` §2) |
 | recovery objective | **5 minutes** after committed changes (Profile C target, successful verified operation only; an outage extends it and must be visible, never silent) | 1 hour (the producer cadence) |

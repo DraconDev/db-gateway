@@ -297,7 +297,7 @@ The same-disk backup root protects against logical loss only. A disk
 failure takes the databases and their backups together. `dg-replication`
 is the second leg: a systemd service that replicates every live `.sqlite`
 under `/var/lib/dg/` to the recorded object store using
-replication sidecar 0.5.17, with its credentials in `/etc/dg/replication.env` (mode
+replication sidecar the pinned sidecar release, with its credentials in `/etc/dg/replication.env` (mode
 0600, owner `dg:dg`) — the only copy on the host — and nothing in the
 unit, the config, or the repository carrying a secret (the config uses
 `${REPLICATION_S3_*}` env-var references populated by systemd's

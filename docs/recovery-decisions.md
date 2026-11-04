@@ -170,7 +170,7 @@ follows in the sandbox/notification work):
    facts and pricing, so they are deliberately deferred to the sandbox step
    rather than guessed here.
    *Measured inputs now available* (`docs/backup-compatibility.md` §6a, from
-   the replication sidecar 0.5.17 rehearsal, 2026-09-28 + 2026-09-29):
+   the replication sidecar the pinned sidecar release rehearsal, 2026-09-28 + 2026-09-29):
 
    - `endpoint` and `region` are honoured as replica URL query parameters
      (`s3://<bucket>/<prefix>?endpoint=<scheme://host>&region=<r>`) and need
@@ -179,7 +179,7 @@ follows in the sandbox/notification work):
    - A replica root is **not** namespaced per database, so the bucket layout
      must be one prefix per gateway database (`s3://<bucket>/<db-name>/...`).
      The gateway holds N databases, so this is load-bearing, not tidy.
-   - **Encryption client-side, MEASURED** -- replication sidecar 0.5.17 **sends
+   - **Encryption client-side, MEASURED** -- replication sidecar the pinned sidecar release **sends
      SSE-C**: with `sse-customer-key` set, the validating proxy recorded
      `sse_customer_present=1` on all three PUTs under that prefix -- the request
      carried `x-amz-server-side-encryption-customer-algorithm`, `-key` and
@@ -234,7 +234,7 @@ follows in the sandbox/notification work):
      the key prefix. The object storage provider account-level cap (1 Gbps/connection, 300
      PUT/s + 900 GET/s soft limits) is the owner-decision input that no
      rehearsal can answer.
-   - **Encryption** -- `sse-customer-key` IS sent by 0.5.17 (measured on the
+   - **Encryption** -- `sse-customer-key` IS sent by the pinned sidecar release (measured on the
      wire); whether it is honoured is the service's answer. See decision 3.
    - Budget, exclusions, region choice and pricing still need real facts.
 3. **STILL OPEN** — same inputs as 2, plus what headroom the 1 GB host must
@@ -245,10 +245,10 @@ follows in the sandbox/notification work):
    confused:
 
    - **The client sends SSE-C.** With `replica.sse-customer-key` set,
-     replication sidecar 0.5.17 signs `x-amz-server-side-encryption-customer-algorithm`,
+     replication sidecar the pinned sidecar release signs `x-amz-server-side-encryption-customer-algorithm`,
      `-key` and `-key-md5` on every upload; the packet's validating proxy
      recorded all three inside `SignedHeaders`. An earlier note here said
-     0.5.17 "ignores the key and replicates in the clear", inferred from the
+     the pinned sidecar release "ignores the key and replicates in the clear", inferred from the
      daemon starting without an error. The request log refuted it, and the
      note is withdrawn. **SSE-C is available to the owner as a client-side
      lever** -- this is the correction that matters, because the withdrawn
@@ -278,7 +278,7 @@ follows in the sandbox/notification work):
    transparent decrypt cannot be observed from outside, and the owner is
    relying on object storage provider's documentation plus the reported header.
    *Status 2026-09-29*: **sidecar headroom has been MEASURED, locally**.
-   `sandbox-s3-gates.sh` gate 9 ran the replication sidecar 0.5.17 sidecar inside a
+   `sandbox-s3-gates.sh` gate 9 ran the replication sidecar the pinned sidecar release sidecar inside a
    kernel-enforced 1 GiB transient scope: replication peak 44 MiB (45,632 KiB), restore
    peak 35 MiB (34,576 KiB), restore 2740 ms, no OOM kill. The enforcement is proved, not assumed -- the
    probe allocates 8x the cap and requires the child to be killed, and a
@@ -315,7 +315,7 @@ follows in the sandbox/notification work):
    server-side encryption. Both are object storage provider's to answer, with the commands
    unchanged. The rehearsal packet for that run is
    `the measurement record **The alerting half of decision 6 is partly
-   settled by the gate-8 measurement**: replication sidecar 0.5.17 does not surface
+   settled by the gate-8 measurement**: replication sidecar the pinned sidecar release does not surface
    every failure mode in the daemon log or in `replication sidecar status`. Blocked-
    egress was visible only via the `replication sidecar sync` CLI, and the restore
    path was the only surface for parts of the measurement. A passing gate 8
