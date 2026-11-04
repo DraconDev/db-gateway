@@ -66,7 +66,7 @@ Its real store is `~/.config/turso/settings.json`. That file exists, and this is
 the verbatim output of the command shown (re-run during this goal's audit):
 
   $ stat -c '%a %s %y %n' ~/.config/turso/settings.json
-  600 26430 2026-10-25 00:44:42.791425969 +0100 /home/dracon/.config/turso/settings.json
+  600 26430 2026-10-25 00:44:42.791425969 +0100 /home/operator/.config/turso/settings.json
 
 The `+0100` is not a mistake and not the reading time: `%y` prints the file's own
 mtime, which fell during British Summer Time (BST ended 2026-10-25), while this
