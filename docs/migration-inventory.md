@@ -11,7 +11,7 @@ current Turso docs or a disposable trial export before any migration plan.
 
 ## Source survey 2026-10-11 (corrected): Turso estate found in dracon-platform
 
-Scope: `~/.turso` contents, the `/home/dracon/Dev` tree (bare-word
+Scope: `~/.turso` contents, the `$HOME/Dev` tree (bare-word
 `turso|libsql|hrana` over code/config/scripts, then table/env/builder
 greps), and this repo's references. Method is local-code-only: no Turso
 account, cloud API, token value, or row contents were touched — remote
