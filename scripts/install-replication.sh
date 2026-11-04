@@ -126,9 +126,11 @@ else
   ACTUAL=$(sha256sum "$TMPDIR_LOCAL/$TARBALL" | awk '{print $1}')
   [ "$ACTUAL" = "$EXPECTED" ] || fail "sha256 mismatch for ${TARBALL}: got $ACTUAL, upstream $EXPECTED"
 
-  log "extracting the replication binary and installing it to ${INSTALL_PATH}"
-  tar -C "$TMPDIR_LOCAL" -xzf "$TMPDIR_LOCAL/$TARBALL" replication \
-    || fail "extract failed: ${TARBALL} has no top-level replication binary"
+  log "extracting the sidecar binary and installing it to ${INSTALL_PATH}"
+  tar -C "$TMPDIR_LOCAL" -xzf "$TMPDIR_LOCAL/$TARBALL" "${UPSTREAM_BIN}" \
+    || fail "extract failed: ${TARBALL} has no top-level sidecar binary"
+  mv "$TMPDIR_LOCAL/${UPSTREAM_BIN}" "$TMPDIR_LOCAL/replication" \
+    || fail "renaming extracted sidecar binary failed"
   # scp resolves the ssh alias's hostname but does not inherit the
   # IdentityFile the way plain ssh does, so name the key explicitly.
   DEPLOYMENT_HOST_HOST=$(ssh -G "$TARGET" 2>/dev/null | awk '/^hostname /{print $2; exit}')
