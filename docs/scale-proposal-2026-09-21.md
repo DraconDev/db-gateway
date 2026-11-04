@@ -4,7 +4,7 @@
 **Canonical roadmap:** [`personal-turso-megaplan.md`](personal-turso-megaplan.md)
 
 Status: **Phases 1–2 implemented 2026-09-22; measured sizing and the multi-host
-decision remain open.** Evidence: `docs/evidence/benchmark-2026-09-21.md` (F2b). This
+decision remain open.** Evidence: `the measurement record (F2b). This
 document authorizes no code change — each remaining phase becomes a task with
 its own tests and before/after benchmark when approved.
 

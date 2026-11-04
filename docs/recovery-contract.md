@@ -255,6 +255,6 @@ periodic local recovery objective) and injects four failures:
 A successful manual export is then used as the explicit fallback and restored
 to a separate target with exact rows, integrity, foreign-key, and
 copy-independence checks. The recorded local output is
-`docs/evidence/recovery-rehearsal-evidence.json`. This is local fault/status/restore
+`the measurement record This is local fault/status/restore
 evidence only: it does not prove replication sidecar timing, S3 behavior, object storage provider
 compatibility, a 1 GiB sidecar budget, or a production recovery objective.

@@ -94,9 +94,9 @@ replication started reached the registry replica, and after total
 data-dir loss both pre-loss keys authenticated with scope intact on a
 gateway rebuilt from the replica alone:
 `scripts/registry-recovery-drill.sh`,
-`docs/evidence/registry-recovery-drill-2026-10-19.log`. Sandbox gate 11 proved
+`the measurement record Sandbox gate 11 proved
 the same file round-trip against a live object storage bucket with the gateway
-stopped (`docs/evidence/sandbox-2026-10-14-object storage provider.log`).
+stopped (`the measurement record storage provider.log`).
 
 ## What is not yet enforced (residuals, named not hidden)
 
@@ -135,7 +135,7 @@ stopped (`docs/evidence/sandbox-2026-10-14-object storage provider.log`).
   2026-10-19 (`docs/audit-2026-10-19.md`), judgment recorded in the
   goal ledger; alternatives (periodic registry snapshot file,
   rebuild-only) rejected with reasons there and in
-  `docs/evidence/registry-recovery-drill-2026-10-19.log`.
+  `the measurement record
 - Restore-always-to-separate-target and extended rollback-artifact
   retention: `recovery-decisions.md` item 4 (unchanged).
 
@@ -182,7 +182,7 @@ the copy here.
 | Covered | every live database, plus the registry (`registry: true`) |
 
 The bucket is named `dg-sandbox`, which reads like scratch space but is not:
-`docs/evidence/replication sidecar-replication-evidence.log:41` shows the running sidecar
+`the measurement record sidecar-replication-evidence.log:41` shows the running sidecar
 configured against `s3://dg-sandbox/...`. It is the target actually in use. That
 observation does not settle the separate bucket-lifecycle residual above (the
 30/7 periodic-version classes) — this read did not establish which bucket that

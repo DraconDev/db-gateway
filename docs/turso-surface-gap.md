@@ -208,7 +208,7 @@ CLI answered "not logged in" and why no Turso data call in this window could
 have authenticated. The trace lists Turso CLI command forms by date, including
 all three 2026-10-31 `auth whoami` calls with their timestamps; it does not
 claim the binary was never
-invoked. The transcript inventory and proof that the `docs/evidence/` baseline is
+invoked. The transcript inventory and proof that the `the measurement record baseline is
 byte-identical to HEAD and predates this goal are recorded in
 `docs/no-turso-contact-2026-10-31.txt`.
 
@@ -521,7 +521,7 @@ format the operator can produce locally and import in one extra step, so the
 time saved in the first week is minutes; and the URL-fetch path is deliberately
 absent because asking the gateway to fetch arbitrary URLs trades a real safety
 property for that step. Recorded so the parity claim is not overstated. Evidence:
-`docs/evidence/turso-cli-help-2026-10-29.txt`.
+`the measurement record
 
 ### Gap 7 — `dg export`/`import` are narrower than Turso's (low)
 
@@ -554,7 +554,7 @@ Cost: low.
 metadata-bearing export is not a task a lone operator performs, and refusing to
 overwrite an existing export protects the artifact they keep for recovery.
 Recorded so parity is not overstated. Evidence:
-`docs/evidence/turso-cli-help-2026-10-29.txt`, `dg export --help`,
+`the measurement record `dg export --help`,
 `dg import --help`.
 
 ### Gap 8 — Nothing lists which databases are tombstoned (CLOSED 2026-11-03)
@@ -728,7 +728,7 @@ single-key revoke. It also records `dg key rotate-owner` exactly as spelled by
 **Disposition: not worth doing** as runtime work — corrected as documentation
 instead. The stale rows implied no behavior difference, so the only defect was
 the text; the correction lives in `docs/cli-turso-mapping.md`. The CLI help capture
-is `docs/evidence/turso-cli-help-2026-10-29.txt`.
+is `the measurement record
 
 A note on what this section is *not*: it is not a claim that `dg` is complete.
 Gaps 1–8 are real, and the two that protect a lone operator from ordinary
@@ -742,45 +742,45 @@ governing other people.
 
 Live captures made 2026-10-29 (this revision):
 
-- `docs/evidence/turso-cli-help-2026-10-29.txt` — the installed Turso CLI v1.0.15
+- `the measurement record — the installed Turso CLI v1.0.15
   version and top-level / command-family help inventory, captured locally.
-- `docs/evidence/turso-live-2026-10-29-databases.txt` — the Databases list,
+- `the measurement record — the Databases list,
   all 19 rows with rows read/written, bytes synced, storage, group, status.
-- `docs/evidence/turso-live-2026-10-29-analytics.txt` — the org Analytics page:
+- `the measurement record — the org Analytics page:
   quota cards, the seven 30-day chart families, Top Databases, Top Queries.
-- `docs/evidence/turso-live-2026-10-29-per-database.txt` — the per-database tab
+- `the measurement record — the per-database tab
   set, Overview/Configuration controls, Branches, per-database Analytics and
   Top Queries. **Its closing "GENUINE GAPS" list is superseded** by §2 and §4
   of this document; see the note below.
-- `docs/evidence/turso-live-2026-10-29-edit-data.txt` — the Edit Data browser
+- `the measurement record — the Edit Data browser
   read through its shadow DOM: toolbar, type-annotated headers, sampled rows.
-- `docs/evidence/turso-edit-data-live-2026-10-29.png` — the Edit Data grid as
+- `the measurement record — the Edit Data grid as
   rendered (screenshot of the same view the text record describes).
-- `docs/evidence/turso-live-2026-10-29-audit-logs.txt` — the Audit Logs page:
+- `the measurement record — the Audit Logs page:
   6 entries today versus 23 in the Oct 26 capture; retention policy undisclosed.
-- `docs/evidence/cargo-test-full-suite-2026-10-29.txt` — the verbatim per-suite
+- `the measurement record — the verbatim per-suite
   output of `cargo test --workspace --all-targets` on this tree (91 suites, 664
   passed, 0 failed), so the green-suite claim is inspectable rather than
   asserted.
 
 Historical captures, retained unchanged and **not** re-read this revision:
 
-- `docs/evidence/turso-analytics-2026-10-26.txt`
-- `docs/evidence/turso-databases-2026-10-26.txt`
-- `docs/evidence/turso-audit-logs-2026-10-26.txt`
-- `docs/evidence/turso-edit-data-2026-10-26.png`
-- `docs/evidence/turso-edit-data-grid-2026-10-27.png`
-- `docs/evidence/turso-structure-2026-10-27.txt`
-- `docs/evidence/turso-structure-view-2026-10-27.png`
-- `docs/evidence/turso-structure-indexes-2026-10-27.png`
+- `the measurement record
+- `the measurement record
+- `the measurement record
+- `the measurement record
+- `the measurement record
+- `the measurement record
+- `the measurement record
+- `the measurement record
 
-`dg`-side evidence: `docs/evidence/rows-browser-live-2026-10-27.txt`,
-`docs/evidence/schema-live-2026-10-27.txt`, `docs/audits/tui-audit.md`, and the
+`dg`-side evidence: `the measurement record
+`the measurement record `docs/audits/tui-audit.md`, and the
 live local gateway (`GET /v1/status`, `/v1/databases`, `/v1/backups`, `/v1/audit`,
 `/v1/queries`) read on 2026-10-29.
 
 Turso CLI surface: `turso` v1.0.15, captured from local `--help` output in
-`docs/evidence/turso-cli-help-2026-10-29.txt` (no account authentication or
+`the measurement record (no account authentication or
 mutation in that help capture). The transcript separately records three
 2026-10-26 database-data command attempts (`db inspect/show ai-model-list`);
 each returned "You are not logged in" before a data response. These attempts
@@ -788,7 +788,7 @@ must not be described as successful reads, but they did run.
 
 ## Superseded assessment in the per-database capture
 
-`docs/evidence/turso-live-2026-10-29-per-database.txt` ends with a section
+`the measurement record ends with a section
 headed **"GENUINE GAPS, in operator terms"** that lists remote access control
 (Block Reads, Block Writes, Allow ATTACH, Delete Protection, CIDR/VPC
 allow-list) as gap number one. **That assessment is superseded and should not be
@@ -857,7 +857,7 @@ cargo test --workspace --all-targets   (after the repair)
 ```
 
 The raw per-suite output is committed as
-`docs/evidence/cargo-test-full-suite-2026-10-29.txt`, so the full-suite claim
+`the measurement record so the full-suite claim
 can be checked without re-running it.
 
 One caveat is recorded in that file rather than smoothed over: this repo's two
@@ -1101,7 +1101,7 @@ seen, and principals are all present; averages are `total/count`; the
 
 Turso lists every database with rows read, rows written, bytes synced,
 storage, group, and status, plus a per-row "Edit Data" link. Full text
-in `docs/evidence/turso-databases-2026-10-26.txt`; headlines quoted:
+in `the measurement record headlines quoted:
 
 - Columns: `Name Type Rows Read Rows Written Bytes Synced Storage Group
   Status`.
@@ -1127,7 +1127,7 @@ retention instead), or branches.
 ### 5. Per-database Edit Data browser
 
 The browser (Drizzle Studio) has three panes, observed in
-`docs/evidence/turso-edit-data-2026-10-26.png` (`dracon-music-dev`,
+`the measurement record (`dracon-music-dev`,
 captured 2026-10-26):
 
 - Left: `SQL console` entry, `Schema` panel listing tables
@@ -1177,7 +1177,7 @@ equivalent beyond `dg queries --database <name>` and `dg status`.
 
 Turso side, captured 2026-10-27 in the browser, read-only:
 
-- `docs/evidence/turso-structure-view-2026-10-27.png` — the
+- `the measurement record — the
   `STRUCTURE` tab of `dracon-music-dev` → table `music_users`. On
   screen: `Table name: music_users`; **COLUMNS** —
   `subject TEXT PRIMARY KEY` and `created_at INTEGER NOT NULL`, each
@@ -1186,17 +1186,17 @@ Turso side, captured 2026-10-27 in the browser, read-only:
   affordance); **INDEXES** (an `Add index` affordance and an
   `AUTO-INDEXES` disclosure, collapsed); and a `Copy create
   statements` action beside the tab.
-- `docs/evidence/turso-structure-indexes-2026-10-27.png` — the same
+- `the measurement record — the same
   view with the index list open: `UNIQUE INDEX
   sqlite_autoindex_music_users_1 ... (subject)`.
-- `docs/evidence/turso-edit-data-grid-2026-10-27.png` — the `DATA` tab
+- `the measurement record — the `DATA` tab
   of the same table, kept because it is the surface the structure is
   compared against: the type-annotated grid headers (`subject text`,
   `created_at integer` — the declared type in a dimmer style beside
   each column name), the `Filters` / `Sort` / `Columns` toolbar, the
   `+ Add record` action, the pager (`1 - 50 of 50+`) and the per-row
   checkboxes.
-- `docs/evidence/turso-structure-2026-10-27.txt` — the capture note:
+- `the measurement record — the capture note:
   what was open, what each capture shows, and the read-only record
   (no record was added, edited or deleted; no SQL was run against
   Turso; the `Add column` / `Add constraint` / `Add index`
@@ -1204,7 +1204,7 @@ Turso side, captured 2026-10-27 in the browser, read-only:
 
 What `dg` covers now, added 2026-10-27 and exercised against the
 seeded live gateway (outputs quoted verbatim in
-`docs/evidence/schema-live-2026-10-27.txt`):
+`the measurement record
 
 - **The per-column facts**: `dg schema <db> [table]` gives each
   column's name, its **declared** type, and its `not_null` and
@@ -1283,7 +1283,7 @@ verbs that are out of scope (see the final section). The in-scope
 audit surface is the web Audit Logs page: columns Author/Event/Origin/
 Timestamp, 23 items on 2026-10-26, all `Created Database Token` by
 `dracondev` via `dashboard` (2) or `cli` (21) — full text in
-`docs/evidence/turso-audit-logs-2026-10-26.txt`. (The CLI exposes the
+`the measurement record (The CLI exposes the
 same logs as `turso org audit-logs list [--limit N] [--page N]
 [--verbose]`; that verb lives under the excluded `turso org` namespace
 — see the final section — so the §6 row below is anchored on the web

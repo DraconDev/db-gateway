@@ -530,7 +530,7 @@ before the view was the default, down to the stream — and `dg tui` reports
 - [docs/cli-turso-mapping.md](cli-turso-mapping.md) — the command
   surface next to Turso's
 - [docs/architecture.md](architecture.md) — where the view sits
-- `docs/evidence/tui-view-2026-10-22.txt` — a real session against a
+- `the measurement record — a real session against a
   real gateway, rebuilt from the raw pty capture beside it. **Historical:**
   it predates the tabbed view, so it shows the tiled layout and the old
   status bar, and its layout lines should not be read as current. Read it

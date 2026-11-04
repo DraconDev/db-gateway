@@ -6,7 +6,7 @@ Related: `docs/upgrade-rollback.md` (binary upgrades and rollback),
 (full host replacement and restore).
 Nothing here installs, enables, or starts a service, and this guide is not
 live-deploy authorization. The first supervised deploy to deployment-host is recorded
-separately in `docs/evidence/first-deploy.md`; that record supplies the resolved
+separately in `the measurement record that record supplies the resolved
 values for the installed instance while this guide intentionally retains
 placeholders for future/repeated deployments.
 
@@ -45,7 +45,7 @@ placeholders for future/repeated deployments.
    that names the unit must state the same cap
    (`scripts/check-doc-caps.py`, run by the gate). The sidecar's own cap,
    the sandbox's 1 GiB scope, the harness's measured suggestion and the
-   dated records under `docs/evidence/` are not the gateway's cap and are
+   dated records under `the measurement record are not the gateway's cap and are
    left alone. The check exists because a document that states a
    different ceiling contradicts the file that is actually installed,
    and the operator reads the document.
@@ -218,7 +218,7 @@ the same way as the backup units — substitute the placeholders, install
 under `/etc/systemd/system/`, `daemon-reload`, enable the timer — and
 see `docs/backup-compatibility.md` for what the sidecar does.
 
-`MemoryMax=` is **set** as of 2026-10-10, revised to the on-host value 2026-10-16 (`deploy/dg.service`: `MemoryMax=64M`, matching the deployment-host enforcement of 67108864 recorded in `docs/evidence/m4-sampling-2026-10-16.log`).
+`MemoryMax=` is **set** as of 2026-10-10, revised to the on-host value 2026-10-16 (`deploy/dg.service`: `MemoryMax=64M`, matching the deployment-host enforcement of 67108864 recorded in `the measurement record
 The value is ~2.7x the SQLite per-connection cache ceiling (12 connections x
 2 MiB, measured from `src/store/admission.rs:12-14` and `src/execution.rs:42`) with
 the gateway peak under burst (11 MiB under a 1 GiB-enforced local harness,
@@ -336,7 +336,7 @@ replication within one interval, with no operator step
 per-database coverage, and host-audit's `replication_coverage` check
 fails if any live database is missing from the config. Local proof:
 `scripts/replication-sync-drill.sh`
-(evidence: docs/evidence/replication-sync-drill-2026-10-19.log).
+(evidence: the measurement record
 
 ### Proving a restore round-trip
 

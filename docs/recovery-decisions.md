@@ -314,7 +314,7 @@ follows in the sandbox/notification work):
    that implements `?lifecycle` and gate 10 needs a service that reports
    server-side encryption. Both are object storage provider's to answer, with the commands
    unchanged. The rehearsal packet for that run is
-   `docs/evidence/sandbox-2026-09-29-rehearsal.log`. **The alerting half of decision 6 is partly
+   `the measurement record **The alerting half of decision 6 is partly
    settled by the gate-8 measurement**: replication sidecar 0.5.17 does not surface
    every failure mode in the daemon log or in `replication sidecar status`. Blocked-
    egress was visible only via the `replication sidecar sync` CLI, and the restore

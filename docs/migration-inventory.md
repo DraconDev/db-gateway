@@ -111,7 +111,7 @@ dropped `studio_youtube_oauth_states` is excluded — youtube.rs:176,826).
   near-empty: processed_webhook_events=24, users=4, service_access=3,
   tier_limits=3, rest ≈0. development `example-billing-dev` is 1.0 MB, 19
   tables (no `entitlement_event_watermarks`), and was **trial-imported
-  and verified 2026-10-19** — `docs/evidence/migration-development-trial-2026-10-19.log`)
+  and verified 2026-10-19** — `the measurement record
 - denied objects: production `ALTER TABLE ... DROP COLUMN` migration
   code (example-application state.rs:847,866,932); production views/triggers:
   none found; remote-side views: UNVERIFIED
@@ -142,7 +142,7 @@ explicit owner approval, read-only remote facts were recorded for
 A/B/C (`turso db list/show`, SELECT counts, `turso db export` of
 development): sizes, live table sets, row counts, and the remote
 views/triggers census (none anywhere) are VERIFIED as of that date in
-the source blocks above and `docs/evidence/migration-development-trial-2026-10-19.log`.
+the source blocks above and `the measurement record
 Still UNVERIFIED: full column DDL for A/B (resolvable from an export
 when their trials are scheduled), writer rates/topology, and the
 newer estate databases observed in the account list (dracon-auth,
@@ -170,7 +170,7 @@ disposable export).
 | 3 | Denied SQL (highest risk) | The gateway authorizer denies views, triggers, `ALTER`, temp objects, virtual tables, pragmas, and user transactions (`403 sql_forbidden`). Source schemas using any of these must be flattened or redesigned before import, and every statement re-tested — a Turso export carrying a view or trigger cannot run here. | REPO-VERIFIED (`src/execution.rs`, `tests/schema_shapes.rs`) |
 | 4 | SQL dialect | libSQL is a SQLite fork: standard DDL/DML transfers, but any libSQL-only syntax has no gateway equivalent and must be rewritten. | REPO-VERIFIED (stock SQLite via rusqlite) / UNVERIFIED (source feature census) |
 | 5 | Value limits | Gateway caps: 256 args/statement, 64 KiB SQL text, 256 KiB or 1000-row results, 8 MiB single-shot JSON body, 128 MiB chunked transfer. The single-shot `/v1/databases/{name}/import` route refuses above 8 MiB, but `dg import` always uses the chunked path, so the single-shot limit is not an import ceiling. Source workloads near or over the chunked ceiling must be reshaped and re-tested, not assumed portable. | REPO-VERIFIED (`docs/api.md`) |
-| 6 | Sizes | Every source database file must fit the 128 MiB chunked transfer ceiling (`MAX_TRANSFER_SIZE`) or it cannot enter the gateway by the supported path (see finding F2 in `docs/evidence/audit-2026-09-21.md`); the 8 MiB single-shot body limit does not apply to `dg import`. Record exact bytes plus growth headroom per database. | REPO-VERIFIED (cap) / UNVERIFIED (source sizes) |
+| 6 | Sizes | Every source database file must fit the 128 MiB chunked transfer ceiling (`MAX_TRANSFER_SIZE`) or it cannot enter the gateway by the supported path (see finding F2 in `the measurement record the 8 MiB single-shot body limit does not apply to `dg import`. Record exact bytes plus growth headroom per database. | REPO-VERIFIED (cap) / UNVERIFIED (source sizes) |
 | 7 | Writers | Turso primary/replica topology becomes gateway single-writer-per-database with 429/408 backpressure. Applications must re-tune retry behavior to gateway semantics. | REPO-VERIFIED / UNVERIFIED (source topology) |
 | 8 | Idempotency | The gateway offers `Idempotency-Key` replay (24 h, 256 keys) that Turso callers lack. Migrated writers should adopt keyed writes for exactly-once resubmission instead of blind retries. | REPO-VERIFIED |
 | 9 | Lifecycle | Tombstone + 24 h purge, clone/export/import routes, and `_dg_*` protection are gateway concepts operators must learn; Turso platform operations no longer apply after cutover. | REPO-VERIFIED |

@@ -55,7 +55,7 @@ Host: Linux 7.1.2 x86_64, 16 CPUs, 32 GiB RAM. Release build.
 | suggested `MemoryMax=` | 91,264 KiB (~89 MiB) |
 
 The full report is committed as
-`docs/evidence/first-resource-report-release-2026-10-10.json`; the report's
+`the measurement record the report's
 `suggested_memory_max_kib` is the largest measured steady-state term
 (gateway burst peak vs SQLite cache ceiling vs sidecar peak) doubled
 for headroom, with a 64 MiB floor. The unit file `deploy/dg.service`
@@ -82,7 +82,7 @@ re-run after a storage or dependency change and diff the RSS/latency
 fields). A production budget claim would require the deployment host,
 realistic load, and the replication sidecar running under the
 `MemoryMax=1G` envelope documented in
-`docs/evidence/sandbox-2026-09-29-rehearsal.log` gate 9. The release
+`the measurement record gate 9. The release
 script's `suggested_memory_max_kib` (91,264 KiB, ~89 MiB) is the measured
 starting ceiling this discussion starts from; the unit's own cap is
 `MemoryMax=64M` (67108864 bytes), and the supervised deployment-host run is the

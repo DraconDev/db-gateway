@@ -56,7 +56,7 @@ decoded pi session: verbatim prompts, tool calls, tool output. Tracked in
 it were this operator's email address, their home directory path, a
 public server address, and production database names.
 
-A previous audit (`docs/evidence/audit-2026-09-21.md`, item A1) had
+A previous audit (`the measurement record item A1) had
 already found and untracked the **`.html`** session export. It swept the
 one extension it had seen, so the **`.md`** twin of the same session —
 added later by a different export path — walked straight past it.
@@ -165,7 +165,7 @@ look like an unexplained spike.
 
 Reported as advisories, not blockers. `scripts/public-readiness.sh` splits
 them into **live docs** (editable — scrubbing is a choice you can make
-now) and **frozen records** (`docs/evidence/`, `docs/verification/` —
+now) and **frozen records** (`the measurement record `docs/verification/` —
 never edited after the fact per `docs/README.md`, so publishing them is
 the decision):
 
@@ -286,7 +286,7 @@ schedules, key paths, or milestone state remain in those files.
 
 Canonical operator docs and frozen records still contain working details
 by design: they are no longer advertised from the README, and the
-historical records under `docs/evidence/` and `docs/verification/` are
+historical records under `the measurement record and `docs/verification/` are
 treated as a publication decision, not as front-door content. Source,
 scripts, deploy descriptors, and tests retain the identifiers their
 behavior requires; this audit does not change behavior. The gate remains

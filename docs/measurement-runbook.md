@@ -1,4 +1,4 @@
-# deployment-host measurement runbook (RUN 2026-09-22 — see docs/evidence/deployment-host-2026-09-22-evidence.log; verification adapted to 600 s per runbook, burst rerun unkeyed after keyed run hit the replay cap by design)
+# deployment-host measurement runbook (RUN 2026-09-22 — see the measurement record verification adapted to 600 s per runbook, burst rerun unkeyed after keyed run hit the replay cap by design)
 
 Exact steps for resource-budget items 1–5 (`docs/resource-budget.md`), the
 burst test (tasklist D2), and log-retention setup (R11). Procedure only —
