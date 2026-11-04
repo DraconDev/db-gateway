@@ -39,12 +39,12 @@ const SECRET: &str = "the-secret-credential-value";
 fn set_list_and_show_round_trip() {
     let dir = tempfile::tempdir().expect("a temp dir");
     let config = config_file(dir.path());
-    let key = write_key(dir.path(), "deployment-host.key");
+    let key = write_key(dir.path(), "remote.key");
     // A context whose key file is not there: a broken context has to say
     // so, not look like a working one.
     let missing = dir.path().join("staging.key");
 
-    cmd_config::set(&config, "deployment-host", "http://127.0.0.1:7432", &key, true, true)
+    cmd_config::set(&config, "remote", "http://127.0.0.1:7432", &key, true, true)
         .expect("the context is saved");
     cmd_config::set(
         &config,
@@ -58,14 +58,14 @@ fn set_list_and_show_round_trip() {
 
     let listed = cmd_config::contexts(&config).expect("the config is read");
     assert_eq!(
-        listed["default"], "deployment-host",
+        listed["default"], "remote",
         "the marked context is the default"
     );
     let contexts = listed["contexts"]
         .as_array()
         .expect("the contexts are a list");
     assert_eq!(contexts.len(), 2, "both contexts are listed: {listed}");
-    assert_eq!(contexts[0]["name"], "deployment-host");
+    assert_eq!(contexts[0]["name"], "remote");
     assert_eq!(contexts[0]["server"], "http://127.0.0.1:7432");
     assert_eq!(contexts[0]["key_file"], key.to_string_lossy().as_ref());
     assert_eq!(contexts[0]["key_present"], true, "the key file is there");
@@ -85,12 +85,12 @@ fn set_list_and_show_round_trip() {
 
     // The printed forms run too: they are the commands an operator types.
     cmd_config::list(&config, true).expect("the list is printed");
-    cmd_config::show(&config, "deployment-host", true).expect("the context is printed");
+    cmd_config::show(&config, "remote", true).expect("the context is printed");
 
     // The file holds the pair and never the credential, and the name with
     // a space is quoted so a TOML parser can read it.
     let text = std::fs::read_to_string(&config).expect("the config file is read");
-    assert!(text.contains("[contexts.deployment-host]"), "{text}");
+    assert!(text.contains("[contexts.remote]"), "{text}");
     assert!(text.contains("[contexts.\"my ctx\"]"), "{text}");
     assert!(
         !text.contains(SECRET),
@@ -102,10 +102,10 @@ fn set_list_and_show_round_trip() {
 fn remove_deletes_only_that_context() {
     let dir = tempfile::tempdir().expect("a temp dir");
     let config = config_file(dir.path());
-    let key = write_key(dir.path(), "deployment-host.key");
+    let key = write_key(dir.path(), "remote.key");
     let other = write_key(dir.path(), "staging.key");
 
-    cmd_config::set(&config, "deployment-host", "http://127.0.0.1:7432", &key, true, true)
+    cmd_config::set(&config, "remote", "http://127.0.0.1:7432", &key, true, true)
         .expect("the context is saved");
     cmd_config::set(
         &config,
@@ -123,8 +123,8 @@ fn remove_deletes_only_that_context() {
         .as_array()
         .expect("the contexts are a list");
     assert_eq!(contexts.len(), 1, "one context is left: {listed}");
-    assert_eq!(contexts[0]["name"], "deployment-host", "the other one is untouched");
-    assert_eq!(listed["default"], "deployment-host", "the default is untouched");
+    assert_eq!(contexts[0]["name"], "remote", "the other one is untouched");
+    assert_eq!(listed["default"], "remote", "the default is untouched");
 
     let error = cmd_config::remove(&config, "staging", true)
         .expect_err("removing a context that is not there is an error");
@@ -135,11 +135,11 @@ fn remove_deletes_only_that_context() {
 fn removing_the_default_context_clears_the_default() {
     let dir = tempfile::tempdir().expect("a temp dir");
     let config = config_file(dir.path());
-    let key = write_key(dir.path(), "deployment-host.key");
+    let key = write_key(dir.path(), "remote.key");
 
-    cmd_config::set(&config, "deployment-host", "http://127.0.0.1:7432", &key, true, true)
+    cmd_config::set(&config, "remote", "http://127.0.0.1:7432", &key, true, true)
         .expect("the context is saved");
-    cmd_config::remove(&config, "deployment-host", true).expect("the context is removed");
+    cmd_config::remove(&config, "remote", true).expect("the context is removed");
 
     let listed = cmd_config::contexts(&config).expect("the config is read");
     assert_eq!(listed["default"], serde_json::Value::Null);
@@ -153,11 +153,11 @@ fn removing_the_default_context_clears_the_default() {
 fn the_config_file_is_private_and_never_widened() {
     let dir = tempfile::tempdir().expect("a temp dir");
     let config = config_file(dir.path());
-    let key = write_key(dir.path(), "deployment-host.key");
+    let key = write_key(dir.path(), "remote.key");
 
     cmd_config::set(
         &config,
-        "deployment-host",
+        "remote",
         "http://127.0.0.1:7432",
         &key,
         false,
@@ -181,7 +181,7 @@ fn the_config_file_is_private_and_never_widened() {
         .expect("the mode is loosened");
     cmd_config::set(
         &config,
-        "deployment-host",
+        "remote",
         "http://127.0.0.1:7432",
         &key,
         false,
@@ -200,7 +200,7 @@ fn the_config_file_is_private_and_never_widened() {
 fn writing_without_its_directory_creates_it_privately() {
     let dir = tempfile::tempdir().expect("a temp dir");
     let config = dir.path().join("missing/config.toml");
-    let key = write_key(dir.path(), "deployment-host.key");
+    let key = write_key(dir.path(), "remote.key");
 
     // `dg config set` is a request to write a config file, and the
     // file's directory is part of that request: a first-run box has no
@@ -208,7 +208,7 @@ fn writing_without_its_directory_creates_it_privately() {
     // operator has to make the directory by hand before the tool works.
     cmd_config::set(
         &config,
-        "deployment-host",
+        "remote",
         "http://127.0.0.1:7432",
         &key,
         false,
@@ -235,13 +235,13 @@ fn resolve_follows_the_documented_order() {
     let dir = tempfile::tempdir().expect("a temp dir");
     let config = config_file(dir.path());
     let key = write_key(dir.path(), "ctx.key");
-    cmd_config::set(&config, "deployment-host", "http://context:7432", &key, true, true)
+    cmd_config::set(&config, "remote", "http://context:7432", &key, true, true)
         .expect("the context is saved");
 
     // The flag beats the context.
     let resolved = cmd_config::resolve_with(
         &config,
-        Some("deployment-host"),
+        Some("remote"),
         Some("http://flag:7432"),
         Some(Path::new("/flag.key")),
         None,
@@ -254,7 +254,7 @@ fn resolve_follows_the_documented_order() {
     // The context beats the environment.
     let resolved = cmd_config::resolve_with(
         &config,
-        Some("deployment-host"),
+        Some("remote"),
         None,
         None,
         Some("http://env:7432"),

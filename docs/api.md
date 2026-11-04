@@ -629,11 +629,11 @@ not revoked. The lifecycle examples are `dg protect game_a`,
 
 ```sh
 dg config list                       # the contexts, and whether their key file is there
-dg config set staging --server http://127.0.0.1:7432 --key-file ~/.config/dg/staging.key --default
-dg config show staging
-dg --context staging list            # talk to that one now
+dg config set remote --server http://127.0.0.1:7432 --key-file ~/.config/dg/remote.key --default
+dg config show remote
+dg --context remote list            # talk to that one now
 dg config path                       # where the file is
-dg config remove staging
+dg config remove remote
 ```
 
 Running a SQL file (the statements are split by SQLite itself, so a

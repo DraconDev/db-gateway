@@ -19,9 +19,9 @@
 //! parser can read it whenever one is worth having:
 //!
 //! ```toml
-//! default = "deployment-host"
+//! default = "remote"
 //!
-//! [contexts.deployment-host]
+//! [contexts.remote]
 //! server = "http://127.0.0.1:7432"
 //! key_file = "/home/operator/.config/dg/key"
 //! ```
@@ -43,7 +43,7 @@ const DEFAULT_SERVER: &str = "http://127.0.0.1:7432";
 
 /// One named context: where the gateway is, and where its credential lives.
 struct Context {
-    /// The name the operator typed: `deployment-host`, `staging`, `local`.
+    /// The name the operator typed: `remote`, `staging`, `local`.
     name: String,
     /// The gateway URL.
     server: String,
@@ -649,7 +649,7 @@ fn validate_server(server: &str) -> Result<(), Error> {
 
 /// Expand a leading `~` to the home directory.
 ///
-/// A path stored as `~/keys/deployment-host` would never resolve from another
+/// A path stored as `~/keys/remote` would never resolve from another
 /// directory, so it is expanded once, here, where the operator can see
 /// what was stored.
 fn expand_home(path: &Path) -> PathBuf {
