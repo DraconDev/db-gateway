@@ -9,9 +9,15 @@
 # one write plus read-back through the demo's scoped key, proving
 # the write path, the read path, and replication liveness every hour.
 # Uses the scoped demo key only; the owner key never appears here.
+#
+# Point the CLI at this deployment first, e.g.:
+#   dg config set remote --server http://127.0.0.1:7432 --key-file ~/.config/dg/remote.key --default
+#   dg config show remote
+# then run the heartbeat against the remote context (or pass --server /
+# --key-file directly, as this unit does).
 
 [Unit]
-Description=Steady check heartbeat
+Description=Steady check heartbeat: demo-key write+read-back against the deployment-host (runbook)
 
 [Service]
 Type=oneshot
