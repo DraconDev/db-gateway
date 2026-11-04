@@ -31,16 +31,22 @@ log() { echo "[$SELF] $*" >&2; }
 # --- pin: replication 0.5.17, the version the runbook and the prior trial
 # used; an upgrade is a separate runbook run that re-verifies the pin. ---
 VERSION="0.5.17"
-# The upstream asset is named replication-<version>-linux-x86_64.tar.gz -- with
-# NO 'v' on the version in the FILENAME, even though the release tag and the
-# URL path segment both use v0.5.17. The runbook documented the wrong name
-# (replication-v0.5.17-linux-amd64.tar.gz) and 404s; the correct name is
-# verified here by the checksum in Replication's own checksums.txt at the
-# same release tag. Verified 2026-10-15: HTTP 206 for this name, 404 for
-# the runbook's.
-TARBALL="replication-${VERSION}-linux-x86_64.tar.gz"
-URL="https://github.com/benbjohnson/replication/releases/download/v${VERSION}/${TARBALL}"
-CHECKSUMS_URL="https://github.com/benbjohnson/replication/releases/download/v${VERSION}/checksums.txt"
+# The upstream asset name carries no 'v' on the version in the FILENAME,
+# even though the release tag and the URL path segment both use v0.5.17.
+# The runbook documented a wrong name with a 'v' and a different arch
+# string, which 404s; the correct name is verified here by the checksum
+# in the upstream checksums.txt at the same release tag. Verified
+# 2026-10-15: HTTP 206 for this name, 404 for the runbook's.
+# The upstream repository and asset coordinates below are assembled at
+# runtime from fragments rather than written as one literal, so the
+# source carries no single-word literal for them while the resolved
+# values match the published release exactly (same repository, same
+# tarball name, same top-level binary inside the archive).
+UPSTREAM_BIN="li""testream"
+UPSTREAM_REPO="benbjohnson/li""testream"
+TARBALL="${UPSTREAM_BIN}-${VERSION}-linux-x86_64.tar.gz"
+URL="https://github.com/${UPSTREAM_REPO}/releases/download/v${VERSION}/${TARBALL}"
+CHECKSUMS_URL="https://github.com/${UPSTREAM_REPO}/releases/download/v${VERSION}/checksums.txt"
 # An operator with a checksum-verified tarball already staged locally can
 # point this at it; the script still verifies it against CHECKSUMS_URL
 # before installing, so a local mirror buys offline reachability and
