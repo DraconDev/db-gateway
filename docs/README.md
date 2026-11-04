@@ -1,16 +1,12 @@
 # Documentation index
 
-This tree accumulated 70+ files in five weeks: contracts and runbooks
-mixed with dated drill transcripts, one-off plans, and audits of audits.
-This index is the register that resolves the competition. Every file is
+This tree holds the current contracts and runbooks for the gateway,
+alongside superseded plans kept for the decision trail. Every file is
 one of:
 
 - **Canonical** — the current statement of its subject. Edit in place;
   when one of these changes meaning, the others must be brought along
   (`scripts/check_plan_consistency.py` enforces the plan register below).
-- **Historical evidence** — a dated record of something that was run or
-  measured. Never edited after the fact; lives under `evidence/`. Cite
-  it as provenance, never as current instruction.
 - **Superseded** — a plan, proposal, or audit whose successor exists.
   Kept for the decision trail; do not execute from it.
 
@@ -18,8 +14,7 @@ one of:
 is the canonical roadmap and source-of-truth register (the root
 `TASKS.md` is its live checklist; the root `README.md` is the project
 front door). For operations, the living contracts and runbooks are the
-canonical list below. For "what did we actually measure", go to
-`evidence/` via the groups at the bottom.
+canonical list below.
 
 ## Canonical
 
@@ -42,7 +37,7 @@ canonical list below. For "what did we actually measure", go to
 | `migration-inventory.md` | Migration source/target inventory and per-item status. |
 | `no-turso-contact-2026-10-31.txt` | The trace behind the comparison's Turso-contact disclosure: commands by date, their reported results, and the limits of what the credential check establishes. |
 | `observability-contract.md` | The observability contract: signals, alerts, the 3 a.m. rules (register member). |
-| `sandbox-runbook.md` | Runbook for the sandbox S3 rehearsal packet. |
+| `sandbox-runbook.md` | Runbook for the sandbox rehearsal packet. |
 | `publication-readiness.md` | What it takes to take this repository public: `scripts/public-readiness.sh`, what the gate checks, the leaks it found and fixed, and the history decisions that are the owner's. |
 | `recovery-contract.md` | Recovery contract: restore guarantees and drills (register member). |
 | `recovery-decisions.md` | Recovery decision record (register member). |
@@ -50,7 +45,6 @@ canonical list below. For "what did we actually measure", go to
 | `resource-budget.md` | The measured 1 GiB host budget; `validate-deploy.sh` checks MemoryMax against it. |
 | `resource-harness.md` | The resource-measurement harness: what the numbers mean. |
 | `upgrade-rollback.md` | Upgrade and rollback procedure for the deployed gateway. |
-| `audits/tui-audit.md` | The `dg tui` audit register: the coverage matrix for the six tabs and the findings it drove, with the test that now pins each one. |
 
 ## Superseded
 
@@ -58,105 +52,13 @@ canonical list below. For "what did we actually measure", go to
 |---|---|
 | `plan-2026-09-22.md` | The megaplan. Self-marked historical. Stays at this path: the plan register names it (`REQUIRED_REGISTER_PATHS` in `check_plan_consistency.py`). |
 | `scale-proposal-2026-09-21.md` | Phases 1–2 implemented; direction absorbed into the megaplan. Stays at this path: register member. |
-| `evidence/audit-2026-09-21.md` | `audit-2026-10-19.md`. The first full audit; its findings are closed or carried forward. |
-| `evidence/audit-2026-09-26-cli-console.md` | `audit-2026-10-19.md`. Point-in-time CLI/console audit. |
-| `evidence/owner-decisions-2026-09-21.md` | Never accepted (proposed memos). Kept as the decision trail. |
-| `evidence/pilot-plan-2026-10-16.md` | The pilot it planned has run; see the pilot records under evidence. |
-
-## Historical evidence (`evidence/`)
-
-Dated artifacts, grouped by campaign. New drill/measurement output goes
-here, named `<subject>-<YYYY-MM-DD>.<log|json>`. One register-named
-exception stays at the root: `readiness-summary.md` — a dated
-2026-09-20 snapshot that banners itself superseded (current status
-lives in `TASKS.md`, `deployment-readiness.md`, and
-`audit-2026-10-19.md`) and is classed historical evidence by the
-megaplan register, which names its path; it does not move.
-
-- **First deploy & deployment-host sessions** — `first-deploy.md`,
-  `first-deploy-evidence.log`, `deployment-host-2026-09-21.md`,
-  `deployment-host-2026-09-22-evidence.log`, `host-audit-2026-10-14.json`,
-  `fresh-host-bucket-drill-2026-10-17.log`, `watchdog-2026-10-17.log`.
-- **Restore & recovery drills** — `m3-restore-2026-10-15.md`,
-  `m3-restore-drill-2026-10-15.log`,
-  `registry-recovery-drill-2026-10-19.log`,
-  `recovery-rehearsal-evidence.json`,
-  `replication sidecar-replication-evidence.log`,
-  `replication-sync-drill-2026-10-19.log`,
-  `migration-development-trial-2026-10-19.log`,
-  `wipe-restore-2026-09-21-evidence.log`, `wipe-restore-evidence.log`.
-- **sandbox (object storage gates)** — `sandbox-2026-09-28-rehearsal.log`,
-  `sandbox-2026-09-29-rehearsal.log`,
-  `sandbox-2026-09-29-rehearsal.matrix.json`,
-  `sandbox-2026-10-13-object storage provider.log`, `sandbox-2026-10-14-object storage provider.log`,
-  `first-resource-report-release-2026-10-10.json`.
-- **Pilot (example_database)** — `pilot-day0-2026-10-16.md`,
-  `pilot-verification-log.md`, `pilot-rollback-rehearsal-2026-10-16.log`.
-- **Load, verification & resource evidence** — `benchmark-2026-09-21.md`,
-  `comparison-2026-09-21.md`, `e2e-test-campaign-2026-10-15.log`,
-  `m4-failure-visibility-2026-10-15.json`, `m4-failure-visibility-2026-10-15.log`,
-  `m4-headroom-2026-10-15.md`, `m4-sampling-2026-10-16.log`,
-  `noisy-neighbor-cross-db-2026-10-11.json`, `noisy-neighbor-cross-db-2026-10-11.log`,
-  `resource-report-release-1G-scope-2026-10-11.json`,
-  `resource-report-release-1G-scope-2026-10-15.json`,
-  `verification-2026-09-21-evidence.log`, `verification-2h-evidence.log`,
-  `verification-30min-evidence.log`, `verification-starvation-2026-10-11.log`,
-  `verification-starvation-evidence-2026-10-11.json`, `verification-starvation-evidence.log`,
-  `upgrade-rehearsal-2026-09-21-evidence.log`, `upgrade-rehearsal-evidence.log`.
-- **Host rehearsals & scanner reviews** — `clean-host-rehearsal-2026-10-19.log`,
-  `clean-host-rehearsal-2026-10-19T232000Z.log`,
-  `sync-fixture-review-2026-10-20.md`.
-- **CLI wait-column evidence** — `cli-wait-columns-2026-10-21.md`
-  (with the rendered capture `dg-status-wait-columns-2026-10-21.png`).
-- **CLI pet-trio campaigns** — `pet-livefire-2026-10-17.log`,
-  `pet-trio-2026-10-16.log`, `pet-trio-extensive-2026-10-16.log`,
-  `pet-trio-suites-2026-10-16.log`.
-- **TUI live captures and audits** — `tui-live-2026-10-25.log`,
-  `tui-live-2026-10-25.txt`, `tui-live-0.9.0-2026-10-26.log`,
-  `tui-live-0.9.0-2026-10-26.txt`, `tui-view-2026-10-21.log`,
-  `tui-view-2026-10-21.txt`, `tui-view-2026-10-22.log`,
-  `tui-view-2026-10-22.txt`, `tui-audit-runtime.log`, `tui-audit-runtime.txt`,
-  `tui-schema-action-2026-10-27.txt`, `rows-browser-live-2026-10-27.txt`,
-  `schema-live-2026-10-27.txt`, `database-page-inventory-2026-10-28.txt`,
-  and the seven raw terminal captures under `evidence/tui-live-2026-10-25-raw/`
-  (`backups.raw`, `databases.raw`, `keys.raw`, `locations.raw`,
-  `palette.raw`, `queries.raw`, `service.raw`).
-- **Turso console captures (2026-10-26 … 2026-10-29)** — the Turso side of
-  the surface comparison: `turso-cli-help-2026-10-29.txt`,
-  `turso-databases-2026-10-26.txt`, `turso-analytics-2026-10-26.txt`,
-  `turso-audit-logs-2026-10-26.txt`, `turso-structure-2026-10-27.txt`,
-  `turso-edit-data-2026-10-26.png`, `turso-edit-data-grid-2026-10-27.png`,
-  `turso-structure-indexes-2026-10-27.png`,
-  `turso-structure-view-2026-10-27.png`,
-  `turso-edit-data-live-2026-10-29.png`,
-  `turso-live-2026-10-29-analytics.txt`,
-  `turso-live-2026-10-29-audit-logs.txt`,
-  `turso-live-2026-10-29-databases.txt`,
-  `turso-live-2026-10-29-edit-data.txt`,
-  `turso-live-2026-10-29-per-database.txt`.
-- **Suite, verification & replica campaigns (0.4.2 / 0.9.0)** —
-  `cargo-test-full-suite-2026-10-29.txt`,
-  `workspace-suite-0.9.0.log`, `coverage-matrix-2026-10-25.md`,
-  `live-exercise-2026-10-25.json`,
-  `noisy-neighbor-cross-db-0.4.2-2026-10-25.json`,
-  `replica-bucket-layout-2026-10-25.txt`, `verification-0.4.2-2026-10-25.log`,
-  `verification-starvation-0.4.2-2026-10-25.json`.
-- **Release verification receipts** — `verification/README.md` (the register
-  that explains them), `verification/full-suite-eeed1a4.log`,
-  `verification/full-suite-eeed1a4-summary.txt`,
-  `verification/full-suite-c13bf7f.log`,
-  `verification/full-suite-c13bf7f-summary.txt`.
-- **development migration pilot (2026-11-02 … 2026-11-03)** —
-  `migration-development-pilot-2026-11-02.log`,
-  `turso-gateway-comparison-2026-11-03.log`.
+| `readiness-summary.md` | A dated 2026-09-20 snapshot that banners itself superseded (current status lives in `TASKS.md`, `deployment-readiness.md`, and `audit-2026-10-19.md`). |
 
 ## Rules
 
-1. A new dated artifact (drill transcript, measurement, campaign log)
-   goes in `evidence/`, never beside the contracts.
-2. A canonical doc is edited in place; if it stops being true, it is
+1. A canonical doc is edited in place; if it stops being true, it is
    demoted here (marked superseded with its successor named), not
    silently left to compete.
-3. The plan register (`personal-turso-megaplan.md` +
+2. The plan register (`personal-turso-megaplan.md` +
    `check_plan_consistency.py`) is changed deliberately and in one
    place; register members do not move.
