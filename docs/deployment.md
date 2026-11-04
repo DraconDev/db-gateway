@@ -5,22 +5,19 @@ Related: `docs/upgrade-rollback.md` (binary upgrades and rollback),
 `docs/observability-contract.md` (monitoring), `docs/recovery-contract.md`
 (full host replacement and restore).
 Nothing here installs, enables, or starts a service, and this guide is not
-live-deploy authorization. The first supervised deploy to deployment-host is recorded
-separately in `the measurement record that record supplies the resolved
-values for the installed instance while this guide intentionally retains
-placeholders for future/repeated deployments.
+live-deploy authorization. It is a generic procedure with placeholders;
+resolved values for any installed instance are supplied by the operator.
 
 ## Prerequisites (owner runs on the target)
 
 1. Build the release bundle with `scripts/release-bundle.sh`. The default
    `DG_RELEASE_TARGET=deployment-host` requires `podman` or `docker` and builds inside
-   the immutable `docker.io/library/ubuntu@sha256:496754492fb28b4d3049432f2ca787449331e23fb14f0dd3fffea86bf5a93eb4`
-   image (Ubuntu 24.04 amd64, glibc 2.39), matching the recorded deployment-host target.
-   The container installs the toolchain from `rust-toolchain.toml`, runs the
+   a pinned container image, matching the target ABI. The container
+   installs the toolchain from `rust-toolchain.toml`, runs the
    locked release build, executes `dg --version` and a disposable `dg init`,
-   verifies the x86-64 ELF interpreter is `/lib64/ld-linux-x86-64.so.2`, and
-   refuses a `DG_RELEASE_TARGET=deployment-host` bundle whose glibc requirement exceeds
-   `EXPECTED_GLIBC` (`scripts/release-bundle.sh`; currently 2.39), stages that
+   verifies the x86-64 ELF interpreter, and
+   refuses a bundle whose glibc requirement exceeds
+   `EXPECTED_GLIBC` (`scripts/release-bundle.sh`), staging that
    container-built binary.
    Copy the resulting bundle to the target and verify `SHA256SUMS` there. Use
    `DG_RELEASE_TARGET=host` only for an explicitly local, non-deployment-host bundle;
