@@ -48,20 +48,14 @@ ReadWritePaths={{DG_DATA_DIR}} {{DG_BACKUP_ROOT}}
 # MemoryMax is set ~2.7x above the query-connection ceiling and ~6x above
 # the measured burst peak, so the burst the budget exists to absorb does
 # not become an OOM kill. This value matches what the deployment-host host already
-# enforces (MemoryMax=67108864, recorded in
-# `docs/evidence/m4-deployment-host-sampling-2026-10-16.log`); an earlier revision shipped
+# enforces (MemoryMax=67108864, recorded in the deployment-host sampling
+# record); an earlier revision shipped
 # 96M in this template while the host ran 64M, and this edit resolves that
 # drift toward the host fact. The sidecar (replication) runs in its own
 # unit with its own MemoryMax (96M on-host); the 1 GiB host budget is the
 # sum of this cap (64 MiB) plus the sidecar cap plus the OS, all of which
-# fits. Evidence: `docs/evidence/m4-deployment-host-sampling-2026-10-16.log` (on-target
-# steady-state + restore; the one-off sampler that produced it was
-# retired 2026-10-19 in A12 and is preserved in git history),
-# `docs/evidence/resource-report-release-1G-scope-2026-10-15.json` (1 GiB-enforced
-# local burst, reproducible by `scripts/resource-report-release.sh`),
-# `docs/evidence/sandbox-packet-2026-09-29-rehearsal.log` gate 9 (sidecar peaks
-# 45,632 KiB replication / 34,576 KiB restore under a kernel-enforced
-# 1 GiB scope), and `src/store/admission.rs:12-14` / `src/execution.rs:39-50` for the
+# fits. See the deployment-host measurement record and
+# `src/store/admission.rs:12-14` / `src/execution.rs:39-50` for the
 # cache ceiling itself.
 MemoryMax=64M
 
