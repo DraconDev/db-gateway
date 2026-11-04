@@ -7,6 +7,14 @@ name = "dg"
 version = "0.10.0"
 edition = "2024"
 publish = false
+description = "A single-owner SQLite service: one gateway, many isolated databases, scoped credentials, an HTTP API, CLI and TUI, and off-host backups."
+repository = "https://github.com/DraconDev/db-gateway"
+readme = "README.md"
+# The LICENSE file is the GNU AGPL v3 text, with no "or later" notice
+# anywhere in the repository, so the grant is version 3 itself. If the
+# intent is "v3 or any later version", that has to be said explicitly in
+# the license notice rather than assumed -- see docs/publication-readiness.md.
+license = "AGPL-3.0-only"
 
 [dependencies]
 axum = "0.8"

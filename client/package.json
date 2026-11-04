@@ -3,6 +3,12 @@
   "version": "0.10.0",
   "private": true,
   "type": "module",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DraconDev/db-gateway.git",
+    "directory": "client"
+  },
   "exports": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "engines": {

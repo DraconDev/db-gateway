@@ -3,6 +3,11 @@
   "version": "0.10.0",
   "private": true,
   "description": "DB Gateway (dg) \u2014 personal SQLite service. Rust server in src/, TypeScript client in client/.",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DraconDev/db-gateway.git"
+  },
   "scripts": {
     "typecheck": "npm run typecheck --prefix client",
     "test": "npm test --prefix client"
