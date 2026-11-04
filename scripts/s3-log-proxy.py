@@ -12,7 +12,7 @@ THREE JOBS, ONE PROCESS.
    any of it disagrees. A replication whose config is wrong therefore fails here
    exactly as it would against object storage provider.
 
-2. LOG. Gate 4 asks which S3 operations replication 0.5.17 issues. That is not
+2. LOG. Gate 4 asks which S3 operations the pinned sidecar release issues. That is not
    knowable from the replication documentation and not knowable from a single
    quiet run, so every request is recorded as one JSON line: method, bucket,
    key, query, signed headers, status, bytes. The packet reads the log back and
@@ -300,7 +300,7 @@ def _needs_empty_listing_emulation(method: str, query: str, payload: bytes, buck
     a delimiter, and while answering 200 for a missing prefix generally. Real S3
     answers 200 with an empty result in all of those cases.
 
-    It matters because replication 0.5.17's restore lists
+    It matters because the pinned sidecar release's restore lists
     `<prefix>/generations/` with a delimiter to establish v0.3.x time bounds.
     Against the rehearsal store that 404 is fatal and the restore aborts with
     "get v0.3.x time bounds ... NoSuchBucket" -- so a rehearsal would report that

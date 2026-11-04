@@ -7,14 +7,14 @@
 # Everything is local and disposable: a `dg serve` on an unusual loopback
 # port, a file:// replica as the bucket stand-in (each database gets its
 # own replica prefix, per docs/backup-compatibility.md finding 2), and
-# the pinned replication 0.5.17 (NEVER the v0.3.13 that may be on PATH;
+# the pinned the pinned sidecar release (NEVER the an earlier release that may be on PATH;
 # gate 1 of the compatibility matrix). No deployment-host, no bucket, no network
 # beyond loopback. The pass bar follows finding 1 of that matrix: a
 # restore exit code is not evidence -- restored rows are compared
 # value-for-value against what was written, plus integrity_check.
 #
 # Usage: scripts/replication-sync-drill.sh
-# Env:   REPLICATION_BIN (default ~/.local/dg-sandbox/replication-0.5.17/replication)
+# Env:   REPLICATION_BIN (default ~/.local/dg-sandbox/replication/replication)
 #        DG_BIN         (default .cargo/target/debug/dg; built if missing)
 #        DG_DRILL_PORT  (default 17432)
 #        KEEP=1         keep the sandbox dir for inspection
@@ -25,14 +25,14 @@ SELF="replication-sync-drill"
 fail() { echo "[$SELF] FAIL: $*" >&2; exit 1; }
 step() { echo "[$SELF] $*"; }
 
-REPLICATION_BIN="${REPLICATION_BIN:-$HOME/.local/dg-sandbox/replication-0.5.17/replication}"
+REPLICATION_BIN="${REPLICATION_BIN:-$HOME/.local/dg-sandbox/replication/replication}"
 DG_BIN="${DG_BIN:-$ROOT/.cargo/target/debug/dg}"
 PORT="${DG_DRILL_PORT:-17432}"
 SERVER="http://127.0.0.1:${PORT}"
 
 [ -x "$REPLICATION_BIN" ] || fail "pinned replication not found at $REPLICATION_BIN (set REPLICATION_BIN)"
 LVER="$("$REPLICATION_BIN" version 2>/dev/null | head -1)"
-[ "$LVER" = "0.5.17" ] || fail "replication at $REPLICATION_BIN is '$LVER', want 0.5.17 ( PATH v0.3.13 must not be used)"
+[ "$LVER" = "the pinned sidecar release" ] || fail "replication at $REPLICATION_BIN is '$LVER', want the pinned sidecar release ( PATH an earlier release must not be used)"
 if [ ! -x "$DG_BIN" ]; then
     step "building dg (debug)"
     (cd "$ROOT" && timeout 300 cargo build --locked --quiet --bin dg) || fail "cargo build failed"

@@ -170,7 +170,7 @@ mkdir -p "$HOME"
 # The replication pin lives in the operator's real home, but HOME now points
 # inside the sandbox. Anything resolved against $HOME after this line looks for
 # the pin in a directory that never had it, which is how the first rehearsal run
-# died with "replication 0.5.17 is not installed" four gates in. Pin the path
+# died with "the pinned sidecar release is not installed" four gates in. Pin the path
 # once, against the real home, and hand it to the child.
 export DG_SANDBOX_PIN_ROOT="$PIN_ROOT"
 : > "$HOME/.aws-credentials"
@@ -598,7 +598,7 @@ BLOCKED_DETAIL="needs DG_SANDBOX_BUCKET + DG_SANDBOX_ENDPOINT (+ DG_SANDBOX_REGI
 for gate in 3 4 6 8 9 10 11 12; do
     case "$gate" in
         3)  what="explicit object storage provider endpoint/region config, path-style and skip-verify variants" ;;
-        4)  what="every S3 operation replication 0.5.17 issues succeeds against the test region/class" ;;
+        4)  what="every S3 operation the pinned sidecar release issues succeeds against the test region/class" ;;
         6)  what="retention/lifecycle drill, 7/30-day version counts" ;;
         8)  what="failure visibility: revoked credentials, blocked egress, destination near quota" ;;
         9)  what="resource headroom for gateway + replication on a 1 GB-shaped sandbox" ;;

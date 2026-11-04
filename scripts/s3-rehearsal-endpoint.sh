@@ -234,7 +234,7 @@ EOF
         echo "could not create a TLS certificate for the rehearsal endpoint" >&2
         exit 1
     fi
-    # Go's crypto/x509 reads SSL_CERT_FILE, and replication 0.5.17 ABORTS its
+    # Go's crypto/x509 reads SSL_CERT_FILE, and the pinned sidecar release ABORTS its
     # replica client if AWS_CA_BUNDLE is set: "cannot load aws config: unable to
     # add custom RootCAs HTTPClient, has no WithTransportOptions". So
     # SSL_CERT_FILE is the only way to teach this pinned version to trust the

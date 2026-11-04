@@ -19,7 +19,7 @@
 # rehearsal run as a rehearsal. A gate that cannot distinguish the two is the
 # exact failure mode this file exists to prevent.
 #
-# CREDENTIALS. Replication 0.5.17 does NOT read S3 credentials from the
+# CREDENTIALS. Replication the pinned sidecar release does NOT read S3 credentials from the
 # REPLICATION_CREDENTIALS file -- that was measured on 2026-09-28, by a run that
 # had that file in place and still ended in the AWS chain at the EC2 metadata
 # service. S3 signing comes from the standard AWS environment variables. So the
@@ -112,7 +112,7 @@ case "$DG_SANDBOX_ENDPOINT" in
         echo "  The replica URL is built as s3://<bucket>/<prefix>?endpoint=\$SCHEME://<host>," >&2
         echo "  so a scheme here yields 'https://https://host'. The packet prepends" >&2
         echo "  the scheme; the variable takes the bare host. This is measured, not" >&2
-        echo "  stylistic: replication 0.5.17 silently speaks PLAINTEXT when the scheme" >&2
+        echo "  stylistic: the pinned sidecar release silently speaks PLAINTEXT when the scheme" >&2
         echo "  is missing, and a doubled one is a URL it cannot parse at all." >&2
         exit 2;;
 esac
@@ -160,7 +160,7 @@ REPLICATION="$PIN_ROOT/replication"
 
 # TLS trust. A real S3 endpoint presents a publicly valid certificate, so a
 # rehearsal against a self-signed one has to be told to trust it. NOT via
-# AWS_CA_BUNDLE: measured on 2026-09-28, replication 0.5.17 aborts its replica
+# AWS_CA_BUNDLE: measured on 2026-09-28, the pinned sidecar release aborts its replica
 # client with "cannot load aws config: unable to add custom RootCAs HTTPClient,
 # has no WithTransportOptions" -- the documented AWS variable is unusable with
 # this version, and the failure is total, not a fallback. SSL_CERT_FILE is read
@@ -177,12 +177,12 @@ if [ -n "${DG_SANDBOX_CA_BUNDLE:-}" ]; then
     export SSL_CERT_FILE="$DG_SANDBOX_CA_BUNDLE"
     unset AWS_CA_BUNDLE || true
     CA_ARGS=(--ca-bundle "$DG_SANDBOX_CA_BUNDLE")
-    CA_NOTE="SSL_CERT_FILE=$DG_SANDBOX_CA_BUNDLE (system roots + the rehearsal endpoint's self-signed CA); verification stays ON, and AWS_CA_BUNDLE is deliberately NOT set because replication 0.5.17 aborts on it"
+    CA_NOTE="SSL_CERT_FILE=$DG_SANDBOX_CA_BUNDLE (system roots + the rehearsal endpoint's self-signed CA); verification stays ON, and AWS_CA_BUNDLE is deliberately NOT set because the pinned sidecar release aborts on it"
 fi
 
 # --------------------------------------------------------------------------
 # Credential and discovery isolation. The AWS chain is the only mechanism
-# replication 0.5.17 actually uses for S3, so this is the load-bearing part of
+# the pinned sidecar release actually uses for S3, so this is the load-bearing part of
 # the isolation, not a belt-and-braces extra.
 # --------------------------------------------------------------------------
 SANDBOX="${DG_SANDBOX_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/dg-sandbox-s3-XXXXXX")}"
@@ -461,7 +461,7 @@ PY
 
 # The scheme is part of the endpoint, not an assumption. Measured on
 # 2026-09-28 against this pin: `endpoint=<host>:<port>` with no scheme makes
-# replication 0.5.17 fall back to PLAINTEXT http, so its SigV4-signed requests
+# the pinned sidecar release fall back to PLAINTEXT http, so its SigV4-signed requests
 # arrive as cleartext HTTP on an https port and the TLS server rejects them
 # before the signature is ever checked -- zero objects written, and nothing in
 # replication's own log that names the cause. `endpoint=https://<host>:<port>`
@@ -501,25 +501,25 @@ fi
 {
     printf 'variants tried (each: objects written / requests rejected):\n'
     for d in "${GATE3_DETAIL[@]}"; do printf '  %s\n' "$d"; done
-    printf '\nforce-path-style: replication 0.5.17 has no such replica option. It was\n'
+    printf '\nforce-path-style: the pinned sidecar release has no such replica option. It was\n'
     printf '  accepted as a replica URL query parameter in the 2026-09-28 file\n'
     printf '  rehearsal with no error and no observable effect, so it is recorded as\n'
     printf '  NOT SUPPORTED rather than tested. Addressing is decided by the URL host:\n'
     printf '  a bucket in the path is path-style, a bucket in the host is virtual-host.\n'
     printf 'THE SCHEME IN endpoint= IS MANDATORY, and getting it wrong is silent.\n'
     printf '  Measured here: endpoint=%s://<host>:<port> works; endpoint=<host>:<port>\n' "$SCHEME"
-    printf '  with no scheme makes 0.5.17 speak PLAINTEXT http, so against an %s\n' "$SCHEME"
+    printf '  with no scheme makes the pinned sidecar release speak PLAINTEXT http, so against an %s\n' "$SCHEME"
     printf '  proxy the request is rejected as a TLS error before the signature is\n'
     printf '  checked: 0 objects written, no rejected request, and nothing in\n'
     printf '  replication'"'"'s log naming the cause. Every SigV4-signed request in that\n'
     printf '  mode would also have carried the request signature in cleartext.\n'
     printf 'skip-verify (TLS): NOT USED, and the packet now proves why it does not\n'
-    printf '  need to be. 0.5.17 has a skip-verify replica option, and a rehearsal\n'
+    printf '  need to be. the pinned sidecar release has a skip-verify replica option, and a rehearsal\n'
     printf '  could use it to accept the self-signed endpoint. It is deliberately\n'
     printf '  not used: the "untrusted-ca" variant above runs the SAME working URL\n'
     printf '  with the rehearsal CA removed, and a gate that only passes because\n'
     printf '  verification was switched off would then show up as a failure.\n'
-    printf '  AWS_CA_BUNDLE is the documented AWS way to add a CA and 0.5.17 ABORTS\n'
+    printf '  AWS_CA_BUNDLE is the documented AWS way to add a CA and the pinned sidecar release ABORTS\n'
     printf '  on it: "cannot load aws config: unable to add custom RootCAs\n'
     printf '  HTTPClient, has no WithTransportOptions". SSL_CERT_FILE is read by\n'
     printf '  Go instead and works. Trust in this run: %s\n' "$CA_NOTE"
@@ -697,7 +697,7 @@ G4_LISTPREFIX="$(printf '%s\n' "$G4_STATS" | sed -n 's/.*distinct_list_prefixes=
     echo
     printf '%s\n' "$G4_STATS"
     echo
-    echo "operations replication 0.5.17 issued, as a credential policy is written:"
+    echo "operations the pinned sidecar release issued, as a credential policy is written:"
     echo "  required: s3:GetObject, s3:PutObject, s3:ListBucket"
     echo "            scoped to the per-database prefix, e.g. ${BUCKET}/sbx/*"
     echo "  NOT required, and NOT observed on this run:"
@@ -712,7 +712,7 @@ G4_LISTPREFIX="$(printf '%s\n' "$G4_STATS" | sed -n 's/.*distinct_list_prefixes=
 } >> "$OUT"
 
 if [ "$G4_ALICE_ROWS" = "200" ] && [ "$G4_BOB_ROWS" = "150" ] && [ "$G4_REJECTED" = "0" ]; then
-    record 4 PASS "every S3 operation replication 0.5.17 issued succeeded, and both databases restored from the bucket with exact row counts" \
+    record 4 PASS "every S3 operation the pinned sidecar release issued succeeded, and both databases restored from the bucket with exact row counts" \
         "requests: $G4_TOTAL, non-2xx: $G4_REJECTED, distinct ListObjectsV2 prefixes: $G4_LISTPREFIX" \
         "operations: $G4_OPS" \
         "restored alice=$G4_ALICE_ROWS/200 bob=$G4_BOB_ROWS/150"
@@ -1678,7 +1678,7 @@ g8_log_lines() { wc -l < "$G8_ROOT/replication.log" 2>/dev/null | tr -d ' ' || e
 # visible" because it did not wait as long as the product's own retry interval
 # is measuring the wrong thing.
 #
-# So the wait covers the longest backoff replication 0.5.17 uses, and it exits
+# So the wait covers the longest backoff the pinned sidecar release uses, and it exits
 # the moment the line appears, so the common case (signal in ~1 s) is not made
 # slower. What the elapsed time now means is worth having in the packet: it is
 # how long a stalled backup stays SILENT, which is the substance of owner
@@ -1979,7 +1979,7 @@ fi
     echo
     if [ "$G8_N_DAEMON" -lt "$G8_N_FAULTED" ] || [ "$G8_N_REACTIVE_ONLY" -gt 0 ]; then
         echo "FINDING, NOT A GATE FAILURE -- and the most important paragraph in"
-        echo "this gate. replication 0.5.17 does not raise level=ERROR/WARN in the"
+        echo "this gate. the pinned sidecar release does not raise level=ERROR/WARN in the"
         echo "replicate daemon's log for every way the destination can break. What"
         echo "did surface it here: $G8_SURFACE_MAP."
         echo
@@ -2432,7 +2432,7 @@ fi
 #
 # WHAT IS ASSERTED, AND WHY IT IS NOT "THE KEY WAS IGNORED". The first version
 # of this gate wrote `sse-customer-key` into the config, watched the daemon
-# start without an error, and concluded that replication 0.5.17 ignores the key
+# start without an error, and concluded that the pinned sidecar release ignores the key
 # and replicates in the clear. The conclusion was published as the headline
 # decision-3 fact. The run's OWN request log refuted it: all three PUTs of that
 # phase carried x-amz-server-side-encryption-customer-algorithm, -key and
@@ -2527,7 +2527,7 @@ G10_SSE_C_SENT="$(printf '%s' "${G10_SSE_C_SENT:-0}" | tr -cd '0-9')"
 if [ "$G10_SSE_C_SENT" = "0" ] && [ "$G10_SSE_C_PUTS" -gt 0 ]; then
     G10_SSE_C_VERDICT="the daemon uploaded $G10_SSE_C_PUTS object(s) and NOT ONE carried an SSE-C header -- the key in the config did not reach the wire"
 elif [ "$G10_SSE_C_SENT" -gt 0 ]; then
-    G10_SSE_C_VERDICT="the daemon uploaded $G10_SSE_C_PUTS object(s) and $G10_SSE_C_SENT of them carried x-amz-server-side-encryption-customer-algorithm/-key/-key-md5 inside the signature: replication 0.5.17 SENDS SSE-C. Whether the stored bytes are encrypted is the SERVICE's answer, not replication's"
+    G10_SSE_C_VERDICT="the daemon uploaded $G10_SSE_C_PUTS object(s) and $G10_SSE_C_SENT of them carried x-amz-server-side-encryption-customer-algorithm/-key/-key-md5 inside the signature: the pinned sidecar release SENDS SSE-C. Whether the stored bytes are encrypted is the SERVICE's answer, not replication's"
 else
     G10_SSE_C_VERDICT="the customer-key run made no uploads at all, so nothing can be said about what it would have sent"
 fi

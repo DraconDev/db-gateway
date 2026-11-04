@@ -46,7 +46,7 @@
 # PRAGMA integrity_check still covers the whole restored file, internals
 # included.
 #
-# REPLICATION 0.5.17 INVOCATION NOTE (why the call below looks the way it
+# REPLICATION INVOCATION NOTE (why the call below looks the way it
 # does): `replication restore` accepts either a DB_PATH or a bare REPLICA
 # URL, but NOT -config together with a replica URL ("cannot specify a
 # replica URL and the -config flag"). The URL mode also reads credentials

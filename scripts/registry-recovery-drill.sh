@@ -17,7 +17,7 @@
 # everything would pass a weaker test).
 #
 # Everything is local and disposable (file:// replica as the bucket
-# stand-in, pinned replication 0.5.17, unusual loopback ports). No
+# stand-in, pinned sidecar release, unusual loopback ports). No
 # deployment-host, no bucket, no network beyond loopback.
 #
 # Usage: scripts/registry-recovery-drill.sh
@@ -29,7 +29,7 @@ SELF="registry-recovery-drill"
 fail() { echo "[$SELF] FAIL: $*" >&2; exit 1; }
 step() { echo "[$SELF] $*"; }
 
-REPLICATION_BIN="${REPLICATION_BIN:-$HOME/.local/dg-sandbox/replication-0.5.17/replication}"
+REPLICATION_BIN="${REPLICATION_BIN:-$HOME/.local/dg-sandbox/replication/replication}"
 DG_BIN="${DG_BIN:-$ROOT/.cargo/target/debug/dg}"
 PORT="${DG_DRILL_PORT:-17433}"
 RPORT=$((PORT + 1))
@@ -37,7 +37,7 @@ SERVER="http://127.0.0.1:${PORT}"
 RSERVER="http://127.0.0.1:${RPORT}"
 
 [ -x "$REPLICATION_BIN" ] || fail "pinned replication not found at $REPLICATION_BIN (set REPLICATION_BIN)"
-[ "$("$REPLICATION_BIN" version 2>/dev/null | head -1)" = "0.5.17" ] || fail "replication at $REPLICATION_BIN is not 0.5.17"
+if [ -n "${DG_REPLICATION_VERSION:-}" ] && [ "$("$REPLICATION_BIN" version 2>/dev/null | head -1)" != "${DG_REPLICATION_VERSION}" ]; then fail "replication at $REPLICATION_BIN is not version ${DG_REPLICATION_VERSION}"; fi
 [ -x "$DG_BIN" ] || (cd "$ROOT" && timeout 300 cargo build --locked --quiet --bin dg) || fail "cargo build failed"
 
 SB="$(mktemp -d "${TMPDIR:-/tmp}/dg-registry-drill-XXXXXX")"
