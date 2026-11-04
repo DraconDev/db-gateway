@@ -8,7 +8,7 @@ credential model in `docs/api.md`; this file does not add new claims.
 ## Supported versions
 
 Only the current release line (`0.10.x`, tagged `v0.10.0`) is supported.
-The service is **pre-production**. Only the current release line is supported, and no version should be treated as a production database service yet.
+The service is pre-production; no version should be treated as a production database service yet.
 
 ## The deployed boundary
 
@@ -24,9 +24,7 @@ The service is **pre-production**. Only the current release line is supported, a
   host, the backup destination, and the gateway are separate, and none
   is carried in systemd unit `Environment=` lines.
 
-A report that assumes an attacker already inside the loopback/mesh
-boundary, or holding a valid key, is describing the trusted side of
-this design — but tell us anyway if the consequence surprises you.
+A report that assumes an attacker already inside the trusted boundary, or holding a valid key, is describing the trusted side of this design — but tell us anyway if the consequence surprises you.
 
 ## Reporting a vulnerability
 
