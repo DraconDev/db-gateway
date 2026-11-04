@@ -24,7 +24,7 @@ fn checker_rejects_missing_pre_production_warning() {
     let dir = tempfile::tempdir().unwrap();
     let source = fs::read_to_string("docs/README.md").unwrap();
     let broken = source.replacen(
-        "pre-production development; it is not ready for\nproduction use or production data.",
+        "This gateway is in pre-production development; it is not ready for production use or production data.",
         "production ready.",
         1,
     );
