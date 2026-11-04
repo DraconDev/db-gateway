@@ -111,12 +111,12 @@ npm gates above, plus deploy-template and host-audit checks), `deny`
 ## Lines we don't cross
 
 - Loopback-only bind; no TLS in the gateway by decision — remote access
-  rides SSH or the WireGuard mesh (`docs/access-edge.md`).
-- Bots and apps get scoped `database_read_only` / `database_read_write`
-  keys — never the owner key.
-- No live OVH, micro2, or production-data action without the owner's
+  rides an authenticated private transport.
+- Bots and apps get least-privilege per-database credentials — never the
+  owner key.
+- No live deployment or production-data action without the owner's
   separate approval; tests never touch production credentials, servers,
-  or buckets.
+  or backup destinations.
 - The semantics the audit marked sound stay sound: freshness is never
   silently optimistic, writes are idempotent, read-only is enforced by
   SQLite's authorizer, and historical evidence is immutable.
@@ -125,5 +125,5 @@ npm gates above, plus deploy-template and host-audit checks), `deny`
 
 - Approve production acceptance and any network-edge change.
 - Push release tags; run (or approve) live deploys, restores, and
-  drills on micro2.
-- Hold and rotate the owner key, bucket credentials, and host access.
+  drills.
+- Hold and rotate the owner key, backup credentials, and host access.
