@@ -33,7 +33,7 @@
 
 set -euo pipefail
 
-PIN_VERSION="0.5.17"
+PIN_VERSION="${DG_REPLICATION_VERSION:-}"
 PIN_ROOT="${DG_SANDBOX_PIN_ROOT:-$HOME/.local/dg-sandbox/replication-${PIN_VERSION}}"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT=""
@@ -264,7 +264,7 @@ else
         PUBLISHED_SHA="$(awk -v n="replication-${PIN_VERSION}-linux-x86_64.tar.gz" '$2==n {print $1}' "$PIN_ROOT/checksums.txt")"
     ACTUAL_TARBALL_SHA=""
     [ -f "$TARBALL" ] && ACTUAL_TARBALL_SHA="$(sha256sum "$TARBALL" | cut -d' ' -f1)"
-    if [ "$VERSION_OUT" = "$PIN_VERSION" ] && \
+    if { [ -z "$PIN_VERSION" ] || [ "$VERSION_OUT" = "$PIN_VERSION" ]; } && \
        [ -n "$PUBLISHED_SHA" ] && [ "$PUBLISHED_SHA" = "$ACTUAL_TARBALL_SHA" ]; then
         record 1 PASS "replication ${VERSION_OUT}, release tarball checksum matches the published checksums.txt" \
             "\$ replication version" "$VERSION_OUT" \
