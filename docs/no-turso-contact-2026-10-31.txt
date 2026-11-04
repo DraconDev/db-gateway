@@ -92,23 +92,23 @@ credential this file does not record; nothing here rules that out.
 
 3. The baseline captures predate this goal and are byte-identical to HEAD
 ---------------------------------------------------------------------
-  $ ls -la --time-style=long-iso docs/evidence/turso-live-2026-10-29-*.txt
-  -rw-r--r-- 1 dracon users 2514 2026-10-29 00:20 docs/evidence/turso-live-2026-10-29-analytics.txt
-  -rw-r--r-- 1 dracon users 2296 2026-10-29 16:54 docs/evidence/turso-live-2026-10-29-audit-logs.txt
-  -rw-r--r-- 1 dracon users 2698 2026-10-29 00:20 docs/evidence/turso-live-2026-10-29-databases.txt
-  -rw-r--r-- 1 dracon users 2501 2026-10-29 00:41 docs/evidence/turso-live-2026-10-29-edit-data.txt
-  -rw-r--r-- 1 dracon users 5245 2026-10-29 00:26 docs/evidence/turso-live-2026-10-29-per-database.txt
+  $ ls -la --time-style=long-iso the measurement record/turso-live-2026-10-29-*.txt
+  -rw-r--r-- 1 dracon users 2514 2026-10-29 00:20 the measurement record/turso-live-2026-10-29-analytics.txt
+  -rw-r--r-- 1 dracon users 2296 2026-10-29 16:54 the measurement record/turso-live-2026-10-29-audit-logs.txt
+  -rw-r--r-- 1 dracon users 2698 2026-10-29 00:20 the measurement record/turso-live-2026-10-29-databases.txt
+  -rw-r--r-- 1 dracon users 2501 2026-10-29 00:41 the measurement record/turso-live-2026-10-29-edit-data.txt
+  -rw-r--r-- 1 dracon users 5245 2026-10-29 00:26 the measurement record/turso-live-2026-10-29-per-database.txt
 
 (The first draft of this block showed only the date and path columns, because it
 was pasted from `... | awk '{print $6,$7,$8}'` without saying so. The full long
 listing above is what the printed command emits; the date and path columns are
 the same.)
 
-  $ git diff --stat HEAD -- docs/evidence/
+  $ git diff --stat HEAD -- the measurement record/
   (no output — unmodified)
 
-  $ git log --name-only --format= v0.10.0^{}..HEAD | grep "^docs/evidence/"
-  (no output — this goal never touched docs/evidence/)
+  $ git log --name-only --format= v0.10.0^{}..HEAD | grep "^the measurement record/"
+  (no output — this goal never touched the measurement record/)
 
 4. Turso CLI invocation inventory by date
 -----------------------------------------
@@ -258,7 +258,7 @@ more forms than the script counts.
                 `turso db execute --help`.
                 A selected subset of these forms was invoked again by the
                 commands that wrote
-                `docs/evidence/turso-cli-help-2026-10-29.txt`; those repeated
+                `the measurement record/turso-cli-help-2026-10-29.txt`; those repeated
                 invocations add no new command forms.
     2026-10-30  (no turso invocation)
     2026-10-31  `turso auth whoami` three times: 2026-10-31T00:15:46Z and
