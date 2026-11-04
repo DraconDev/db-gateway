@@ -1,7 +1,7 @@
 # Recovery artifact and restore-verification contract
 
 **Document role:** Current local recovery contract
-**Canonical roadmap:** [`personal-turso-megaplan.md`](personal-turso-megaplan.md)
+**Overview:** [`docs/README.md`](README.md)
 
 Status: **local contract for snapshot drills, not a backup policy**. This
 document specifies what a recovery artifact contains, how a restore is

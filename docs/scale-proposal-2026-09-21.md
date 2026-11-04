@@ -1,7 +1,7 @@
 # Scaling proposal v1 (2026-09-21, Phases 1–2 implemented)
 
 **Document role:** Implemented scale reference
-**Canonical roadmap:** [`personal-turso-megaplan.md`](personal-turso-megaplan.md)
+**Overview:** [`docs/README.md`](README.md)
 
 Status: **Phases 1–2 implemented 2026-09-22; measured sizing and the multi-host
 decision remain open.** Evidence: `the measurement record (F2b). This

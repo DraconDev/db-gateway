@@ -1,7 +1,7 @@
 # Architecture and decision register
 
 **Document role:** Current product and decision register
-**Canonical roadmap:** [`personal-turso-megaplan.md`](personal-turso-megaplan.md)
+**Overview:** [`docs/README.md`](README.md)
 
 ## Agreed product boundary
 
