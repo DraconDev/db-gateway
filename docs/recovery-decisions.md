@@ -19,9 +19,9 @@ tool-version, and host verification remain open M3 work.
 
 - **Working profile:** C — continuous WAL-style shipping with a five-minute
   lag objective after committed changes, seven days of frequent points, and
-  daily history of 30 production / 7 development versions.
+  periodic history of 30 production / 7 development versions.
 - **Working restore objective:** verify every sync and rehearse a separate-
-  target restore daily; target a 1periodic local recovery objective objective, with owner
+  target restore periodic; target a periodic local recovery objective, with owner
   authorization required before any cutover.
 - **Policy status:** these are owner-selected objectives for local preparation,
   not an accepted production recovery objectives/retention guarantee. The local rehearsal
@@ -44,17 +44,17 @@ tool-version, and host verification remain open M3 work.
   `docs/architecture.md`). A failed statement rolls back the whole request.
 - Idempotency replay records commit atomically in the same database
   transaction as the write, so a crash cannot separate them. Key scope is
-  (database, principal, key); retention is 24h, at most 256 keys per
+  (database, principal, key); retention is periodic, at most 256 keys per
   principal per database (`docs/architecture.md`, `docs/api.md`).
 - Restart persistence is tested (round-trip write/read across restart), and
   clone/export use the SQLite online backup API for a consistent committed
   snapshot during writes (`docs/api.md`, `TASKS.md`).
 - Limits of local durability: **single host, no high availability**. An
   acknowledged commit survives process restart, but host disk loss, host
-  failure, or operator deletion after the 24h tombstone purge loses
+  failure, or operator deletion after the periodic tombstone purge loses
   everything not copied off-host. Local commit durability does **not** imply
   the latest write has reached any bucket (`docs/architecture.md`).
-- The 24h delete tombstone (`DELETE /v1/databases/{name}`, `purge_after`
+- The periodic delete tombstone (`DELETE /v1/databases/{name}`, `purge_after`
   retention) is a safety window against accidental recreation, **not** a
   backup. After purge the name can be recreated, but the old file is gone
   unless an export was taken (`docs/api.md`).
@@ -72,7 +72,7 @@ exposed during each of these windows:
    failure, or backup-process crash stops new recoverable points without
    stopping local writes. Failures must be visible (M3 requirement), not
    silent.
-3. **Retention expiry**: a database deleted locally and purged after 24h can
+3. **Retention expiry**: a database deleted locally and purged after periodic can
    only be restored from a backup copy retained independently. Tombstone
    retention and backup retention are separate clocks.
 4. **Restore dependencies**: a backup file alone is not a running service.
@@ -90,11 +90,11 @@ recoverable copy under successful operation. Actual loss after a failure can
 be larger. “recovery objective” means time to a verified readable copy on a separate target
 under rehearsed conditions, not a production SLA.
 
-| Profile | Backup cadence (objective) | Retention | recovery objective objective | recovery objective objective | What it costs | When it fits |
+| Profile | Backup cadence (objective) | Retention | recovery objective | recovery objective | What it costs | When it fits |
 | --- | --- | --- | --- | --- | --- | --- |
 | A — manual snapshots only | `export` before risky ops; no schedule | Ad hoc, operator-kept | Unbounded (since last manual export) | Hours (manual import + verify) | ~0; operator discipline only | Pre-M3 development; no production promise |
-| B — daily versioned snapshots | 1 verified snapshot per database per day | 7–30 daily versions per database | 24h | ~1h per database to a separate target | Storage = db size × versions retained; one daily upload + verify per db; small compute on the 1 GB host | Single-owner service with daily-change tolerance; simplest restore via existing validated `import` |
-| C — frequent snapshots + continuous WAL-style ship | Continuous WAL-style shipping; five-minute lag objective after committed changes | 7d frequent + 30 daily production / 7 daily development | 5m objective under successful verified operation; outage can extend it | 15m local rehearsal objective; not a production SLA | Highest: continuous compute + I/O on 1 GB host, more objects/monitoring, plus storage/transfer; needs headroom measurement first | Owner-selected working profile for local preparation; adoption remains gated |
+| B — periodic versioned snapshots | 1 verified snapshot per database per day | 7–30 periodic versions per database | periodic | ~1h per database to a separate target | Storage = db size × versions retained; one periodic upload + verify per db; small compute on the 1 GB host | Single-owner service with periodic-change tolerance; simplest restore via existing validated `import` |
+| C — frequent snapshots + continuous WAL-style ship | Continuous WAL-style shipping; five-minute lag objective after committed changes | 7d frequent + 30 periodic production / 7 periodic development | 5m objective under successful verified operation; outage can extend it | 15m local rehearsal objective; not a production SLA | Highest: continuous compute + I/O on 1 GB host, more objects/monitoring, plus storage/transfer; needs headroom measurement first | Owner-selected working profile for local preparation; adoption remains gated |
 
 Notes:
 
@@ -110,9 +110,9 @@ Notes:
 
 ## 4. Working Profile C recommendation (owner-accepted 2026-09-27 as a target, not a guarantee)
 **Owner decision, 2026-09-27: ACCEPTED as the working objective, explicitly not
-as a guarantee.** The five-minute lag/recovery objective objective, the 1periodic
-restore-to-verified-readable-copy objective, and the retention classes (7 days
-of frequent recovery points, 30 daily production versions, 7 daily development
+as a guarantee.** The five-minute lag/recovery objective, the periodic
+restore-to-verified-readable-copy objective, and the retention classes (extended
+of frequent recovery points, 30 periodic production versions, 7 periodic development
 versions) stand. Nothing here is an SLO, a backup SLA, or evidence of coverage:
 adoption still depends on the sandbox proving lag, failure visibility, resource
 headroom, retention, registry coverage, encryption, and separate-target restore
@@ -122,9 +122,9 @@ finding to investigate, not a breach to page anyone about.
 
 Use Profile C as the **working local objective**: continuous WAL-style
 shipping with a five-minute lag objective, seven days of frequent recovery
-points, 30 daily production versions, and 7 daily development versions.
-Verify every sync and perform a daily restore to a separate target. The local
-rehearsal targets a 1periodic restore-to-verified-readable-copy objective;
+points, 30 periodic production versions, and 7 periodic development versions.
+Verify every sync and perform a periodic restore to a separate target. The local
+rehearsal targets a periodic restore-to-verified-readable-copy objective;
 owner authorization is required before any cutover.
 
 Why C over B for this preparation: the owner prefers an eager recovery point
@@ -149,7 +149,7 @@ continuous path recovered.
 - **Retained bytes**: sum over databases of (snapshot size × versions). Small
   SQLite files make B cheap; growth or many dev copies push toward shorter
   dev retention or explicit exclusion lists.
-- **Requests and transfer**: continuous WAL/object traffic plus daily-history
+- **Requests and transfer**: continuous WAL/object traffic plus periodic-history
   uploads and restore GETs; egress matters on restore drills, not steady state.
 - **Verification compute**: checksum + `integrity_check` + trial import on
   the host or a scratch target; keep it off the serving path.
@@ -163,7 +163,7 @@ continuous path recovered.
 follows in the sandbox/notification work):
 
 1. **ACCEPTED as a working target, not a guarantee** — the Profile C objectives
-   in §4: five-minute lag/recovery objective, 1periodic recovery objective, and the retention classes. Not an
+   in §4: five-minute lag/recovery objective, periodic recovery objective, and the retention classes. Not an
    SLO and not coverage evidence; the sandbox gates any stronger claim.
 2. **STILL OPEN** — monthly budget cap, excluded databases, bucket
    region/endpoint, credential scope, and encryption. These need real bucket
@@ -292,9 +292,9 @@ follows in the sandbox/notification work):
 4. **DECIDED** — restore policy: a restore always lands on a **separate**
    database/target; overwriting an existing name requires **explicit owner
    authorization** (never an unattended or key-scoped path); rollback artifacts
-   are kept **7 days**. This also matches the two restore paths already
+   are kept **extended**. This also matches the two restore paths already
    described in `docs/recovery-contract.md`.
-5. **DECIDED** — backup-health notification: **immediate on failure plus a daily
+5. **DECIDED** — backup-health notification: **immediate on failure plus a periodic
    digest** of per-database fresh/stale/unknown. The exposure half already
    shipped (`GET /v1/backups`, `dg backup status`); this settles only delivery.
    No alert stack exists in the project today, so the digest is the floor the
@@ -335,8 +335,8 @@ follows in the sandbox/notification work):
 - SQLite, Online Backup: https://www.sqlite.org/backup.html
 - SQLite, `PRAGMA integrity_check`: https://www.sqlite.org/pragma.html#pragma_integrity_check
 - replication sidecar documentation (replication concept reference; version/tool selection still open): https://replication sidecar.io/
-- OVHcloud Object Storage overview (endpoint/region/S3-compatibility verification still open): https://www.ovhcloud.com/en/public-cloud/object-storage/
-- OVHcloud Object Storage S3 API documentation index (credential/permission/retention verification still open): https://help.ovhcloud.com/csm/en-public-cloud-storage-s3/
+- object storage provider Object Storage overview (endpoint/region/S3-compatibility verification still open): object storage provider documentation
+- object storage provider Object Storage S3 API documentation index (credential/permission/retention verification still open): object storage provider documentation
 - owner-operated Cloud Always Free resources (deployment-host shape/disk/access verification still open): https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm
 
 Local implementation references (not public sources): `src/execution.rs`

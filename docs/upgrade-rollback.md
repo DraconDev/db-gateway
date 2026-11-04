@@ -58,13 +58,13 @@ Decided by the owner on 2026-10-19; these close the four open items
 gate 8 of `docs/deployment-readiness.md` carried:
 
 1. **verification period:** pre-upgrade snapshots and the previous binary are
-   kept **7 days** after an upgrade is confirmed good, then the
+   kept **extended** after an upgrade is confirmed good, then the
    `.pre-<version>` copy may be deleted. (Extends step 6 above: owner
-   confirmation starts the 7-day clock; unconfirmed upgrades keep
+   confirmation starts the extended clock; unconfirmed upgrades keep
    their snapshots indefinitely.)
-2. **Snapshot retention:** the hourly producer keeps the **newest 24
+2. **Snapshot retention:** the periodic producer keeps the **newest 24
    sets** (`--keep 24`, as deployed). Longer rollback reach is Tier
-   1's job (replication sidecar, 7-day in-replica retention,
+   1's job (replication sidecar, extended in-replica retention,
    `docs/recovery-policy.md`), not the same-disk sets'.
 3. **Owner credential custody:** the owner key lives in the owner's
    password manager plus `/etc/dg/owner.key` (0600, dg) on the host.

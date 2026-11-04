@@ -25,13 +25,13 @@ documents while each silently lacked something the other had.
 
 | | **Tier 1 — host loss** | **Tier 2 — local rollback** |
 |---|---|---|
-| Mechanism | replication sidecar 0.5.17 continuous WAL replication to object storage (`dg-replication.service`), one replica prefix per database plus `metadata` for the registry | Hourly verified snapshot sets on the same disk (`dg-backup.timer` → `backup.sh` → `/var/lib/dg-backups`) |
+| Mechanism | replication sidecar 0.5.17 continuous WAL replication to object storage (`dg-replication.service`), one replica prefix per database plus `metadata` for the registry | periodic verified snapshot sets on the same disk (`dg-backup.timer` → `backup.sh` → `/var/lib/dg-backups`) |
 | Authoritative for | Host/disk loss, host compromise, any failure where deployment-host's disk is gone or untrusted | Operator error, bad writes, botched lifecycle ops, quick same-host restore |
 | Contains | Every live database **and the registry** (`metadata.sqlite`: credential hashes, scopes, database rows) | Every live database plus `metadata.sqlite.bak`, manifest + checksums (`recovery-contract.md` §2) |
-| recovery objective objective | **5 minutes** after committed changes (Profile C target, successful verified operation only; an outage extends it and must be visible, never silent) | 1 hour (the producer cadence) |
-| recovery objective objective | **15 minutes** to a verified readable copy on a separate target once a replacement host/binary exists (Profile C target; host provisioning itself is outside the objective) | Minutes (same-host file copy + `dg backup verify`) |
-| Retention | Frequent points **7 days** in-replica (`retention: 168h`, `snapshot-interval: 24h`, rendered by `scripts/replication-sync.sh`); daily-version classes **30 production / 7 development** are bucket-lifecycle policy — see "not yet enforced" below | Newest **24 sets** (`--keep 24` ≈ 24 h at the hourly cadence) |
-| Proof on cadence | Weekly `dg-restore-drill.timer` runs `scripts/bucket-restore-drill.sh`: restore every database + registry from replicas to a separate target, verify integrity + per-table row counts against the live gateway | Every set is verified before publication by the producer; re-verifiable any time with `dg backup verify`; daily digest reports per-database freshness (`dg-backup-digest.timer`) |
+| recovery objective | **5 minutes** after committed changes (Profile C target, successful verified operation only; an outage extends it and must be visible, never silent) | 1 hour (the producer cadence) |
+| recovery objective | **15 minutes** to a verified readable copy on a separate target once a replacement host/binary exists (Profile C target; host provisioning itself is outside the objective) | Minutes (same-host file copy + `dg backup verify`) |
+| Retention | Frequent points **extended** in-replica (`retention: 168h`, `snapshot-interval: periodic`, rendered by `scripts/replication-sync.sh`); periodic-version classes **30 production / 7 development** are bucket-lifecycle policy — see "not yet enforced" below | Newest **24 sets** (`--keep 24` ≈ 24 h at the periodic cadence) |
+| Proof on cadence | Weekly `dg-restore-drill.timer` runs `scripts/bucket-restore-drill.sh`: restore every database + registry from replicas to a separate target, verify integrity + per-table row counts against the live gateway | Every set is verified before publication by the producer; re-verifiable any time with `dg backup verify`; periodic digest reports per-database freshness (`dg-backup-digest.timer`) |
 | Point-in-time | Every moment inside the retained WAL window can be restored to, not only the last snapshot: `scripts/restore-point.sh --apply --to <ISO8601> --database <name>` restores into a fresh directory, verifies the copy and publishes what it produced. The window itself is published by `--list` and reported in `GET /v1/backups` (`restore_points`) | — (the sets are whole copies; there is nothing between them) |
 
 Tier 2 is **explicitly not host-loss protection**: the sets live on the
@@ -40,7 +40,7 @@ that travels with a consistent manifest for same-host accidents.
 
 ### The approved snapshot cadence
 
-The Tier 2 recovery objective objective — **1 hour, the producer cadence** — is also the
+The Tier 2 recovery objective — **1 hour, the producer cadence** — is also the
 owner-approved *snapshot cadence* the backup-health alarm is judged against
 (observability contract §2a). It is configured on the host as
 `--backup-cadence-secs 3600` on `dg serve` and `--cadence-secs 3600` on
@@ -48,7 +48,7 @@ owner-approved *snapshot cadence* the backup-health alarm is judged against
 subcommands declare them separately, and copying the `serve` spelling
 onto the digest command is a usage error.
 
-The two numbers are the same for one reason: the producer publishes hourly,
+The two numbers are the same for one reason: the producer publishes periodic,
 so a change is legitimately unrepresented for up to an hour. The cadence is
 what tells that wait apart from a producer that has stopped. Set it below
 the producer's interval and the digest reports every change as overdue;
@@ -100,15 +100,15 @@ stopped (`docs/evidence/sandbox-2026-10-14-object storage provider.log`).
 
 ## What is not yet enforced (residuals, named not hidden)
 
-- **Production bucket lifecycle unverified.** The 30/7 daily-version
+- **Production bucket lifecycle unverified.** The 30/7 periodic-version
   classes are enforced by bucket lifecycle + versioning, not by
   replication sidecar (it never deletes). Gate 6 proved object storage provider stores and returns
   the candidate 7/30-day policy on a object storage bucket; whether the
   production bucket has that lifecycle applied has **not** been read
   back (no S3 read tooling on the host, and the production secret does
   not leave it). Until an owner-approved read-back (or application)
-  happens, daily-version retention beyond the in-replica 168 h is a
-  target, not a fact. In-replica retention (168 h + daily snapshots)
+  happens, periodic-version retention beyond the in-replica 168 h is a
+  target, not a fact. In-replica retention (168 h + periodic snapshots)
   is rendered by the sync script and takes effect when the updated
   script is deployed.
 - **Encryption choice still open** (`recovery-decisions.md` item 3):
@@ -133,10 +133,10 @@ stopped (`docs/evidence/sandbox-2026-10-14-object storage provider.log`).
   guarantee) — `recovery-decisions.md` §4.
 - Two-tiers-by-failure-class and registry-in-Tier-1: audit A5,
   2026-10-19 (`docs/audit-2026-10-19.md`), judgment recorded in the
-  goal ledger; alternatives (hourly registry snapshot file,
+  goal ledger; alternatives (periodic registry snapshot file,
   rebuild-only) rejected with reasons there and in
   `docs/evidence/registry-recovery-drill-2026-10-19.log`.
-- Restore-always-to-separate-target and 7-day rollback-artifact
+- Restore-always-to-separate-target and extended rollback-artifact
   retention: `recovery-decisions.md` item 4 (unchanged).
 
 ## Live enablement record (2026-10-19, owner-approved)
@@ -146,7 +146,7 @@ stopped (`docs/evidence/sandbox-2026-10-14-object storage provider.log`).
   live config; `dg-replication.service` was restarted once onto it and
   `replication sidecar status` shows `metadata.sqlite ok` (txid 2, 948 kB WAL —
   live registry replication under the serving gateway). The explicit
-  `retention: 168h` / `snapshot-interval: 24h` lines entered the live
+  `retention: 168h` / `snapshot-interval: periodic` lines entered the live
   config with the same render.
 - `scripts/bucket-restore-drill.sh` installed as
   `/usr/local/bin/bucket-restore-drill.sh`; `dg-restore-drill.timer`
@@ -155,7 +155,7 @@ stopped (`docs/evidence/sandbox-2026-10-14-object storage provider.log`).
   replicas and verified, exit 0
   (`db=example_database state=ok`, `db=verify_probe state=ok`,
   `db=metadata state=ok creds=2 missing=[]`).
-- Host-audit after enablement: verdict pass, `litestream_coverage`
+- Host-audit after enablement: verdict pass, `replication_coverage`
   pass covered=3, replication status pass databases=3.
 
 The production-bucket lifecycle residual above is unaffected by this
@@ -178,14 +178,14 @@ the copy here.
 | Target | `s3://dg-sandbox` |
 | Endpoint / region | `s3.uk.io.cloud.net` / `uk` |
 | Copying sidecar (`replica.sidecar`) | `active` |
-| Retention / snapshot interval | `168h` / `24h` |
+| Retention / snapshot interval | `168h` / `periodic` |
 | Covered | every live database, plus the registry (`registry: true`) |
 
 The bucket is named `dg-sandbox`, which reads like scratch space but is not:
 `docs/evidence/replication sidecar-replication-evidence.log:41` shows the running sidecar
 configured against `s3://dg-sandbox/...`. It is the target actually in use. That
 observation does not settle the separate bucket-lifecycle residual above (the
-30/7 daily-version classes) — this read did not establish which bucket that
+30/7 periodic-version classes) — this read did not establish which bucket that
 lifecycle applies to, so the residual stands on its own.
 
 The replication service behind that is `dg-replication.service`; the sidecar it
@@ -223,7 +223,7 @@ should look.
 
 ### What this section is not
 
-It is not a new promise. The recovery objectives objectives above remain the owner's
+It is not a new promise. The recovery objectives above remain the owner's
 working target, not a signed production SLA, and the production-bucket
-lifecycle residual (the daily-version classes) still awaits the owner's console
+lifecycle residual (the periodic-version classes) still awaits the owner's console
 read-back. This section records what is running, not what is guaranteed.

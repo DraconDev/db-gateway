@@ -135,7 +135,7 @@ Record the freeze timestamp — it bounds the loss window for everything after.
 
 ### Stage 3 — Final export + gateway validation (observable)
 
-1. Export the pilot database from Turso; record size + SHA-256.
+1. Export the example database from Turso; record size + SHA-256.
 2. Validate locally against gateway constraints: file fits the 128 MiB
    lifecycle transfer ceiling (`MAX_TRANSFER_SIZE`). That is the real gate —
    `dg import` always uses the chunked path, which is why the 8 MiB
@@ -191,7 +191,7 @@ verification" means, not how long the verification runs.
 - **C1 — At verification start** (immediately after GATE 3 for the source):
   baseline the four areas against the Turso export set retained on the
   rollback floor.
-- **C2 — Daily during verification**: drift checks; the same comparisons re-run
+- **C2 — periodic during verification**: drift checks; the same comparisons re-run
   to catch silent regressions, schema drift, or backup-side issues
   before the verification ends.
 - **C3 — At verification end** (before GATE 3 → decommission): the final
@@ -235,7 +235,7 @@ C3) so the comparison target does not move under the gateway.
   byte-identical results, including BLOB hex encoding and NULL vs empty
   string — counts alone are insufficient (re-used from
   `docs/recovery-contract.md` §4 application-data checks).
-- Drift threshold: C2 daily re-runs accept zero row-count drift; a
+- Drift threshold: C2 periodic re-runs accept zero row-count drift; a
   one-row drift that maps to a documented, expected application write
   is acceptable only when reconciled in the verification log.
 - Sample of recently-written rows: a writer path known to be live (per

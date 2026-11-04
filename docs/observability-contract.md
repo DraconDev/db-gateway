@@ -5,7 +5,7 @@ Status: **§1 signal classes stand; §2 backup freshness is implemented** as
 gateway-native versioned sets; write markers are durable across restart;
 restore drill still separate), and request
 pressure as `GET /v1/status` + `dg status`. **§3 alert 4 is now delivered**
-per §3a below: immediate notice on a failed backup attempt plus a daily
+per §3a below: immediate notice on a failed backup attempt plus a periodic
 per-database fresh/behind/stale/unknown digest, off by default and enabled per
 gateway by flag. Disk/RSS/alert integrations
 remain future work. This contract defines the signals
@@ -17,7 +17,7 @@ per-database consistent verified snapshots are Tier 2 (local rollback).
 This document adds no endpoint,
 metric exporter, alert integration, or live host configuration. The first
 supervised deployment-host deployment began local-only with no backup sidecar;
-the sidecar and hourly producer are live there now.
+the sidecar and periodic producer are live there now.
 Any implementation or live rollout requires separate owner approval.
 Related: `docs/deployment.md` (install configuration),
 `docs/upgrade-rollback.md` (binary upgrades and rollback),
@@ -30,7 +30,7 @@ Related: `docs/deployment.md` (install configuration),
 | Service state | systemd `active`/restart state and structured stderr logs | `dg.service` is active without an unexpected restart loop | inactive, repeated restart, or missing logs is an operator alert |
 | Liveness | `GET /health/live` returns `200 {"status":"ok"}` | process is serving the liveness route | this says nothing about database, disk, or backup readiness |
 | Request pressure | counts/rates for `capacity_exceeded`, `busy`, and `query_deadline_exceeded` | bounded load within the documented limits | sustained growth indicates overload or a resource regression; do not silently retry |
-| Traffic trend | the hourly JSONL series `traffic-samples.jsonl` (`scripts/traffic-sample.sh` + `deploy/dg-traffic-sample.timer`): service totals, per-database rows, and the `query_p50_us`/`query_p95_us` percentiles `GET /v1/status` serves | the series exists, has no `unreachable` gaps, and shows bounded totals with flat per-database p95 | a gap is itself the evidence (a dead timer is none); a p95 that climbs in one database while the others stay flat names where the slowdown lives. Read it with `python3 -c` over the JSONL — there is no chart endpoint, because the question it answers is asked monthly, not monitored |
+| Traffic trend | the periodic JSONL series `traffic-samples.jsonl` (`scripts/traffic-sample.sh` + `deploy/dg-traffic-sample.timer`): service totals, per-database rows, and the `query_p50_us`/`query_p95_us` percentiles `GET /v1/status` serves | the series exists, has no `unreachable` gaps, and shows bounded totals with flat per-database p95 | a gap is itself the evidence (a dead timer is none); a p95 that climbs in one database while the others stay flat names where the slowdown lives. Read it with `python3 -c` over the JSONL — there is no chart endpoint, because the question it answers is asked monthly, not monitored |
 | Queue waits | per-database `queue_waits`/`queue_wait_ms`/`queue_timeouts` in `GET /v1/status` | waits near zero, timeouts zero | sustained `queue_timeouts` growth means per-database writer starvation under read flood; escalate to the writer-preferring bound (scale proposal Phase 2) |
 | Disk pressure | free bytes/inodes for the data directory, WAL, staging, and recovery workspace | enough headroom for active files plus the retention policy | low disk or failed staging blocks safe writes/imports and needs operator action |
 | Deployment placement | the host, the bound address, the data directory, the backup root, the disk headroom and the retention, in `GET /v1/status` (`deployment`) | the gateway knows where it is and how much room is left | a gateway that cannot be located from the client (a tunnel hides the machine) is an operator question, not an operator action |
@@ -78,11 +78,11 @@ status remains `unknown`, not `fresh`.
 
 The first implementation read "not represented by a verified copy within the
 owner-approved snapshot cadence" as "not represented at all". On a producer
-that publishes hourly that made every change a finding for up to an hour
-after it was made, so the daily digest exited `backup_unhealthy` whenever
+that publishes periodic that made every change a finding for up to an hour
+after it was made, so the periodic digest exited `backup_unhealthy` whenever
 anything had happened since the last publication — on a live gateway, every
 day. An alarm that is red whenever anything happens carries no information
-about the backup, and an operator who reads it daily learns to skip it.
+about the backup, and an operator who reads it periodic learns to skip it.
 
 The cadence is therefore the owner's number and it is applied to the
 measurement, not to the schedule. It is set per deployment
@@ -113,7 +113,7 @@ Minimum future alerts are:
    2026-10-19 (audit A8)** — `scripts/dg-alerts.sh` (disk check:
    free bytes/inodes vs floor; lag check: sidecar active, replica
    coverage, `replication sidecar status` all-ok, WAL size ceiling) on
-   `dg-alerts.timer` (15 min),
+   `dg-alerts.timer` (periodic),
    journal-delivered like the digest. Failure drills: forced disk
    floor, oversized-WAL sandbox, and an error-row `replication sidecar
    status` stub all fire; healthy inputs stay silent
@@ -156,7 +156,7 @@ lets each mask the other's failure:
 ## 3a. Alert 4 delivery: sink and cadence
 
 Owner decision 2026-09-27 (docs/recovery-decisions.md §6.5): immediate notice
-on failure plus a daily digest of per-database fresh/stale/unknown. The
+on failure plus a periodic digest of per-database fresh/stale/unknown. The
 exposure half is §2 above; this is the delivery half, and it is what the
 decision called the floor, because no alert stack exists in the project.
 
@@ -164,7 +164,7 @@ decision called the floor, because no alert stack exists in the project.
 | --- | --- | --- |
 | Digest sink | one structured log line per notification, always on once delivery is enabled | `LogSink` (src/notify.rs); systemd captures stderr |
 | Second sink | POST the note as JSON to an owner-supplied URL: HTTPS, or plain HTTP on a literal local address; no proxy, no redirects | `dg serve --backup-notify-webhook URL` |
-| Digest cadence | 24h; the first digest goes out one full period after startup, never on boot | `dg serve --backup-digest-secs N`, **default 0 (off)**; on deployment-host the external `dg-backup-digest.timer` delivers the cadence instead (§3a-0) — never both |
+| Digest cadence | periodic; the first digest goes out one full period after startup, never on boot | `dg serve --backup-digest-secs N`, **default 0 (off)**; on deployment-host the external `dg-backup-digest.timer` delivers the cadence instead (§3a-0) — never both |
 | Immediate-failure notice | one notice per failed attempt, as soon as the producer records it; polled every 60s | `dg serve --backup-failure-poll-secs N`, **default 0 (off)** |
 | Failure signal | `$BACKUP_ROOT/attempts.jsonl`, appended by `scripts/backup.sh`: outcome, step reached, set | `read_attempts` (src/backup_health.rs) |
 | Notice scope | the newest failed attempt not yet reported, once. Two failures inside one poll window produce one notice naming the newer; the complete history stays in `attempts.jsonl` and the next failure always alerts again | `DeliveryState` (src/notify.rs) |
@@ -174,7 +174,7 @@ decision called the floor, because no alert stack exists in the project.
 | Snapshot cadence | the owner-approved snapshot cadence, in seconds, set per deployment with `dg serve --backup-cadence-secs` / `dg backup digest --cadence-secs` and published as `cadence_secs`; with none approved every unrepresented change is reported | §2a: a change waiting for the producer's next publication is not a finding |
 | Delivery is opt-in | no flag, no notification anywhere: both cadences default to 0 | the decision was delivery, not a new default behaviour for every gateway |
 
-The owner's daily-digest decision is therefore this one flag set, with the
+The owner's periodic-digest decision is therefore this one flag set, with the
 cadence the decision names:
 
 ```sh

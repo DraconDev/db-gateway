@@ -3,11 +3,11 @@
 > **Dated snapshot: 2026-09-20 — superseded, kept as evidence.** The gate
 > counts and "explicitly unperformed live work" below describe that date
 > only. Since then (through 2026-10-19): object storage provider compatibility verified live
-> 12/12 (`evidence/sandbox-2026-10-14-object storage provider.log`); the replication sidecar sidecar is
+> 12/12 (`evidence/sandbox-2026-10-14-object storage provider.log`); the replication sidecar is
 > live on deployment-host (`evidence/replication sidecar-replication-evidence.log`) with automatic
 > new-database coverage (`evidence/replication-sync-drill-2026-10-19.log`); deployment-host
 > steady-state resources were sampled by script
-> (`evidence/m4-sampling-2026-10-16.log`); a pilot database has soaked
+> (`evidence/m4-sampling-2026-10-16.log`); a example database has undergone verification
 > since 2026-10-16 (`evidence/pilot-verification-log.md`); the backup watchdog digest is
 > live (`evidence/watchdog-2026-10-17.log`); the test baseline is 212 Rust tests
 > (plus 16 client, 39 web). Current status lives in

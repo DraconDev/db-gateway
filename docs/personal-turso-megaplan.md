@@ -57,7 +57,7 @@ competing silently with the canonical roadmap.
 | `docs/api.md` | Current API/CLI contract | Normative interface behavior; not live authorization |
 | `docs/recovery-contract.md` | Current local recovery contract | Normative artifact layout and restore checks; not a bucket policy |
 | `docs/recovery-decisions.md` | Research/decision brief | Profile C analysis and measurements; retained for policy history — tier selection is canonical in `docs/recovery-policy.md` |
-| `docs/recovery-policy.md` | **Canonical recovery policy** | Tier 1 replication sidecar→object storage provider (host loss) vs Tier 2 snapshot sets (local rollback); recovery objectives objectives, retention, bucket-alone registry recovery |
+| `docs/recovery-policy.md` | **Canonical recovery policy** | Tier 1 replication sidecar→object storage provider (host loss) vs Tier 2 snapshot sets (local rollback); recovery objectives, retention, bucket-alone registry recovery |
 | `docs/access-edge.md` | **Canonical access-edge decision** | WireGuard mesh + local socket proxies for application hosts; threat model; rejected alternatives (audit A9) |
 | `docs/observability-contract.md` | Current observability contract | Freshness/request-pressure evidence; disk/RSS/alert integrations remain future work |
 | `docs/scale-proposal-2026-09-21.md` | Implemented scale reference | Phases 1–2 landed; measured sizing and multi-host gate remain open |
@@ -266,10 +266,10 @@ A backup is not considered healthy merely because `upload` returned success. The
 The first implementation should expose a configurable schedule, but not promise a universal recovery objective. Recommended starting point:
 
 - one verified snapshot every six hours for active databases;
-- daily retention for seven days;
+- periodic retention for seven days;
 - weekly retention for four weeks;
 - explicit exclusions only for deliberately disposable `dev_*`/`scratch_*` databases;
-- move toward hourly or continuous WAL only after measured database size, change rate, and bucket cost justify it.
+- move toward periodic or continuous WAL only after measured database size, change rate, and bucket cost justify it.
 
 The exact cadence and retention are an owner policy decision at the Phase 0 gate. The implementation must show the real lag and cost rather than silently choosing a reassuring number.
 
@@ -345,7 +345,7 @@ Deliverables:
 - confirm verified snapshots as the first bucket profile;
 - choose initial cadence, retention, budget, and bucket region;
 - document owner-key custody and second-custodian policy;
-- document the accepted recovery objectives objectives and their non-guarantee wording;
+- document the accepted recovery objectives and their non-guarantee wording;
 - update `docs/recovery-decisions.md` and `docs/deployment-readiness.md`;
 - retain `docs/plan-2026-09-22.md` as historical evidence marked superseded by this plan.
 
@@ -488,7 +488,7 @@ Deliverables:
 - `dg backup status` extended to last attempt, success, failure, lag, registry inclusion, and restore result;
 - disk/inode/RSS/log-retention checks;
 - structured incident messages with bounded operator actions;
-- daily or scheduled separate-target restore drill;
+- periodic or scheduled separate-target restore drill;
 - documented bucket outage, corrupt artifact, missing registry, and disk-full responses.
 
 Done when:

@@ -56,7 +56,7 @@ fixes; 1.0.0 waits for production acceptance.
   including the owner's, stay visible in `dg inspect`, migrate open
   for existing databases, and leave management reads (inspect,
   schema, export) available (`tests/cli_traffic_blocks.rs`).
-- **Latency percentiles and an hourly traffic series
+- **Latency percentiles and an periodic traffic series
   (Analytics-lite).** `GET /v1/status` now reports service-wide
   `query_p50_us` / `query_p95_us` execution percentiles with
   `query_samples`, plus a per-database `query_p95_us` that names the
@@ -64,7 +64,7 @@ fixes; 1.0.0 waits for production acceptance.
   over the recent past, `null` until the first execution
   (`src/store/metrics.rs`, `src/store/admission.rs`,
   `tests/cli_json_contract.rs`). `scripts/traffic-sample.sh` with the
-  `deploy/dg-traffic-sample.{service,timer}` units (hourly, :50)
+  `deploy/dg-traffic-sample.{service,timer}` units (periodic, :50)
   appends one JSON sample of totals, per-database rows, and those
   percentiles to `traffic-samples.jsonl`, so a climbing p95 in one
   database is visible as a trend rather than a moment
@@ -96,7 +96,7 @@ fixes; 1.0.0 waits for production acceptance.
   The backup-pull tooling copies the newest verified set to an operator
   machine, re-verifies every manifest hash, sidecar and SQLite integrity
   check the producer performed, and prunes old pulls; the scheduled pull
-  runs daily. The continuous replica remains the live replication path;
+  runs periodic. The continuous replica remains the live replication path;
   this is the file-level copy a rebuild starts from.
 - **`Enter` in the terminal view opens the database under the scroll.**
   The keyboard's doorway used to list the open-table action with the
@@ -213,7 +213,7 @@ fixes; 1.0.0 waits for production acceptance.
   now has a step that creates it, mode `0700`, owned by the service
   user.
 - **The two halves of the snapshot cadence are compared.** The
-  gateway's freshness alarm and the daily digest's staleness verdict
+  gateway's freshness alarm and the periodic digest's staleness verdict
   are judged by the same number, but the number was written twice, in
   two unit files, and nothing compared them. The deploy gate now reads
   both numbers out of the two units and fails when they differ, which
@@ -400,11 +400,11 @@ fixes; 1.0.0 waits for production acceptance.
 - **A database written since the last publication is `behind`, not
   `stale`.** The backup-health state had no third value: a change
   written after the newest verified set was reported as a finding, so on
-  an hourly producer every write made the daily digest red for the hour
+  an periodic producer every write made the periodic digest red for the hour
   after it, and a box that was merely busy was indistinguishable from a
   box whose backups had failed. An alarm that is red whenever anything
   happens says nothing about the backup, and an operator who reads it
-  daily learns to skip it.
+  periodic learns to skip it.
   The owner now approves a snapshot cadence -- `dg serve
   --backup-cadence-secs`, `dg backup digest --cadence-secs` -- and a
   change that has waited no longer than that is `behind`: the producer
@@ -500,7 +500,7 @@ with the same tables as the live database.
 - **A deleted database was reported as a stale backup.** The backup
   health judged every database that appeared in a published set,
   including the ones that had been deleted. Those were counted as
-  `stale`, so the daily digest exited `backup_unhealthy` over databases
+  `stale`, so the periodic digest exited `backup_unhealthy` over databases
   that had been deleted on purpose, and the per-database table filled
   with rows for things that no longer exist. A deleted database is not
   stale, it is gone: it is counted in `deleted` and never asks for the
@@ -736,11 +736,11 @@ with the same tables as the live database.
 - **A backup set can be taken now, not only on the hour.** `dg backup
   run` asks the gateway for a backup set and the gateway takes one: the
   same directory, the same manifest, the same checksums and the same
-  registry copy the host's hourly producer writes, so the two are
+  registry copy the host's periodic producer writes, so the two are
   indistinguishable to every reader. Each database is copied through
   SQLite's online backup API, every file is checked before the set is
   published, and the set is published with an atomic rename — a reader
-  never sees a half-written set. The run takes the SAME lock the hourly
+  never sees a half-written set. The run takes the SAME lock the periodic
   producer takes, so the two producers exclude each other instead of
   publishing at once; a run that finds the lock held fails rather than
   waiting. Retention stays the producer's business: one policy, one
@@ -1130,7 +1130,7 @@ with the same tables as the live database.
   host.** It compares the unit installed on a host against the repo
   template rendered with the reference-host values, and the render
   left the placeholders it did not know in place. A template that
-  gained a placeholder — the hourly backup unit, which now passes the
+  gained a placeholder — the periodic backup unit, which now passes the
   paths it was rendered with — was therefore hashed as text no
   correctly rendered host can have, so every healthy host reported a
   permanent mismatch and the check could no longer find real drift.
@@ -1188,7 +1188,7 @@ audit hardening. Production is **not** accepted; see
   shell, JSON CLI, and a workstation web console.
 - Database lifecycle: clone, export/import (validated, atomic), and
   tombstone delete with a typed-name confirmation gate.
-- Backups: hourly verified snapshot sets, continuous replication to
+- Backups: periodic verified snapshot sets, continuous replication to
   object storage, backup-health status/digest, and restore drills wired
   to systemd timers.
 - Access edge: private-network service reached through an authenticated

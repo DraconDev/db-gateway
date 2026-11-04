@@ -90,30 +90,30 @@ placeholders for future/repeated deployments.
 | `{{DG_BINARY}}` | Absolute path of the `dg` executable | **Unresolved** — target layout decision (e.g. `/usr/local/bin/dg`) |
 | `{{DG_DATA_DIR}}` | Persistent data directory | **Unresolved** — target layout decision (e.g. `/var/lib/dg`) |
 | `{{DG_LISTEN}}` | Listen address; must stay local | Default `127.0.0.1:7432`; any change must remain a local address or `dg serve` refuses to start |
-| `{{DG_BACKUP_ROOT}}` | Versioned backup-set root the hourly producer publishes into (also `dg-backup.service`/`dg-backup-digest.service` `WorkingDirectory=`) — must exist before the units start: mode `0700`, owned by the service user | **Unresolved** — target layout decision (e.g. `/var/lib/dg-backups`) |
-| `{{DG_BACKUP_SCRIPT}}` | Absolute path of the installed hourly backup producer (`scripts/backup.sh` on the reference host) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/backup.sh`) |
+| `{{DG_BACKUP_ROOT}}` | Versioned backup-set root the periodic producer publishes into (also `dg-backup.service`/`dg-backup-digest.service` `WorkingDirectory=`) — must exist before the units start: mode `0700`, owned by the service user | **Unresolved** — target layout decision (e.g. `/var/lib/dg-backups`) |
+| `{{DG_BACKUP_SCRIPT}}` | Absolute path of the installed periodic backup producer (`scripts/backup.sh` on the reference host) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/backup.sh`) |
 | `{{DG_RESTORE_DRILL_SCRIPT}}` | Absolute path of the installed weekly bucket restore drill (`scripts/bucket-restore-drill.sh`) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/bucket-restore-drill.sh`) |
 | `{{DG_RESTORE_POINT_SCRIPT}}` | Absolute path of the installed restore-point tool (`scripts/restore-point.sh`), which publishes the window of moments the off-host replica can be restored to (`dg-restore-points.service`) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/restore-point.sh`) |
 | `{{DG_RESTORE_ROOT}}` | Directory the restored copies land in (`dg-restore-points.service` `RESTORE_ROOT=`); it holds data, so it is mode 0700 and owned by the service user | **Unresolved** — target layout decision (e.g. `/var/lib/dg-restores`) |
-| `{{DG_OWNER_KEY_FILE}}` | Absolute path of the mode-0600 owner credential file the hourly producer and the restore drill read (never its contents) | **Unresolved** — target layout decision (e.g. `/etc/dg/owner.key`) |
+| `{{DG_OWNER_KEY_FILE}}` | Absolute path of the mode-0600 owner credential file the periodic producer and the restore drill read (never its contents) | **Unresolved** — target layout decision (e.g. `/etc/dg/owner.key`) |
 | `{{DG_RESOURCE_SAMPLE_SCRIPT}}` | Absolute path of the installed composed resource sampler (`scripts/resource-sample.sh`) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/resource-sample.sh`) |
 | `{{DG_ALERTS_SCRIPT}}` | Absolute path of the installed disk/lag alert checker (`scripts/dg-alerts.sh`) | **Unresolved** — target layout decision (e.g. `/usr/local/bin/dg-alerts.sh`) |
-| `{{DG_TRAFFIC_SAMPLE_SCRIPT}}` | Absolute path of the installed hourly traffic sampler (`scripts/traffic-sample.sh`), which appends the Analytics-lite series (`docs/observability-contract.md` signal "Traffic trend") | **Unresolved** — target layout decision (e.g. `/usr/local/bin/traffic-sample.sh`) |
+| `{{DG_TRAFFIC_SAMPLE_SCRIPT}}` | Absolute path of the installed periodic traffic sampler (`scripts/traffic-sample.sh`), which appends the Analytics-lite series (`docs/observability-contract.md` signal "Traffic trend") | **Unresolved** — target layout decision (e.g. `/usr/local/bin/traffic-sample.sh`) |
 | `{{DG_MESH_LISTEN}}` | WireGuard interface `address:port` the mesh-edge socket binds (`deploy/dg-mesh-proxy.socket`) | **Owner decision at edge install** — must be the host's mesh address (e.g. `10.66.0.1:7432`); never a wildcard/LAN/WAN address (`docs/access-edge.md`) |
 
-The backup units (`deploy/dg-backup.{service,timer}` hourly producer,
-`deploy/dg-backup-digest.{service,timer}` daily digest) are templates in
+The backup units (`deploy/dg-backup.{service,timer}` periodic producer,
+`deploy/dg-backup-digest.{service,timer}` periodic digest) are templates in
 the same style: substitute the placeholders above, install under
 `/etc/systemd/system/`, `daemon-reload`, then enable the timers.
 
 **The snapshot cadence (2026-10-25):** `dg.service` and
 `dg-backup-digest.service` both pass `--backup-cadence-secs 3600` /
 `--cadence-secs 3600` — the owner-approved snapshot cadence, which is the
-hourly producer's own interval (the Tier-2 recovery objective objective,
+periodic producer's own interval (the Tier-2 recovery objective,
 `docs/recovery-policy.md`). It is the number the backup-health alarm is
 judged against: a change that no verified copy carries is a finding only
 once it has waited longer than that. Without it, every change written
-since the last publication is reported and the daily digest is red
+since the last publication is reported and the periodic digest is red
 whenever anything has happened on the host. A host whose producer runs on
 a different interval must render the same number in both units, and the
 units are the only place it is set — the gateway and the digest each read
@@ -127,8 +127,8 @@ fails when they differ, which is what keeps that sentence true.
 `dg-backup-digest.service` reads the same root. The producer's own
 defaults are the reference layout; a host that renders these templates
 with a different layout must have the unit pass the substituted values,
-or the hourly producer publishes into `/var/lib/dg-backups` while the
-daily digest reads the configured root.
+or the periodic producer publishes into `/var/lib/dg-backups` while the
+periodic digest reads the configured root.
 `scripts/host-audit.sh` compares the installed units against these
 templates (rendered with the reference-host values, comments/blank
 lines ignored) and fails on drift, so a hand edit on the host cannot
@@ -159,7 +159,7 @@ delivery is the journal, per `docs/observability-contract.md` §3).
 MaxRetentionSec=14day — sized so dg journal evidence survives on
 the 1 GB host instead of being vacuumed by defaults.
 
-**Digest canonical mechanism:** on any systemd deployment the daily
+**Digest canonical mechanism:** on any systemd deployment the periodic
 digest is the external `dg-backup-digest.timer` above, and
 `dg.service` must keep `--backup-digest-secs 0` (off, the default) —
 the in-server digest flags are only for non-systemd single-process
@@ -259,7 +259,7 @@ owner), `dg.service` and `dg-backup.timer` `ActiveState` with `User=dg`,
 `/usr/local/bin/backup.sh` sha256 matching `git HEAD:`, zero stale
 `.staging*` directories under the backup root, the newest versioned set's
 manifest age under `DG_AUDIT_MAX_SET_AGE_HOURS` (default 26h — one hour
-past the hourly timer), and `dg backup verify latest` returning `ok:true`.
+past the periodic timer), and `dg backup verify latest` returning `ok:true`.
 The owner-key file's mode and ownership are recorded from `stat` only; the
 key bytes are never read.
 
@@ -300,7 +300,7 @@ under `/var/lib/dg/` to the recorded object store using
 replication sidecar 0.5.17, with its credentials in `/etc/dg/replication.env` (mode
 0600, owner `dg:dg`) — the only copy on the host — and nothing in the
 unit, the config, or the repository carrying a secret (the config uses
-`${LITESTREAM_S3_*}` env-var references populated by systemd's
+`${REPLICATION_S3_*}` env-var references populated by systemd's
 `EnvironmentFile=`).
 
 ### Installing
@@ -333,7 +333,7 @@ regularly and restarts the sidecar only when the config
 changed — a database created or deleted after install enters or leaves
 replication within one interval, with no operator step
 (docs/audit-2026-10-19.md A2). `replication-sync.sh --check` reports
-per-database coverage, and host-audit's `litestream_coverage` check
+per-database coverage, and host-audit's `replication_coverage` check
 fails if any live database is missing from the config. Local proof:
 `scripts/replication-sync-drill.sh`
 (evidence: docs/evidence/replication-sync-drill-2026-10-19.log).
@@ -348,7 +348,7 @@ For every live database the script runs `replication sidecar restore` into a
 0700 temp directory, asserts `PRAGMA integrity_check` is `ok`, enumerates
 every user table, and asserts each `count(*)` matches what the live
 gateway is serving. Non-zero exit on the first mismatch. The same
-comparison logic is pinned by `tests/litestream_restore.rs`, which runs
+comparison logic is pinned by `tests/replication_restore.rs`, which runs
 against a synthetic mirror pair so the contract clause — "row counts plus
 PRAGMA integrity_check match the live sources exactly" — is checkable
 without a bucket.

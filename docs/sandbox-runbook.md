@@ -25,7 +25,7 @@ Record every result in a dated evidence log next to this file.
   least-privilege to `{{TEST_BUCKET}}` only.
 - `{{SANDBOX}}`: private transport-reachable 1 GiB-shaped Linux host (x86_64) with the
   release `dg` bundle installed per `docs/deployment.md` (test instance).
-- Acceptance bar: R6 (7-day run, p99 lag ≤ 5 min, 3× ≤15 min restores,
+- Acceptance bar: R6 (extended run, p99 lag ≤ 5 min, 3× ≤periodic restores,
   sidecar RSS ≤ 256 MiB, full matrices, registry proven).
 
 ```sh
@@ -89,7 +89,7 @@ because it advertises an encryption header it does not apply -- and both need
 your bucket. The remaining eight need it to be object storage provider rather than local:
 endpoint and region behaviour, storage class, pricing, quota behaviour, and the
 encryption header the service reports on what it stored. A §6 PASS still
-requires the 7-day window in section 0's acceptance bar; this command produces
+requires the extended window in section 0's acceptance bar; this command produces
 the evidence for the gates, not the week.
 
 **If a gate fails**, the packet names the cause in the gate's own section
@@ -186,7 +186,7 @@ corrupt-artifact rejection. Any mismatch blocks adoption.
 
 ## 6. Retention drill
 
-Apply the candidate lifecycle rules (7-day frequent + 30/7 daily per R1),
+Apply the candidate lifecycle rules (extended frequent + 30/7 periodic per R1),
 age/rotate test objects (upload days apart, or backdate via lifecycle rules
 on prefixed test objects), and prove newest-verified-copy age plus version
 counts match intent without breaking a fresh restore (§5).

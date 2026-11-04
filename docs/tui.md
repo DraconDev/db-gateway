@@ -218,7 +218,7 @@ fact should be.
 
 The restore window is the one that turns a backup into a recovery. The
 replica keeps a rolling window of write-ahead log, so the data can be
-restored to a moment and not only to the last hourly snapshot. The window
+restored to a moment and not only to the last periodic snapshot. The window
 is published by `scripts/restore-point.sh --list`, and taking a restore is
 the host's job — it holds the bucket's credentials — through
 `scripts/restore-point.sh --apply --to <ISO8601> --database <name>`, which

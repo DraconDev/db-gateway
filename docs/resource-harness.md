@@ -80,7 +80,7 @@ run is the place to record the on-target fact under the same cap.
 budget.** Both are local baselines for trend comparison only (e.g.
 re-run after a storage or dependency change and diff the RSS/latency
 fields). A production budget claim would require the deployment host,
-realistic load, and the replication sidecar sidecar running under the
+realistic load, and the replication sidecar running under the
 `MemoryMax=1G` envelope documented in
 `docs/evidence/sandbox-2026-09-29-rehearsal.log` gate 9. The release
 script's `suggested_memory_max_kib` (91,264 KiB, ~89 MiB) is the measured

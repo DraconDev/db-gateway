@@ -353,7 +353,7 @@ written.
 ### A backup set on demand
 
 `POST /v1/backups/run` takes a backup set NOW, from inside the gateway.
-The hourly producer on the host already writes sets into the backup root;
+The periodic producer on the host already writes sets into the backup root;
 this writes one in exactly the same shape, so the two are
 indistinguishable to every reader:
 
@@ -367,12 +367,12 @@ indistinguishable to every reader:
   manifest's size and checksum must agree with the bytes on disk;
 - the set is published with an atomic rename, so a reader never sees a
   half-written set;
-- the run takes the SAME lock the hourly producer takes
+- the run takes the SAME lock the periodic producer takes
   (`<backup_root>/.backup.lock`), so the two producers exclude each
   other rather than publishing at once. A run that finds the lock held
   fails, and waits for nothing.
 
-The run does not prune: retention is the hourly producer's policy, and
+The run does not prune: retention is the periodic producer's policy, and
 two writers with two retention rules would fight.
 
 ### SQL value encoding
@@ -430,7 +430,7 @@ One noisy database cannot deny another, but it can delay it. Measured 2026-10-11
 
 ## Write semantics, Idempotency-Key, retries
 
-Every request runs in one managed transaction; a write is acknowledged only after commit (WAL, `synchronous=FULL`). A failed statement rolls back the whole request. An explicit `query_deadline_exceeded` response means the transaction rolled back. If the transport dies after a write was sent, the outcome is unknown — **never blindly retry an unkeyed write**. To make a write safely replayable, send `Idempotency-Key: <key>`: with the same key and identical body, the server replays the stored original result without re-executing. Key scope is (database, principal, key); retention is 24h, at most 256 keys per principal per database (429 `capacity_exceeded` for new keys at capacity; existing replays still work; other principals unaffected). Read-only credentials must not send the header: a keyed request on a read-only key is rejected with 400 `idempotency_key_not_supported`. Same key + different body = 409. The TS client's `Database.retry(sql,args,key)` is a convenience for explicit replay; resending the original keyed request through the CLI or HTTP API is also supported; no hidden retries exist in client or CLI. Details: `docs/architecture.md`.
+Every request runs in one managed transaction; a write is acknowledged only after commit (WAL, `synchronous=FULL`). A failed statement rolls back the whole request. An explicit `query_deadline_exceeded` response means the transaction rolled back. If the transport dies after a write was sent, the outcome is unknown — **never blindly retry an unkeyed write**. To make a write safely replayable, send `Idempotency-Key: <key>`: with the same key and identical body, the server replays the stored original result without re-executing. Key scope is (database, principal, key); retention is periodic, at most 256 keys per principal per database (429 `capacity_exceeded` for new keys at capacity; existing replays still work; other principals unaffected). Read-only credentials must not send the header: a keyed request on a read-only key is rejected with 400 `idempotency_key_not_supported`. Same key + different body = 409. The TS client's `Database.retry(sql,args,key)` is a convenience for explicit replay; resending the original keyed request through the CLI or HTTP API is also supported; no hidden retries exist in client or CLI. Details: `docs/architecture.md`.
 
 ## Lifecycle: clone, export, import, delete (M2)
 
@@ -448,7 +448,7 @@ The server retains the SQLite file for **24 hours** and checks expired tombstone
 
 `dg key revoke NAME` remains the exact one-key form. The scope form `dg key revoke --database DB --confirm DB` removes all application credentials scoped to `DB` in one server-side transaction, reports the names it removed, and states `owner_key_excluded: true`; the owner credential is never in the deletion set. Missing or wrong confirmation fails before the request.
 
-Single-shot export/import carries the whole file in one JSON body and is capped at 8 MiB of decoded SQLite data. Larger databases use the **chunked path** (which the CLI uses transparently for all sizes): `export/begin` freezes a consistent snapshot, `GET /v1/snapshots/{id}` fetches it in pieces (default 1 MiB, `offset`/`length` query params), and `DELETE` releases it early. Uploads mirror this: `import/begin`, append-only `chunk` posts at the exact received offset (`GET` status shows it for resume), then `commit` under a target name or `DELETE` to abort. Chunked bounds: 1 MiB per chunk, 128 MiB total per transfer, 8 concurrent transfers, 1periodic retention swept every second. Appends of one upload are serialized: a chunk is acknowledged only once its bytes are on disk, so two chunks posted at the same offset cannot both be accepted, and `commit` waits for an in-flight chunk instead of importing a half-written file. Snapshot ids are creator-bound (the creating principal or the owner); uploads are owner-only. Snapshots and uploads do not survive a server restart — begin again and resume. Commit reuses the validated atomic import above, so the same interruption boundary applies. `dg export --out PATH` verifies the whole-file SHA-256 before its same-directory no-clobber publication: an existing destination is preserved and returns `file_exists`; a successful export is never exposed as a partial file. `dg import` rejects non-regular files and files over the 128 MiB ceiling locally before sending anything.
+Single-shot export/import carries the whole file in one JSON body and is capped at 8 MiB of decoded SQLite data. Larger databases use the **chunked path** (which the CLI uses transparently for all sizes): `export/begin` freezes a consistent snapshot, `GET /v1/snapshots/{id}` fetches it in pieces (default 1 MiB, `offset`/`length` query params), and `DELETE` releases it early. Uploads mirror this: `import/begin`, append-only `chunk` posts at the exact received offset (`GET` status shows it for resume), then `commit` under a target name or `DELETE` to abort. Chunked bounds: 1 MiB per chunk, 128 MiB total per transfer, 8 concurrent transfers, periodic retention swept every second. Appends of one upload are serialized: a chunk is acknowledged only once its bytes are on disk, so two chunks posted at the same offset cannot both be accepted, and `commit` waits for an in-flight chunk instead of importing a half-written file. Snapshot ids are creator-bound (the creating principal or the owner); uploads are owner-only. Snapshots and uploads do not survive a server restart — begin again and resume. Commit reuses the validated atomic import above, so the same interruption boundary applies. `dg export --out PATH` verifies the whole-file SHA-256 before its same-directory no-clobber publication: an existing destination is preserved and returns `file_exists`; a successful export is never exposed as a partial file. `dg import` rejects non-regular files and files over the 128 MiB ceiling locally before sending anything.
 
 ## CLI
 
@@ -581,7 +581,7 @@ Connection resolution, highest precedence first: `--server` / `--key-file` flags
 
 A **context** is a named pair of a server and a credential FILE, kept in `$HOME/.config/dg/config.toml` (created `0600`, in a `0700` directory). Nothing secret is ever written down: the file holds paths, never a key. The context sits between the flag and the environment on purpose — the environment says "where do I usually talk", a context says "talk to THIS one now", and the flag is the operator's word at the command line, which outranks both. A `--context` that names a context the file does not define is an error, not a silent fallback: quietly using another gateway is worse than refusing.
 
-With the env vars set — or the default key file in place — daily commands need no flags at all: `dg list`, `dg query game_a "SELECT …"`.
+With the env vars set — or the default key file in place — periodic commands need no flags at all: `dg list`, `dg query game_a "SELECT …"`.
 
 ```sh
 dg init --data-dir state/dg            # once per data dir; prints {"owner_key": …} — save it securely, it is shown once
@@ -658,7 +658,7 @@ Lifecycle commands (M2):
 dg --key-file owner.key clone game_a game_a_copy
 dg --key-file owner.key export game_a --out ./game_a_snapshot.sqlite   # writes the file, prints {name,out,size,sha256}
 dg --key-file owner.key import restored --from ./game_a_snapshot.sqlite
-dg --key-file owner.key delete game_a_copy --confirm game_a_copy   # tombstone; file purge after 24h retention
+dg --key-file owner.key delete game_a_copy --confirm game_a_copy   # tombstone; file purge after periodic retention
 ```
 
 Operator visibility (owner-only; the AI-operator surface — poll these, not log files):
@@ -668,7 +668,7 @@ dg --key-file owner.key status          # the service dashboard: counts, rate, e
 dg --key-file owner.key watch           # the same dashboard, read once (it exits, so it stays pipeable)
 dg --key-file owner.key inspect game_a  # one database: what it holds and what it has been doing
 dg --key-file owner.key backup status   # versioned sets plus per-database fresh/stale/unknown
-dg backup digest                        # the delivered daily digest, computed from the data dir (no server needed)
+dg backup digest                        # the delivered periodic digest, computed from the data dir (no server needed)
 dg backup verify --backup-root <dir> latest   # re-verify a published set offline (no server needed)
 dg --key-file owner.key tui              # the terminal view: the service, its databases, their backups and its keys, live
 ```
@@ -692,9 +692,9 @@ Versioned sets are produced by `scripts/backup.sh` (one run at a time per backup
 
 A block the host has not published is `null`, and a client must draw that as *not reported* — never as "there is no replica", "the drill never ran", "the last run worked", or "there is nothing to restore from". The difference is the whole point: an absent fact and a false fact are not the same fact.
 
-Freshness is computed once, in `src/backup_health.rs`, and shared by `GET /v1/backups`, `dg backup status`, `dg backup digest` and the notification sink, so the digest an operator receives cannot disagree with the endpoint they check against. `dg backup digest` reads the data directory and backup root directly rather than asking the gateway, so it works while the gateway is stopped; it prints the delivered note (`--json` for the structured form) and exits nonzero with `backup_unhealthy` when any database is stale beyond the approved cadence or unknown — a digest that exited 0 over a change the backup has not taken is how a schedule gets mistaken for a backup. A change that is merely `behind` does not fail it: with an hourly producer every change waits for the next publication, and failing on that made the daily digest red for an hour after every write, which is an alarm that says nothing about whether the backup works.
+Freshness is computed once, in `src/backup_health.rs`, and shared by `GET /v1/backups`, `dg backup status`, `dg backup digest` and the notification sink, so the digest an operator receives cannot disagree with the endpoint they check against. `dg backup digest` reads the data directory and backup root directly rather than asking the gateway, so it works while the gateway is stopped; it prints the delivered note (`--json` for the structured form) and exits nonzero with `backup_unhealthy` when any database is stale beyond the approved cadence or unknown — a digest that exited 0 over a change the backup has not taken is how a schedule gets mistaken for a backup. A change that is merely `behind` does not fail it: with an periodic producer every change waits for the next publication, and failing on that made the periodic digest red for an hour after every write, which is an alarm that says nothing about whether the backup works.
 
-`dg serve` can also *deliver* backup health instead of waiting to be asked, which is the owner's 2026-09-27 decision ([observability contract](observability-contract.md) §3a): `--backup-digest-secs N` (daily by default, off unless set) sends the per-database digest, `--backup-failure-poll-secs N` sends an immediate notice the first time each failed attempt appears in `attempts.jsonl`, and `--backup-notify-webhook URL` adds an HTTP POST of the same note (HTTPS or literal local only) alongside the structured log line. A repeated failure is announced once, not once per poll. Delivery carries state, the newest verified set, an age, the failing step and a bounded action — never an recovery objective, an recovery objective, or a data-loss claim.
+`dg serve` can also *deliver* backup health instead of waiting to be asked, which is the owner's 2026-09-27 decision ([observability contract](observability-contract.md) §3a): `--backup-digest-secs N` (periodic by default, off unless set) sends the per-database digest, `--backup-failure-poll-secs N` sends an immediate notice the first time each failed attempt appears in `attempts.jsonl`, and `--backup-notify-webhook URL` adds an HTTP POST of the same note (HTTPS or literal local only) alongside the structured log line. A repeated failure is announced once, not once per poll. Delivery carries state, the newest verified set, an age, the failing step and a bounded action — never an recovery objective, an recovery objective, or a data-loss claim.
 
 Non-shell exit codes: `0` success; nonzero on any error. HTTP API errors produce JSON on stdout (the CLI also adds `status`); local validation, configuration and transport errors are logged to stderr instead. Deletion is non-interactive but requires typed-name confirmation — scripts and agents must supply the exact target name again.
 
@@ -745,4 +745,4 @@ Text mode aligns columns using character counts (wide/combining Unicode glyphs m
 
 A failed request prints its error and the session continues; `.quit` or EOF returns `0` even if earlier statements failed. Credential/startup or input/output failures exit nonzero. For scripts needing fail-fast exit codes, use `dg query` / `dg batch` instead. Input lines and accumulated batches are capped at 64 KiB (`input_limit_exceeded`); malformed JSON produces `invalid_request`, and incomplete JSON at EOF produces an error without sending a request. Server-side SQL, body, transaction, and result limits still apply.
 
-**No retries occur.** `:key` applies to the next SQL/batch attempt. It is consumed after a completed request, including API and local errors; a transport failure reported as `outcome_unknown` retains the key so the next identical SQL/batch line can be an explicit replay. `.tables`/`.schema` do not consume it. Cancelling a batch or switching database clears it. To explicitly replay a write after `outcome_unknown`, submit the identical body with the retained key (or set the same key again) within the 24h retention window. Never blindly repeat an unkeyed write. The shell neither writes credentials nor saves SQL history to disk.
+**No retries occur.** `:key` applies to the next SQL/batch attempt. It is consumed after a completed request, including API and local errors; a transport failure reported as `outcome_unknown` retains the key so the next identical SQL/batch line can be an explicit replay. `.tables`/`.schema` do not consume it. Cancelling a batch or switching database clears it. To explicitly replay a write after `outcome_unknown`, submit the identical body with the retained key (or set the same key again) within the periodic retention window. Never blindly repeat an unkeyed write. The shell neither writes credentials nor saves SQL history to disk.

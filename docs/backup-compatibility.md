@@ -27,9 +27,9 @@ implying object storage provider durability or a recoverable-point guarantee.
 The local rehearsal uses a filesystem object mock around the gateway's
 SQLite-aware export and validated import paths. It records the owner-selected
 working objectives — continuous WAL-style shipping with a five-minute lag
-objective, seven days of frequent points, 30 daily production / 7 daily
-development versions, every-sync verification, daily separate-target restore,
-and a 1periodic recovery objective objective — but it does **not** emulate replication sidecar timing
+objective, seven days of frequent points, 30 periodic production / 7 periodic
+development versions, every-sync verification, periodic separate-target restore,
+and a periodic recovery objective — but it does **not** emulate replication sidecar timing
 or S3 semantics. It injects crash-during-shipping, partial/corrupt object,
 permission/outage, and disk/WAL-pressure failures. A failed gate blocks rollout
 and leaves manual validated snapshots as the fallback.
@@ -58,13 +58,13 @@ deployment-host access; the sandbox gates below remain required before any adopt
 | replication sidecar S3 guide | IAM user, bucket, CLI/file usage, access-point and custom-endpoint notes | https://replication sidecar.io/guides/s3/ |
 | replication sidecar config reference | Global settings, retention, snapshots, L0 retention, compaction, per-database snapshot settings, `sync-interval`, replica settings | https://replication sidecar.io/reference/config/ |
 | replication sidecar operational caveats | WAL-only operation, `busy_timeout` recommendation, checkpoint write locks | https://replication sidecar.io/tips/ |
-| object storage S3 getting started | S3 API for new projects, project + user + access/secret key, per-bucket endpoint URL | https://docs.ovhcloud.com/en/guides/storage-and-backup/object-storage/s3-getting-started-with-object-storage (page `lastUpdated: 2026-06-01`) |
-| object storage provider endpoints/regions | `https://s3.<region>.io.cloud.net`, virtual-host style, region/storage-class table, SigV4 | https://docs.ovhcloud.com/en/guides/storage-and-backup/object-storage/s3-location (page `lastUpdated: 2026-03-06`) |
-| object storage FAQ | S3-compatible classes vs legacy Swift, storage classes, compatibility-guide pointer | https://docs.ovhcloud.com/en/guides/storage-and-backup/object-storage/s3-faq (page `lastUpdated: 2026-03-06`) |
-| object storage provider technical limitations | 1 Gbps/connection, 300 PUT/s + 900 GET/s soft limits, bucket/object/multipart quotas | https://docs.ovhcloud.com/en/guides/storage-and-backup/object-storage/s3-limitations (page `lastUpdated: 2026-03-13`) |
-| object storage provider encryption | SSE-C (customer key per request) vs SSE-OMK (object storage provider-managed, transparent) vs CSE comparison | https://docs.ovhcloud.com/en/guides/storage-and-backup/object-storage/s3-encrypt-your-objects-with-sse-c (page `lastUpdated: 2026-07-03`) |
-| object storage provider lifecycle/retention | Expiration/transition rules, `.io`-endpoint-only support, versioning-dependent behavior | https://docs.ovhcloud.com/en/guides/storage-and-backup/object-storage/s3-bucket-lifecycle (page `lastUpdated: 2026-07-29`) |
-| object storage provider identity/access | Object Storage users, access/secret keys, per-bucket profiles, private-by-default resources | https://docs.ovhcloud.com/en/guides/storage-and-backup/object-storage/s3-identity-and-access-management (page `lastUpdated: 2026-06-01`) |
+| object storage S3 getting started | S3 API for new projects, project + user + access/secret key, per-bucket endpoint URL | object storage provider documentation (page `lastUpdated: 2026-06-01`) |
+| object storage provider endpoints/regions | `https://s3.<region>.io.cloud.net`, virtual-host style, region/storage-class table, SigV4 | object storage provider documentation (page `lastUpdated: 2026-03-06`) |
+| object storage FAQ | S3-compatible classes vs legacy Swift, storage classes, compatibility-guide pointer | object storage provider documentation (page `lastUpdated: 2026-03-06`) |
+| object storage provider technical limitations | 1 Gbps/connection, 300 PUT/s + 900 GET/s soft limits, bucket/object/multipart quotas | object storage provider documentation (page `lastUpdated: 2026-03-13`) |
+| object storage provider encryption | SSE-C (customer key per request) vs SSE-OMK (object storage provider-managed, transparent) vs CSE comparison | object storage provider documentation (page `lastUpdated: 2026-07-03`) |
+| object storage provider lifecycle/retention | Expiration/transition rules, `.io`-endpoint-only support, versioning-dependent behavior | object storage provider documentation (page `lastUpdated: 2026-07-29`) |
+| object storage provider identity/access | Object Storage users, access/secret keys, per-bucket profiles, private-by-default resources | object storage provider documentation (page `lastUpdated: 2026-06-01`) |
 
 The frequently quoted S3/Swift REST matrix
 (`pcs-object-storage-standard-s3-and-swift-rest-api-compatibility`, dated
@@ -101,7 +101,7 @@ extracted here; required-operation coverage is a sandbox check (§6.4).
 | Endpoints/regions | One endpoint pattern `https://s3.<region>.io.cloud.net` for all buckets/objects in both Standard and High Performance; virtual-host style; region table with 1-AZ vs 3-AZ and per-tier support; SigV4 | Clear convention; region/storage-class choice is still an owner decision (see `docs/recovery-decisions.md` §6) |
 | Authentication | Public Cloud project + Object Storage user + access key/secret key; per-bucket access profiles; resources private by default; replication sidecar takes `access-key-id`/`secret-access-key` via config or environment | No conflict at doc level; least-privilege bucket/key scoping is a sandbox check, and no keys exist yet |
 | Encryption | SSE-C (caller supplies 256-bit key per request; loss = unrecoverable), SSE-OMK (per-object object storage provider-managed keys, transparent), CSE (client-side, out of scope of that guide); no price difference stated | Choice is open: SSE-C gives key ownership at operator-risk cost; SSE-OMK is zero-effort. Whether any encryption is on by default is **unverified** |
-| Retention | Bucket lifecycle rules support expiration/transition, incomplete-MPU cleanup, cost-tier transitions; `.io` endpoint only; behavior varies with bucket versioning state | Mechanism exists for the 7–30 daily-version retention in the recommended profile; exact rule/versioning interplay for replication sidecar’s LTX layout is **unverified** |
+| Retention | Bucket lifecycle rules support expiration/transition, incomplete-MPU cleanup, cost-tier transitions; `.io` endpoint only; behavior varies with bucket versioning state | Mechanism exists for the 7–30 periodic-version retention in the recommended profile; exact rule/versioning interplay for replication sidecar’s LTX layout is **unverified** |
 | Multi-database | replication sidecar config takes a `dbs:` list (one entry per SQLite path, each with its replica), plus global replica defaults and directory replication | Matches the gateway’s many-independent-databases layout, including the registry `metadata.sqlite` as one more path — but per-db registration/reload behavior is a sandbox check |
 | Reload support | Config reference was fetched, but reload-without-restart behavior (signal, `register`/`unregister` IPC semantics for adding a database) was **not** confirmed from the fetched pages | **Unverified** — must be proven in the sandbox before promising “add a database without restart” |
 | Throughput quotas | 1 Gbps/connection, 300 PUT/s + 900 GET/s soft defaults (sharding raises them), multipart part/part-count limits | Far above this project’s small-DB snapshot traffic; not a selection risk, but restore-egress cost still needs the pricing the owner has not set |
@@ -125,7 +125,7 @@ extracted here; required-operation coverage is a sandbox check (§6.4).
 The gateway’s tested export (online backup API) → validated import
 (`integrity_check`, foreign-key check, protected-table screening, atomic
 publication) already covers **manual snapshot recovery**. replication sidecar would
-add *frequency* (minutes-scale recovery objective objective), not a new trust root: every
+add *frequency* (minutes-scale recovery objective), not a new trust root: every
 replication sidecar-restored file must still go through restore-to-separate-target +
 integrity + application-data verification before it is trusted. The
 `_dg_replay` table travels inside each database file; the registry
@@ -443,8 +443,8 @@ The local rehearsal is a prerequisite trust-boundary check, not a substitute
 for this program. Run all of these against disposable data and a dedicated
 test bucket; no production databases, credentials, or subscriptions. Profile
 C adoption must demonstrate a five-minute lag objective after committed writes,
-seven days of frequent points plus 30/7 daily history, every-sync verification,
-and a separate-target restore within the 1periodic objective before those
+seven days of frequent points plus 30/7 periodic history, every-sync verification,
+and a separate-target restore within the periodic objective before those
 numbers are described as anything stronger than working objectives.
 
 1. **Pin and record**: install exactly `v0.5.17` in the sandbox, record

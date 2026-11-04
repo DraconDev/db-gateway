@@ -18,8 +18,8 @@ compatibility lives in `docs/backup-compatibility.md`.
 | --- | --- | --- |
 | Export uses the SQLite online backup API into private staging (`src/store/transfers.rs`: `export_to`, `export_snapshot`) | Consistent committed snapshot during concurrent writes; no raw WAL copy | Scheduling, retention, off-host copy, or failure visibility |
 | Import validates in private staging then publishes atomically (`src/store/lifecycle.rs`: `import_from`) | `PRAGMA integrity_check` must read `ok`; `pragma_foreign_key_check` must be empty; foreign `_dg_*` tables rejected; incompatible `_dg_replay` schema rejected (`src/execution.rs`: `validate_import`); live and tombstoned names refused with `database_exists`; failed imports leave no partial database | Credential/registry recovery, backup freshness, or bucket behavior |
-| `initialize` ensures the canonical `_dg_replay` schema before publication (`src/execution.rs`) | Imported external SQLite files support keyed writes immediately | 24h / 256-key replay retention is per-database history, not a backup |
-| Tombstone + delayed purge on delete (`docs/api.md`) | Deleted names stay unqueryable/uncreatable for 24h; purge waits for open connections | Any post-purge recovery without an independent artifact |
+| `initialize` ensures the canonical `_dg_replay` schema before publication (`src/execution.rs`) | Imported external SQLite files support keyed writes immediately | periodic / 256-key replay retention is per-database history, not a backup |
+| Tombstone + delayed purge on delete (`docs/api.md`) | Deleted names stay unqueryable/uncreatable for periodic; purge waits for open connections | Any post-purge recovery without an independent artifact |
 | Restart persistence and crash-separated replay records (`docs/architecture.md`) | Acknowledged commits survive process restart; replay rows commit in the same transaction as the write | Host/disk loss, which needs an off-host artifact |
 
 ## 2. Artifact layout
@@ -243,9 +243,9 @@ from `docs/recovery-decisions.md` §6.
 `src/bin/recovery_rehearsal.rs` and `tests/recovery_rehearsal.rs` provide a
 filesystem-backed object mock around the existing export/import trust
 boundary. The rehearsal records the working Profile C objectives (continuous
-WAL-style shipping, five-minute lag, 7-day frequent points, 30/7 daily
-history, every-sync verification, daily separate-target restore, and a
-1periodic local recovery objective objective) and injects four failures:
+WAL-style shipping, five-minute lag, extended frequent points, 30/7 periodic
+history, every-sync verification, periodic separate-target restore, and a
+periodic local recovery objective) and injects four failures:
 
 - crash during shipping, with `failed` then `stale` status visibility;
 - partial/corrupt object, with checksum/integrity rejection and no publication;

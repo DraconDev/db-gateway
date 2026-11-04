@@ -32,7 +32,7 @@ release-blocking measurement.
 | Gateway process RSS, small workload | Measured (M1, M2) | ~4.3 MiB release idle; ~15 MiB debug loaded. Release + realistic data: **unmeasured**. |
 | OS baseline | Partially known, workload unmeasured | The supervised target is an approximately 1 GiB Ubuntu deployment-host host, but OS baseline, page-cache behavior, and concurrent workload footprint were not measured. |
 | SQLite connections / page cache | Bounded by construction, not stress-verified | No pool; ≤8 reader + ≤4 writer concurrent query connections (the read and write admission lanes are independent) + occasional purge connection; SQLite default cache ≈ 2 MiB per connection ⇒ ≈ 24 MiB order-of-magnitude ceiling, not the ≈ 10 MiB a single 4-permit lane would imply. Sustained-burst peak RSS **unmeasured**. |
-| Backup tooling (replication sidecar sidecar) | Measured locally, 1 GiB enforced, run committed (2026-09-29) | Gate 9 sampled a 6.9 MiB / 120 000-row database through `replication sidecar replicate` and `restore` inside a kernel-enforced `MemoryMax=1G` scope: replication peak 45,632 KiB, restore peak 34,576 KiB, restore 2740 ms, no OOM kill. Evidence: `docs/evidence/sandbox-2026-09-29-rehearsal.log`. See Release-blocking item 2 for the enforcement probe and for what this does NOT cover (different hardware, a week of WAL growth, real disk). |
+| Backup tooling (replication sidecar) | Measured locally, 1 GiB enforced, run committed (2026-09-29) | Gate 9 sampled a 6.9 MiB / 120 000-row database through `replication sidecar replicate` and `restore` inside a kernel-enforced `MemoryMax=1G` scope: replication peak 45,632 KiB, restore peak 34,576 KiB, restore 2740 ms, no OOM kill. Evidence: `docs/evidence/sandbox-2026-09-29-rehearsal.log`. See Release-blocking item 2 for the enforcement probe and for what this does NOT cover (different hardware, a week of WAL growth, real disk). |
 | Burst headroom | Partially bounded | 2 s deadline + 429 capacity rejects cap concurrency (see contention test), but peak RSS under sustained capacity load is **unmeasured** on deployment-host. |
 | Disk growth | Baseline only | 86 KiB for 300 small rows + WAL + metadata. Growth per real workload, tombstone 24 h retention accumulation, and purge cadence effects are **unmeasured**. |
 
@@ -77,7 +77,7 @@ host shape (or an equivalent VM), with the release profile:
    small and the cache only fills under repeated hot queries. Re-run
    on the supervised deployment-host host with the same harness to capture the
    on-target fact.
-2. replication sidecar sidecar RSS + disk staging during a snapshot/replication cycle.
+2. replication sidecar RSS + disk staging during a snapshot/replication cycle.
    *Measured 2026-09-29 against the rehearsal endpoint with pinned 0.5.17, and
    the run is committed*:
    `docs/evidence/sandbox-2026-09-29-rehearsal.log` (gate 9). The sampler ran a
@@ -162,7 +162,7 @@ The 1 GiB envelope so far is composed of:
   and 11 MiB burst peak under a
   1 GiB-enforced local rerun (2026-10-15, M6). Worst-case ceiling
   from code: 24 MiB SQLite cache (8+4 connections x 2 MiB).
-- replication sidecar sidecar: 44 MiB peak replication, 33 MiB restore (1 GiB
+- replication sidecar: 44 MiB peak replication, 33 MiB restore (1 GiB
   enforced scope, rehearsal packet gate 9); on deployment-host steady ~21 MiB /
   35 MiB HWM with a verified restore (392–938 ms across runs,
   integrity ok, 5=5 rows — same transcript).
@@ -214,10 +214,10 @@ rate*, not today's bytes — which is exactly what the series fits.
 
 **The sampler series (closes the trend half of gate 5).**
 `scripts/resource-sample.sh` (timer template
-`deploy/dg-resource-sample.{service,timer}`, 6-hourly) appends one
+`deploy/dg-resource-sample.{service,timer}`, periodic) appends one
 JSON sample per fire: per-unit MemoryCurrent/Peak, data + backups
 dir bytes, WAL bytes, journal bytes, host MemAvailable and disk.
-Gate 5's trend claim passes when a ≥7-day series shows: gateway
+Gate 5's trend claim passes when a ≥extended series shows: gateway
 MemoryCurrent < 32 MiB and sidecar < 64 MiB at every sample
 (half-cap ceilings), MemAvailable never < 128 MiB, and the
 least-squares slope of (data + backups + journal) bytes projects
@@ -227,7 +227,7 @@ verdict stays "steady-state composed, trend unproven" — an honest
 statement, not a fit claim.
 
 **Verdict attempt 2026-11-03 (series 2026-10-19 → 2026-11-03, 61
-samples, 14.7 days): three of four criteria pass.** Sidecar max
+samples, 14.extended): three of four criteria pass.** Sidecar max
 50.0 MiB (ceiling 64), MemAvailable min 302 MiB (floor 128), and
 the growth slope +38.9 MiB/day projects to 16.2% of free disk over
 90 days (limit 50%) — the journal dominates the slope (27.8 →
@@ -240,7 +240,7 @@ second. A post-upgrade backup-time experiment moves gateway memory
 backup artifact. The spiking process is gone (binary upgraded and
 service restarted 2026-11-03T10:37Z); the gate stays open pending
 clean samples under the new binary. Note for the next attempt:
-the 6-hourly sampler fires at :17, the same minute as the hourly
+the periodic sampler fires at :17, the same minute as the periodic
 backup, so every sample is backup-loaded — pessimistic, hence
 conservative for this gate, but noisy; do not retime it until the
 verdict is recorded, or the regimes stop being comparable.
