@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
-# Off-host second leg for the micro2 snapshot sets.
+# Off-host second leg for the deployment-host snapshot sets.
 #
-# The hourly producer (scripts/micro2-backup.sh) publishes verified sets
-# under /var/lib/dg-backups ON micro2: same-disk storage protects
+# The hourly backup producer publishes verified sets
+# under /var/lib/dg-backups on the deployment host: same-disk storage protects
 # against logical loss, not disk loss. This script pulls the newest set
-# to the operator machine over the existing SSH key, verifies every
+# to the operator machine over the operator-configured SSH key, verifies every
 # checksum sidecar the producer published, and prunes old local pulls.
-# Litestream's WAL stream remains the continuous off-host replica; this
+# The replication sidecar WAL stream remains the continuous off-host replica; this
 # is the file-level copy a rebuild starts from, and the one that does
 # not depend on the bucket.
 #
-# Usage: pull-micro2-backup.sh [--host HOST] [--user USER] [--key PATH]
+# Usage: backup-pull [--host HOST] [--user USER] [--key PATH]
 #                              [--remote-root DIR] [--local-root DIR] [--keep N]
-# Defaults: micro2 over ~/.ssh/micro2.key into
-# ${XDG_DATA_HOME:-~/.local/share}/dg-backup-sets, newest 7 kept.
+# Defaults: the deployment host (DG_DEPLOYMENT_HOST) over the configured
+# SSH key (DG_DEPLOYMENT_KEY, or --key) into
+# ${XDG_DATA_HOME:-~/.local/share}/dg-backup-sets, newest 7 kept. Set
+# DG_DEPLOYMENT_USER for the remote account (default: operator). No
+# host, address, or key path is baked into this script.
 # Prints one summary line; never key material. Exit nonzero on any
 # failure, and a failed run publishes nothing.
 #
@@ -22,9 +25,9 @@
 # line to pulls.jsonl under the local root.
 set -euo pipefail
 
-HOST="145.241.238.20"
-USER="ubuntu"
-KEY="$HOME/.ssh/micro2.key"
+HOST="${DG_DEPLOYMENT_HOST:-}"
+USER="${DG_DEPLOYMENT_USER:-operator}"
+KEY="${DG_DEPLOYMENT_KEY:-}"
 REMOTE_ROOT="/var/lib/dg-backups"
 LOCAL_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/dg-backup-sets"
 KEEP=7
@@ -52,6 +55,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+[ -n "$HOST" ] || { echo "no deployment host: set DG_DEPLOYMENT_HOST or pass --host" >&2; exit 2; }
+[ -n "$KEY" ] || { echo "no SSH key: set DG_DEPLOYMENT_KEY or pass --key" >&2; exit 2; }
 [[ "$KEEP" =~ ^[1-9][0-9]*$ ]] || { echo "--keep must be a positive integer" >&2; exit 2; }
 [ -r "$KEY" ] || { echo "unreadable key file: $KEY" >&2; exit 2; }
 mkdir -p "$LOCAL_ROOT"
@@ -103,7 +108,7 @@ remote_run sudo -n tar -C "$REMOTE_ROOT" -cz "$SET" >"$STAGE/$SET.tar.gz" \
 tar -xzf "$STAGE/$SET.tar.gz" -C "$STAGE" || fail "unpack of $SET failed"
 [ -d "$STAGE/$SET" ] || fail "archive of $SET has no top directory"
 # Verification mirrors the producer's own pre-publication check
-# (scripts/micro2-backup.sh): every file the manifest names must exist
+# (the hourly backup producer): every file the manifest names must exist
 # with the recorded size and sha256, every sidecar must agree with the
 # manifest, and every file must open as an intact SQLite database. A
 # pulled set that fails any of this is not a second leg, it is a
