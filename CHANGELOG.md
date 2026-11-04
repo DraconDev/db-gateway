@@ -450,7 +450,7 @@ fixes; 1.0.0 waits for production acceptance.
   one.** The bucket holds one prefix per database, and inside it the whole
   chain: the snapshot at level 9 and the compacted write-ahead log at
   levels 1, 2 and 3, which is what covers the time between snapshots. The
-  publisher asked litestream for its **default** level, and the default
+  publisher asked the replication tool for its **default** level, and the default
   is level 0 — one database's newest segment. So it published one row per
   database and a window that was a single instant. `billing_dev_pilot`
   was published as "Oct 16 07:30:03 to Oct 16 07:30:03" while the bucket
