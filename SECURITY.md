@@ -8,26 +8,21 @@ credential model in `docs/api.md`; this file does not add new claims.
 ## Supported versions
 
 Only the current release line (`0.10.x`, tagged `v0.10.0`) is supported.
-The service is **not production-accepted**: it runs as a supervised
-non-production deployment, and no version should be treated as a
-production database service yet.
+The service is **pre-production**. Only the current release line is supported, and no version should be treated as a production database service yet.
 
 ## The deployed boundary
 
 - The gateway binds **loopback only** and refuses public binds. There
   is deliberately no TLS in the gateway itself.
-- Remote access rides an authenticated transport the operator already
-  trusts: an SSH tunnel, or the WireGuard mesh with socket-activated
-  loopback proxies on application hosts (`docs/access-edge.md`). The
-  mesh and the tunnel are the transport-security layer.
+- Remote access rides an authenticated private transport configured by
+  the operator.
 - Inside that boundary, every request needs a credential: one owner
-  key, or database-scoped keys that can only reach their own databases
-  (`docs/api.md`). Destructive operations add a typed-name
+  key, or per-database application credentials that can only reach their
+  own databases (`docs/api.md`). Destructive operations add a typed-name
   confirmation gate.
-- Backups leave the host only to the configured OVH S3 bucket
-  (snapshot sets plus Litestream replication); credentials for the
-  host, the bucket, and the gateway are separate, and none is carried
-  in systemd unit `Environment=` lines.
+- Backups are operator-configured off-host copies; credentials for the
+  host, the backup destination, and the gateway are separate, and none
+  is carried in systemd unit `Environment=` lines.
 
 A report that assumes an attacker already inside the loopback/mesh
 boundary, or holding a valid key, is describing the trusted side of
