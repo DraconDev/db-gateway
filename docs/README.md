@@ -12,8 +12,7 @@ one of:
 
 **Start here:** [`../README.md`](../README.md) is the project front door
 and [`deployment.md`](deployment.md) is the generic deploy procedure.
-This gateway is in pre-production development; it is not ready for
-production use or production data.
+This gateway is in pre-production development; it is not ready for production use or production data.
 
 ## Canonical
 
