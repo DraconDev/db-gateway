@@ -19,6 +19,15 @@ fixes; 1.0.0 waits for production acceptance.
 
 ## [Unreleased]
 
+### Changed
+
+- **Public front door trimmed.** `README.md` no longer links to the
+  internal task ledger or contributor/operator runbooks, and
+  `SECURITY.md` / `CONTRIBUTING.md` now state only generic boundaries
+  (pre-production, loopback, private transport, least-privilege
+  credentials, operator-configured off-host backups). The publication
+  runbook records the whole-tree audit disposition; no behavior changed.
+
 ### Added
 
 - **`CREATE INDEX`, `CREATE UNIQUE INDEX` and `REINDEX` now work.** They
