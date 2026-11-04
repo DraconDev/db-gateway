@@ -386,7 +386,7 @@ fixes; 1.0.0 waits for production acceptance.
   constraint or index is created, changed or removed by the new
   surface, and the row grid's own behaviour is unchanged. The tables
   listed are the operator's own; the gateway's `_dg_*` bookkeeping and
-  the replication's `_litestream*` tables stay out of the structure
+  the replication's internal tables stay out of the structure
   view, while `dg info` still lists every table in the file.
 - **The route is typed in the TypeScript client**
   (`client/src/index.ts`): `gateway.schema(name, table?)` returns a
@@ -811,7 +811,7 @@ with the same tables as the live database.
   reports them — `GET /v1/backups` carries `restore_points` and
   `last_restore`, the backups tab shows the window beside the last
   restore, and `dg restore list` prints them. The bucket's credentials
-  never leave `/etc/dg/litestream.env`, and the published facts are a
+  never leave the gateway environment file, and the published facts are a
   whitelist, so what is published names a place without opening it.
 - **The view now says whether your copies can be trusted.** The backups tab
   answers the question that comes after "where is it": the last backup run
@@ -825,7 +825,7 @@ with the same tables as the live database.
   the placement, the disk headroom and the retention; `GET /v1/backups`
   carries the run, the coverage, the replica and the drill. The facts about
   the off-host copy come from the host, which publishes them where the
-  gateway reads them (`scripts/litestream-sync.sh` and
+  gateway reads them (the replication sync script and
   `scripts/bucket-restore-drill.sh`); a host that publishes nothing says so
   in words rather than leaving a hole where a fact should be.
 - **The view now says where the gateway and its databases actually are.**
