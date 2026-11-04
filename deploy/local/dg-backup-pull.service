@@ -5,7 +5,7 @@
 #   systemctl --user daemon-reload
 # Nothing in this repository installs, enables, or starts this unit.
 #
-# Runs scripts/pull-backup.sh once per dg-backup-pull.timer
+# Runs scripts/backup-pull.sh once per dg-backup-pull.timer
 # fire: the newest verified set is copied from deployment-host to the local
 # backup root, every checksum re-verified, old pulls pruned. The pull
 # is idempotent — a run with nothing new exits 0 having changed
