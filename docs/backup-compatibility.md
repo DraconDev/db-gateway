@@ -5,15 +5,18 @@ accessed, no bucket was touched, and no backup service was installed. Every
 live behavior below needs the sandbox checks in §6 before replication sidecar or any
 object storage bucket is trusted with real data.
 
-## Adoption boundary (updated 2026-09-19)
+## Adoption boundary
 
-This brief establishes a candidate path, not a deployment plan. The current
-working candidate is replication sidecar **v0.5.17** feeding an explicitly configured
-object storage endpoint, with gateway exports and validated imports retained as the
-manual fallback. It is not adopted until the sandbox proves WAL contention, required
+This brief establishes a candidate path, not a deployment plan. The
+working candidate is a pinned replication sidecar release feeding an
+explicitly configured object storage endpoint, with gateway exports and
+validated imports retained as the manual fallback. It is not adopted
+until the sandbox proves WAL contention, required
 S3 operations, restore correctness, retention behavior, failure visibility,
-registry coverage, encryption, and 1 GiB headroom. The first supervised
-deployment-host deploy did not install a backup sidecar and does not authorize one. Rationale (2026-10-11): replication sidecar v0.5.17 was evaluated before any custom backup code because WAL-level replication with independently measurable restore drills is what a hand-rolled copier would have to re-prove; no custom backup code was written — continuous replication is replication sidecar's job pending the adoption gates above, and point snapshots are the gateway's own export path via scripts/backup.sh.
+registry coverage, encryption, and headroom. No backup sidecar is
+installed by default. Continuous replication is the sidecar's job pending
+the adoption gates above, and point snapshots are the gateway's own
+export path via scripts/backup.sh.
 
 The minimum adoption packet is: pinned binary/version output; redacted config
 shape and least-privilege credential scope; passing operation/restore/
