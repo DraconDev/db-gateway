@@ -99,11 +99,13 @@ packet you just wrote.
 ## 1. Pin and record
 
 ```sh
-# On {{SANDBOX}}: install exactly v0.5.17, nothing floating.
-curl -sSL -o replication sidecar.tar.gz \
-  https://github.com/benbjohnson/replication sidecar/releases/download/v0.5.17/replication sidecar-v0.5.17-linux-amd64.tar.gz
-tar xzf replication sidecar.tar.gz replication sidecar && sudo install -m0755 replication sidecar /usr/local/bin/
-replication sidecar version   # record verbatim output + today's date
+# On {{SANDBOX}}: install a pinned sidecar release supplied by the
+# operator (DG_REPLICATION_DOWNLOAD_URL / DG_REPLICATION_CHECKSUMS_URL),
+# nothing floating.
+curl -sSL -o replication.tar.gz \
+  "$DG_REPLICATION_DOWNLOAD_URL"
+tar xzf replication.tar.gz replication && sudo install -m0755 replication /usr/local/bin/
+replication version   # record verbatim output + today's date
 ```
 
 Record: version output, download date, config-reference fetch date. Any
