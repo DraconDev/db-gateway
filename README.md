@@ -52,7 +52,7 @@ fresh gateway.
 python3 scripts/seed-demo.py --server http://127.0.0.1:7432 --key-file owner.key
 ```
 
-v0.10.0 adds owner-only `dg protect <db>` / `dg protect <db> --off` guards and `dg undelete <db>` inside the retention window. `dg inspect --json` now carries the same activity and backup facts as the terminal view; `dg key revoke --database <db> --confirm <db>` cuts every application key scoped to a leaked database while excluding the owner key.
+See the API reference and terminal-view docs for the full command surface.
 
 Prefer an uninstalled debug build instead: `cargo build --locked` plus `export PATH="$PWD/.cargo/target/debug:$PATH"`, then the same commands. `scripts/setup.sh --help` lists options (`--prefix`, `--no-install`, `--strict`). It also reports when the `dg` already installed is older than the source tree — that is how a binary that predates a redesign keeps being run without anyone noticing — and `--strict` turns that warning into a failure. The install does not need the running `dg` closed first: it replaces the binary's path rather than the file, so a view that is already open keeps running on the code it started with, and the next launch picks up the new build.
 
@@ -145,23 +145,7 @@ Fast loop while iterating (instead of the full workspace suite):
 cargo test --locked --test <name>   # e.g. tui_layout, cli, m1_e2e
 ```
 
-The harnesses in `scripts/` come in two kinds. The load ones (`soak.py`,
-`soak_starvation.py`, `noisy_neighbor_cross_db.py`) start their own `dg serve`
-on a temp directory and never touch a deployment. The functional one
-(`scripts/live_exercise.py`) does the opposite: it drives a *running* gateway
-through the real CLI, giving it real schemas, rows, statement shapes and
-scoped credentials, then walks every read-only surface and checks the
-refusals as carefully as the successes:
-
-```sh
-scripts/live_exercise.py --server http://127.0.0.1:7432 --key-file ~/.config/dg/key
-```
-
-It refuses to run against database names that already exist, and `--cleanup`
-tombstones what it created afterwards. `--reuse` does the opposite: it uses
-the databases that are already there, which is what to run when the goal is
-to give a running gateway some work and to fill the query log with the names
-the operator actually has.
+Additional local harnesses are available under `scripts/`; see each script's `--help` for its options.
 
 `Cargo.lock` is tracked to fix dependency resolution. CI runs the Rust checks, the TypeScript client suite, deploy-template validation, and a RustSec advisory scan (`cargo audit` equivalent) on stable Rust.
 
