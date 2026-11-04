@@ -4,35 +4,28 @@ How development on this repo is supposed to flow — for the owner and for
 any agent working with them. This is the short version; the documents it
 points at are the binding ones.
 
-**The model in one paragraph:** this is a single-owner, pre-production
-project. All work lands on `main` (no feature branches), one backlog item
-at a time, and an item is only "done" when its gates pass *and* its
-closure is written down. Nothing live — deploys, drills against real
-infrastructure, production-data actions — happens without the owner's
-separate, explicit approval. The service is **not production-accepted**;
-do not deploy it as a production database service.
+**The model in one paragraph:** this is a single-owner pre-production
+project. Work lands on `main`, one item at a time, and an item is only
+done when its gates pass and its closure is written down. Live infrastructure
+actions, production-data actions, and network-edge changes require the
+owner's separate explicit approval. Do not deploy it as a production
+database service.
 
 ## Where the truth lives
 
 | Question | Document |
 | --- | --- |
-| Where is the project going, and why? | `docs/personal-turso-megaplan.md` (canonical roadmap + decision register) |
-| What is being built right now? | `TASKS.md` (live implementation checklist) |
-| What is broken, missing, or risky? | `docs/audit-2026-10-19.md` (the audit backlog; items A1… close one at a time) |
-| Which docs can I trust? | `docs/README.md` — every doc is classed canonical, superseded, or historical evidence |
+| Which project docs can I trust? | `docs/README.md` — every doc is classed canonical, superseded, or historical evidence |
 | What changed in each release? | `CHANGELOG.md` |
 | How do I report a vulnerability? | `SECURITY.md` (privately, never a public issue) |
 | What does CI enforce? | `.github/workflows/ci.yml`, `.github/workflows/lint-scripts.yml`, policy in `deny.toml` |
 
-If two documents disagree, the megaplan wins for direction and the code
-plus tests win for behaviour — then fix the stale document in the same
+If two documents disagree, the code plus tests win for behaviour — then fix the stale document in the same
 change.
 
 ## The loop for one item
 
-1. **Pick** the next item (usually the next open entry in the audit
-   backlog, or one the owner names). The item's *Done when* line is the
-   contract; if it is ambiguous, sharpen it before starting.
+1. **Pick** the next item (usually the next open entry in the active backlog, or one the owner names). The item's *Done when* line is the contract; if it is ambiguous, sharpen it before starting.
 2. **Break it down** into a task list when it is more than a one-file
    change, and track progress against that list as you go — not as a
    post-hoc checklist at the end.
@@ -42,11 +35,7 @@ change.
 4. **Run the gates** (below) on the final tree. A gate that fails gets
    fixed or the item stays open — gates are never weakened, skipped, or
    re-worded to make a run green.
-5. **Write the closure** in the item's home document (for audit items:
-   flip `- [ ]` to `- [x]` in `docs/audit-2026-10-19.md` with a dated
-   paragraph saying what changed and what proved it). Transcripts and
-   dated records under `docs/evidence/` are never rewritten — a
-   correction is a new dated note, not an edit to history.
+5. **Write the closure** in the item's home document (for backlog items: flip `- [ ]` to `- [x]` in the active backlog document with a dated paragraph saying what changed and what proved it). Transcripts and dated records under `docs/evidence/` are never rewritten — a correction is a new dated note, not an edit to history.
 6. **Independent check.** For agent-driven work, a fresh reviewer (or
    the completion auditor) rehearses the item's *Done when* contract
    against the actual files and command output before the item is
@@ -110,8 +99,8 @@ npm gates above, plus deploy-template and host-audit checks), `deny`
 
 ## Lines we don't cross
 
-- Loopback-only bind; no TLS in the gateway by decision — remote access
-  rides an authenticated private transport.
+- Restricted local/private access boundary; no public database endpoint
+  is provided — remote access, if any, rides an authenticated private transport.
 - Bots and apps get least-privilege per-database credentials — never the
   owner key.
 - No live deployment or production-data action without the owner's
@@ -126,4 +115,4 @@ npm gates above, plus deploy-template and host-audit checks), `deny`
 - Approve production acceptance and any network-edge change.
 - Push release tags; run (or approve) live deploys, restores, and
   drills.
-- Hold and rotate the owner key, backup credentials, and host access.
+- Hold and rotate the owner key, backup credentials, and system access.
