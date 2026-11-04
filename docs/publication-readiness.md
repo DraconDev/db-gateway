@@ -182,6 +182,56 @@ page publishes the account id and the fact that a working key for it
 exists, so either scrub the account id from that item or accept that it
 is public.
 
+### The commit author email
+
+This is the disclosure that a history rewrite for the transcript does
+**not** fix, and it is worth deciding deliberately rather than
+discovering later.
+
+Every one of the 2,524 commits is authored and committed by the same
+personal address:
+
+```
+git log --all --format='%an <%ae>' | sort -u
+DraconDev <former-personal-email>
+```
+
+Publishing the repository publishes that address in every commit header,
+independent of any file's contents. Removing the session transcript
+removes one more copy of it; it does not remove the other 2,524.
+
+Options: publish as-is (ordinary for open source, and the address is
+already the git identity), switch `user.email` to a GitHub `noreply`
+address for future commits only, or include an author rewrite
+(`git filter-repo --mailmap`) in the same rewrite that removes the
+transcripts. Only the third one changes what a public clone sees.
+
+## Repository metadata
+
+Set on the GitHub repository, not in the tree, so it is recorded here
+because it cannot be reviewed in a diff:
+
+- **About description:** "dg — a single-owner SQLite service: one Rust
+gateway, many isolated databases, scoped credentials, an HTTP API, CLI
+and TUI, and off-host backups. Pre-production (0.x)."
+- **Topics:** `rust`, `sqlite`, `database`, `database-gateway`,
+  `self-hosted`, `cli`, `tui`, `http-api`, `axum`, `rusqlite`, `libsql`,
+  `turso`, `litestream`, `backups`, `ratatui`,
+  `credential-management`.
+- **In-tree, so it does move in a diff:** `Cargo.toml` and both
+  `package.json` files now carry `description`, `repository` and
+  `license`.
+
+**On `license = "AGPL-3.0-only"`.** `LICENSE` is the GNU AGPL v3 text and
+nothing in the repository carries an "or any later version" notice, so
+version 3 itself is what the files grant. That is the conservative
+reading, and `Cargo.toml` records it as such. If the intent is "v3 or
+later", the notice has to be stated explicitly — adding the SPDX string
+without the notice would be claiming a grant the file does not make.
+`LICENSE` also carries no copyright-holder line; adding one (for example
+`Copyright (C) 2026 DraconDev`) is conventional and is the owner's
+name to write.
+
 ## Why the history scan has two tiers
 
 The scanner's `generic-secret-assignment` pattern is a heuristic: a
