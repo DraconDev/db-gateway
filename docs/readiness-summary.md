@@ -2,14 +2,14 @@
 
 > **Dated snapshot: 2026-09-20 — superseded, kept as evidence.** The gate
 > counts and "explicitly unperformed live work" below describe that date
-> only. Since then (through 2026-10-19): object storage provider compatibility verified live
-> 12/12 (`evidence/sandbox-2026-10-14-object storage provider.log`); the replication sidecar is
-> live on deployment-host (`evidence/replication sidecar-replication-evidence.log`) with automatic
-> new-database coverage (`evidence/replication-sync-drill-2026-10-19.log`); deployment-host
+> only. Since then (through 2026-10-19): off-host storage compatibility verified live
+> 12/12 (sandbox packet record); off-host replication is
+> live on deployment-host (replication record) with automatic
+> new-database coverage (sync-drill record); deployment-host
 > steady-state resources were sampled by script
-> (`evidence/m4-sampling-2026-10-16.log`); a example database has undergone verification
-> since 2026-10-16 (`evidence/pilot-verification-log.md`); the backup watchdog digest is
-> live (`evidence/watchdog-2026-10-17.log`); the test baseline is 212 Rust tests
+> (sampling record); an example database has undergone verification
+> since 2026-10-16 (pilot log); the backup watchdog digest is
+> live (watchdog record); the test baseline is 212 Rust tests
 > (plus 16 client, 39 web). Current status lives in
 > [`TASKS.md`](../TASKS.md), [`deployment-readiness.md`](deployment-readiness.md),
 > and the findings register in [`audit-2026-10-19.md`](audit-2026-10-19.md).
@@ -18,7 +18,7 @@
 Updated: 2026-09-20. This is an evidence-backed summary of completed local
 preparation plus the explicitly authorized supervised deployment-host smoke/restore
 deploy. It is **not a claim of production readiness**. The authoritative
-host/service facts are in [`evidence/first-deploy.md`](evidence/first-deploy.md);
+host/service facts are in the local deployment record;
 this summary does not authorize any further live change.
 
 ## Gates re-run for this summary
@@ -54,10 +54,9 @@ accepted), `docs/migration-inventory.md` (11 risks + empty inventory),
 `docs/migration-cutover.md` (staged plan + rollback),
 `docs/recovery-decisions.md` (working Profile C objectives, production
 acceptance still pending), `docs/recovery-contract.md`,
-`docs/observability-contract.md`, `docs/evidence/recovery-rehearsal-evidence.json`,
-`docs/backup-compatibility.md` (replication sidecar v0.5.17 pinned, endpoint
+`docs/observability-contract.md`, `docs/backup-compatibility.md` (replication version pinned, endpoint
 unverified). The supervised deployment-host install, restart check, smoke query, and
-throwaway export/import drill are recorded in `docs/evidence/first-deploy.md`.
+throwaway export/import drill are recorded in the local deployment record.
 
 ## Reconciliation
 
@@ -67,9 +66,9 @@ interrupted-publish invariant, logging-canary audit, resource harness +
 budget ledger, release bundle, service template + validator, upgrade/rollback
 rehearsal, deployment checklist, migration inventory/fixture/cutover plan.
 
-Remaining owner decisions: production acceptance of the Profile C
+Remaining operator decisions: production acceptance of the Profile C
 recovery objectives/retention objectives, complete resource budget and memory-limit value,
-backup-sidecar plan, rollback/verification choices, future TLS/monitoring needs, and
+backup plan, rollback/verification choices, future TLS/monitoring needs, and
 Turso plan/target/trial verification. The
 deployment-host architecture/disk survey and private transport-tunnel access choice are evidenced for
 the supervised deploy; they do not authorize production migration or future
@@ -77,8 +76,8 @@ live changes.
 
 ## Explicitly unperformed live work (as of 2026-09-20; see the superseding note above)
 
-- object storage provider: no bucket survey, no replication sidecar deployment, no backup/restore to or
-  from object storage provider, no credential or encryption setup.
+- off-host storage: no bucket survey, no replication deployment, no backup/restore to or
+  from off-host storage, no credential or encryption setup.
 - deployment-host: the first supervised deploy is complete and recorded: host survey,
   installed active service, restart survival, authenticated smoke query, and
   throwaway export/import/copy-independence drill. No backup sidecar, TLS

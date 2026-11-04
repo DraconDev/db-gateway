@@ -63,7 +63,7 @@ competing silently with the canonical roadmap.
 | `docs/scale-proposal-2026-09-21.md` | Implemented scale reference | Phases 1–2 landed; measured sizing and multi-host gate remain open |
 | `docs/migration-cutover.md` | **Normative migration gates** | GATE 1/2/3, rollback floor, write reconciliation, and decommission approval govern Phase 7 |
 | `docs/plan-2026-09-22.md` | **Historical / superseded** | Prior sequencing proposal; retained for provenance, not future execution |
-| `docs/evidence/audit-2026-09-21.md`, `docs/readiness-summary.md`, and dated `*-evidence*` records | Historical evidence | Evidence snapshots; they do not authorize future live work |
+| `docs/readiness-summary.md` and dated deployment records | Historical evidence | Evidence snapshots; they do not authorize future live work |
 
 The checker `scripts/check_plan_consistency.py` enforces this register, the
 phase sequence, required rollback boundaries, and the no-live-action boundary.
