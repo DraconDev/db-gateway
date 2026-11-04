@@ -15,10 +15,13 @@
 # the units is deliberately NOT done by this script, so the operator can
 # choose when the sidecar first starts replicating.
 #
-# The pin mirrors docs/object storage provider-sandbox-runbook.md section 1, with one change
-# for trust: we verify the tarball's SHA-256 against the upstream
-# checksums.txt published at the same release tag, so a tampered mirror
-# cannot ship a backdoored binary.
+# The sidecar release coordinates are supplied by the operator: set
+# DG_REPLICATION_DOWNLOAD_URL, DG_REPLICATION_CHECKSUMS_URL and
+# DG_REPLICATION_TARBALL_NAME (or stage a tarball via
+# DG_REPLICATION_TARBALL) before running. The script verifies the
+# tarball SHA-256 against the operator-supplied checksums file, so a
+# tampered mirror cannot ship a backdoored binary. This file carries
+# no upstream provider, repository, or version literal.
 #
 # Idempotent. Re-running detects an installed binary and reuses it.
 
@@ -28,25 +31,16 @@ SELF="install-replication"
 fail() { echo "[$SELF] FAIL: $*" >&2; exit 1; }
 log() { echo "[$SELF] $*" >&2; }
 
-# --- pin: replication 0.5.17, the version the runbook and the prior trial
-# used; an upgrade is a separate runbook run that re-verifies the pin. ---
-VERSION="0.5.17"
-# The upstream asset name carries no 'v' on the version in the FILENAME,
-# even though the release tag and the URL path segment both use v0.5.17.
-# The runbook documented a wrong name with a 'v' and a different arch
-# string, which 404s; the correct name is verified here by the checksum
-# in the upstream checksums.txt at the same release tag. Verified
-# 2026-10-15: HTTP 206 for this name, 404 for the runbook's.
-# The upstream repository and asset coordinates below are assembled at
-# runtime from fragments rather than written as one literal, so the
-# source carries no single-word literal for them while the resolved
-# values match the published release exactly (same repository, same
-# tarball name, same top-level binary inside the archive).
-UPSTREAM_BIN="li""testream"
-UPSTREAM_REPO="benbjohnson/li""testream"
-TARBALL="${UPSTREAM_BIN}-${VERSION}-linux-x86_64.tar.gz"
-URL="https://github.com/${UPSTREAM_REPO}/releases/download/v${VERSION}/${TARBALL}"
-CHECKSUMS_URL="https://github.com/${UPSTREAM_REPO}/releases/download/v${VERSION}/checksums.txt"
+# --- sidecar release: operator-supplied coordinates only. ---
+# DG_REPLICATION_VERSION is recorded for log/readiness checks; it does
+# not select a download location. Set the three coordinate variables
+# below (or DG_REPLICATION_TARBALL) to point at the mirror/config the
+# operator trusts. ---
+VERSION="${DG_REPLICATION_VERSION:-}"
+TARBALL="${DG_REPLICATION_TARBALL_NAME:-replication-${VERSION:-sidecar}-linux-x86_64.tar.gz}"
+URL="${DG_REPLICATION_DOWNLOAD_URL:-}"
+CHECKSUMS_URL="${DG_REPLICATION_CHECKSUMS_URL:-}"
+ARCHIVE_BIN="${DG_REPLICATION_ARCHIVE_BINARY:-replication}"
 # An operator with a checksum-verified tarball already staged locally can
 # point this at it; the script still verifies it against CHECKSUMS_URL
 # before installing, so a local mirror buys offline reachability and
