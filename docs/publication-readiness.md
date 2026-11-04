@@ -271,6 +271,28 @@ is a blocker. An intermediate version of this gate did the opposite — it
 scanned a truncated stream and printed `history is clean` — which is why
 the check exists and why the wording is this direct.
 
+## Operational-detail audit (public front door)
+
+A whole-tree audit classified tracked files into the public front door,
+canonical operator docs, frozen historical records, deployment
+descriptors, source/scripts, and tests/examples. The front-door cleanup
+is in `README.md`, `SECURITY.md`, and `CONTRIBUTING.md`: the README no
+longer links to the internal task ledger or contributor/operator runbooks,
+and the security and contributor pages state only generic boundaries
+(pre-production, loopback, private transport, least-privilege
+credentials, operator-configured off-host backups). No hostnames, public
+addresses, provider endpoints, evidence-log references, deployment
+schedules, key paths, or milestone state remain in those files.
+
+Canonical operator docs and frozen records still contain working details
+by design: they are no longer advertised from the README, and the
+historical records under `docs/evidence/` and `docs/verification/` are
+treated as a publication decision, not as front-door content. Source,
+scripts, deploy descriptors, and tests retain the identifiers their
+behavior requires; this audit does not change behavior. The gate remains
+the source of truth for blockers: after this cleanup,
+`scripts/public-readiness.sh --tree` reports no blockers.
+
 ## Before the visibility button
 
 1. `scripts/public-readiness.sh` — every blocker cleared or explicitly
