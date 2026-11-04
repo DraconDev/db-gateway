@@ -1,9 +1,9 @@
 # DB Gateway — implementation task list
 
 **Document role:** Current implementation checklist
-**Canonical roadmap:** [`docs/personal-turso-megaplan.md`](docs/personal-turso-megaplan.md)
-**Status rule:** This file records implementation status; the canonical
-roadmap records forward sequencing, architecture direction, gates, and non-goals.
+**Canonical overview:** [`docs/README.md`](docs/README.md)
+**Status rule:** This file records implementation status; the docs index
+records forward sequencing and non-goals.
 Neither document authorizes live, deployment, subscription,
 or production-data actions.
 
@@ -21,8 +21,8 @@ This file is a plan, not authorization to deploy, migrate production data, delet
 
 ## Execution order and current status
 
-This is the current implementation checklist, subordinate to the canonical
-Personal Turso roadmap. Mark items complete only with implementation or
+This is the current implementation checklist, subordinate to the docs
+index. Mark items complete only with implementation or
 documentation evidence and the relevant passing checks. The phases below are a
 status ledger, not a second competing roadmap.
 
