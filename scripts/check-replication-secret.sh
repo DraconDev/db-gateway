@@ -9,7 +9,7 @@
 # the host". The check is harder than it looks, because the obvious way to
 # write it is itself a leak:
 #
-#     SEC=$(sudo sed -n 's/^LITESTREAM_S3_SECRET_ACCESS_KEY=//p' /etc/dg/replication.env)
+#     SEC=$(sudo sed -n 's/^REPLICATION_S3_SECRET_ACCESS_KEY=//p' /etc/dg/replication.env)
 #     sudo grep -rlF "$SEC" /etc /var /home
 #
 # sudo logs the full COMMAND= of every invocation to the journal, so that
@@ -52,7 +52,7 @@ set -u
 ENV="/etc/dg/replication.env"
 PAT="/run/replication-check.pat.$$"
 trap 'rm -f "$PAT"' EXIT
-sed -n 's/^LITESTREAM_S3_SECRET_ACCESS_KEY=//p' "$ENV" > "$PAT" || exit 2
+sed -n 's/^REPLICATION_S3_SECRET_ACCESS_KEY=//p' "$ENV" > "$PAT" || exit 2
 chmod 0600 "$PAT"
 [ -s "$PAT" ] || { echo "$ENV has no secret line" >&2; exit 2; }
 # Scanned roots: the trees that can plausibly hold a hand-copied

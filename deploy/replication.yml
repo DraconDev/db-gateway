@@ -29,19 +29,19 @@
 dbs:
   - path: /var/lib/dg/verify_probe.sqlite
     replicas:
-      - url: s3://${LITESTREAM_S3_BUCKET}/verify_probe?endpoint=${LITESTREAM_S3_ENDPOINT}
-        region: ${LITESTREAM_S3_REGION}
-        access-key-id: ${LITESTREAM_S3_ACCESS_KEY_ID}
-        secret-access-key: ${LITESTREAM_S3_SECRET_ACCESS_KEY}
+      - url: s3://${REPLICATION_S3_BUCKET}/verify_probe?endpoint=${REPLICATION_S3_ENDPOINT}
+        region: ${REPLICATION_S3_REGION}
+        access-key-id: ${REPLICATION_S3_ACCESS_KEY_ID}
+        secret-access-key: ${REPLICATION_S3_SECRET_ACCESS_KEY}
         force-path-style: true
         retention: 168h
         snapshot-interval: 24h
   - path: /var/lib/dg/metadata.sqlite
     replicas:
-      - url: s3://${LITESTREAM_S3_BUCKET}/metadata?endpoint=${LITESTREAM_S3_ENDPOINT}
-        region: ${LITESTREAM_S3_REGION}
-        access-key-id: ${LITESTREAM_S3_ACCESS_KEY_ID}
-        secret-access-key: ${LITESTREAM_S3_SECRET_ACCESS_KEY}
+      - url: s3://${REPLICATION_S3_BUCKET}/metadata?endpoint=${REPLICATION_S3_ENDPOINT}
+        region: ${REPLICATION_S3_REGION}
+        access-key-id: ${REPLICATION_S3_ACCESS_KEY_ID}
+        secret-access-key: ${REPLICATION_S3_SECRET_ACCESS_KEY}
         force-path-style: true
         retention: 168h
         snapshot-interval: 24h

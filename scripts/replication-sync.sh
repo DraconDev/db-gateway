@@ -49,7 +49,7 @@
 #                            empty string disables the check)
 #
 # The S3 access/secret keys are never inlined: the rendered config keeps
-# ${LITESTREAM_S3_*} references for the two credential keys (expanded by
+# ${REPLICATION_S3_*} references for the two credential keys (expanded by
 # replication from the sidecar's EnvironmentFile), exactly as the
 # installer's render did. Only bucket/endpoint/region -- not secrets --
 # are substituted from the env file, and they are never echoed.
@@ -186,8 +186,8 @@ render_one() { # render_one <name> -- one dbs: entry; name may be "metadata"
     else
         echo "      - url: s3://${BUC}/${name}?endpoint=${END}"
         echo "        region: ${REG}"
-        echo "        access-key-id: \${LITESTREAM_S3_ACCESS_KEY_ID}"
-        echo "        secret-access-key: \${LITESTREAM_S3_SECRET_ACCESS_KEY}"
+        echo "        access-key-id: \${REPLICATION_S3_ACCESS_KEY_ID}"
+        echo "        secret-access-key: \${REPLICATION_S3_SECRET_ACCESS_KEY}"
         echo "        force-path-style: true"
     fi
     echo "        retention: ${RETENTION}"
@@ -208,16 +208,16 @@ if [ -z "${DG_REPLICA_URL_TEMPLATE:-}" ]; then
     # installer): only the exact keys, values never echoed. The secret
     # is checked for presence only -- it is never substituted anywhere.
     [ -r "$ENV_FILE" ] || fail "env file not readable: $ENV_FILE"
-    BUC=$(sed -n 's/^LITESTREAM_S3_BUCKET=\(.*\)$/\1/p' "$ENV_FILE")
-    END=$(sed -n 's/^LITESTREAM_S3_ENDPOINT=\(.*\)$/\1/p' "$ENV_FILE")
-    REG=$(sed -n 's/^LITESTREAM_S3_REGION=\(.*\)$/\1/p' "$ENV_FILE")
-    KID=$(sed -n 's/^LITESTREAM_S3_ACCESS_KEY_ID=\(.*\)$/\1/p' "$ENV_FILE")
-    SEC=$(sed -n 's/^LITESTREAM_S3_SECRET_ACCESS_KEY=\(.*\)$/\1/p' "$ENV_FILE")
-    [ -n "$BUC" ] || fail "LITESTREAM_S3_BUCKET missing/empty in $ENV_FILE"
-    [ -n "$END" ] || fail "LITESTREAM_S3_ENDPOINT missing/empty in $ENV_FILE"
-    [ -n "$REG" ] || fail "LITESTREAM_S3_REGION missing/empty in $ENV_FILE"
-    [ -n "$KID" ] || fail "LITESTREAM_S3_ACCESS_KEY_ID missing/empty in $ENV_FILE"
-    [ -n "$SEC" ] || fail "LITESTREAM_S3_SECRET_ACCESS_KEY missing/empty in $ENV_FILE"
+    BUC=$(sed -n 's/^REPLICATION_S3_BUCKET=\(.*\)$/\1/p' "$ENV_FILE")
+    END=$(sed -n 's/^REPLICATION_S3_ENDPOINT=\(.*\)$/\1/p' "$ENV_FILE")
+    REG=$(sed -n 's/^REPLICATION_S3_REGION=\(.*\)$/\1/p' "$ENV_FILE")
+    KID=$(sed -n 's/^REPLICATION_S3_ACCESS_KEY_ID=\(.*\)$/\1/p' "$ENV_FILE")
+    SEC=$(sed -n 's/^REPLICATION_S3_SECRET_ACCESS_KEY=\(.*\)$/\1/p' "$ENV_FILE")
+    [ -n "$BUC" ] || fail "REPLICATION_S3_BUCKET missing/empty in $ENV_FILE"
+    [ -n "$END" ] || fail "REPLICATION_S3_ENDPOINT missing/empty in $ENV_FILE"
+    [ -n "$REG" ] || fail "REPLICATION_S3_REGION missing/empty in $ENV_FILE"
+    [ -n "$KID" ] || fail "REPLICATION_S3_ACCESS_KEY_ID missing/empty in $ENV_FILE"
+    [ -n "$SEC" ] || fail "REPLICATION_S3_SECRET_ACCESS_KEY missing/empty in $ENV_FILE"
     unset KID SEC
     BUCKET="$BUC"
     ENDPOINT="$END"

@@ -51,9 +51,9 @@
 # URL, but NOT -config together with a replica URL ("cannot specify a
 # replica URL and the -config flag"). The URL mode also reads credentials
 # from replication's own env names (REPLICATION_ACCESS_KEY_ID et al.), not
-# the LITESTREAM_S3_* names this deployment uses, so URL mode would need
+# the REPLICATION_S3_* names this deployment uses, so URL mode would need
 # the keys renamed. DB_PATH + -config is the mode that expands
-# ${LITESTREAM_S3_*} from the sidecar env, so the restore uses the same
+# ${REPLICATION_S3_*} from the sidecar env, so the restore uses the same
 # credentials, the same config, and the same live-db selection the
 # running sidecar uses -- one code path, no second place to get wrong.
 #
@@ -134,20 +134,20 @@ dg_query() { # $1 = db name, $2 = SQL
 }
 
 # --- 0. sanity: env file readable, bucket set, registry non-empty ------
-log "checking ${ENV_PATH} and LITESTREAM_S3_BUCKET on ${TARGET} (as dg)"
+log "checking ${ENV_PATH} and REPLICATION_S3_BUCKET on ${TARGET} (as dg)"
 # The remote script is piped over stdin (no quoting layers in argv): the
 # unquoted heredoc expands ${ENV_PATH} locally and keeps the dollar of the
 # remote variable literal, so the credential value is read on the host by
 # the dg user only and never crosses into the command line.
 # The unquoted heredoc is the mechanism, per the comment above:
-# ${ENV_PATH} expands locally, \$LITESTREAM_S3_BUCKET stays literal
+# ${ENV_PATH} expands locally, \$REPLICATION_S3_BUCKET stays literal
 # for the remote side.
 # shellcheck disable=SC2087
 BUCKET=$(ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" 'sudo -n -u dg bash -s' <<REMOTE 2>/dev/null
-set -a; . ${ENV_PATH}; printf %s "\$LITESTREAM_S3_BUCKET"
+set -a; . ${ENV_PATH}; printf %s "\$REPLICATION_S3_BUCKET"
 REMOTE
 )
-[ -n "$BUCKET" ] || fail "LITESTREAM_S3_BUCKET not set in ${ENV_PATH} on ${TARGET} (read as dg; /etc/dg is not readable by the login user)"
+[ -n "$BUCKET" ] || fail "REPLICATION_S3_BUCKET not set in ${ENV_PATH} on ${TARGET} (read as dg; /etc/dg is not readable by the login user)"
 
 log "listing registered live databases on ${TARGET}"
 mapfile -t DBS < <(ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" \
@@ -171,7 +171,7 @@ for name in "${DBS[@]}"; do
   log "[${name}] replication restore (as dg, ${CONFIG}) -> ${REMOTE_OUT}/${name}.sqlite on ${TARGET}"
   # One remote script as dg: load the env file (the only credential
   # copy), make a 0700 scratch dir, restore from the DB_PATH so the
-  # config's ${LITESTREAM_S3_*} references expand against the same env
+  # config's ${REPLICATION_S3_*} references expand against the same env
   # the sidecar runs with. stdout suppressed -- exit code is the signal.
   if ! ssh -o BatchMode=yes -o ConnectTimeout=15 -T -- "$TARGET" \
     "sudo -n -u dg bash -c \"set -a; . ${ENV_PATH}; set +a; mkdir -p -m 0700 ${REMOTE_OUT}; ${REPLICATION} restore -config ${CONFIG} -o ${REMOTE_OUT}/${name}.sqlite ${DATA_DIR}/${name}.sqlite\"" \

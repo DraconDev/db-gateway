@@ -16,7 +16,7 @@
 # The `dg list` call itself is dropped to the dg user inside the script
 # (the owner key is 0600 dg:dg). No secret is read into this unit: the
 # script substitutes only bucket/endpoint/region and leaves the
-# credential keys as ${LITESTREAM_S3_*} references for the sidecar's own
+# credential keys as ${REPLICATION_S3_*} references for the sidecar's own
 # EnvironmentFile.
 
 [Unit]

@@ -755,11 +755,11 @@ fn the_published_replica_status_never_carries_a_credential() {
     fs::write(data.join("alpha.sqlite"), b"sqlite").unwrap();
     fs::write(
         &env_file,
-        "LITESTREAM_S3_BUCKET=dg-sandbox\n\
-         LITESTREAM_S3_ENDPOINT=s3.example.invalid\n\
-         LITESTREAM_S3_REGION=gra\n\
-         LITESTREAM_S3_ACCESS_KEY_ID=[DRACON_SECRET:REDACTED]\n\
-         LITESTREAM_S3_SECRET_ACCESS_KEY=placeholder-secret-not-published\n",
+        "REPLICATION_S3_BUCKET=dg-sandbox\n\
+         REPLICATION_S3_ENDPOINT=s3.example.invalid\n\
+         REPLICATION_S3_REGION=gra\n\
+         REPLICATION_S3_ACCESS_KEY_ID=[DRACON_SECRET:REDACTED]\n\
+         REPLICATION_S3_SECRET_ACCESS_KEY=placeholder-secret-not-published\n",
     )
     .unwrap();
     let dg = fake_dg(dir.path(), &["alpha"]);
@@ -972,7 +972,7 @@ fn replication_config(dir: &Path, data: &Path, names: &[&str]) -> std::path::Pat
     for name in names {
         text.push_str(&format!("  - path: {}/{name}.sqlite\n", data.display()));
         text.push_str(&format!(
-            "    replicas:\n      - url: s3://dg-sandbox/{name}\n        access-key-id: ${{LITESTREAM_S3_ACCESS_KEY_ID}}\n        secret-access-key: ${{LITESTREAM_S3_SECRET_ACCESS_KEY}}\n"
+            "    replicas:\n      - url: s3://dg-sandbox/{name}\n        access-key-id: ${{REPLICATION_S3_ACCESS_KEY_ID}}\n        secret-access-key: ${{REPLICATION_S3_SECRET_ACCESS_KEY}}\n"
         ));
     }
     fs::write(&config, text).unwrap();
@@ -1121,8 +1121,8 @@ fn the_published_restore_facts_never_carry_a_credential() {
     let env_file = dir.path().join("replication.env");
     fs::write(
         &env_file,
-        "LITESTREAM_S3_ACCESS_KEY_ID=[DRACON_SECRET:REDACTED]KEY\n\
-         LITESTREAM_S3_SECRET_ACCESS_KEY=placeholder-secret-not-published\n",
+        "REPLICATION_S3_ACCESS_KEY_ID=[DRACON_SECRET:REDACTED]KEY\n\
+         REPLICATION_S3_SECRET_ACCESS_KEY=placeholder-secret-not-published\n",
     )
     .unwrap();
 

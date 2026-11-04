@@ -71,7 +71,7 @@ log "checking ${ENV_PATH} on ${TARGET}"
 if ! ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
   "sudo test -f ${ENV_PATH} && sudo stat -c '%a %U:%G' ${ENV_PATH}" 2>/dev/null
 then
-  fail "${ENV_PATH} not present on ${TARGET}; the operator must create it (mode 0600, owner dg:dg) with the four LITESTREAM_S3_* keys before this script can continue"
+  fail "${ENV_PATH} not present on ${TARGET}; the operator must create it (mode 0600, owner dg:dg) with the four REPLICATION_S3_* keys before this script can continue"
 fi
 # Note: the install script does NOT read or print the secret values; it
 # only confirms the file exists with the right mode and ownership. The
@@ -82,15 +82,19 @@ fi
 if ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
   "test -x ${INSTALL_PATH}" 2>/dev/null
 then
-  # `replication version` prints a bare version string ("0.5.17"), with no
+  # `replication version` prints a bare version string, with no
   # program name and no leading 'v'. Normalise both forms so a re-run
-  # recognises the same pin instead of failing on the parse.
+  # recognises the same pin instead of failing on the parse. When the
+  # operator has not set DG_REPLICATION_VERSION, any installed binary
+  # is accepted and the download is skipped.
   EXISTING_VERSION=$(ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" \
     "${INSTALL_PATH} version" 2>/dev/null | head -1 | tr -d '\r' | sed -E 's/^(replication )?v?//')
-  if [ "${EXISTING_VERSION}" = "${VERSION}" ]; then
+  if [ -z "${VERSION}" ]; then
+    log "replication already installed at ${INSTALL_PATH} (version ${EXISTING_VERSION:-unknown}); skipping download"
+  elif [ "${EXISTING_VERSION}" = "${VERSION}" ]; then
     log "replication ${VERSION} already installed at ${INSTALL_PATH}; skipping download"
   else
-    fail "${INSTALL_PATH} is v${EXISTING_VERSION:-unknown}, expected v${VERSION}; bump the pin in this script and the runbook together, or remove the installed binary to re-run"
+    fail "${INSTALL_PATH} is v${EXISTING_VERSION:-unknown}, expected v${VERSION}; bump DG_REPLICATION_VERSION or remove the installed binary to re-run"
   fi
 else
   TMPDIR_LOCAL=$(mktemp -d)
@@ -99,6 +103,9 @@ else
   # A staged, checksum-verified tarball may be nominated instead of a
   # download; the checksum below is still enforced, so a mirror cannot
   # smuggle a different binary.
+  if [ -z "$LOCAL_TARBALL" ] && { [ -z "$URL" ] || [ -z "$CHECKSUMS_URL" ]; }; then
+    fail "set DG_REPLICATION_DOWNLOAD_URL, DG_REPLICATION_CHECKSUMS_URL and DG_REPLICATION_TARBALL_NAME (or DG_REPLICATION_TARBALL) to point at the sidecar mirror/config to install"
+  fi
   if [ -n "$LOCAL_TARBALL" ]; then
     [ -r "$LOCAL_TARBALL" ] || fail "DG_REPLICATION_TARBALL=$LOCAL_TARBALL is not readable"
     log "using staged tarball ${LOCAL_TARBALL}"
@@ -108,23 +115,25 @@ else
     curl -fsSLo "$TMPDIR_LOCAL/$TARBALL" "$URL" || fail "download failed: $URL"
   fi
 
-  log "fetching upstream checksums.txt for the same release tag"
+  log "fetching operator-supplied checksums.txt"
   curl -fsSLo "$TMPDIR_LOCAL/checksums.txt" "$CHECKSUMS_URL" \
-    || fail "fetch checksums.txt failed: $CHECKSUMS_URL (cannot verify the binary without it; the runbook's section 1 also fails closed in this state)"
+    || fail "fetch checksums.txt failed: $CHECKSUMS_URL (cannot verify the binary without it; the install fails closed in this state)"
 
-  log "verifying sha256 of ${TARBALL} against the upstream checksums.txt"
+  log "verifying sha256 of ${TARBALL} against the operator-supplied checksums.txt"
   EXPECTED=$(awk -v n="$TARBALL" '$2==n {print $1}' "$TMPDIR_LOCAL/checksums.txt")
   if [ -z "$EXPECTED" ]; then
-    fail "${TARBALL} not found in upstream checksums.txt; refusing to install an unverified binary"
+    fail "${TARBALL} not found in checksums.txt; refusing to install an unverified binary"
   fi
   ACTUAL=$(sha256sum "$TMPDIR_LOCAL/$TARBALL" | awk '{print $1}')
-  [ "$ACTUAL" = "$EXPECTED" ] || fail "sha256 mismatch for ${TARBALL}: got $ACTUAL, upstream $EXPECTED"
+  [ "$ACTUAL" = "$EXPECTED" ] || fail "sha256 mismatch for ${TARBALL}: got $ACTUAL, expected $EXPECTED"
 
   log "extracting the sidecar binary and installing it to ${INSTALL_PATH}"
-  tar -C "$TMPDIR_LOCAL" -xzf "$TMPDIR_LOCAL/$TARBALL" "${UPSTREAM_BIN}" \
+  tar -C "$TMPDIR_LOCAL" -xzf "$TMPDIR_LOCAL/$TARBALL" "${ARCHIVE_BIN}" \
     || fail "extract failed: ${TARBALL} has no top-level sidecar binary"
-  mv "$TMPDIR_LOCAL/${UPSTREAM_BIN}" "$TMPDIR_LOCAL/replication" \
-    || fail "renaming extracted sidecar binary failed"
+  if [ "${ARCHIVE_BIN}" != "replication" ]; then
+    mv "$TMPDIR_LOCAL/${ARCHIVE_BIN}" "$TMPDIR_LOCAL/replication" \
+      || fail "renaming extracted sidecar binary failed"
+  fi
   # scp resolves the ssh alias's hostname but does not inherit the
   # IdentityFile the way plain ssh does, so name the key explicitly.
   DEPLOYMENT_HOST_HOST=$(ssh -G "$TARGET" 2>/dev/null | awk '/^hostname /{print $2; exit}')
@@ -191,7 +200,7 @@ log "verifying ${ENV_PATH} is the only copy of the secret on ${TARGET}"
 if ! ssh -o BatchMode=yes -o ConnectTimeout=10 -T -- "$TARGET" sudo -n python3 - <<'PYEOF' 2>&1
 import os, sys
 env = "/etc/dg/replication.env"
-sec = open(env).read().split("LITESTREAM_S3_SECRET_ACCESS_KEY=")[1].split("\n")[0].strip().encode()
+sec = open(env).read().split("REPLICATION_S3_SECRET_ACCESS_KEY=")[1].split("\n")[0].strip().encode()
 extra = []
 for root in ("/etc", "/var", "/home", "/root", "/opt", "/usr/local", "/tmp"):
     if not os.path.isdir(root):
