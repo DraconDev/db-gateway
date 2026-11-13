@@ -2,3 +2,8 @@
 # Pinned so local builds and CI use the same compiler. Bump deliberately:
 # update this file, run the full gate suite, and commit together.
 channel = "1.97.1"
+# Listed here, not only in CI: the workflow's toolchain action installs
+# rustfmt/clippy for the toolchain *it* selects, and this file then
+# overrides that selection, so without these lines `cargo fmt` fails on
+# the pinned compiler before any other gate runs.
+components = ["rustfmt", "clippy"]
