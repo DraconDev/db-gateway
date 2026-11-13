@@ -508,9 +508,7 @@ fn authorize(ctx: AuthContext<'_>, read_only: bool, may_reindex: bool) -> Author
         // callback names only the old table) and is caught after the
         // statement runs, see `UserSqlGate::altered`.
         AlterTable { table_name, .. } => !read_only && !protected(table_name),
-        CreateView { view_name } | DropView { view_name } => {
-            !read_only && !protected(view_name)
-        }
+        CreateView { view_name } | DropView { view_name } => !read_only && !protected(view_name),
         // A trigger body is authorized when it fires, inside the caller's
         // statement that fires it, so it cannot reach anything its caller
         // could not.
@@ -671,10 +669,34 @@ fn run_statement(
                 rows.push(values);
             }
         }
-        Ok(
-            json!({"columns":columns, "rows":rows, "rows_affected":if readonly {0} else {conn.changes()}}),
-        )
+        let rows_affected = if readonly { 0 } else { conn.changes() };
+        if gate.altered() {
+            refuse_protected_names(conn)?;
+        }
+        Ok(json!({"columns":columns, "rows":rows, "rows_affected":rows_affected}))
     })()
+}
+
+/// After an ALTER TABLE: refuse a schema that now holds a server-owned
+/// name. `ALTER TABLE t RENAME TO _dg_x` passes the authorizer, which only
+/// names the old table, but leaves a table that every later import of this
+/// database's backups would reject. The caller's statement runs inside the
+/// request's transaction, so the error here rolls the rename back.
+fn refuse_protected_names(conn: &Connection) -> Result<()> {
+    let smuggled: i64 = conn.query_row(
+        "SELECT count(*) FROM sqlite_master \
+         WHERE lower(substr(name,1,4))='_dg_' AND lower(name)<>'_dg_replay'",
+        [],
+        |r| r.get(0),
+    )?;
+    if smuggled > 0 {
+        return Err(Error::new(
+            403,
+            "sql_forbidden",
+            "names starting with _dg_ are reserved for the gateway",
+        ));
+    }
+    Ok(())
 }
 fn result_limit() -> Error {
     Error::new(
