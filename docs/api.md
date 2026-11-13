@@ -264,11 +264,10 @@ table has and what is in them; the structure says what each column *is*.
 
 The answer is read **server-side, from the database file, with SQLite's
 own PRAGMAs** — `table_info`, `index_list`, `index_info`,
-`foreign_key_list`. It cannot be read by a client: the query endpoint
-refuses `PRAGMA`, because a PRAGMA can change a connection's behaviour
-and this answer is a fact about the schema, not a statement to run. The
-gateway already opens the file read-only for `info`, so it reads the
-schema the same way.
+`foreign_key_list`. A client may run those same introspection PRAGMAs
+itself through the query endpoint (see the schema-change rules below);
+every PRAGMA that sets a value stays refused. The gateway already opens
+the file read-only for `info`, so it reads the schema the same way.
 
 Reading the PRAGMAs beats parsing the `CREATE` statement: SQLite knows
 which column of a composite key is the key, which index came from a
@@ -388,7 +387,7 @@ Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1
 | `database_forbidden` | 403 | Key not scoped to this database |
 | `writes_blocked` | 403 | Mutation to a database whose writes the owner blocked (`dg block-writes`); clear with `dg block-writes --off` |
 | `reads_blocked` | 403 | Query against a database whose reads the owner blocked (`dg block-reads`); clear with `dg block-reads --off` |
-| `sql_forbidden` | 403 | Read-only write attempt, or SQL touching protected `_dg_*` objects / disallowed features (attach, pragmas, `ALTER`, triggers/views, temp objects, virtual tables, load_extension, user transactions) |
+| `sql_forbidden` | 403 | Read-only write attempt, or SQL touching protected `_dg_*` objects / disallowed features (attach, value-setting pragmas, temp objects, virtual tables, load_extension, user transactions) |
 | `database_not_found` | 404 | No such database (never silently created); `dg undelete` uses it for a name never registered, while a purged name returns `database_purged` |
 | `key_not_found` | 404 | Revoking a credential name that does not exist; nothing was revoked |
 | `metadata_corrupt` | 500 | Startup migration found an unreadable credential row; the server log names it |
@@ -553,11 +552,23 @@ CLI looks the same everywhere. The rules it follows:
   declared keys imply (`PRIMARY KEY`, `UNIQUE`, reported under SQLite's
   own `sqlite_autoindex_*` names) and the ones a statement created with
   `CREATE INDEX`.
-- **A schema can be changed by `CREATE TABLE`, `DROP TABLE`,
-  `CREATE [UNIQUE] INDEX`, `DROP INDEX` and `REINDEX`**, and by nothing
-  else: `ALTER`, views, triggers, temp objects, virtual tables, pragmas
-  and user transactions stay refused with `sql_forbidden`, and so does
-  any statement naming a `_dg_`-prefixed object. `REINDEX` is the one
+- **A write credential can migrate a schema** the way an application's
+  migration runner does: `CREATE`/`DROP TABLE`, `ALTER TABLE` (add,
+  rename and drop a column, rename the table), `CREATE`/`DROP VIEW`,
+  `CREATE`/`DROP TRIGGER`, `CREATE [UNIQUE] INDEX`, `DROP INDEX` and
+  `REINDEX`. Any credential, read-only included, may read the schema
+  with the introspection PRAGMAs — `table_info`, `table_xinfo`,
+  `table_list`, `index_list`, `index_info`, `index_xinfo`,
+  `foreign_key_list`, `foreign_key_check` — in either spelling
+  (`PRAGMA table_info(t)` or `SELECT … FROM pragma_table_info('t')`).
+  Refused with `sql_forbidden`: PRAGMAs that set a value, temp objects,
+  virtual tables, `ATTACH`, user transactions (`BEGIN`; a batch is the
+  atomic unit), and any statement naming a `_dg_`-prefixed object —
+  including `ALTER TABLE t RENAME TO _dg_x`, which is rolled back after
+  it runs because the authorizer only sees the old name. A trigger body
+  is judged when it fires, inside the statement that fires it, so a
+  trigger cannot reach anything the writer could not: one that touches
+  `_dg_replay` makes the firing write fail. `REINDEX` is the one
   statement offered bare only: it sweeps every index in the file — the
   gateway's own included, which SQLite reports under a synthetic
   `sqlite_autoindex_*` name rather than the table's — and that is
