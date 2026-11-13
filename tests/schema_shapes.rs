@@ -6,13 +6,13 @@
 //! TEXT, BLOB, NUMERIC, VARCHAR, DECIMAL, defaults, NOT NULL, UNIQUE,
 //! CHECK, composite keys, WITHOUT ROWID, and a FOREIGN KEY chain that
 //! is enforced at runtime). Indexes are authorable: a plain and a
-//! unique index are created, both are found in `sqlite_master` (the test
-//! cannot ask `pragma_index_list` — PRAGMA is one of the refused
-//! statements), the unique one rejects a duplicate, and both drop
-//! cleanly. Objects the
-//! gateway still refuses are pinned to their fail-closed codes — views,
-//! triggers, temp tables and `ALTER` among them — and a
-//! `_dg_`-prefixed index name is refused the same way. 5000 mixed rows
+//! unique index are created, both are found in `sqlite_master`, the
+//! unique one rejects a duplicate, and both drop cleanly. What the
+//! gateway still refuses is pinned to its fail-closed code — temp
+//! tables, user transactions, PRAGMAs that set a value, and every
+//! `_dg_`-prefixed name (index, view, trigger, ALTER target and RENAME
+//! destination). Views, triggers and ALTER on ordinary names are
+//! allowed; `tests/migration_ddl.rs` covers them. 5000 mixed rows
 //! go in via atomic batches; every table is dumped in rowid order with
 //! blobs hex-encoded, the server is killed and restarted on the same
 //! data dir, and every dump must be identical.
@@ -136,18 +136,23 @@ const DUMPS: &[(&str, &[&str], &str)] = &[
 
 /// Fail-closed objects: (sql, status, code). Pinned by probe 2026-09-19.
 const FORBIDDEN: &[(&str, u16, &str)] = &[
-    ("CREATE VIEW fv AS SELECT 1", 403, "sql_forbidden"),
+    ("CREATE VIEW _dg_fv AS SELECT 1", 403, "sql_forbidden"),
     (
-        "CREATE TRIGGER ftr AFTER INSERT ON t00 BEGIN SELECT 1; END",
+        "CREATE TRIGGER _dg_ftr AFTER INSERT ON t00 BEGIN SELECT 1; END",
         403,
         "sql_forbidden",
     ),
     ("CREATE TEMP TABLE ftt(x)", 403, "sql_forbidden"),
+    ("CREATE TEMP VIEW ftv AS SELECT 1", 403, "sql_forbidden"),
     (
-        "ALTER TABLE t00 ADD COLUMN extra TEXT",
+        "ALTER TABLE _dg_replay ADD COLUMN extra TEXT",
         403,
         "sql_forbidden",
     ),
+    ("ALTER TABLE t00 RENAME TO _dg_t00", 403, "sql_forbidden"),
+    ("BEGIN", 403, "sql_forbidden"),
+    ("PRAGMA foreign_keys=OFF", 403, "sql_forbidden"),
+    ("PRAGMA table_info(_dg_replay)", 403, "sql_forbidden"),
     ("CREATE INDEX _dg_sneaky ON t00(a)", 403, "sql_forbidden"),
     (
         "INSERT INTO t11(child, parent) VALUES (1, 99999)",
