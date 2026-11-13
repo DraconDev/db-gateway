@@ -17,7 +17,7 @@ use std::{
     path::Path,
     sync::{
         Arc,
-        atomic::{AtomicU8, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -501,8 +501,47 @@ fn authorize(ctx: AuthContext<'_>, read_only: bool, may_reindex: bool) -> Author
         // being prepared is one of those two, because the callback itself
         // carries only an index name and no table.
         Reindex { index_name } => may_reindex && !read_only && !protected(index_name),
-        // No user transactions, attachment, PRAGMAs, virtual tables, triggers,
-        // views, temp objects or ALTER in M1. Unknown actions fail closed.
+        // Schema migration: what an application's migration runner needs.
+        // A write credential could already CREATE and DROP tables, so ALTER,
+        // views and triggers sit at the same level. Protected names stay out
+        // of reach; a RENAME *to* a protected name is not visible here (the
+        // callback names only the old table) and is caught after the
+        // statement runs, see `UserSqlGate::altered`.
+        AlterTable { table_name, .. } => !read_only && !protected(table_name),
+        CreateView { view_name } | DropView { view_name } => {
+            !read_only && !protected(view_name)
+        }
+        // A trigger body is authorized when it fires, inside the caller's
+        // statement that fires it, so it cannot reach anything its caller
+        // could not.
+        CreateTrigger {
+            trigger_name,
+            table_name,
+        }
+        | DropTrigger {
+            trigger_name,
+            table_name,
+        } => !read_only && !protected(trigger_name) && !protected(table_name),
+        // Introspection only: the read-only PRAGMAs a migration tool or ORM
+        // uses to look at a schema. Anything that sets a value is refused.
+        Pragma {
+            pragma_name,
+            pragma_value,
+        } => {
+            matches!(
+                pragma_name.to_ascii_lowercase().as_str(),
+                "table_info"
+                    | "table_xinfo"
+                    | "table_list"
+                    | "index_list"
+                    | "index_info"
+                    | "index_xinfo"
+                    | "foreign_key_list"
+                    | "foreign_key_check"
+            ) && !pragma_value.is_some_and(protected)
+        }
+        // No user transactions (a batch is the atomic unit), attachment,
+        // virtual tables or temp objects. Unknown actions fail closed.
         _ => false,
     };
     if allowed {
@@ -523,7 +562,15 @@ fn authorize(ctx: AuthContext<'_>, read_only: bool, may_reindex: bool) -> Author
 /// span in which it prepares and steps a caller's statement, and a guard
 /// turns it off again on every exit path.
 #[derive(Clone, Default)]
-struct UserSqlGate(Arc<AtomicU8>);
+struct UserSqlGate(Arc<GateState>);
+
+#[derive(Default)]
+struct GateState {
+    mode: AtomicU8,
+    /// Set when the caller's statement was an ALTER TABLE, so the schema
+    /// is re-checked for protected names once it has run.
+    altered: AtomicBool,
+}
 
 const GATE_OFF: u8 = 0;
 const GATE_USER: u8 = 1;
@@ -537,11 +584,14 @@ impl UserSqlGate {
         let gate = Self::default();
         let state = gate.0.clone();
         conn.authorizer(Some(move |ctx: AuthContext<'_>| {
-            match state.load(Ordering::SeqCst) {
-                GATE_OFF => Authorization::Allow,
-                GATE_USER => authorize(ctx, read_only, false),
-                _ => authorize(ctx, read_only, true),
+            let mode = state.mode.load(Ordering::SeqCst);
+            if mode == GATE_OFF {
+                return Authorization::Allow;
             }
+            if matches!(ctx.action, AuthAction::AlterTable { .. }) {
+                state.altered.store(true, Ordering::SeqCst);
+            }
+            authorize(ctx, read_only, mode == GATE_USER_MAY_REINDEX)
         }))?;
         Ok(gate)
     }
@@ -553,8 +603,14 @@ impl UserSqlGate {
         } else {
             GATE_USER
         };
-        self.0.store(mode, Ordering::SeqCst);
+        self.0.altered.store(false, Ordering::SeqCst);
+        self.0.mode.store(mode, Ordering::SeqCst);
         UserSqlGuard(self)
+    }
+
+    /// Did the statement judged since the last `open` alter a table?
+    fn altered(&self) -> bool {
+        self.0.altered.load(Ordering::SeqCst)
     }
 }
 
@@ -562,7 +618,7 @@ struct UserSqlGuard<'a>(&'a UserSqlGate);
 
 impl Drop for UserSqlGuard<'_> {
     fn drop(&mut self) {
-        self.0.0.store(GATE_OFF, Ordering::SeqCst);
+        self.0.0.mode.store(GATE_OFF, Ordering::SeqCst);
     }
 }
 
