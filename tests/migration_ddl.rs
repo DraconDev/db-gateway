@@ -195,6 +195,9 @@ fn migrations_run_and_survive_export_import_and_clone() {
         );
         assert_eq!(rows("SELECT count(*) FROM named"), json!([[4]]), "{copy}");
     }
-    let diff = fleet.cli.ok("diff", &["diff", DB, "cloned"]);
-    assert!(diff.is_object(), "diff reads views and triggers: {diff}");
+    // Both copies took the same write, so they are identical -- views
+    // and triggers included in the schema comparison.
+    let diff = fleet.cli.ok("diff", &["diff", "restored", "cloned"]);
+    assert_eq!(diff["identical"], json!(true), "{diff}");
+    assert_eq!(diff["schema"]["identical"], json!(true), "{diff}");
 }
