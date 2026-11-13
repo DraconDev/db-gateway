@@ -387,7 +387,10 @@ UNIT_MAX="$(sed -n 's/^[[:space:]]*MemoryMax=\([^[:space:]#]*\).*/\1/p' "$UNIT" 
 # form, so the two files cannot drift apart silently. Scoped to the line that
 # names the unit, because the page also records `MemoryMax=1G` twice for the
 # replication sidecar's enforcement scope and that is not the gateway's cap.
-DOC_MAX="$(grep 'deploy/dg.service' "$BUDGET" | sed -n 's/.*`MemoryMax=\([^`[:space:]]*\)`.*/\1/p' | head -1)"
+# `|| true`: under pipefail a page that no longer names the unit made grep
+# exit 1 and killed the script silently here, before the fail() below
+# could say what was wrong.
+DOC_MAX="$( { grep 'deploy/dg.service' "$BUDGET" || true; } | sed -n 's/.*`MemoryMax=\([^`[:space:]]*\)`.*/\1/p' | head -1)"
 if [ -n "$UNIT_MAX" ]; then
     [ -n "$DOC_MAX" ] \
         || fail "deploy/dg.service sets MemoryMax=$UNIT_MAX but docs/resource-budget.md records no cap"
