@@ -125,6 +125,11 @@ fn run_script(
         "--keep",
         keep,
     ]);
+    // The script resolves `dg` through DG_BIN, defaulting to PATH. Pin it
+    // to the binary under test so the suite neither depends on an
+    // installed `dg` nor silently exercises a stale one; a caller's
+    // extra_env (a fake binary) still overrides this.
+    command.env("DG_BIN", env!("CARGO_BIN_EXE_dg"));
     for (key, value) in extra_env {
         command.env(key, value);
     }
