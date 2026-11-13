@@ -535,7 +535,7 @@ fn run_statement(
             return Err(Error::new(403, "sql_forbidden", "read-only credential"));
         }
         let readonly = stmt.readonly();
-        let columns: Vec<_> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+        let columns: Vec<_> = stmt.column_names().map(str::to_string).collect();
         let mut rows = Vec::new();
         let mut bytes = 0;
         {
