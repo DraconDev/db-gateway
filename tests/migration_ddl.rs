@@ -17,6 +17,7 @@
 mod common;
 
 use common::Fleet;
+
 use serde_json::{Value, json};
 
 const DB: &str = "app";
@@ -26,9 +27,7 @@ fn q(fleet: &Fleet, sql: &str) -> Value {
 }
 
 fn forbidden(fleet: &Fleet, db: &str, sql: &str) {
-    fleet
-        .cli
-        .err(sql, &["query", db, sql], "sql_forbidden");
+    fleet.cli.err(sql, &["query", db, sql], "sql_forbidden");
 }
 
 #[test]
@@ -37,14 +36,23 @@ fn migrations_run_and_survive_export_import_and_clone() {
     fleet.cli.ok("create", &["create", DB]);
 
     // v1: what the app shipped with.
-    q(&fleet, "CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT)");
-    q(&fleet, "INSERT INTO users(name) VALUES ('aria'), ('octavia')");
+    q(
+        &fleet,
+        "CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT)",
+    );
+    q(
+        &fleet,
+        "INSERT INTO users(name) VALUES ('aria'), ('octavia')",
+    );
 
     // v2: the migration.
     q(&fleet, "ALTER TABLE users ADD COLUMN email TEXT");
     q(&fleet, "ALTER TABLE users ADD COLUMN scratch INTEGER");
     q(&fleet, "ALTER TABLE users DROP COLUMN scratch");
-    q(&fleet, "ALTER TABLE users RENAME COLUMN name TO display_name");
+    q(
+        &fleet,
+        "ALTER TABLE users RENAME COLUMN name TO display_name",
+    );
     q(&fleet, "ALTER TABLE users RENAME TO accounts");
     q(
         &fleet,
@@ -70,9 +78,15 @@ fn migrations_run_and_survive_export_import_and_clone() {
         .iter()
         .map(|row| row[1].clone())
         .collect();
-    assert_eq!(columns, vec![json!("id"), json!("display_name"), json!("email")]);
     assert_eq!(
-        q(&fleet, "SELECT name FROM pragma_table_info('accounts') ORDER BY cid"),
+        columns,
+        vec![json!("id"), json!("display_name"), json!("email")]
+    );
+    assert_eq!(
+        q(
+            &fleet,
+            "SELECT name FROM pragma_table_info('accounts') ORDER BY cid"
+        ),
         json!([["id"], ["display_name"], ["email"]])
     );
     assert_eq!(q(&fleet, "PRAGMA index_list(accounts)"), json!([]));
@@ -119,26 +133,33 @@ fn migrations_run_and_survive_export_import_and_clone() {
     // A read-only credential inspects; it does not migrate.
     let key = fleet.cli.ok(
         "read-only key",
-        &["key", "create", "--role", "database_read_only", "--database", DB, "reader"],
+        &[
+            "key",
+            "create",
+            "--role",
+            "database_read_only",
+            "--database",
+            DB,
+            "reader",
+        ],
     );
     let reader = fleet.cli.key_file.with_file_name("reader.key");
     std::fs::write(&reader, key["key"].as_str().unwrap()).unwrap();
-    std::fs::set_permissions(
-        &reader,
-        std::os::unix::fs::PermissionsExt::from_mode(0o600),
-    )
-    .unwrap();
-    let reader = reader.to_str().unwrap();
-    let as_reader = |sql: &str| ["--key-file", reader, "query", DB, sql];
-    fleet
-        .cli
-        .ok("reader pragma", &as_reader("PRAGMA table_info(accounts)"));
+    std::fs::set_permissions(&reader, std::os::unix::fs::PermissionsExt::from_mode(0o600)).unwrap();
+    let reader = common::Cli {
+        server: fleet.cli.server.clone(),
+        key_file: reader,
+    };
+    reader.ok(
+        "reader pragma",
+        &["query", DB, "PRAGMA table_info(accounts)"],
+    );
     for sql in [
         "ALTER TABLE accounts ADD COLUMN nope TEXT",
         "CREATE VIEW nope AS SELECT 1",
         "DROP TRIGGER log_signup",
     ] {
-        fleet.cli.err(sql, &as_reader(sql), "sql_forbidden");
+        reader.err(sql, &["query", DB, sql], "sql_forbidden");
     }
 
     // The operator views read a schema holding views and triggers.
@@ -152,14 +173,17 @@ fn migrations_run_and_survive_export_import_and_clone() {
     fleet
         .cli
         .ok("export", &["export", DB, "--out", file.to_str().unwrap()]);
-    fleet
-        .cli
-        .ok("import", &["import", "restored", "--from", file.to_str().unwrap()]);
+    fleet.cli.ok(
+        "import",
+        &["import", "restored", "--from", file.to_str().unwrap()],
+    );
     fleet.cli.ok("clone", &["clone", DB, "cloned"]);
     for copy in ["restored", "cloned"] {
         let rows = |sql: &str| fleet.cli.q(copy, copy, sql);
         assert_eq!(
-            rows("SELECT type, name FROM sqlite_master WHERE type IN ('view','trigger') ORDER BY name"),
+            rows(
+                "SELECT type, name FROM sqlite_master WHERE type IN ('view','trigger') ORDER BY name"
+            ),
             json!([["trigger", "log_signup"], ["view", "named"]]),
             "{copy}"
         );
