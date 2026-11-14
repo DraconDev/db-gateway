@@ -229,7 +229,7 @@ fn acknowledged_writes_survive_load_migrations_and_repeated_kills() {
                 let d = (w + seq as usize) % DATABASES;
                 let id = format!("w{w}-{seq}");
                 let use_key =
-                    keyed[d].fetch_add(1, Ordering::SeqCst) < KEYED_PER_DATABASE && seq % 3 == 0;
+                    keyed[d].fetch_add(1, Ordering::SeqCst) < KEYED_PER_DATABASE && seq.is_multiple_of(3);
                 if !use_key {
                     keyed[d].fetch_sub(1, Ordering::SeqCst);
                 }
