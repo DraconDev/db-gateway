@@ -178,6 +178,12 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # rustsec/audit-check reports through the Checks API; with only the
+    # workflow-level `contents: read` it fails with "Resource not
+    # accessible by integration" even when the tree is clean.
+    permissions:
+      contents: read
+      checks: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
@@ -195,6 +201,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # cargo-deny runs in the action's own container, which has no
+      # 1.97.1 toolchain, so the rust-toolchain.toml override makes every
+      # cargo call in it fail before any check runs. The gate reads the
+      # tracked Cargo.lock, not the compiler, so drop the pin for this
+      # job only; the compiler pin still governs the build job.
+      - run: rm rust-toolchain.toml
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check

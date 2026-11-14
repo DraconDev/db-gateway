@@ -50,6 +50,8 @@ export interface DatabaseUsage {
   queue_wait_max_us?: number;
   /** This database's own 95th percentile of its own recent admission waits, in microseconds. */
   queue_wait_p95_us?: number | null;
+  /** This database's own 95th percentile of its recent statement execution times, in microseconds. `null` when it has run nothing yet. */
+  query_p95_us?: number | null;
   /** When the database was last written, as unix seconds. `null` when it has never been written. */
   last_write?: number | null;
 }
@@ -115,6 +117,11 @@ export interface StatusResponse {
     wait_p50_us?: number | null;
     wait_p95_us?: number | null;
     wait_samples?: number;
+    /** The median and 95th percentile statement execution time, in microseconds. `null` when no statement has completed yet. */
+    query_p50_us?: number | null;
+    query_p95_us?: number | null;
+    /** How many executions the percentile sample holds. */
+    query_samples?: number;
   };
   databases?: Record<string, DatabaseUsage>;
   /** How many databases are live, and how many are tombstoned. */

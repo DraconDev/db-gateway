@@ -156,7 +156,14 @@ fn deployment_host_pinned_container_builds_bundle_and_records_builder() {
         .output()
         .unwrap();
     assert!(version.status.success());
-    assert!(String::from_utf8_lossy(&version.stdout).contains("dg 0.3.0"));
+    // Read from the manifest, not hardcoded: a literal here went stale at
+    // 0.3.0 while the crate moved on, unseen because CI never reached it.
+    let expected = concat!("dg ", env!("CARGO_PKG_VERSION"));
+    let stdout = String::from_utf8_lossy(&version.stdout);
+    assert!(
+        stdout.contains(expected),
+        "expected {expected:?}, got {stdout:?}"
+    );
 
     for name in ["README.md", "LICENSE", "BUILD-INFO.txt", "SHA256SUMS"] {
         assert!(bundle(name).is_file(), "bundle must contain {name}");

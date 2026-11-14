@@ -15,6 +15,10 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU8, Ordering},
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -497,8 +501,45 @@ fn authorize(ctx: AuthContext<'_>, read_only: bool, may_reindex: bool) -> Author
         // being prepared is one of those two, because the callback itself
         // carries only an index name and no table.
         Reindex { index_name } => may_reindex && !read_only && !protected(index_name),
-        // No user transactions, attachment, PRAGMAs, virtual tables, triggers,
-        // views, temp objects or ALTER in M1. Unknown actions fail closed.
+        // Schema migration: what an application's migration runner needs.
+        // A write credential could already CREATE and DROP tables, so ALTER,
+        // views and triggers sit at the same level. Protected names stay out
+        // of reach; a RENAME *to* a protected name is not visible here (the
+        // callback names only the old table) and is caught after the
+        // statement runs, see `UserSqlGate::altered`.
+        AlterTable { table_name, .. } => !read_only && !protected(table_name),
+        CreateView { view_name } | DropView { view_name } => !read_only && !protected(view_name),
+        // A trigger body is authorized when it fires, inside the caller's
+        // statement that fires it, so it cannot reach anything its caller
+        // could not.
+        CreateTrigger {
+            trigger_name,
+            table_name,
+        }
+        | DropTrigger {
+            trigger_name,
+            table_name,
+        } => !read_only && !protected(trigger_name) && !protected(table_name),
+        // Introspection only: the read-only PRAGMAs a migration tool or ORM
+        // uses to look at a schema. Anything that sets a value is refused.
+        Pragma {
+            pragma_name,
+            pragma_value,
+        } => {
+            matches!(
+                pragma_name.to_ascii_lowercase().as_str(),
+                "table_info"
+                    | "table_xinfo"
+                    | "table_list"
+                    | "index_list"
+                    | "index_info"
+                    | "index_xinfo"
+                    | "foreign_key_list"
+                    | "foreign_key_check"
+            ) && !pragma_value.is_some_and(protected)
+        }
+        // No user transactions (a batch is the atomic unit), attachment,
+        // virtual tables or temp objects. Unknown actions fail closed.
         _ => false,
     };
     if allowed {
@@ -507,8 +548,81 @@ fn authorize(ctx: AuthContext<'_>, read_only: bool, may_reindex: bool) -> Author
         Authorization::Deny
     }
 }
+/// The switch that says whether the SQL being prepared is the caller's.
+///
+/// The authorizer has to be installed on the `Connection` itself (rusqlite
+/// requires `&mut Connection`, which an open `Transaction` cannot give), so
+/// it is installed once, before the transaction begins, and stays for the
+/// connection's life. That one hook then sees two kinds of SQL: the
+/// gateway's own bookkeeping (`_dg_replay`, BEGIN/COMMIT), which must run
+/// unrestricted, and the caller's statements, which must be judged. This
+/// switch tells them apart: `run_statement` turns it on for exactly the
+/// span in which it prepares and steps a caller's statement, and a guard
+/// turns it off again on every exit path.
+#[derive(Clone, Default)]
+struct UserSqlGate(Arc<GateState>);
+
+#[derive(Default)]
+struct GateState {
+    mode: AtomicU8,
+    /// Set when the caller's statement was an ALTER TABLE, so the schema
+    /// is re-checked for protected names once it has run.
+    altered: AtomicBool,
+}
+
+const GATE_OFF: u8 = 0;
+const GATE_USER: u8 = 1;
+const GATE_USER_MAY_REINDEX: u8 = 2;
+
+impl UserSqlGate {
+    /// Install the authorizer on `conn`. `read_only` is fixed for the
+    /// whole request, so it is captured here; `may_reindex` varies per
+    /// statement, so it travels through the switch.
+    fn install(conn: &mut Connection, read_only: bool) -> Result<Self> {
+        let gate = Self::default();
+        let state = gate.0.clone();
+        conn.authorizer(Some(move |ctx: AuthContext<'_>| {
+            let mode = state.mode.load(Ordering::SeqCst);
+            if mode == GATE_OFF {
+                return Authorization::Allow;
+            }
+            if matches!(ctx.action, AuthAction::AlterTable { .. }) {
+                state.altered.store(true, Ordering::SeqCst);
+            }
+            authorize(ctx, read_only, mode == GATE_USER_MAY_REINDEX)
+        }))?;
+        Ok(gate)
+    }
+
+    /// Judge the caller's SQL until the returned guard drops.
+    fn open(&self, may_reindex: bool) -> UserSqlGuard<'_> {
+        let mode = if may_reindex {
+            GATE_USER_MAY_REINDEX
+        } else {
+            GATE_USER
+        };
+        self.0.altered.store(false, Ordering::SeqCst);
+        self.0.mode.store(mode, Ordering::SeqCst);
+        UserSqlGuard(self)
+    }
+
+    /// Did the statement judged since the last `open` alter a table?
+    fn altered(&self) -> bool {
+        self.0.altered.load(Ordering::SeqCst)
+    }
+}
+
+struct UserSqlGuard<'a>(&'a UserSqlGate);
+
+impl Drop for UserSqlGuard<'_> {
+    fn drop(&mut self) {
+        self.0.0.mode.store(GATE_OFF, Ordering::SeqCst);
+    }
+}
+
 fn run_statement(
     conn: &Connection,
+    gate: &UserSqlGate,
     statement: &Statement,
     read_only: bool,
     remaining_result_bytes: usize,
@@ -522,11 +636,10 @@ fn run_statement(
         .map(json_to_sql)
         .collect::<std::result::Result<Vec<_>, _>>()
         .map_err(|_| Error::invalid())?;
-    let may_reindex = may_reindex(&statement.sql);
-    conn.authorizer(Some(move |ctx: AuthContext<'_>| {
-        authorize(ctx, read_only, may_reindex)
-    }))?;
-    let result = (|| {
+    // Every statement is judged from its prepare to its last step; the
+    // guard drops at the end of this function, on success and error alike.
+    let _judged = gate.open(may_reindex(&statement.sql));
+    (|| {
         let mut stmt = conn.prepare(&statement.sql)?;
         // prepare rejects stacked statements (rusqlite Error::MultipleStatement
         // → invalid_sql); only a lone terminator or trailing comment is
@@ -535,7 +648,7 @@ fn run_statement(
             return Err(Error::new(403, "sql_forbidden", "read-only credential"));
         }
         let readonly = stmt.readonly();
-        let columns: Vec<_> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+        let columns: Vec<_> = stmt.column_names().map(str::to_string).collect();
         let mut rows = Vec::new();
         let mut bytes = 0;
         {
@@ -556,12 +669,34 @@ fn run_statement(
                 rows.push(values);
             }
         }
-        Ok(
-            json!({"columns":columns, "rows":rows, "rows_affected":if readonly {0} else {conn.changes()}}),
-        )
-    })();
-    conn.authorizer(None::<fn(AuthContext<'_>) -> Authorization>)?;
-    result
+        let rows_affected = if readonly { 0 } else { conn.changes() };
+        if gate.altered() {
+            refuse_protected_names(conn)?;
+        }
+        Ok(json!({"columns":columns, "rows":rows, "rows_affected":rows_affected}))
+    })()
+}
+
+/// After an ALTER TABLE: refuse a schema that now holds a server-owned
+/// name. `ALTER TABLE t RENAME TO _dg_x` passes the authorizer, which only
+/// names the old table, but leaves a table that every later import of this
+/// database's backups would reject. The caller's statement runs inside the
+/// request's transaction, so the error here rolls the rename back.
+fn refuse_protected_names(conn: &Connection) -> Result<()> {
+    let smuggled: i64 = conn.query_row(
+        "SELECT count(*) FROM sqlite_master \
+         WHERE lower(substr(name,1,4))='_dg_' AND lower(name)<>'_dg_replay'",
+        [],
+        |r| r.get(0),
+    )?;
+    if smuggled > 0 {
+        return Err(Error::new(
+            403,
+            "sql_forbidden",
+            "names starting with _dg_ are reserved for the gateway",
+        ));
+    }
+    Ok(())
 }
 fn result_limit() -> Error {
     Error::new(
@@ -755,6 +890,7 @@ pub fn execute_detailed(
     let mut conn = open(path)?;
     let deadline = Instant::now() + Duration::from_secs(2);
     conn.progress_handler(1000, Some(move || Instant::now() >= deadline))?;
+    let gate = UserSqlGate::install(&mut conn, read_only)?;
     // Deferred for statement-classified reads regardless of principal role:
     // an Immediate transaction takes a RESERVED lock even for a pure
     // SELECT, so concurrent reads would shed each other with SQLITE_BUSY
@@ -833,8 +969,8 @@ pub fn execute_detailed(
     let attribute = statements.len() > 1;
     for (index, statement) in statements.iter().enumerate() {
         let started = Instant::now();
-        let result =
-            run_statement(&tx, statement, read_only, remaining_result_bytes).map_err(|error| {
+        let result = run_statement(&tx, &gate, statement, read_only, remaining_result_bytes)
+            .map_err(|error| {
                 if attribute {
                     error.at_statement(index as u32)
                 } else {

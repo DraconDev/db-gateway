@@ -240,7 +240,7 @@ struct ForeignKeyViolation {
 fn check_integrity(name: &str, path: &FilePath) -> Result<Value> {
     let started = Instant::now();
     // Read-only: a diagnosis must not change the file it diagnoses.
-    let conn = open_read_only(path)?;
+    let mut conn = open_read_only(path)?;
     let deadline = Instant::now() + CHECK_BUDGET;
     conn.progress_handler(1000, Some(move || Instant::now() >= deadline))?;
 
@@ -453,7 +453,7 @@ fn explain_plan(path: &FilePath, sql: &str, principal: &Principal) -> Result<Val
     };
     let mut statement = conn.prepare(&planned).map_err(sqlite_failure)?;
     let (id_index, parent_index, detail_index) = {
-        let names = statement.column_names();
+        let names: Vec<&str> = statement.column_names().collect();
         (
             names.iter().position(|n| *n == "id").unwrap_or(0),
             names.iter().position(|n| *n == "parent").unwrap_or(1),
