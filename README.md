@@ -1,5 +1,7 @@
 # DB Gateway
 
+[![Rust checks](https://github.com/DraconDev/db-gateway/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/DraconDev/db-gateway/actions/workflows/ci.yml)
+
 This repository contains the Rust gateway, CLI, TypeScript client, API and architecture docs, and deployment templates. It is pre-production (0.x); interfaces and formats may change.
 
 **`dg`** is a single-owner SQLite service: one Rust gateway, many independent databases, an HTTP API and CLI, and off-host backups.
