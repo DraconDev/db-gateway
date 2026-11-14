@@ -23,7 +23,11 @@
 //! from. A failure prints the seed, the operation index and the last
 //! operations, which reproduce it exactly.
 
-use rusqlite::{Connection, limits::Limit, types::Value as SqlValue};
+use rusqlite::{
+    Connection,
+    limits::Limit,
+    types::{Value as SqlValue, ValueRef},
+};
 use serde_json::{Number, Value, json};
 use std::{
     io::{BufRead, BufReader},
@@ -132,20 +136,20 @@ fn reference(path: &std::path::Path) -> Connection {
     conn
 }
 
-/// The reference's value, in the encoding the API documents. Written here
-/// independently of src/values.rs, so a bug there cannot hide by being
-/// applied to both sides. A non-finite float has no JSON number, so it is
-/// spelled as a marker the gateway can only match by losing nothing.
-fn sql_to_json(value: SqlValue) -> Value {
+/// The reference's value, in the encoding the API documents
+/// (docs/api.md, "Arguments and returned values map JSON <-> SQLite").
+/// Written here independently of src/values.rs, so a bug there cannot hide
+/// by being applied to both sides. The two lossy coercions are applied
+/// because the API documents them, and only those two: a non-finite REAL
+/// has no JSON number and comes back `null`, and TEXT that is not UTF-8
+/// comes back with replacement characters.
+fn sql_to_json(value: ValueRef<'_>) -> Value {
     match value {
-        SqlValue::Null => Value::Null,
-        SqlValue::Integer(i) => json!(i),
-        SqlValue::Real(f) => match Number::from_f64(f) {
-            Some(n) => Value::Number(n),
-            None => json!(format!("<non-finite real {f}>")),
-        },
-        SqlValue::Text(t) => json!(t),
-        SqlValue::Blob(b) => json!(b),
+        ValueRef::Null => Value::Null,
+        ValueRef::Integer(i) => json!(i),
+        ValueRef::Real(f) => Number::from_f64(f).map_or(Value::Null, Value::Number),
+        ValueRef::Text(t) => json!(String::from_utf8_lossy(t)),
+        ValueRef::Blob(b) => json!(b),
     }
 }
 
@@ -183,7 +187,7 @@ fn run_reference(conn: &Connection, sql: &str, args: &[Arg]) -> Outcome {
         while let Some(row) = cursor.next()? {
             let mut out = Vec::with_capacity(columns.len());
             for i in 0..columns.len() {
-                out.push(sql_to_json(row.get::<_, SqlValue>(i)?));
+                out.push(sql_to_json(row.get_ref(i)?));
             }
             rows.push(out);
         }
