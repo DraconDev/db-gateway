@@ -163,7 +163,13 @@ pub fn check_statement_count(count: usize, subject: &str) -> Result<()> {
 }
 
 const RETENTION: i64 = 86400;
-const MAX_REPLAYS: i64 = 256;
+/// Idempotency keys one principal may hold per database inside the
+/// retention window. Each holds its request's result until it expires, so
+/// this bounds the replay table; at 10 000 it is a few MB for typical write
+/// results while still allowing a keyed write every ~9 s, all day. (It was
+/// 256 -- one keyed write every ~6 minutes -- which an application keying
+/// every write would have exhausted within hours.)
+const MAX_REPLAYS: i64 = 10_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1464,17 +1470,34 @@ mod tests {
             None,
         )
         .unwrap();
-        // Fill principal A to the documented per-principal cap.
-        for i in 0..MAX_REPLAYS {
-            execute(
-                &path,
-                &[s("INSERT INTO n VALUES (1)")],
-                false,
-                false,
-                "writer_a",
-                Some(&format!("key-{i}")),
-            )
-            .unwrap_or_else(|e| panic!("write {i}: {e}"));
+        // Fill principal A to the documented per-principal cap: one real
+        // keyed write (replayed below), the rest written straight into the
+        // replay table -- MAX_REPLAYS synced requests would make this test
+        // about the disk rather than the cap.
+        execute(
+            &path,
+            &[s("INSERT INTO n VALUES (1)")],
+            false,
+            false,
+            "writer_a",
+            Some("key-0"),
+        )
+        .unwrap();
+        {
+            let mut conn = Connection::open(&path).unwrap();
+            let tx = conn.transaction().unwrap();
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64;
+            for i in 1..MAX_REPLAYS {
+                tx.execute(
+                    "INSERT INTO _dg_replay VALUES ('writer_a', ?, 'h', '{}', ?)",
+                    params![format!("key-{i}"), now],
+                )
+                .unwrap();
+            }
+            tx.commit().unwrap();
         }
         // Principal A at cap: further keyed writes are rejected...
         assert_eq!(

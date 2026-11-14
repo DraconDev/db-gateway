@@ -42,7 +42,7 @@ use std::{
 const DATABASES: usize = 3;
 const WRITERS: usize = 6;
 const READERS: usize = 3;
-/// Keyed writes per database stay under the documented cap of 256 keys
+/// Keyed writes per database stay well under the documented cap of 10 000 keys
 /// per principal per database (docs/api.md), so the cap is not what fails.
 const KEYED_PER_DATABASE: u64 = 150;
 

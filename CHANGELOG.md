@@ -21,6 +21,11 @@ fixes; 1.0.0 waits for production acceptance.
 
 ### Fixed
 
+- **Idempotency-key cap raised from 256 to 10 000** per principal per
+  database. With a 24-hour retention, 256 allowed one keyed write every
+  ~6 minutes, so an application that keys every write (the documented
+  way to retry safely) hit `429 capacity_exceeded` within hours. 10 000
+  allows one every ~9 s, sustained, and still bounds the replay table.
 - **REAL values are stored exactly as sent.** JSON was parsed with
   serde_json's default float parser, which is fast but not exact: a
   value such as `-2006.7142857142858` arrived as `-2006.7142857142856`,

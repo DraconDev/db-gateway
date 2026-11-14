@@ -5,7 +5,7 @@
 //! Five behaviors, all asserted exactly:
 //! 1. Post-restart replay persistence: a keyed write replayed after a
 //!    clean restart returns byte-identical results without re-executing.
-//! 2. 256-key cap: the 257th new key per principal per database is
+//! 2. Key cap: the key after the 10 000th per principal per database is
 //!    429 `capacity_exceeded`, while existing keys still replay 200.
 //! 3. Same key + different body is 409 `idempotency_key_conflict` and
 //!    changes nothing.
@@ -223,18 +223,54 @@ fn replay_contract_holds_across_restart_cap_conflict_and_namespaces() {
     );
     assert_eq!(count(&a, &owner, "rb"), 1, "cross-database write leaked");
 
-    // 2. Fill the owner's ra namespace to the 256-key cap.
-    // Used so far on (owner, ra): ddl-ra, deep-write, deep-read, later-1, shared = 5.
-    for i in 0..251 {
-        let (status, body) = query(
-            &a,
-            &owner,
-            "ra",
-            &json!({"sql": "INSERT INTO t(v) VALUES ('fill')"}),
-            Some(&format!("fill-{i}")),
-        );
-        assert_eq!(status, 200, "fill {i}: {body}");
+    // 2. Fill the owner's ra namespace to the key cap (MAX_REPLAYS in
+    // src/execution.rs). Used so far on (owner, ra): ddl-ra, deep-write,
+    // deep-read, later-1, shared = 5. All but the last slot are written
+    // straight into the replay table -- ten thousand synced requests would
+    // make this a disk benchmark -- and the last one is taken through the
+    // API, so the cap is reached the way a client reaches it.
+    const CAP: usize = 10_000;
+    let file = find_file(data_dir.path(), "ra.sqlite");
+    {
+        let mut conn = rusqlite::Connection::open(&file).unwrap();
+        conn.busy_timeout(Duration::from_secs(5)).unwrap();
+        let principal: String = conn
+            .query_row(
+                "SELECT principal FROM _dg_replay WHERE key = 'deep-write'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let used: usize = conn
+            .query_row(
+                "SELECT count(*) FROM _dg_replay WHERE principal = ?",
+                [&principal],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap() as usize;
+        assert_eq!(used, 5);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let tx = conn.transaction().unwrap();
+        for i in 0..CAP - used - 1 {
+            tx.execute(
+                "INSERT INTO _dg_replay VALUES (?, ?, 'h', '{}', ?)",
+                rusqlite::params![principal, format!("prefill-{i}"), now],
+            )
+            .unwrap();
+        }
+        tx.commit().unwrap();
     }
+    let (status, body) = query(
+        &a,
+        &owner,
+        "ra",
+        &json!({"sql": "INSERT INTO t(v) VALUES ('fill')"}),
+        Some("fill-last"),
+    );
+    assert_eq!(status, 200, "the last free key: {body}");
     let (status, body) = query(
         &a,
         &owner,
@@ -307,4 +343,20 @@ fn spawn_on(data_dir: &std::path::Path, owner: &str) -> Server {
         child,
         address: address.expect("server logged its listen address"),
     }
+}
+
+/// The one file named `name` under `root`.
+fn find_file(root: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.file_name().is_some_and(|n| n == name) {
+                return path;
+            }
+        }
+    }
+    panic!("{name} not found under {}", root.display());
 }
