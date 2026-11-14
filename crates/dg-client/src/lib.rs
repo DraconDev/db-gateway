@@ -24,6 +24,9 @@
 //! owner CLI (`dg key ...`); applications hold one scoped key and use
 //! the query surface below.
 
+#[cfg(feature = "shadow")]
+pub mod shadow;
+
 use serde::Deserialize;
 use serde_json::{Value as Json, json};
 use std::time::Duration;

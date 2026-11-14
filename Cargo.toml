@@ -39,6 +39,6 @@ unicode-width = "0.2"
 debug = 0
 
 [dev-dependencies]
-dg-client = { path = "crates/dg-client" }
+dg-client = { path = "crates/dg-client", features = ["shadow"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "json", "rustls"] }
 tower = { version = "0.5", features = ["util"] }
