@@ -32,8 +32,23 @@ fixes; 1.0.0 waits for production acceptance.
 - **SQLite updated for RUSTSEC-2026-0459** (`rusqlite` 0.41, bundled
   SQLite 3.54.1), and `rustix` 1.1.6 for RUSTSEC-2026-0486.
 
+- **`EXPLAIN ANALYZE` took the read lane.** `ANALYZE` was missing from
+  the write-keyword list the server and both clients share, so the
+  statement was classified as a read although SQLite reports it as
+  writing. It was still refused at execution (the authorizer does not
+  allow `ANALYZE`); now it is classified correctly too, in all three
+  tokenizers. Found by the new SQL fuzzer.
+
 ### Added
 
+- **Property fuzzing of the SQL scanners and the authorizer**
+  (`src/execution_fuzz.rs`): generated adversarial statements check that
+  nothing which prepares under the authorizer touches a `_dg_*` object,
+  that a read-only credential's statements only read, that the read lane
+  only gets statements SQLite calls read-only, that every valid `CREATE
+  INDEX` can build, that scripts split into their statements, that the
+  query log keeps no literal or comment content, and that no scanner
+  panics. `DG_FUZZ_CASES` / `DG_FUZZ_SEED` scale and reproduce it.
 - **Schema migrations.** A write credential may `ALTER TABLE` (add,
   rename and drop a column, rename the table), create and drop views and
   triggers; any credential may read the schema with the introspection
