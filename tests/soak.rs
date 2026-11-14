@@ -385,21 +385,23 @@ fn acknowledged_writes_survive_load_migrations_and_repeated_kills() {
         let ledger = ledgers[d].lock().unwrap();
         failures.extend(ledger.failures.iter().cloned());
         let path = format!("/v1/databases/{}/query", db(d));
-        let Reply::Ok(body) = send(
-            &http,
-            &gw,
-            &path,
-            &json!({"sql": "SELECT id FROM events ORDER BY id"}),
-            None,
-        ) else {
-            panic!("final read of {}", db(d));
-        };
-        let rows: Vec<String> = body["rows"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|r| r[0].as_str().unwrap().to_string())
-            .collect();
+        // Paged: a long run holds more rows than one response may carry.
+        let mut rows: Vec<String> = Vec::new();
+        loop {
+            let page = json!({"sql": "SELECT id FROM events ORDER BY id LIMIT 500 OFFSET ?", "args": [rows.len()]});
+            let body = match send(&http, &gw, &path, &page, None) {
+                Reply::Ok(body) => body,
+                Reply::Refused(status, body) => {
+                    panic!("final read of {}: HTTP {status} {body}", db(d))
+                }
+                Reply::Unknown => panic!("final read of {}: no answer", db(d)),
+            };
+            let got = body["rows"].as_array().unwrap();
+            rows.extend(got.iter().map(|r| r[0].as_str().unwrap().to_string()));
+            if got.len() < 500 {
+                break;
+            }
+        }
         let present: BTreeSet<String> = rows.iter().cloned().collect();
         if present.len() != rows.len() {
             failures.push(format!("{}: duplicate ids", db(d)));

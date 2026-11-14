@@ -35,6 +35,7 @@ This gateway is in pre-production development; it is not ready for production us
 | `migration-inventory.md` | Generic migration note (no production migration). |
 | `no-turso-contact-2026-10-31.txt` | The trace behind the comparison's Turso-contact disclosure: commands by date, their reported results, and the limits of what the credential check establishes. |
 | `observability-contract.md` | The observability contract: signals, alerts, the 3 a.m. rules (register member). |
+| `shadow.md` | Shadow mode: mirroring a live application's writes to dg and comparing the copies, before any move. |
 | `sandbox-runbook.md` | Runbook for the sandbox rehearsal packet. |
 | `publication-readiness.md` | What it takes to take this repository public: `scripts/public-readiness.sh`, what the gate checks, the leaks it found and fixed, and the history decisions that are the owner's. |
 | `recovery-contract.md` | Recovery contract: restore guarantees and drills (register member). |

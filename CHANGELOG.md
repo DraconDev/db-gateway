@@ -41,6 +41,16 @@ fixes; 1.0.0 waits for production acceptance.
 
 ### Added
 
+- **Shadow mode** (`@dracon/db-gateway/shadow`, `docs/shadow.md`):
+  `withShadow(primary, dgDatabase)` wraps a `@libsql/client`-shaped
+  client so every write the primary acknowledges is mirrored to dg in
+  order, in the background, with divergences reported and never raised;
+  `compareDatabases` checks both copies table by table, paged.
+- **Soak test** (`tests/soak.rs`): concurrent writers, readers and a
+  migrator while the server is SIGKILLed and restarted on a rhythm; every
+  acknowledged write must survive exactly once, observed counts never
+  shrink, keyed retries replay, and exports pass `integrity_check`.
+  `DG_SOAK_SECS` / `DG_SOAK_KILL_EVERY` scale it.
 - **Property fuzzing of the SQL scanners and the authorizer**
   (`src/execution_fuzz.rs`): generated adversarial statements check that
   nothing which prepares under the authorizer touches a `_dg_*` object,

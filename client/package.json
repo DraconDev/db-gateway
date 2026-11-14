@@ -9,7 +9,16 @@
     "url": "git+https://github.com/DraconDev/db-gateway.git",
     "directory": "client"
   },
-  "exports": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./shadow": {
+      "types": "./dist/shadow.d.ts",
+      "default": "./dist/shadow.js"
+    }
+  },
   "types": "./dist/index.d.ts",
   "engines": {
     "node": ">=22"
