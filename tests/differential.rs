@@ -523,8 +523,19 @@ fn write_statement(rng: &mut Rng, schema: &Schema) -> Option<(String, Vec<Arg>)>
                 let mut groups = Vec::new();
                 for _ in 0..rows {
                     let mut slots = Vec::new();
-                    for _ in &columns {
-                        let v = value(rng);
+                    for column in &columns {
+                        // A rowid column never gets i64::MAX: once a table
+                        // holds that rowid, SQLite draws later rowids at
+                        // random, so no two files could agree. Every other
+                        // column still sees the extreme values.
+                        let v = if column.pk {
+                            match rng.below(3) {
+                                0 => Arg::Null,
+                                _ => Arg::Int(rng.below(400) as i64 - 50),
+                            }
+                        } else {
+                            value(rng)
+                        };
                         if rng.chance(25) {
                             slots.push(v.literal());
                         } else {
@@ -544,8 +555,14 @@ fn write_statement(rng: &mut Rng, schema: &Schema) -> Option<(String, Vec<Arg>)>
             }
         }
         5..=7 => {
-            let column = quote(&rng.pick(&table.columns).name);
-            args.push(value(rng));
+            let column = rng.pick(&table.columns).clone();
+            // The same rowid rule as INSERT: no i64::MAX into a rowid.
+            args.push(if column.pk {
+                Arg::Int(rng.below(400) as i64 - 50)
+            } else {
+                value(rng)
+            });
+            let column = quote(&column.name);
             let filter = where_clause(rng, table, &mut args);
             format!("UPDATE {name} SET {column} = ? WHERE {filter}")
         }
@@ -1011,5 +1028,51 @@ fn gateway_matches_plain_sqlite_on_random_workloads() {
     for seed in seeds {
         run_seed(&server, seed, ops);
         eprintln!("differential: seed {seed}: {ops} operations agree");
+    }
+}
+
+/// The first thing this test found. serde_json's default float parser is
+/// fast but not exact: `-2006.7142857142858` arrived as
+/// `-2006.7142857142856`, so a REAL written through the API was silently
+/// stored one unit in the last place off. The `float_roundtrip` feature
+/// (Cargo.toml) makes parsing exact; this pins it with values that the
+/// fast parser gets wrong, both as bound arguments and read back.
+#[test]
+fn reals_round_trip_exactly_through_the_api() {
+    let server = Server::boot();
+    let (status, body) = server.post("/v1/databases", &json!({"name": "reals"}));
+    assert_eq!(status, 200, "{body}");
+    let query = |sql: &str, args: Value| {
+        let (status, body) = server.post(
+            "/v1/databases/reals/query",
+            &json!({"sql": sql, "args": args}),
+        );
+        assert_eq!(status, 200, "{sql}: {body}");
+        body
+    };
+    query("CREATE TABLE r(id INTEGER PRIMARY KEY, x REAL)", json!([]));
+    let values = [
+        -2006.7142857142858,
+        -13574.142857142857,
+        0.1 + 0.2,
+        1e308,
+        5e-324,
+        2.2250738585072014e-308,
+        9_007_199_254_740_993.0,
+        std::f64::consts::E,
+    ];
+    for (id, x) in values.iter().enumerate() {
+        query("INSERT INTO r VALUES (?, ?)", json!([id, x]));
+    }
+    // Compared inside SQLite too, against the value written as a literal
+    // in the SQL text: SQLite parses that exactly, so the comparison does
+    // not route through the JSON parser it is checking.
+    for (id, x) in values.iter().enumerate() {
+        let body = query(
+            &format!("SELECT x, x = {x:?} FROM r WHERE id = ?"),
+            json!([id]),
+        );
+        assert_eq!(body["rows"][0][0].as_f64(), Some(*x), "read back {x:?}");
+        assert_eq!(body["rows"][0][1], json!(1), "stored exactly {x:?}");
     }
 }

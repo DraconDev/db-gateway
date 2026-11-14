@@ -536,6 +536,12 @@ fn authorize(ctx: AuthContext<'_>, read_only: bool, may_reindex: bool) -> Author
                     | "index_xinfo"
                     | "foreign_key_list"
                     | "foreign_key_check"
+                    // Not only a user's: SQLite runs `quick_check` itself
+                    // inside `ALTER TABLE ... ADD COLUMN` on a STRICT table
+                    // or one with CHECK / NOT NULL constraints, so refusing
+                    // it refused the migration. It only reads, and the
+                    // request's deadline bounds its cost.
+                    | "quick_check"
             ) && !pragma_value.is_some_and(protected)
         }
         // No user transactions (a batch is the atomic unit), attachment,

@@ -19,6 +19,37 @@ fixes; 1.0.0 waits for production acceptance.
 
 ## [Unreleased]
 
+### Fixed
+
+- **REAL values are stored exactly as sent.** JSON was parsed with
+  serde_json's default float parser, which is fast but not exact: a
+  value such as `-2006.7142857142858` arrived as `-2006.7142857142856`,
+  one unit in the last place off, and was stored that way without any
+  error. `float_roundtrip` is now enabled in the gateway and in
+  `dg-client`, so the server, the CLI's `--args` and the Rust client all
+  parse floats exactly. Found by the new differential test; pinned by
+  `reals_round_trip_exactly_through_the_api`.
+- **SQLite updated for RUSTSEC-2026-0459** (`rusqlite` 0.41, bundled
+  SQLite 3.54.1), and `rustix` 1.1.6 for RUSTSEC-2026-0486.
+
+### Added
+
+- **Schema migrations.** A write credential may `ALTER TABLE` (add,
+  rename and drop a column, rename the table), create and drop views and
+  triggers; any credential may read the schema with the introspection
+  PRAGMAs (`table_info`, `index_list`, `foreign_key_list` and kin).
+  Value-setting PRAGMAs, `ATTACH`, temp objects, user transactions and
+  every `_dg_*` name stay refused; a RENAME onto a `_dg_` name is rolled
+  back. `quick_check` is on the introspection list because SQLite runs
+  it itself inside `ALTER TABLE ADD COLUMN` on a STRICT or constrained
+  table (found by the differential test, seed 1004). Covered by
+  `tests/migration_ddl.rs`.
+- **Differential testing against plain SQLite** (`tests/differential.rs`):
+  seeded random schemas, migrations, writes, batches and queries run
+  through the gateway and through a reference SQLite file opened with the
+  gateway's settings; every outcome, both full dumps and a clone must
+  agree. `DG_DIFF_SEEDS` / `DG_DIFF_OPS` scale it up for long runs.
+
 ### Changed
 
 - **Public front door trimmed.** `README.md` no longer links to the

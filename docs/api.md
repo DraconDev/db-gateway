@@ -376,7 +376,7 @@ two writers with two retention rules would fight.
 
 ### SQL value encoding
 
-Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1`, `number→INTEGER/REAL` (unsigned integers above `2^63-1` are rejected), `string→TEXT`, `array of 0–255 integers→BLOB` (returned as arrays of numbers). Objects (including `{ "integer": "42" }`) are rejected. Two output coercions are silent by design: non-finite REALs (`NaN`/`±Inf`, unrepresentable in JSON) come back as `null`, and TEXT with invalid UTF-8 bytes comes back lossy (replacement characters). The TypeScript client uses JavaScript numbers: integers outside ±(2^53−1) are not guaranteed exact. For exact large identifiers, store and transmit decimal TEXT; there is no integer-wrapper encoding in M1.
+Arguments and returned values map JSON ↔ SQLite: `null→NULL`, `boolean→0/1`, `number→INTEGER/REAL` (unsigned integers above `2^63-1` are rejected), `string→TEXT`, `array of 0–255 integers→BLOB` (returned as arrays of numbers). Objects (including `{ "integer": "42" }`) are rejected. A finite REAL round-trips exactly: the value stored is the value sent, bit for bit, and the value returned parses back to the value stored (`tests/differential.rs` holds the gateway to this). Two output coercions are silent by design: non-finite REALs (`NaN`/`±Inf`, unrepresentable in JSON) come back as `null`, and TEXT with invalid UTF-8 bytes comes back lossy (replacement characters). The TypeScript client uses JavaScript numbers: integers outside ±(2^53−1) are not guaranteed exact. For exact large identifiers, store and transmit decimal TEXT; there is no integer-wrapper encoding in M1.
 
 ### Errors (stable codes)
 
@@ -559,7 +559,7 @@ CLI looks the same everywhere. The rules it follows:
   `REINDEX`. Any credential, read-only included, may read the schema
   with the introspection PRAGMAs — `table_info`, `table_xinfo`,
   `table_list`, `index_list`, `index_info`, `index_xinfo`,
-  `foreign_key_list`, `foreign_key_check` — in either spelling
+  `foreign_key_list`, `foreign_key_check`, `quick_check` — in either spelling
   (`PRAGMA table_info(t)` or `SELECT … FROM pragma_table_info('t')`).
   Refused with `sql_forbidden`: PRAGMAs that set a value, temp objects,
   virtual tables, `ATTACH`, user transactions (`BEGIN`; a batch is the

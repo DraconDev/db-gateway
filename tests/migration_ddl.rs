@@ -49,6 +49,27 @@ fn migrations_run_and_survive_export_import_and_clone() {
     q(&fleet, "ALTER TABLE users ADD COLUMN email TEXT");
     q(&fleet, "ALTER TABLE users ADD COLUMN scratch INTEGER");
     q(&fleet, "ALTER TABLE users DROP COLUMN scratch");
+    // SQLite verifies a STRICT table (and one with CHECK / NOT NULL
+    // constraints) by running `PRAGMA quick_check` inside the ALTER itself;
+    // refusing that internal PRAGMA refused the migration. Found by
+    // tests/differential.rs (seed 1004).
+    q(
+        &fleet,
+        "CREATE TABLE strict_t(id INTEGER PRIMARY KEY, n INTEGER) STRICT",
+    );
+    q(&fleet, "INSERT INTO strict_t(n) VALUES (1)");
+    q(&fleet, "ALTER TABLE strict_t ADD COLUMN note TEXT");
+    q(
+        &fleet,
+        "CREATE TABLE checked(id INTEGER PRIMARY KEY, n INTEGER CHECK (n > 0))",
+    );
+    q(&fleet, "INSERT INTO checked(n) VALUES (1)");
+    q(
+        &fleet,
+        "ALTER TABLE checked ADD COLUMN m INTEGER NOT NULL DEFAULT 0 CHECK (m >= 0)",
+    );
+    q(&fleet, "DROP TABLE strict_t");
+    q(&fleet, "DROP TABLE checked");
     q(
         &fleet,
         "ALTER TABLE users RENAME COLUMN name TO display_name",
