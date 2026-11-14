@@ -78,6 +78,41 @@ ascending), page by page, so a table of any size compares within dg's
 per-response row cap. Run it nightly; a run that is not `identical` names
 the tables and the first rows that differ.
 
+## Rust services (`dg_client::shadow`)
+
+The same shadow exists for Rust, in `dg-client` behind the `shadow`
+feature: `Shadow::spawn(database, options)` starts one background task on
+the current Tokio runtime, and `shadow.mirror(statements, rows_affected)`
+queues a write the primary acknowledged, without blocking or awaiting.
+Several statements are applied as one atomic dg batch. Divergences go to
+`options.on_divergence`; a time-dependent statement is reported once per
+distinct text, not on every run.
+
+For the platform's libsql services the hook lives in `api_core::db::SharedDb`
+(feature `dg-shadow`), so every `execute` Turso acknowledges is mirrored,
+and a transaction is mirrored as one batch only after its commit succeeds.
+It is configured by environment, and does nothing when unset:
+
+```sh
+DG_SHADOW_URL=http://127.0.0.1:7432          # loopback (an SSH/WireGuard tunnel) or https://
+DG_SHADOW_KEY_FILE=/etc/dracon/dg-shadow.key # 0600, a key scoped to the one database
+DG_SHADOW_DATABASE=email
+```
+
+and compared with:
+
+```sh
+cargo run -p api-core --features dg-shadow --bin dg-shadow-compare -- \
+  --url-env TURSO_EMAIL_URL --token-env TURSO_EMAIL_TOKEN \
+  --ignore created_at,updated_at,processed_at,claimed_until,confirmed_at
+```
+
+`--ignore` leaves out columns each database fills from its own clock
+(`datetime('now')`, including column `DEFAULT`s, which no statement text
+reveals). Writes made before the shadow is attached -- the service's
+startup migrations -- are not mirrored: seed the dg copy from a snapshot
+taken after the service has started once.
+
 ## What the divergences mean
 
 | Kind | Meaning | Usually |
