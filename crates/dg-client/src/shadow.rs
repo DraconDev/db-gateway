@@ -22,10 +22,18 @@
 //! ```
 
 use crate::{Database, Statement};
-use std::sync::{
-    Arc,
-    atomic::{AtomicU64, Ordering},
+use std::{
+    collections::HashSet,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
 };
+
+/// How many distinct time-dependent statements are remembered so each is
+/// reported once. Past it, new ones are still reported (once more each
+/// time the set is full), so the memory stays bounded.
+const REMEMBERED_NONDETERMINISTIC: usize = 1024;
 use tokio::sync::{mpsc, oneshot};
 
 /// What kind of disagreement a [`Divergence`] reports.
@@ -39,7 +47,9 @@ pub enum DivergenceKind {
     /// multi-statement script); it was not sent.
     Unsupported,
     /// The statement depends on time or randomness, so the copies may
-    /// drift without either being wrong. It is still sent.
+    /// drift without either being wrong. It is still sent. Reported once
+    /// per distinct statement text, not on every execution: a queue worker
+    /// runs the same time-stamped UPDATE for every row it touches.
     Nondeterministic,
     /// The queue was full; the write was dropped and the copy is now behind.
     Dropped,
@@ -110,6 +120,7 @@ pub struct Shadow {
     queue: mpsc::Sender<Job>,
     counters: Arc<Counters>,
     report: Arc<dyn Fn(Divergence) + Send + Sync>,
+    nondeterministic_seen: Arc<Mutex<HashSet<String>>>,
 }
 
 impl std::fmt::Debug for Shadow {
@@ -148,6 +159,7 @@ impl Shadow {
             queue,
             counters: counters.clone(),
             report: report.clone(),
+            nondeterministic_seen: Arc::default(),
         };
         tokio::spawn(async move {
             while let Some(job) = jobs.recv().await {
@@ -174,7 +186,7 @@ impl Shadow {
             return;
         }
         for statement in &statements {
-            if is_nondeterministic(&statement.sql) {
+            if is_nondeterministic(&statement.sql) && self.first_time(&statement.sql) {
                 self.diverge(
                     DivergenceKind::Nondeterministic,
                     &statement.sql,
@@ -224,6 +236,21 @@ impl Shadow {
             divergences: self.counters.divergences.load(Ordering::Relaxed),
             dropped: self.counters.dropped.load(Ordering::Relaxed),
         }
+    }
+
+    /// Is this the first time this time-dependent statement is seen?
+    fn first_time(&self, sql: &str) -> bool {
+        let Ok(mut seen) = self.nondeterministic_seen.lock() else {
+            return true;
+        };
+        if seen.contains(sql) {
+            return false;
+        }
+        if seen.len() >= REMEMBERED_NONDETERMINISTIC {
+            seen.clear();
+        }
+        seen.insert(sql.to_string());
+        true
     }
 
     fn diverge(&self, kind: DivergenceKind, sql: &str, detail: &str) {

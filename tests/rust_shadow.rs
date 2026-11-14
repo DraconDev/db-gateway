@@ -102,23 +102,30 @@ async fn writes_are_mirrored_in_order_and_divergences_are_reported() {
         Some(vec![1]),
     );
     // Time-dependent SQL: mirrored, and flagged.
-    shadow.mirror(
-        vec![Statement::new(
-            "UPDATE q SET note = datetime('now') WHERE id = 4",
-        )],
-        Some(vec![1]),
-    );
+    // Run three times, reported once: a worker repeats the same
+    // time-stamped statement for every row, and one notice is enough.
+    for _ in 0..3 {
+        shadow.mirror(
+            vec![Statement::new(
+                "UPDATE q SET note = datetime('now') WHERE id = 4",
+            )],
+            Some(vec![1]),
+        );
+    }
     shadow.flush().await;
-    let kinds: Vec<_> = seen.lock().unwrap().iter().map(|(k, _)| *k).collect();
+    // Exactly one of each. Their order is not part of the contract: a
+    // time-dependence notice is raised as `mirror` is called, the other two
+    // when dg answers in the background, and those interleave freely.
+    let mut kinds: Vec<String> = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(k, _)| format!("{k:?}"))
+        .collect();
+    kinds.sort();
     assert_eq!(
         kinds,
-        // Time-dependence is visible in the text, so it is reported the
-        // moment `mirror` is called; the other two only once dg answers.
-        vec![
-            DivergenceKind::Nondeterministic,
-            DivergenceKind::ShadowError,
-            DivergenceKind::RowsAffectedMismatch,
-        ]
+        vec!["Nondeterministic", "RowsAffectedMismatch", "ShadowError"]
     );
 }
 
