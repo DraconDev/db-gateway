@@ -193,7 +193,9 @@ const DEFAULT_WRITE_TIMEOUT_MS = 60_000;
 
 /// Data-modifying keywords. A statement that opens like a read but holds
 /// one of these AS CODE is a write.
-const WRITE_KEYWORDS = ['INSERT', 'UPDATE', 'DELETE', 'REPLACE', 'CREATE', 'DROP', 'ALTER', 'VACUUM', 'REINDEX'];
+// ANALYZE writes its statistics tables; `EXPLAIN ANALYZE` is not read-only to
+// SQLite (found by the gateway's src/execution_fuzz.rs).
+const WRITE_KEYWORDS = ['INSERT', 'UPDATE', 'DELETE', 'REPLACE', 'CREATE', 'DROP', 'ALTER', 'VACUUM', 'REINDEX', 'ANALYZE'];
 
 /// Scan the SQL for a data-modifying keyword, ignoring anything that is not
 /// a bare keyword token: single-quoted literals, double-quoted/backtick/

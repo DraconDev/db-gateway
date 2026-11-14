@@ -26,7 +26,7 @@ mod branches;
 mod disk;
 mod lifecycle;
 mod metrics;
-mod queries;
+pub(crate) mod queries;
 mod schema;
 mod transfers;
 

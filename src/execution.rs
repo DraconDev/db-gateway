@@ -752,8 +752,12 @@ fn is_read_only_one(sql: &str) -> bool {
 /// `client/src/index.ts`; the three must agree, and `tests/rust_client.rs`
 /// plus `client/test/timeouts.test.mjs` pin that.
 fn has_write_keyword(sql: &str) -> bool {
-    const WORDS: [&str; 9] = [
+    // ANALYZE writes its statistics tables, and SQLite reports
+    // `EXPLAIN ANALYZE` as not read-only; without it here that statement
+    // took the read lane (found by src/execution_fuzz.rs).
+    const WORDS: [&str; 10] = [
         "INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "DROP", "ALTER", "VACUUM", "REINDEX",
+        "ANALYZE",
     ];
     let bytes = sql.as_bytes();
     let n = bytes.len();
@@ -1707,3 +1711,7 @@ mod tests {
         assert_eq!(unkeyed.value["rows_affected"], 1);
     }
 }
+
+#[cfg(test)]
+#[path = "execution_fuzz.rs"]
+mod fuzz;

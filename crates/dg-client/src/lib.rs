@@ -107,8 +107,12 @@ pub fn is_read_only(sql: &str) -> bool {
 /// not seen (a read that SQLite would reject as a syntax error, never a write
 /// that slips through).
 fn has_write_keyword(sql: &str) -> bool {
-    const WORDS: [&str; 9] = [
+    // ANALYZE writes its statistics tables, and SQLite reports
+    // `EXPLAIN ANALYZE` as not read-only; without it here that statement
+    // took the read lane (found by the gateway's src/execution_fuzz.rs).
+    const WORDS: [&str; 10] = [
         "INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "DROP", "ALTER", "VACUUM", "REINDEX",
+        "ANALYZE",
     ];
     let bytes = sql.as_bytes();
     let n = bytes.len();
@@ -985,6 +989,7 @@ mod tests {
             "REPLACE INTO notes VALUES (1)",
             "VACUUM",
             "REINDEX notes",
+            "EXPLAIN ANALYZE",
             "WITH moved AS (SELECT id FROM notes) INSERT INTO notes SELECT id FROM moved",
             "PRAGMA journal_mode",
             "BEGIN",

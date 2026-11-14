@@ -252,6 +252,7 @@ fn the_client_and_the_server_agree_on_what_a_read_is() {
         "REPLACE INTO notes VALUES (1)",
         "VACUUM",
         "REINDEX notes",
+        "EXPLAIN ANALYZE",
         "  SELECT 1",
         "BEGIN",
         "PRAGMA journal_mode",

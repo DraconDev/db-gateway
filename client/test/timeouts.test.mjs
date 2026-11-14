@@ -91,6 +91,7 @@ test('a real modifying keyword is still a write, including inside a WITH', () =>
     'REPLACE INTO t VALUES (1)',
     'VACUUM',
     'REINDEX t',
+    'EXPLAIN ANALYZE',
     'WITH m AS (SELECT 1) INSERT INTO t SELECT * FROM m',
     "WITH m AS (SELECT 1) UPDATE t SET x = 'DELETE'",
     // A literal before the real keyword: the literal is skipped, the keyword
